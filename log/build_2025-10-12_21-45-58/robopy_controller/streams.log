@@ -1,0 +1,46 @@
+[4.797s] Invoking command in '/home/robopy/robopy/robopi_controller/robopy_controller_host/build/robopy_controller': PYTHONPATH=/home/robopy/robopy/robopi_controller/robopy_controller_host/build/robopy_controller/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/python3.11/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/robopy/robopy/robopi_controller/robopy_controller_host/build/robopy_controller/build --no-deps symlink_data
+[5.936s] running develop
+[6.557s] running egg_info
+[6.610s] writing robopy_controller.egg-info/PKG-INFO
+[6.613s] writing dependency_links to robopy_controller.egg-info/dependency_links.txt
+[6.614s] writing entry points to robopy_controller.egg-info/entry_points.txt
+[6.614s] writing requirements to robopy_controller.egg-info/requires.txt
+[6.614s] writing top-level names to robopy_controller.egg-info/top_level.txt
+[6.717s] reading manifest file 'robopy_controller.egg-info/SOURCES.txt'
+[6.720s] writing manifest file 'robopy_controller.egg-info/SOURCES.txt'
+[6.858s] running build_ext
+[6.858s] Creating /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/python3.11/site-packages/robopy-controller.egg-link (link to .)
+[6.859s] Installing FastDepth_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+[6.861s] Installing IMU_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+[6.861s] Installing bluedot_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+[6.861s] Installing bno080_odom_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+[6.861s] Installing camera_publisher_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+[6.862s] Installing depth_to_pointcloud_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+[6.862s] Installing ekf_localization_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+[6.862s] Installing fastdepth_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+[6.862s] Installing gray_camera_publisher_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+[6.863s] Installing homeassistant_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+[6.863s] Installing lite_depth_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+[6.868s] Installing lite_mono_depth_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+[6.869s] Installing lite_mono_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+[6.869s] Installing midas_depth_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+[6.869s] Installing midas_lite_ONNX_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+[6.869s] Installing mobilenet_skipadd_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+[6.869s] Installing motion_detector_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+[6.870s] Installing motor_control_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+[6.870s] Installing object_detection_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+[6.870s] Installing odometria_ibrida_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+[6.870s] Installing odometry_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+[6.871s] Installing performance_monitor script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+[6.871s] Installing rtabmap_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+[6.871s] Installing servo_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+[6.871s] Installing sync_publisher_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+[6.871s] Installing topic_checker_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+[6.872s] Installing ultrasonic_sensor script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+[6.872s] Installing v4l2_camera_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+[6.872s] Installing web_video_stream_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+[6.873s] Installing yuv_camera_publisher_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+[6.873s] 
+[6.873s] Installed /home/robopy/robopy/robopi_controller/robopy_controller_host/build/robopy_controller
+[6.873s] running symlink_data
+[7.091s] Invoked command in '/home/robopy/robopy/robopi_controller/robopy_controller_host/build/robopy_controller' returned '0': PYTHONPATH=/home/robopy/robopy/robopi_controller/robopy_controller_host/build/robopy_controller/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/python3.11/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/robopy/robopy/robopi_controller/robopy_controller_host/build/robopy_controller/build --no-deps symlink_data

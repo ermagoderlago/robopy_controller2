@@ -1,0 +1,75 @@
+running develop
+running egg_info
+creating robopy_controller.egg-info
+writing robopy_controller.egg-info/PKG-INFO
+writing dependency_links to robopy_controller.egg-info/dependency_links.txt
+writing entry points to robopy_controller.egg-info/entry_points.txt
+writing requirements to robopy_controller.egg-info/requires.txt
+writing top-level names to robopy_controller.egg-info/top_level.txt
+writing manifest file 'robopy_controller.egg-info/SOURCES.txt'
+reading manifest file 'robopy_controller.egg-info/SOURCES.txt'
+writing manifest file 'robopy_controller.egg-info/SOURCES.txt'
+running build_ext
+Creating /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/python3.11/site-packages/robopy-controller.egg-link (link to .)
+Installing FastDepth_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+Installing IMU_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+Installing bluedot_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+Installing bno080_odom_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+Installing camera_publisher_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+Installing depth_to_pointcloud_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+Installing ekf_localization_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+Installing fastdepth_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+Installing gray_camera_publisher_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+Installing lite_depth_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+Installing lite_mono_depth_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+Installing lite_mono_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+Installing midas_depth_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+Installing midas_lite_ONNX_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+Installing mobilenet_skipadd_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+Installing motion_detector_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+Installing motor_control_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+Installing object_detection_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+Installing odometria_ibrida_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+Installing odometry_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+Installing performance_monitor script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+Installing rtabmap_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+Installing servo_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+Installing sync_publisher_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+Installing topic_checker_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+Installing ultrasonic_sensor script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+Installing yuv_camera_publisher_node script to /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/robopy_controller
+
+Installed /home/robopy/robopy/robopi_controller/robopy_controller_host/build/robopy_controller
+running symlink_data
+creating /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/share/ament_index
+creating /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/share/ament_index/resource_index
+creating /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/share/ament_index/resource_index/packages
+symbolically linking /home/robopy/robopy/robopi_controller/robopy_controller_host/build/robopy_controller/resource/robopy_controller -> /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/share/ament_index/resource_index/packages
+symbolically linking /home/robopy/robopy/robopi_controller/robopy_controller_host/build/robopy_controller/package.xml -> /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/share/robopy_controller
+creating /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/share/robopy_controller/launch
+symbolically linking /home/robopy/robopy/robopi_controller/robopy_controller_host/build/robopy_controller/launch/ultrasonic_tf_launch.py -> /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/share/robopy_controller/launch
+symbolically linking /home/robopy/robopy/robopi_controller/robopy_controller_host/build/robopy_controller/launch/mono_inertial.launch.py -> /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/share/robopy_controller/launch
+symbolically linking /home/robopy/robopy/robopi_controller/robopy_controller_host/build/robopy_controller/launch/rtabmap_rgbd_launch.py -> /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/share/robopy_controller/launch
+symbolically linking /home/robopy/robopy/robopi_controller/robopy_controller_host/build/robopy_controller/launch/mono_slam_lanuch.py -> /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/share/robopy_controller/launch
+symbolically linking /home/robopy/robopy/robopi_controller/robopy_controller_host/build/robopy_controller/launch/robopy_launch.py -> /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/share/robopy_controller/launch
+symbolically linking /home/robopy/robopy/robopi_controller/robopy_controller_host/build/robopy_controller/launch/full_robot_launch.py -> /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/share/robopy_controller/launch
+symbolically linking /home/robopy/robopy/robopi_controller/robopy_controller_host/build/robopy_controller/launch/mono_launch.py -> /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/share/robopy_controller/launch
+symbolically linking /home/robopy/robopy/robopi_controller/robopy_controller_host/build/robopy_controller/launch/image_launch.py -> /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/share/robopy_controller/launch
+creating /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/share/robopy_controller/urdf
+symbolically linking /home/robopy/robopy/robopi_controller/robopy_controller_host/build/robopy_controller/urdf/robopy.urdf -> /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/share/robopy_controller/urdf
+creating /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/share/robopy_controller/weights
+symbolically linking /home/robopy/robopy/robopi_controller/robopy_controller_host/build/robopy_controller/robopy_controller/weights/depth.pth -> /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/share/robopy_controller/weights
+symbolically linking /home/robopy/robopy/robopi_controller/robopy_controller_host/build/robopy_controller/robopy_controller/weights/encoder.pth -> /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/share/robopy_controller/weights
+creating /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/share/robopy_controller/networks
+symbolically linking /home/robopy/robopy/robopi_controller/robopy_controller_host/build/robopy_controller/robopy_controller/networks/litemono.py -> /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/share/robopy_controller/networks
+symbolically linking /home/robopy/robopy/robopi_controller/robopy_controller_host/build/robopy_controller/robopy_controller/networks/depth_decoder.py -> /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/share/robopy_controller/networks
+symbolically linking /home/robopy/robopy/robopi_controller/robopy_controller_host/build/robopy_controller/robopy_controller/networks/resnet_encoder.py -> /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/share/robopy_controller/networks
+symbolically linking /home/robopy/robopy/robopi_controller/robopy_controller_host/build/robopy_controller/robopy_controller/networks/layers.py -> /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/share/robopy_controller/networks
+symbolically linking /home/robopy/robopy/robopi_controller/robopy_controller_host/build/robopy_controller/robopy_controller/networks/pose_decoder.py -> /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/share/robopy_controller/networks
+symbolically linking /home/robopy/robopy/robopi_controller/robopy_controller_host/build/robopy_controller/robopy_controller/networks/__init__.py -> /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/share/robopy_controller/networks
+creating /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/share/robopy_controller/known_faces
+creating /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/share/robopy_controller/unknown_faces
+creating /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/share/robopy_controller/config
+symbolically linking /home/robopy/robopy/robopi_controller/robopy_controller_host/build/robopy_controller/robopy_controller/config/rtabmap_param.yaml -> /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/share/robopy_controller/config
+symbolically linking /home/robopy/robopy/robopi_controller/robopy_controller_host/build/robopy_controller/robopy_controller/config/imu_filter.yaml -> /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/share/robopy_controller/config
+symbolically linking /home/robopy/robopy/robopi_controller/robopy_controller_host/build/robopy_controller/robopy_controller/config/ekf.yaml -> /home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/share/robopy_controller/config

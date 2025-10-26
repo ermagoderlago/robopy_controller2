@@ -1,0 +1,48 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>robopy_controller</name>
+  <version>0.0.0</version>
+  <description>Controllo robotico con ROS2 e camera RGB</description>
+  <maintainer email="suffia.luca@gmail.com">luca</maintainer>
+  <license>MIT</license>
+
+  <!-- Dipendenze di runtime -->
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>buildhat</exec_depend>
+  <exec_depend>bluedot</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>cv_bridge</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>picamera2</exec_depend>
+  <exec_depend>robot_localization</exec_depend>
+
+
+  <!-- Dipendenze di build -->
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <build_depend>rosidl_default_generators</build_depend>
+  <exec_depend>rosidl_default_runtime</exec_depend>
+
+  <!-- Dipendenze per test -->
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+  
+  <!-- Dipendenze per litedepth -->
+
+  <depend>onnxruntime</depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+
+  <!-- Aggiunte il 25 luglio 2025 -->
+  <depend>diagnostic_msgs</depend>
+  <depend>psutil</depend>
+
+</package>
+
+
+

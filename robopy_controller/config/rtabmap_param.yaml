@@ -1,0 +1,51 @@
+# rtabmap_params.yaml
+use_imu: true
+wait_imu_to_init: true
+imu_fusion: 1
+ImsFusion: 1
+Ims: LINEAR_ACCELERATION+GYROSCOPIC
+imu_topic: /imu/data_raw
+
+
+Optimizer/GravitySigma: 0.1
+Optimizer/Strategy: 1
+Reg/Force3DoF: false
+
+Vis/CorType: 1
+Kp/DetectorStrategy: 2
+Kp/MaxFeatures: 400
+Kp/NNType: 1
+
+Grid/FromDepth: false
+Grid/3D: false
+grid_map_visible: true
+publish_grid_map: true
+Grid/Size: 0.05
+Grid/RangeMax: 4.0
+Grid/CellSize: 0.05
+
+frame_id: camera_frame
+subscribe_depth: false
+subscribe_rgb: true
+subscribe_scan: false
+approx_sync: true
+sync_queue_size: 60
+qos_image: 2
+qos_camera_info: 2
+RGBD/AngularUpdate: 0.05
+RGBD/LinearUpdate: 0.05
+Rtabmap/DetectionRate: 1
+Vis/MaxDepth: 10.0
+RGBD/OptimizeMaxError: 0.1
+Grid/MaxGroundHeight: 0.1
+Grid/MaxObstacleHeight: 0.5
+rgbd_sync/approx_sync: true
+rgbd_sync/queue_size: 60
+subscribe_odom: true
+odom_topic: /odometry/filtered
+Reg/Strategy: 0
+# Nel dizionario rtabmap_params aggiungi:
+'Mem/IncrementalMemory': 'true',    # Abilita la costruzione incrementale della mappa
+'Mem/InitWMWithAllNodes': 'true',   # Inizializza con tutti i nodi
+'Grid/FromDepth': 'false',          # Disabilita la griglia dalla profondità (non hai depth)
+'Grid/3D': 'false',                 # Disabilita la griglia 3D

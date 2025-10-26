@@ -1,0 +1,130 @@
+<?xml version="1.0"?>
+<robot name="tracked_robot">
+
+  <!-- Base Link -->
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <box size="0.20 0.20 0.20"/>
+      </geometry>
+      <material name="gray">
+        <color rgba="0.5 0.5 0.5 1"/>
+      </material>
+    </visual>
+    <collision>
+      <geometry>
+        <box size="0.20 0.20 0.20"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="5"/>
+      <inertia ixx="0.052" iyy="0.052" izz="0.052" ixy="0" ixz="0" iyz="0"/>
+    </inertial>
+  </link>
+
+  <!-- Left Track -->
+  <link name="left_track">
+    <visual>
+      <geometry>
+        <cylinder radius="0.05" length="0.25"/>
+      </geometry>
+      <material name="black">
+        <color rgba="0 0 0 1"/>
+      </material>
+    </visual>
+    <collision>
+      <geometry>
+        <cylinder radius="0.05" length="0.25"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="1"/>
+      <inertia ixx="0.001" iyy="0.001" izz="0.001" ixy="0" ixz="0" iyz="0"/>
+    </inertial>
+  </link>
+
+  <!-- Right Track -->
+  <link name="right_track">
+    <visual>
+      <geometry>
+        <cylinder radius="0.05" length="0.25"/>
+      </geometry>
+      <material name="black">
+        <color rgba="0 0 0 1"/>
+      </material>
+    </visual>
+    <collision>
+      <geometry>
+        <cylinder radius="0.05" length="0.25"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="1"/>
+      <inertia ixx="0.001" iyy="0.001" izz="0.001" ixy="0" ixz="0" iyz="0"/>
+    </inertial>
+  </link>
+
+<!-- Joint for Left Track -->
+<joint name="left_track_joint" type="continuous">
+  <parent link="base_link"/>
+  <child link="left_track"/>
+  <origin xyz="0 0.1 0" rpy="0 1.5708 0"/> <!-- Yaw 90°, cilindro su Y -->
+  <axis xyz="0 1 0"/>
+</joint>
+
+<!-- Joint for Right Track -->
+<joint name="right_track_joint" type="continuous">
+  <parent link="base_link"/>
+  <child link="right_track"/>
+  <origin xyz="0 -0.1 0" rpy="0 1.5708 0"/> <!-- Yaw 90°, cilindro su Y -->
+  <axis xyz="0 1 0"/>
+</joint>
+
+  
+    <!-- Camera Link -->
+  <link name="camera_link">
+    <visual>
+      <geometry>
+        <box size="0.05 0.05 0.05"/>
+      </geometry>
+      <material name="blue">
+        <color rgba="0 0 1 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="camera_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="camera_link"/>
+    <origin xyz="0.0 0.0 0.30" rpy="0 0 0"/>
+  </joint>
+
+    <!-- Frame compatibile con RViz e RTAB-Map -->
+  <link name="camera_frame"/>
+  <joint name="camera_frame_joint" type="fixed">
+    <parent link="camera_link"/>
+    <child link="camera_frame"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+
+  <!-- Ultrasonic Sensor Link -->
+  <link name="ultrasonic_link">
+    <visual>
+      <geometry>
+        <cylinder radius="0.015" length="0.03"/>
+      </geometry>
+      <material name="green">
+        <color rgba="0 1 0 1"/>
+      </material>
+    </visual>
+  </link>
+
+  <joint name="ultrasonic_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="ultrasonic_link"/>
+    <origin xyz="0.1 0.0 0.02" rpy="1.5708 0 0"/> <!-- rotate so cylinder faces forward -->
+  </joint>
+
+
+</robot>
