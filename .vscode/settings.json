@@ -524,5 +524,6 @@
         "/home/robopy/ros2_jazzy/install/ament_clang_format/lib/python3.11/site-packages"
     ],
     "ros.distro": "jazzy",
-    "github.copilot.chat.codeGeneration.useInstructionFiles": true
+    "github.copilot.chat.codeGeneration.useInstructionFiles": true,
+    "ROS2.distro": "jazzy"
 }

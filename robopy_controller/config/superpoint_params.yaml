@@ -1,0 +1,35 @@
+# superpoint_params.yaml
+superpoint_odometry:
+  ros__parameters:
+    # Camera Info
+    publish_camera_info: true
+    camera_info_file: ""  # Lascia vuoto per default
+    
+    # Estrazione Keypoints
+    feature_threshold: 0.012
+    max_features: 300
+    use_enhanced_extraction: true
+    
+    # Matching
+    use_hybrid_matching: true
+    matcher_type: "hybrid"
+    min_matches_for_tracking: 8
+    flann_match_ratio: 0.75
+    
+    # Odometria
+    publish_visual_odom: true
+    use_bundle_adjustment: false  # Disabilita se lento
+    
+    # Debug
+    publish_superpoint_debug: true
+    publish_keypoints_cloud: true
+    debug_level: "info"  # none, info, debug
+    
+    # Frame IDs
+    camera_frame: "oak_mono_camera_frame"
+    camera_optical_frame: "oak_mono_camera_optical_frame"
+    
+    # Performance
+    fps: 15
+    mono_out_size: "320x200"
+    depth_out_size: "320x200"

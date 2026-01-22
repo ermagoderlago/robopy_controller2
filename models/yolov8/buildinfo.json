@@ -1,0 +1,119 @@
+{
+    "yolov8n-seg": {
+        "cmd_info": {
+            "model_optimizer": [
+                "mo",
+                "--output_dir",
+                "shared_with_container/outputs/yolov8n-seg_to_rvc2_2024_08_28_20_29_28/yolov8n-seg/intermediate_outputs",
+                "--output",
+                "output1_yolov8,output2_yolov8,output3_yolov8,output1_masks,output2_masks,output3_masks,protos_output",
+                "--compress_to_fp16",
+                "--input",
+                "images[1,3,288,512]{f32}",
+                "--mean_values",
+                "images[0.0, 0.0, 0.0]",
+                "--scale_values",
+                "images[255.0, 255.0, 255.0]",
+                "--reverse_input_channels",
+                "--input_model",
+                "shared_with_container/outputs/yolov8n-seg_to_rvc2_2024_08_28_20_29_28/yolov8n-seg/intermediate_outputs/yolov8n-seg-simplified.onnx"
+            ],
+            "compile_tool": [
+                "/opt/intel/tools/compile_tool/compile_tool",
+                "-d",
+                "MYRIAD",
+                "-ip",
+                "U8",
+                "-m",
+                "shared_with_container/outputs/yolov8n-seg_to_rvc2_2024_08_28_20_29_28/yolov8n-seg/intermediate_outputs/yolov8n-seg-simplified.xml",
+                "-o",
+                "shared_with_container/outputs/yolov8n-seg_to_rvc2_2024_08_28_20_29_28/yolov8n-seg/intermediate_outputs/blobs/yolov8n-seg_8shave.blob",
+                "-c",
+                "/tmp/tmpjgr0n7fc.conf"
+            ]
+        },
+        "modelconverter_version": "0.1.2",
+        "model_optimizer_version": "2022.3.0-9213-bdadcd7583c-releases/2022/3",
+        "compile_tool_version": "2022.3.0",
+        "compile_tool_build": "2022.3.0-9213-bdadcd7583c-releases/2022/3",
+        "target_devices": [
+            "MYRIAD"
+        ],
+        "is_superblob": true,
+        "number_of_shaves": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16
+        ],
+        "number_of_cmx_slices": 8
+    },
+    "mult_512x288": {
+        "cmd_info": {
+            "model_optimizer": [
+                "mo",
+                "--output_dir",
+                "shared_with_container/outputs/yolov8n-seg_to_rvc2_2024_08_28_20_29_28/mult_512x288/intermediate_outputs",
+                "--output",
+                "mask",
+                "--compress_to_fp16",
+                "--input",
+                "prototypes[1,32,72,128]{f32},coeffs[1,32]{f32}",
+                "--input_model",
+                "shared_with_container/outputs/yolov8n-seg_to_rvc2_2024_08_28_20_29_28/mult_512x288/intermediate_outputs/mult_512x288-simplified.onnx"
+            ],
+            "compile_tool": [
+                "/opt/intel/tools/compile_tool/compile_tool",
+                "-d",
+                "MYRIAD",
+                "-ip",
+                "U8",
+                "-m",
+                "shared_with_container/outputs/yolov8n-seg_to_rvc2_2024_08_28_20_29_28/mult_512x288/intermediate_outputs/mult_512x288-simplified.xml",
+                "-o",
+                "shared_with_container/outputs/yolov8n-seg_to_rvc2_2024_08_28_20_29_28/mult_512x288/intermediate_outputs/blobs/mult_512x288_8shave.blob",
+                "-c",
+                "/tmp/tmph35nz42w.conf"
+            ]
+        },
+        "modelconverter_version": "0.1.2",
+        "model_optimizer_version": "2022.3.0-9213-bdadcd7583c-releases/2022/3",
+        "compile_tool_version": "2022.3.0",
+        "compile_tool_build": "2022.3.0-9213-bdadcd7583c-releases/2022/3",
+        "target_devices": [
+            "MYRIAD"
+        ],
+        "is_superblob": true,
+        "number_of_shaves": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16
+        ],
+        "number_of_cmx_slices": 8
+    }
+}

@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/home/robopy/ros2_venv/bin/python3
 # EASY-INSTALL-ENTRY-SCRIPT: 'robopy-controller','console_scripts','gray_camera_publisher_node'
 import re
 import sys

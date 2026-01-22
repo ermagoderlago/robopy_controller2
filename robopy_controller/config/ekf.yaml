@@ -1,30 +1,89 @@
-ekf_localization_node:
+ekf_filter_node:
   ros__parameters:
+
     frequency: 30.0
-    sensor_timeout: 0.2
     two_d_mode: false
+    print_diagnostics: true
+    publish_tf: true
 
     map_frame: map
     odom_frame: odom
     base_link_frame: base_link
-    world_frame: map
+    world_frame: odom
 
-    publish_tf: true
+    # ============ ODOMETRIA VISIVA (SuperPoint) ============
+    odom0: /superpoint/odometry
+    odom0_queue_size: 10
+    odom0_differential: false
+    odom0_relative: false
 
-    odometry0: /odometry/visual
-    odometry0_config: [true, true, false,
-                       false, false, true,
-                       false, false, false,
-                       false, false, false,
-                       false, false, false]
-    odometry0_differential: false
-    odometry0_relative: false
+    # Usa: Posizione (X, Y, Yaw) + Velocità (vX, vYaw)
+    odom0_config: [
+      true,  true,  false,    # X, Y (posizione)
+      false, false, true,     # Yaw (orientamento)
+      true,  false, false,    # vX (velocità lineare)
+      false, false, true,     # vYaw (velocità angolare)
+      false, false, false     # Accelerazioni (non usate)
+    ]
 
-    imu0: /imu/data
-    imu0_config: [false, false, false,
-                  true,  true,  true,
-                  false, false, false,
-                  false, false, false,
-                  false, false, false]
+    # ⬆️ SOGLIE PIÙ ALTE = Scarta misure sospette
+    odom0_pose_rejection_threshold: 3.0    # ⬇️ Da 5.0 a 3.0
+    odom0_twist_rejection_threshold: 1.5   # ⬇️ Da 2.0 a 1.5
+
+
+
+    # ============ IMU ============
+    imu0: /imu/data  # Output del Madgwick (con orientamento)
+    imu0_queue_size: 50
+    imu0_differential: false
+    imu0_relative: true
     imu0_remove_gravitational_acceleration: true
 
+    # Usa: Yaw (orientamento) + vYaw (velocità angolare)
+    imu0_config: [
+      false, false, false,
+      false, false, true,     # Yaw da orientamento IMU
+      false, false, false,
+      false, false, true,     # vYaw da giroscopio
+      false, false, false
+    ]
+
+    imu0_pose_rejection_threshold: 0.5     # ⬇️ Da 0.8 a 0.5
+    imu0_twist_rejection_threshold: 0.5    # ⬇️ Da 0.8 a 0.5
+
+    # ============ RUMORE PROCESSO (15x15) ============
+    process_noise_covariance: [
+      0.1, 0.0,  0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0,  0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0,  0.0,  0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0,  0.0,  0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0,  0.0,  0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0,  0.0,  0.0, 0.0, 0.0, 0.03, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0,  0.0,  0.0, 0.0, 0.0, 0.0, 0.02, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0,  0.0,  0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0,  0.0,  0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0,  0.0,  0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0,  0.0,  0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0,  0.0,  0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.01, 0.0, 0.0, 0.0,
+      0.0,  0.0,  0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0,  0.0,  0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0,  0.0,  0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+    ]
+
+    initial_estimate_covariance: [
+      1e-9, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 1e-9, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 1e-9, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 1e-9, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 1e-9, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0, 1e-9, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1e-9, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1e-9, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1e-9, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1e-9, 0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1e-9, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1e-9, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1e-9, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1e-9, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1e-9
+    ]

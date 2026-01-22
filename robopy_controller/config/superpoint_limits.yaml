@@ -1,0 +1,8 @@
+/superpoint_node:
+  ros__parameters:
+    # Limiti di risorse per questo nodo
+    cpu_limit: 0.3    # Massimo 30% di un core
+    memory_limit_mb: 200
+    # Politica scheduling
+    scheduling_policy: 'SCHED_OTHER'
+    priority: 0

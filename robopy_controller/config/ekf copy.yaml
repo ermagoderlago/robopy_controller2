@@ -1,0 +1,57 @@
+# ekf.yaml - VERSIONE OTTIMIZZATA PER ROBOPY
+ekf_localization:
+  ros__parameters:
+    frequency: 50.0            # 30Hz è sufficiente e riduce il carico sulla CPU
+    sensor_timeout: 0.1
+    two_d_mode: true           # Forza i calcoli su X, Y e Yaw
+    publish_tf: true           # Pubblica odom -> base_link
+
+    map_frame: map
+    odom_frame: odom
+    base_link_frame: base_link
+    world_frame: odom
+
+    # ================= IMU =================
+    imu0: /imu/data            # Assicurati che sia il topic filtrato da Madgwick
+    imu0_differential: false
+    imu0_queue_size: 10
+    imu0_remove_gravitational_acceleration: true
+
+    # Config IMU (15 valori): [x, y, z, roll, pitch, yaw, vx, vy, vz, vroll, vpitch, vyaw, ax, ay, az]
+    imu0_config: [false, false, false, # Posizione
+                  false, false, true,  # Orientamento (Usa lo Yaw calcolato dal filtro IMU)
+                  false, false, false, # Velocità lineare
+                  false, false, true,  # Velocità angolare (Yaw rate)
+                  false, false, false] # Accelerazione (Disattivata per evitare drift da fermo)
+
+    # ================= VISUAL ODOMETRY =================
+    odom0: /odometry/visual
+    odom0_differential: false
+    odom0_queue_size: 10
+
+    # Config Odom (15 valori): [x, y, z, roll, pitch, yaw, vx, vy, vz, vroll, vpitch, vyaw, ax, ay, az]
+    odom0_config: [true, true, false,
+                  false, false, true,   # ← Abilita yaw!
+                  false, false, false,
+                  false, false, false,
+                  false, false, false]
+
+    # ================= COVARIANZA E RUMORE =================
+    # Aumentando i valori sulla diagonale, l'EKF si fida "meno" del sensore
+    process_noise_covariance: [
+      0.05, 0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.05, 0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.06, 0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.03, 0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.03, 0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.06, 0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.02, 0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.02, 0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.04, 0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.01, 0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.01, 0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.02, 0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.01, 0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.01, 0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.015
+    ]
