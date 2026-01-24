@@ -75,6 +75,8 @@ robopy_controller/matching/hybrid_matcher.py
 robopy_controller/models/superpoint.blob
 robopy_controller/models/superpoint128.blob
 robopy_controller/models/superpoint128_160x100.blob
+robopy_controller/models/superpoint_480x360.blob
+robopy_controller/models/superpoint_480x360_raw.blob
 robopy_controller/models/superpoint_BN.blob
 robopy_controller/models/superpoint_BN2.blob
 robopy_controller/models/superpoint_ok.blob
@@ -82,6 +84,8 @@ robopy_controller/models/superpoint_ok2.blob
 robopy_controller/models/superpoint_ok3.blob
 robopy_controller/models/superpoint_old.blob
 robopy_controller/models/superpoint_raw.blob
+robopy_controller/models/yolov8n-seg.superblob
+robopy_controller/models/yolov6/yolov6nr1_coco_640x352.blob
 robopy_controller/networks/__init__.py
 robopy_controller/networks/depth_decoder.py
 robopy_controller/networks/layers.py

@@ -37,8 +37,8 @@ def generate_launch_description():
 
     database_path = os.path.expanduser('~/.ros/rtabmap_modular.db') # New DB for modular test
 
-    superpoint_blob = os.path.join(pkg_share, 'models', 'superpoint_raw.blob')
-    yolo_blob = os.path.join(pkg_share, 'models', 'yolov8n-seg.superblob')
+    superpoint_blob = os.path.join(pkg_share, 'models', 'superpoint_480x360_raw.blob') #superpoint_raw.blob
+    yolo_blob = os.path.join(pkg_share, 'models', 'yolov8n_seg_512x288.blob')
 
     nav2_velocity_smoother_config = os.path.join(
         pkg_share, 'config', 'nav2_velocity_smoother.yaml'
@@ -70,18 +70,18 @@ def generate_launch_description():
             'camera_info_file': '',
 
             # ---------------- PERFORMANCE ----------------
-            'fps': 18,
+            'fps': 16,
             'imu_rate': 100,
 
             # ---------------- FEATURE EXTRACTION (Modularized) ----------------
             'use_enhanced_extraction': True, # Activates features.superpoint.EnhancedSuperPointExtractor
-            'feature_threshold': 0.015,
-            'max_features': 500,
+            'feature_threshold': 0.010,
+            'max_features': 1000,
             'use_harris_fallback': True,
 
-            'grid_size': 20,
-            'max_per_cell': 2,
-            'border': 15,
+            'grid_size': 12,
+            'max_per_cell': 12,
+            'border': 8,
 
             # ---------------- MATCHING (Modularized) ----------------
             'use_hybrid_matching': True, # Activates pose.odometry.HybridOdometrySystem logic
@@ -110,17 +110,17 @@ def generate_launch_description():
             # ---------------- HYBRID TRACKING ----------------
             'enable_hybrid_tracking': True,
             'superpoint_interval': 1,
-            'processing_width': 640,
-            'processing_height': 400,
+            'processing_width': 480,
+            'processing_height': 360,
 
             # ---------------- DEPTH ----------------
             'publish_depth': True,
             'publish_depth_normalized': False,
-            'depth_out_size': '640x400', # Match processing size
-            'mono_out_size': '640x400',
+            'depth_out_size': '320x200', # Optimized for performance
+            'mono_out_size': '480x360',
 
             # ---------------- SUPERPOINT ----------------
-            'superpoint_side': 'left',
+            'superpoint_side': 'rgb',
             'superpoint_blob': superpoint_blob,
             'descriptor_dim': 256,
 
@@ -130,13 +130,20 @@ def generate_launch_description():
             'use_imu': True,
             'use_rtabmap_format': True,
 
-            # ---------------- YOLO (OPZIONALE) ----------------
-            'use_yolo_segmentation': True,
-            'yolo_blob': yolo_blob,
-            'yolo_confidence_threshold': 0.5,
+            # ---------------- YOLO ----------------
+            'use_yolo_segmentation': False,
+            'yolo_blob': os.path.join(pkg_share, 'models', 'yolov6nr1_coco_640x352.blob'),
+            'yolo_input_width': 640,
+            'yolo_input_height': 352,
+            'yolo_confidence_threshold': 0.4,
+            'filter_people': True,
+            'filter_floor': True,
 
             # ---------------- BA ----------------
             'use_bundle_adjustment': True,
+
+            # ---------------- ROBOT GEOMETRY ----------------
+            'camera_pitch': -0.1535,
         }]
     )
 

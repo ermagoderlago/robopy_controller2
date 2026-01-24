@@ -60,6 +60,33 @@ from robopy_controller.pose.odometry import HybridOdometrySystem
 from robopy_controller.viz.debug import OdometryDebugSystem
 from robopy_controller.features.optical_flow import KLTTracker
 
+try:
+    import blobconverter
+    HAS_BLOBCONVERTER = True
+except ImportError:
+    HAS_BLOBCONVERTER = False
+
+try:
+    from vision_msgs.msg import Detection2DArray, Detection2D, BoundingBox2D, ObjectHypothesisWithPose
+    VISION_MSGS_AVAILABLE = True
+except ImportError:
+    VISION_MSGS_AVAILABLE = False
+
+
+# COCO class names per YOLO (Italian labels from oakd_camera_publisher_node)
+COCO_CLASS_NAMES = [
+    "persona", "bicicletta", "automobile", "motocicletta", "aereo", "autobus", "treno", "camion", "barca",
+    "semaforo", "idrante", "cartello stop", "parcometro", "panchina", "uccello", "gatto",
+    "cane", "cavallo", "pecora", "mucca", "elefante", "orso", "zebra", "giraffa", "zaino",
+    "ombrello", "borsetta", "cravatta", "valigia", "frisbee", "sci", "snowboard", "palla sportiva",
+    "aquilone", "mazza da baseball", "guantone da baseball", "skateboard", "tavola da surf", "racchetta da tennis",
+    "bottiglia", "bicchiere da vino", "tazza", "forchetta", "coltello", "cucchiaio", "ciotola", "banana", "mela",
+    "panino", "arancia", "broccoli", "carota", "hot dog", "pizza", "ciambella", "torta", "sedia",
+    "divano", "pianta in vaso", "letto", "tavolo da pranzo", "toilette", "televisione", "laptop", "mouse",
+    "telecomando", "tastiera", "cellulare", "forno a microonde", "forno", "tostapane", "lavandino", "frigorifero",
+    "libro", "orologio", "vaso", "forbici", "orsacchiotto", "asciugacapelli", "spazzolino da denti"
+]
+
 
 class OakSuperPointOdometry(Node):
     def __init__(self):
@@ -149,6 +176,12 @@ class OakSuperPointOdometry(Node):
         self.declare_parameter('yolo_blob', '')
         self.declare_parameter('use_yolo_segmentation', False)
         self.declare_parameter('yolo_confidence_threshold', 0.5)
+        self.declare_parameter('yolo_input_width', 512)
+        self.declare_parameter('yolo_input_height', 288)
+        self.declare_parameter('execution_provider', 'VPU') # VPU (default) o CPU
+        self.declare_parameter('filter_floor', True)        # Filtra pavimento (geometrico/semantico)
+        self.declare_parameter('filter_people', True)       # Filtra persone/animali
+        self.declare_parameter('camera_pitch', -0.1535)    # Inclinazione camera (rad)
         
         # Variabili per throttling del logging
         self.last_flann_log_time = 0
@@ -167,7 +200,11 @@ class OakSuperPointOdometry(Node):
         
         # Lettura parametri
         self.fps = int(self.get_parameter('fps').value)
+        self.fps = int(self.get_parameter('fps').value)
         self.sp_side = self.get_parameter('superpoint_side').value.lower()
+        if self.sp_side in ['center', 'rgb']:
+             self.sp_side = 'rgb' # Normalize
+        
         self.publish_depth = bool(self.get_parameter('publish_depth').value)
         self.publish_mono = bool(self.get_parameter('publish_mono').value)
         self.publish_features = bool(self.get_parameter('publish_features').value)
@@ -205,22 +242,26 @@ class OakSuperPointOdometry(Node):
         self.declare_parameter('processing_width', 640)
         self.declare_parameter('processing_height', 400)
         
+        # CRITICAL: Parse ALL dimension parameters FIRST before any logic
+        # This ensures we have the correct values from launch file
+        depth_size = self.get_parameter('depth_out_size').value
+        self.depth_w, self.depth_h = map(int, depth_size.split('x'))
+        mono_size = self.get_parameter('mono_out_size').value
+        self.mono_w, self.mono_h = map(int, mono_size.split('x'))
+        
+        # Processing resolution (for SuperPoint/KLT) - separate from publishing resolution
         self.enable_hybrid = bool(self.get_parameter('enable_hybrid_tracking').value)
         self.sp_interval = int(self.get_parameter('superpoint_interval').value)
         self.proc_w = int(self.get_parameter('processing_width').value)
         self.proc_h = int(self.get_parameter('processing_height').value)
         
-        # Override default resolutions if hybrid is enabled (force 640x400 for high precision KLT)
         if self.enable_hybrid:
-            self.mono_w = self.proc_w
-            self.mono_h = self.proc_h
-            self.logger.info(f"🚀 Hybrid Tracking ENABLED. Resolution set to {self.mono_w}x{self.mono_h}")
-            # SuperPoint will still run at 320x200 internally via ImageManip
+            self.logger.info(f"🚀 Hybrid Tracking ENABLED. Processing: {self.proc_w}x{self.proc_h}, Mono pub: {self.mono_w}x{self.mono_h}")
         else:
-            # Default to 320x200 if not specified (legacy behavior)
-            if self.declare_parameter('mono_out_size').value == '320x200':
-                 self.mono_w = 320
-                 self.mono_h = 200
+            # If hybrid disabled, processing resolution follows mono
+            self.proc_w = self.mono_w
+            self.proc_h = self.mono_h
+            self.logger.info(f"Hybrid disabled. Using mono resolution: {self.mono_w}x{self.mono_h}")
 
         # Initialize KLT Tracker
         self.klt_tracker = KLTTracker(logger=self.logger)
@@ -251,8 +292,18 @@ class OakSuperPointOdometry(Node):
         #self.publish_depth_normalized = bool(self.get_parameter('publish_depth_normalized').value)
 
         # Parametri YOLO
+        # Parametri YOLO
         self.use_yolo_segmentation = bool(self.get_parameter('use_yolo_segmentation').value)
         self.yolo_confidence_threshold = float(self.get_parameter('yolo_confidence_threshold').value)
+        self.yolo_w = int(self.get_parameter('yolo_input_width').value)
+        self.yolo_h = int(self.get_parameter('yolo_input_height').value)
+        
+        # Parametri Filtri Semantici/Geometrici
+        self.execution_provider = self.get_parameter('execution_provider').value.upper()
+        self.filter_floor = bool(self.get_parameter('filter_floor').value)
+        self.filter_people = bool(self.get_parameter('filter_people').value)
+        self.camera_pitch = float(self.get_parameter('camera_pitch').value)
+
 
         # Matrice di rotazione per correggere assi OAK-D Lite
         # Camera: Z=avanti, X=destra, Y=basso
@@ -265,11 +316,8 @@ class OakSuperPointOdometry(Node):
 
         self.get_logger().info("✅ Assi OAK-D Lite configurati: Camera(Z=avanti) -> Robot(X=avanti)")
 
-        # Parse dimensioni
-        out_size = self.get_parameter('depth_out_size').value
-        self.depth_w, self.depth_h = map(int, out_size.split('x'))
-        mono_size = self.get_parameter('mono_out_size').value
-        self.mono_w, self.mono_h = map(int, mono_size.split('x'))
+        # NOTE: depth_w/h and mono_w/h already parsed above (lines 247-250)
+        # Removed duplicate parsing to avoid confusion
         
         # Percorso blob SuperPoint
         blob_param = self.get_parameter('superpoint_blob').value
@@ -288,20 +336,53 @@ class OakSuperPointOdometry(Node):
         
         # Percorso blob YOLO (opzionale)
         yolo_blob_param = self.get_parameter('yolo_blob').value
-        self.yolo_blob_path = None
-        
-        if yolo_blob_param and os.path.isfile(yolo_blob_param):
-            self.yolo_blob_path = yolo_blob_param
-            self.get_logger().info(f"Usando blob YOLO: {self.yolo_blob_path}")
+        if yolo_blob_param:
+            if os.path.isfile(yolo_blob_param):
+                self.yolo_blob_path = yolo_blob_param
+                self.get_logger().info(f"✅ YOLO blob trovato: {self.yolo_blob_path}")
+            else:
+                self.get_logger().warn(f"⚠️ YOLO blob non trovato al percorso: {yolo_blob_param}")
+                # Fallback: cerca nella cartella models del package
+                share_dir = get_package_share_directory('robopy_controller')
+                basename = os.path.basename(yolo_blob_param)
+                candidate = os.path.join(share_dir, 'models', basename)
+                if os.path.isfile(candidate):
+                    self.yolo_blob_path = candidate
+                    self.get_logger().info(f"✅ YOLO blob trovato nel package: {self.yolo_blob_path}")
+                else:
+                    self.get_logger().error(f"❌ YOLO blob non trovato neanche nel package: {candidate}")
+                    self.use_yolo_segmentation = False
         elif self.use_yolo_segmentation:
-            # Cerca nella directory dei modelli del package
+            # Cerca il default se abilitato ma non specificato
             share_dir = get_package_share_directory('robopy_controller')
-            candidate = os.path.join(share_dir, 'models', 'yolov8n-seg.superblob')
+            candidate = os.path.join(share_dir, 'models', 'yolov6nr1_coco_640x352.blob')
             if os.path.isfile(candidate):
                 self.yolo_blob_path = candidate
-                self.get_logger().info(f"YOLO blob trovato nel package: {self.yolo_blob_path}")
+                self.get_logger().info(f"✅ Usando YOLO blob di default: {self.yolo_blob_path}")
+            elif HAS_BLOBCONVERTER:
+                try:
+                    self.get_logger().info(f"YOLO blob non trovato. Scaricamento YOLOv8n-seg ({self.yolo_w}x{self.yolo_h}) via blobconverter...")
+                    
+                    # Versione Nano Segmentation
+                    # Nota: blobconverter spesso usa nomi come 'yolov8n_seg_coco_640x640'
+                    # ma se vogliamo una risoluzione specifica e non è nel zoo, servirebbero compile_params.
+                    # Procediamo con il tentativo di scaricare la versione standard o quella richiesta.
+                    model_name = "yolov8n_seg_coco_640x640" # Fallback standard
+                    if self.yolo_w == 640 and self.yolo_h == 640:
+                        model_name = "yolov8n_seg_coco_640x640"
+                    
+                    # Se l'utente vuole 512x288, proviamo a scaricare la versione nano generica
+                    # o usiamo quella disponibile. Per ora scarichiamo quella del zoo.
+                    self.yolo_blob_path = blobconverter.from_zoo(
+                        name="yolov8n_seg_coco_640x640", 
+                        shaves=8
+                    )
+                    self.get_logger().info(f"✅ YOLO blob scaricato: {self.yolo_blob_path}")
+                except Exception as e:
+                    self.get_logger().error(f"❌ Errore scaricamento YOLO: {e}")
+                    self.use_yolo_segmentation = False
             else:
-                self.get_logger().warn(f"YOLO blob non trovato: {candidate}")
+                self.get_logger().warn(f"YOLO blob non trovato e blobconverter non disponibile: {candidate}")
                 self.use_yolo_segmentation = False
         
         # Info camera
@@ -542,7 +623,7 @@ class OakSuperPointOdometry(Node):
             
             # Angolo di montaggio (DEVE COMBACIARE CON L'URDF/LAUNCH)
             # Se URDF = -0.1535 (punta in alto), qui usiamo lo stesso segno per costruire la rotazione
-            pitch_angle = -0.1535 
+            pitch_angle = self.camera_pitch 
             
             c = np.cos(pitch_angle)
             s = np.sin(pitch_angle)
@@ -882,9 +963,148 @@ class OakSuperPointOdometry(Node):
         except Exception as e:
             self.get_logger().error(f"❌ Errore debug layer: {e}")
 
+    def decode_yolo_segmentation(self, nndata):
+        """
+        Decodifica l'output di YOLOv8n-seg.
+        """
+        if nndata is None:
+            return []
+        try:
+            # YOLOv8n-seg standard output names
+            # output0: detections [1, 116, 8400]
+            # output1: prototypes [1, 32, 160, 160]
+            out0 = np.array(nndata.getLayerFp16("output0")).reshape(116, -1)
+            
+            detections = []
+            conf_thresh = self.yolo_confidence_threshold
+            
+            # 80 classi COCO + 4 bbox + 32 mask coeffs
+            scores = out0[4:84, :]
+            max_scores = np.max(scores, axis=0)
+            class_ids = np.argmax(scores, axis=0)
+            
+            indices = np.where(max_scores > conf_thresh)[0]
+            for idx in indices:
+                # YOLOv8-seg detections: [x_center, y_center, width, height, conf, class, mask_coeffs...]
+                # The coordinates are normalized to model input size (e.g., 640 for 640x640 model)
+                # If the model is exported with dynamic shapes, it might vary.
+                # Assuming standard YOLOv8 behavior where coordinates are relative to input size.
+                detections.append({
+                    'box': out0[:4, idx],
+                    'conf': max_scores[idx],
+                    'class': int(class_ids[idx])
+                })
+            return detections
+        except Exception as e:
+            self.get_logger().error(f"Errore YOLO: {e}")
+            return []
 
-    def extract_stable_superpoint_features(self, nndata, depth_frame, mono_frame, prev_keypoints=None):
-        """Estrazione con FILTRI DI STABILITÀ"""
+    def decode_yolo_v6(self, pkt):
+        """
+        Decodifica l'output di YoloDetectionNetwork (YOLOv6).
+        """
+        dets = []
+        try:
+            if not pkt or not hasattr(pkt, "detections"): return dets
+            for d in pkt.detections:
+                # YoloDetectionNetwork returns normalized coordinates [0, 1]
+                # We normalize them to the yolo input size first, then _publish_yolo_detections scales them to mono
+                # Actually, _publish_yolo_detections expects coordinates relative to self.yolo_w/h
+                
+                # DepthAI Detection object has xmin, ymin, xmax, ymax
+                bw = (d.xmax - d.xmin) * self.yolo_w
+                bh = (d.ymax - d.ymin) * self.yolo_h
+                xc = (d.xmin + d.xmax) / 2.0 * self.yolo_w
+                yc = (d.ymin + d.ymax) / 2.0 * self.yolo_h
+                
+                dets.append({
+                    'box': [xc, yc, bw, bh],
+                    'conf': float(d.confidence),
+                    'class': int(d.label)
+                })
+        except Exception as e:
+            self.get_logger().error(f"Errore decodifica YOLOv6: {e}")
+        return dets
+
+    def _publish_yolo_detections(self, detections, stamp):
+        """
+        Pubblica le detection YOLO in formato Detection2DArray.
+        """
+        if not self.use_yolo_segmentation or not hasattr(self, 'pub_yolo'):
+            return
+            
+        try:
+            det_array = Detection2DArray()
+            det_array.header.stamp = stamp.to_msg()
+            det_array.header.frame_id = self.camera_optical_frame
+
+            for d in detections:
+                detection = Detection2D()
+                detection.header = det_array.header
+                
+                # YOLO coordinates from decode_yolo_segmentation are xc, yc, bw, bh
+                # We need to scale them to the publishing resolution (not input resolution)
+                # But typically Detection2D expects absolute pixels?
+                # Actually, the convention in ROS2 vision_msgs usually follows pixels.
+                
+                xc, yc, bw, bh = d['box']
+                # Scaling based on model input (self.yolo_w, self.yolo_h) to mono_w, mono_h
+                scalex = self.mono_w / float(self.yolo_w)
+                scaley = self.mono_h / float(self.yolo_h)
+                
+                bbox = BoundingBox2D()
+                bbox.center.position.x = float(xc * scalex)
+                bbox.center.position.y = float(yc * scaley)
+                bbox.size_x = float(bw * scalex)
+                bbox.size_y = float(bh * scaley)
+                detection.bbox = bbox
+                
+                hyp = ObjectHypothesisWithPose()
+                lbl = d['class']
+                hyp.hypothesis.class_id = str(lbl)
+                hyp.hypothesis.score = float(d['conf'])
+                
+                # Use Italian label if available
+                if lbl < len(COCO_CLASS_NAMES):
+                    # We can use the description field or just a custom mapping if needed
+                    # ROS2 Detection2D doesn't have a direct 'class_name' but we can put it in metadata if needed
+                    pass
+
+                detection.results.append(hyp)
+                det_array.detections.append(detection)
+
+            self.pub_yolo.publish(det_array)
+            
+        except Exception as e:
+            self.get_logger().error(f"Errore pubblicazione YOLO: {e}")
+
+    def generate_semantic_mask(self, detections, shape):
+        """
+        Genera maschera 1=scarta.
+        """
+        h, w = shape
+        mask = np.zeros((h, w), dtype=np.uint8)
+        
+        # 0: person, 14-23: animals
+        DYNAMIC = [0, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+        
+        for det in detections:
+            if det['class'] in DYNAMIC and self.filter_people:
+                xc, yc, bw, bh = det['box']
+                # Scaling based on configured YOLO input resolution
+                mx = int((xc - bw/2) * w / float(self.yolo_w))
+                my = int((yc - bh/2) * h / float(self.yolo_h))
+                mw = int(bw * w / float(self.yolo_w))
+                mh = int(bh * h / float(self.yolo_h))
+                cv2.rectangle(mask, (mx, my), (mx+mw, my+mh), 1, -1)
+                
+        if self.filter_floor:
+            mask[int(h*0.75):, :] = 1
+            
+        return mask
+
+    def extract_stable_superpoint_features(self, nndata, depth_frame, mono_frame, prev_keypoints=None, semantic_mask=None):
+        """Estrazione con FILTRI DI STABILITÀ e MASCHERA SEMANTICA"""
 
 
         
@@ -898,27 +1118,51 @@ class OakSuperPointOdometry(Node):
             return None, None, None
 
         # 1.5 ✅ SCALING: Adatta i punti alla risoluzione di mono_frame (es. 640x400)
-        # SuperPoint lavora sempre a 320x200 (limitazione NN), ma noi vogliamo usare
-        # la risoluzione piena per KLT e PnP.
-        h_mono, w_mono = mono_frame.shape
+        shape = mono_frame.shape
+        h_mono, w_mono = shape[:2]
         if w_mono != 320 or h_mono != 200:
             scale_x = w_mono / 320.0
             scale_y = h_mono / 200.0
-            # kpts_raw è (N, 2)
             kpts_raw = kpts_raw * np.array([scale_x, scale_y], dtype=np.float32)
         
         if kpts_raw is None or len(kpts_raw) < 5:
             return None, None, None
         
+        # 2. ✅ Ensure grayscale for filters
+        if len(shape) == 3:
+            mono_proc = cv2.cvtColor(mono_frame, cv2.COLOR_BGR2GRAY)
+        else:
+            mono_proc = mono_frame
+
         # 2. ✅ NUOVO: Filtro Anti-Edge (rimuove bordi degli oggetti)
         kpts_raw, desc_raw, scores_raw = self.enhanced_extractor.filter_edge_features(
-            kpts_raw, desc_raw, scores_raw, mono_frame, threshold=80
+            kpts_raw, desc_raw, scores_raw, mono_proc, threshold=80
         )
         
+        # 3. ✅ NUOVO: Filtro Semantico
+        if semantic_mask is not None:
+             # semantic_mask è (mono_h, mono_w), i punti sono già scalati a mono_w/h?
+             # No, kpts_raw sono ancora 320x200 qui.
+             h_mask, w_mask = semantic_mask.shape
+             k_mask = np.zeros(len(kpts_raw), dtype=bool)
+             for i, (kx, ky) in enumerate(kpts_raw):
+                  # Scala coordinate SP (320x200) a Maschera
+                  mx = int(kx * w_mask / 320.0)
+                  my = int(ky * h_mask / 200.0)
+                  if 0 <= mx < w_mask and 0 <= my < h_mask:
+                       if semantic_mask[my, mx] > 0:
+                            k_mask[i] = True # To reject
+             
+             # Mantieni solo quelli FUORI dalla maschera
+             keep = ~k_mask
+             kpts_raw = kpts_raw[keep]
+             desc_raw = desc_raw[keep]
+             scores_raw = scores_raw[keep]
+             
         if len(kpts_raw) == 0:
             return None, None, None
-    
-        # 3. ✅ NUOVO: Grid filter con priorità centrale
+
+        # 4. ✅ NUOVO: Grid filter con priorità centrale
         kpts_raw, desc_raw, scores_raw = self.enhanced_extractor.grid_filter_keypoints_enhanced(
             kpts_raw, desc_raw, scores_raw, grid_size=24, max_per_cell=1
         )
@@ -1051,95 +1295,190 @@ class OakSuperPointOdometry(Node):
             self.shutdown_complete.set()
     
     def setup_depthai_pipeline(self):
-            """Configura pipeline DepthAI - VERSIONE OTTIMIZZATA: Allineamento + Median Filter"""
+            """Configura pipeline DepthAI - VERSIONE OTTIMIZZATA: Allineamento + Median Filter + YOLO"""
             try:
                 pipeline = dai.Pipeline()
                 
-                # 1. Nodi Mono Camera (640x400 - 400P)
+                # -------------------------------------------------------------------------
+                # 1. CAMERAS
+                # -------------------------------------------------------------------------
+                # Mono Cameras (Left/Right) for Depth
                 monoL = pipeline.create(dai.node.MonoCamera)
                 monoR = pipeline.create(dai.node.MonoCamera)
                 monoL.setBoardSocket(dai.CameraBoardSocket.CAM_B)
                 monoR.setBoardSocket(dai.CameraBoardSocket.CAM_C)
                 
-                # Dynamic Resolution Selection
+                # Dynamic Resolution Selection for Mono
                 if self.mono_w >= 640:
                     res = dai.MonoCameraProperties.SensorResolution.THE_400_P # 640x400
                 else:
-                    res = dai.MonoCameraProperties.SensorResolution.THE_400_P # 400P is minimum standard for OAK-D Lite
+                    res = dai.MonoCameraProperties.SensorResolution.THE_400_P
                     
                 monoL.setResolution(res)
                 monoR.setResolution(res)
                 monoL.setFps(self.fps)
                 monoR.setFps(self.fps)
-
-                # 2. Configurazione StereoDepth con Allineamento
-                stereo = pipeline.create(dai.node.StereoDepth)
                 
-                # Impostazioni di base
+                # RGB Camera (Center) - Only create if needed or if sp_side is rgb
+                rgbCam = None
+                if self.sp_side == 'rgb' or self.use_yolo_segmentation:
+                    rgbCam = pipeline.create(dai.node.ColorCamera)
+                    rgbCam.setBoardSocket(dai.CameraBoardSocket.CAM_A)
+                    rgbCam.setResolution(dai.ColorCameraProperties.SensorResolution.THE_1080_P)
+                    rgbCam.setInterleaved(True) # Interleaved for Host preview/processing
+                    rgbCam.setColorOrder(dai.ColorCameraProperties.ColorOrder.BGR)
+                    rgbCam.setFps(self.fps)
+                    # Video size matches processing size (or close to it)
+                    # rgbCam.setVideoSize(640, 400) # Aspect ratio match might be needed
+                    # rgbCam.setPreviewSize(320, 320) # Standard YOLO input size often squared
+
+                # -------------------------------------------------------------------------
+                # 2. STEREO DEPTH
+                # -------------------------------------------------------------------------
+                stereo = pipeline.create(dai.node.StereoDepth)
                 stereo.setDefaultProfilePreset(dai.node.StereoDepth.PresetMode.DEFAULT)
                 
-                # --- MIGLIORAMENTO 1: Allineamento spaziale ---
-                # Allinea la mappa di profondità alla telecamera che usa SuperPoint
-                # Questo garantisce che il pixel (x,y) dell'immagine corrisponda al pixel (x,y) della profondità
-                if self.sp_side == 'left':
+                # Alignment
+                if self.sp_side == 'rgb':
+                     stereo.setDepthAlign(dai.CameraBoardSocket.CAM_A)
+                     self.get_logger().info("✅ StereoDepth allineato alla camera: RGB (Center)")
+                elif self.sp_side == 'left':
                     stereo.setDepthAlign(dai.CameraBoardSocket.CAM_B)
                 else:
                     stereo.setDepthAlign(dai.CameraBoardSocket.CAM_C)
 
-                # --- MIGLIORAMENTO 2: Median Filter ---
-                # Rimuove il rumore "a grana" (salt and pepper) che disturberebbe l'odometria
                 stereo.initialConfig.setMedianFilter(dai.MedianFilter.KERNEL_7x7)
-
-                # Configurazione algoritmi
+                
                 config = stereo.initialConfig.get()
-                config.algorithmControl.enableLeftRightCheck = True  # Utile per bordi più puliti
-                config.algorithmControl.enableSubpixel = False       # Più veloce per OAK-D Lite
-                config.costMatching.confidenceThreshold = 200        # Filtra i punti poco sicuri
-                
-                # Filtri di soglia (Post-processing hardware)
-                config.postProcessing.thresholdFilter.minRange = 200   # 20cm
-                config.postProcessing.thresholdFilter.maxRange = 10000 # 10m
-                
+                config.algorithmControl.enableLeftRightCheck = True
+                config.algorithmControl.enableSubpixel = False 
+                config.costMatching.confidenceThreshold = 200
+                config.postProcessing.thresholdFilter.minRange = 200
+                config.postProcessing.thresholdFilter.maxRange = 10000
                 stereo.initialConfig.set(config)
 
-                # Link alle camere mono
                 monoL.out.link(stereo.left)
                 monoR.out.link(stereo.right)
 
-                self.get_logger().info(f"✅ StereoDepth allineato alla camera: {self.sp_side}")
+                # -------------------------------------------------------------------------
+                # 3. SOURCE SELECTION FOR SUPERPOINT
+                # -------------------------------------------------------------------------
+                sp_input_source = None # This will be the node output we feed to SP/Manip
+                
+                if self.sp_side == 'rgb':
+                     # RGB is Color, SP needs Grayscale. 
+                     # We use the 'video' output (640x400) or 'isp'.
+                     sp_input_source = rgbCam.video
+                elif self.sp_side == 'left':
+                     sp_input_source = stereo.rectifiedLeft
+                else:
+                     sp_input_source = stereo.rectifiedRight
+                     
+                # -------------------------------------------------------------------------
+                # 4. YOLO INTEGRATION
+                # -------------------------------------------------------------------------
+                if self.use_yolo_segmentation and self.yolo_blob_path:
+                    # Resize for YOLO (typically 640x640 or 320x320 depending on model)
+                    # yolov8n-seg is usually 640x640. Ideally we check blob config.
+                    # Assuming 320x320 or 640x640. Using 640x640 is safer for accuracy but heavier.
+                    # Let's assume standard 640x640 for V8.
+                    
+                    manipYolo = pipeline.create(dai.node.ImageManip)
+                    manipYolo.initialConfig.setResize(self.yolo_w, self.yolo_h)
+                    manipYolo.initialConfig.setKeepAspectRatio(False) # Squash
+                    manipYolo.initialConfig.setFrameType(dai.RawImgFrame.Type.BGR888p) # Planar needed for NN? Usually yes.
+                    
+                    # Link source (RGB preferred if available, else Mono converted)
+                    if rgbCam:
+                         rgbCam.video.link(manipYolo.inputImage) # Use full video stream to avoid preview crop
+                    else:
+                         # Use Mono converted to frame if no RGB? Standard YOLO needs color usually.
+                         # If running YOLO on Mono, accuracy drops significantly. 
+                         # We forced RGB creation if usage is enabled.
+                         pass
 
-                # 3. Output Depth - Resize 320x200
+                    yoloNN = pipeline.create(dai.node.YoloDetectionNetwork)
+                    yoloNN.setBlobPath(self.yolo_blob_path)
+                    
+                    # YOLOv6 Configuration
+                    yoloNN.setNumClasses(80)
+                    yoloNN.setCoordinateSize(4)
+                    yoloNN.setIouThreshold(0.5)
+                    yoloNN.setConfidenceThreshold(self.yolo_confidence_threshold)
+                    
+                    # YOLOv6 (r1/r2) uses different output formats. 
+                    # For DepthAI YoloDetectionNetwork, we specify the subtype if possible.
+                    # Note: 2.31.0 supports YOLOv6 decoding in the node.
+                    try:
+                        # Some versions of depthai use setAnchorMasks/setAnchors, 
+                        # but anchorless models like YOLOv6 often don't need them if the blob is correct.
+                        pass
+                    except: pass
+                    
+                    yoloNN.setAnchors([])
+                    yoloNN.setAnchorMasks({})
+                    
+                    manipYolo.out.link(yoloNN.input)
+                    
+                    xoutYolo = pipeline.create(dai.node.XLinkOut)
+                    xoutYolo.setStreamName('yolo_out')
+                    yoloNN.out.link(xoutYolo.input)
+                    self.get_logger().info(f"✅ Pipeline YOLO conf: {self.yolo_blob_path}")
+
+                # -------------------------------------------------------------------------
+                # 5. OUTPUTS SETUP
+                # -------------------------------------------------------------------------
+                
+                # Depth Output
                 if self.publish_depth or self.publish_depth_normalized:
                     manipDepth = pipeline.create(dai.node.ImageManip)
-                    manipDepth.initialConfig.setResize(self.mono_w, self.mono_h) # Match mono resolution for correct PnP
+                    # If RGB is used, depth is aligned to RGB (Video size). 
+                    # We resize to our processing size (320x200 or custom)
+                    manipDepth.initialConfig.setResize(self.depth_w, self.depth_h)
                     manipDepth.initialConfig.setFrameType(dai.RawImgFrame.Type.RAW16)
-                    manipDepth.setMaxOutputFrameSize(self.mono_w * self.mono_h * 2)
                     stereo.depth.link(manipDepth.inputImage)
                     
                     xoutDepth = pipeline.create(dai.node.XLinkOut)
                     xoutDepth.setStreamName('depth')
                     manipDepth.out.link(xoutDepth.input)
 
-                # 4. Output Monocamera (Per KLT / Visualizzazione) - Resize dinamico
-                sp_camera_node = stereo.rectifiedLeft if self.sp_side == 'left' else stereo.rectifiedRight
-                
+                # Mono/Color Output (Visual Odometry & Tracking Input)
                 if self.publish_mono:
                     manipMono = pipeline.create(dai.node.ImageManip)
-                    manipMono.initialConfig.setResize(self.mono_w, self.mono_h) # Use configured resolution
-                    manipMono.initialConfig.setFrameType(dai.RawImgFrame.Type.RAW8)
-                    sp_camera_node.link(manipMono.inputImage)
+                    manipMono.initialConfig.setResize(self.mono_w, self.mono_h)
+                    
+                    # If source is RGB, we want Grayscale for VO?
+                    # Or we publish Color and convert internally?
+                    # Let's publish what the Camera is. 
+                    # BUT SuperPoint needs Grayscale.
+                    
+                    # Stream 1: Visualization (Color if RGB, Gray if Mono)
+                    if self.sp_side == 'rgb':
+                        # Convert to BGR for publishing/display
+                        manipMono.initialConfig.setFrameType(dai.RawImgFrame.Type.BGR888p) 
+                    else:
+                        manipMono.initialConfig.setFrameType(dai.RawImgFrame.Type.RAW8)
+
+                    sp_input_source.link(manipMono.inputImage)
                     
                     xoutMono = pipeline.create(dai.node.XLinkOut)
                     xoutMono.setStreamName('mono')
                     manipMono.out.link(xoutMono.input)
 
-                # 5. SuperPoint Neural Network
-                if self.publish_features and self.sp_blob:
+
+                # 6. SUPERPOINT PIPELINE (VPU)
+                if self.execution_provider == 'VPU' and self.publish_features and self.sp_blob:
+                    
                     manipSP = pipeline.create(dai.node.ImageManip)
-                    manipSP.initialConfig.setResize(320, 200)
+                    manipSP.initialConfig.setResize(self.proc_w, self.proc_h)
                     manipSP.initialConfig.setKeepAspectRatio(False)
-                    # Linkiamo l'immagine rettificata (distorsione rimossa) al modello AI
-                    sp_camera_node.link(manipSP.inputImage)
+                    
+                    # SuperPoint expects Gray 320x200
+                    # If input is RGB, ImageManip can convert? 
+                    # Yes, FrameType RAW8 should act as luminance/gray extraction.
+                    manipSP.initialConfig.setFrameType(dai.RawImgFrame.Type.RAW8)
+                    
+                    sp_input_source.link(manipSP.inputImage)
                     
                     nnSP = pipeline.create(dai.node.NeuralNetwork)
                     nnSP.setBlobPath(self.sp_blob)
@@ -1149,7 +1488,7 @@ class OakSuperPointOdometry(Node):
                     xoutSP.setStreamName('sp_out')
                     nnSP.out.link(xoutSP.input)
 
-                # 6. IMU
+                # IMU
                 if self.use_imu:
                     imu = pipeline.create(dai.node.IMU)
                     imu.enableIMUSensor([dai.IMUSensor.ACCELEROMETER_RAW, dai.IMUSensor.GYROSCOPE_RAW], 100)
@@ -1162,22 +1501,21 @@ class OakSuperPointOdometry(Node):
 
                 # 7. Avvio Device
                 self.device = dai.Device(pipeline)
-
-                # Carica la calibrazione reale dalla EPROM del dispositivo
                 self.setup_real_calibration(self.device)
-                # ======================
                 
-                # Setup Code
+                # Output Queues
                 if self.publish_depth:
                     self.q_depth = self.device.getOutputQueue('depth', 8, False)
                 if self.publish_mono:
                     self.q_mono = self.device.getOutputQueue('mono', 8, False)
-                if self.publish_features and self.sp_blob:
+                if self.execution_provider == 'VPU' and self.publish_features and self.sp_blob:
                     self.q_sp = self.device.getOutputQueue('sp_out', 8, False)
+                if self.use_yolo_segmentation:
+                    self.q_yolo = self.device.getOutputQueue('yolo_out', 4, False)
                 if self.use_imu:
                     self.q_imu = self.device.getOutputQueue('imu', 50, False)
                 
-                self.get_logger().info("✅ Pipeline ottimizzata avviata correttamente")
+                self.get_logger().info(f"✅ Pipeline avviata. Camera: {self.sp_side}, Provider: {self.execution_provider}")
                 
             except Exception as e:
                 self.get_logger().error(f"Errore configurazione DepthAI: {e}")
@@ -1455,7 +1793,8 @@ class OakSuperPointOdometry(Node):
         """
         Filtro bordi rilassato per mantenere più punti.
         """
-        h, w = 200, 320  # Dimensioni immagine
+        w = self.proc_w
+        h = self.proc_h
         
         mask = (
             (keypoints[:, 0] >= border) &
@@ -1479,7 +1818,8 @@ class OakSuperPointOdometry(Node):
         """
         Grid filter rilassato.
         """
-        h, w = 200, 320
+        w = self.proc_w
+        h = self.proc_h
         
         if len(keypoints) == 0:
             return keypoints, descriptors, scores
@@ -1519,6 +1859,27 @@ class OakSuperPointOdometry(Node):
         else:
             return np.array([]), np.array([]), np.array([])
 
+    def sample_depth_at_coords(self, depth_frame, x, y):
+        """
+        Campiona la profondità scalando le coordinate se le risoluzioni differiscono.
+        """
+        try:
+            h_d, w_d = depth_frame.shape[:2]
+            
+            # Scale coordinates from processing resolution (SP) to depth resolution
+            # self.proc_w/h are the SP input dimensions (e.g. 480x360)
+            sx = w_d / self.proc_w
+            sy = h_d / self.proc_h
+            
+            dx = int(round(x * sx))
+            dy = int(round(y * sy))
+            
+            if 0 <= dx < w_d and 0 <= dy < h_d:
+                return depth_frame[dy, dx]
+            return 0
+        except:
+            return 0
+
     def filter_keypoints_by_depth(self, keypoints, descriptors, scores, depth_frame):
         """
         🥉 FIX 4 — Rimuovi keypoint senza depth valida
@@ -1530,24 +1891,20 @@ class OakSuperPointOdometry(Node):
         valid_indices = []
         
         for i, (x, y) in enumerate(keypoints):
-            # Coordinate intere per campionamento
-            x_int = int(round(x))
-            y_int = int(round(y))
-            
-            # Controlla bounds
-            if not (0 <= x_int < 320 and 0 <= y_int < 200):
-                continue
-            
-            # Leggi depth (in mm)
-            d = depth_frame[y_int, x_int]
+            # Leggi depth (in mm) con scaling corretto
+            d = self.sample_depth_at_coords(depth_frame, x, y)
             
             # Controlla se depth è valida (20cm - 8m)
             if 300 < d < 8000:  # mm
-                # Controllo aggiuntivo: variazione nell'area 3x3
-                y_min = max(0, y_int - 1)
-                y_max = min(200, y_int + 2)
-                x_min = max(0, x_int - 1)
-                x_max = min(320, x_int + 2)
+                # Controllo aggiuntivo: variazione nell'area attorno al punto scalato
+                h_d, w_d = depth_frame.shape[:2]
+                sx, sy = w_d / self.proc_w, h_d / self.proc_h
+                dx, dy = int(round(x * sx)), int(round(y * sy))
+                
+                y_min = max(0, dy - 1)
+                y_max = min(h_d, dy + 2)
+                x_min = max(0, dx - 1)
+                x_max = min(w_d, dx + 2)
                 
                 patch = depth_frame[y_min:y_max, x_min:x_max]
                 if patch.size > 0:
@@ -2041,16 +2398,16 @@ class OakSuperPointOdometry(Node):
         
         try:
             # Assicura che l'immagine sia in formato corretto
-            h, w = frame.shape[:2]
+            shape = frame.shape
+            h, w = shape[:2]
             
             # Debug dimensioni
             if h != self.mono_h or w != self.mono_w:
-                self.get_logger().warn(f"⚠️ Mono frame dimensioni inattese: {w}x{h} (Atteso: {self.mono_w}x{self.mono_h})")
-                # Ridimensiona se necessario
                 if h == self.mono_w and w == self.mono_h:
                     frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
                     h, w = frame.shape[:2]
-                    self.get_logger().info(f"🔄 Mono ruotata a {w}x{h}")
+                else:
+                    self.get_logger().debug(f"⚠️ Mono frame dimensioni custom: {w}x{h}")
             
             # Crea messaggio ROS
             msg = Image()
@@ -2058,9 +2415,14 @@ class OakSuperPointOdometry(Node):
             msg.header.frame_id = self.camera_optical_frame
             msg.height = h
             msg.width = w
-            msg.encoding = 'mono8'
-            msg.is_bigendian = False
-            msg.step = w
+            
+            if len(frame.shape) == 3:
+                msg.encoding = 'bgr8'
+                msg.step = w * 3
+            else:
+                msg.encoding = 'mono8'
+                msg.step = w
+            
             
             # Assicura che i dati siano nel formato corretto
             if frame.dtype != np.uint8:
@@ -2085,11 +2447,11 @@ class OakSuperPointOdometry(Node):
             depth_mm = depth_frame.astype(np.uint16)
             h, w = depth_mm.shape
             
-            # Debug dimensioni
-            if h != self.mono_h or w != self.mono_w:
-                self.get_logger().warn(f"⚠️ Depth frame dimensioni inattese: {w}x{h} (Atteso: {self.mono_w}x{self.mono_h})")
+            # Debug dimensioni - check con depth_w/h, non mono_w/h!
+            if h != self.depth_h or w != self.depth_w:
+                self.get_logger().warn(f"⚠️ Depth frame dimensioni inattese: {w}x{h} (Atteso: {self.depth_w}x{self.depth_h})")
                 # Ridimensiona se necessario
-                if h == self.mono_w and w == self.mono_h:
+                if h == self.depth_w and w == self.depth_h:
                     depth_mm = cv2.rotate(depth_mm, cv2.ROTATE_90_CLOCKWISE)
                     h, w = depth_mm.shape
                     self.get_logger().info(f"🔄 Depth ruotata a {w}x{h}")
@@ -2208,10 +2570,17 @@ class OakSuperPointOdometry(Node):
             
             h, w = debug_img.shape[:2]
             
+            # Calculate scaling factor if processing resolution != mono resolution
+            # Keypoints are in proc_w/h coordinates, need to scale to frame w/h
+            scale_x = w / self.proc_w
+            scale_y = h / self.proc_h
+            
             # Disegna i keypoints
             if keypoints is not None and len(keypoints) > 0:
                 for kp in keypoints[:200]:  # Limita a 200 per performance
-                    x, y = int(kp[0]), int(kp[1])
+                    # Scale coordinates from processing resolution to frame resolution
+                    x = int(kp[0] * scale_x)
+                    y = int(kp[1] * scale_y)
                     if 0 <= x < w and 0 <= y < h:
                         cv2.circle(debug_img, (x, y), 4, (0, 0, 0), -1)  # Bordo nero
                         cv2.circle(debug_img, (x, y), 3, (0, 255, 0), -1)  # Centro verde
@@ -2224,8 +2593,9 @@ class OakSuperPointOdometry(Node):
                         p1 = prev_keypoints[match.queryIdx]
                         p2 = keypoints[match.trainIdx]
                         
-                        pt1 = (int(p1[0]), int(p1[1]))
-                        pt2 = (int(p2[0]), int(p2[1]))
+                        # Scale coordinates
+                        pt1 = (int(p1[0] * scale_x), int(p1[1] * scale_y))
+                        pt2 = (int(p2[0] * scale_x), int(p2[1] * scale_y))
                         
                         # Disegna linea
                         cv2.line(debug_img, pt1, pt2, (0, 255, 255), 1, cv2.LINE_AA)
@@ -2236,6 +2606,24 @@ class OakSuperPointOdometry(Node):
                     except (IndexError, AttributeError, TypeError) as e:
                         continue
             
+            # Disegna YOLO Detections
+            if yolo_detections:
+                 for det in yolo_detections:
+                      xc, yc, bw, bh = det['box']
+                      mx = int((xc - bw/2) * w / 640.0)
+                      my = int((yc - bh/2) * h / 640.0)
+                      mw = int(bw * w / 640.0)
+                      mh = int(bh * h / 640.0)
+                      
+                      # Colore in base alla classe
+                      color = (0, 0, 255) # Red for dynamic
+                      if det['class'] == 0: color = (0, 0, 255) # Person
+                      elif det['class'] in [15, 16]: color = (0, 165, 255) # Animals
+                      
+                      cv2.rectangle(debug_img, (mx, my), (mx+mw, my+mh), color, 2)
+                      cv2.putText(debug_img, f"Class {det['class']}", (mx, my-5), 
+                                  cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
+
             # Aggiungi testo overlay
             overlay = debug_img.copy()
             cv2.rectangle(overlay, (0, 0), (w, 50), (0, 0, 0), -1)
@@ -2285,14 +2673,23 @@ class OakSuperPointOdometry(Node):
             u = kp_int[:, 0]
             v = kp_int[:, 1]
 
-            # Filtro per rimanere nei bordi dell'immagine
-            h, w = depth_frame.shape
-            valid_idx = (u >= 0) & (u < w) & (v >= 0) & (v < h)
+            # Filtro per rimanere nei bordi dell'immagine di processing (proc_w/h)
+            h_p, w_p = self.proc_h, self.proc_w
+            valid_idx = (u >= 0) & (u < w_p) & (v >= 0) & (v < h_p)
             u, v = u[valid_idx], v[valid_idx]
             kp_filtered = keypoints[valid_idx]
 
-            # 3. Calcolo coordinate 3D
-            depths = depth_frame[v, u].astype(np.float32)
+            # 3. Calcolo coordinate 3D con scaling depth
+            h_d, w_d = depth_frame.shape
+            sx, sy = w_d / w_p, h_d / h_p
+            u_scaled = (u * sx).astype(np.int32)
+            v_scaled = (v * sy).astype(np.int32)
+            
+            # Clipping per sicurezza
+            u_scaled = np.clip(u_scaled, 0, w_d - 1)
+            v_scaled = np.clip(v_scaled, 0, h_d - 1)
+
+            depths = depth_frame[v_scaled, u_scaled].astype(np.float32)
             
             # Filtro profondità valida (es. tra 30cm e 5m)
             valid_depth = (depths > 300) & (depths < 5000)
@@ -2563,21 +2960,17 @@ class OakSuperPointOdometry(Node):
                     u_prev, v_prev = prev_kpts[m.queryIdx]
                     u_curr, v_curr = curr_kpts[m.trainIdx]
                     
-                    # Coordinate intere per depth
-                    x = int(round(u_prev))
-                    y = int(round(v_prev))
+                    # Campionamento depth robusto con scaling automatico
+                    d_mm = self.sample_depth_at_coords(depth_frame, u_prev, v_prev)
                     
-                    # Controllo bounds
-                    if not (0 <= x < w_depth and 0 <= y < h_depth):
-                        continue
-                    
-                    # Campionamento depth robusto usando l'estrattore
-                    try:
-                        d_mm = self.enhanced_extractor.sample_depth_robust(depth_frame, x, y)
-                    except AttributeError:
-                        # Fallback: mediana semplice
-                        roi = depth_frame[max(0, y-1):min(h_depth, y+2), 
-                                        max(0, x-1):min(w_depth, x+2)]
+                    if d_mm == 0:
+                        # Fallback ROI attorno al punto scalato
+                        h_d, w_d = depth_frame.shape[:2]
+                        sx, sy = w_d / self.proc_w, h_d / self.proc_h
+                        dx, dy = int(round(u_prev * sx)), int(round(v_prev * sy))
+                        
+                        roi = depth_frame[max(0, dy-1):min(h_d, dy+2), 
+                                        max(0, dx-1):min(w_d, dx+2)]
                         valid_depths = roi[roi > 0]
                         if len(valid_depths) < 3:
                             continue
@@ -2747,17 +3140,13 @@ class OakSuperPointOdometry(Node):
                 # Calcolo spostamento (Optical Flow)
                 flow = np.linalg.norm(curr_kp - prev_kp)
                 
-                # Accesso diretto alla depth (assumendo risoluzione allineata 320x200)
-                x_d, y_d = int(curr_kp[0]), int(curr_kp[1])
-                
-                depth_str = "Fuori range"
-                if 0 <= x_d < depth_frame.shape[1] and 0 <= y_d < depth_frame.shape[0]:
-                    depth = depth_frame[y_d, x_d]
-                    depth_str = f"{depth}mm" if depth > 0 else "Invalid"
+                # Accesso alla depth con scaling
+                depth = self.sample_depth_at_coords(depth_frame, curr_kp[0], curr_kp[1])
+                depth_str = f"{depth}mm" if depth > 0 else "Invalid"
 
                 self.logger.debug(
                     f"Match {i}: Prev[{int(prev_kp[0])},{int(prev_kp[1])}] -> "
-                    f"Curr[{x_d},{y_d}] | Flow: {flow:.1f}px | Depth: {depth_str}"
+                    f"Curr[{int(curr_kp[0])},{int(curr_kp[1])}] | Flow: {flow:.1f}px | Depth: {depth_str}"
                 )
 
     def publish_imu_packet(self, packet, timestamp):
@@ -2812,26 +3201,28 @@ class OakSuperPointOdometry(Node):
                 kp = keypoints[idx]
                 x, y = int(kp[0]), int(kp[1])
                 
-                if 0 <= x < w and 0 <= y < h:
-                    depth = depth_frame[y, x]
-                    
-                    # Controllo validità (0 è spesso rimosso dai filtri OAK)
-                    status = "OK" if depth > 0 else "INVALID (0)"
-                    if depth == 0: invalid_count += 1
+                # Accesso alla depth con scaling
+                depth = self.sample_depth_at_coords(depth_frame, x, y)
+                status = "OK" if depth > 0 else "INVALID (0)"
+                if depth == 0: invalid_count += 1
 
-                    self.get_logger().info(
-                        f"KP {idx:3}: [{x:3}, {y:3}] -> Depth: {depth:4}mm | {status}"
-                    )
-                    
-                    # Analisi area 3x3 per robustezza (utile per capire se il punto è su un bordo)
-                    y_s, y_e = max(0, y-1), min(h, y+2)
-                    x_s, x_e = max(0, x-1), min(w, x+2)
-                    area = depth_frame[y_s:y_e, x_s:x_e]
-                    
-                    if area.size > 0 and depth > 0:
-                        diff = area.max() - area.min()
-                        if diff > 100: # Se c'è un salto di >10cm in 3x3 pixel
-                            self.get_logger().warn(f"   ⚠️ Possibile bordo: variazione area {diff}mm")
+                self.get_logger().info(
+                    f"KP {idx:3}: [{x:3}, {y:3}] -> Depth: {depth:4}mm | {status}"
+                )
+                
+                # Analisi area attorno al punto scalato
+                h_d, w_d = depth_frame.shape[:2]
+                sx, sy = w_d / self.proc_w, h_d / self.proc_h
+                dx, dy = int(round(x * sx)), int(round(y * sy))
+                
+                y_s, y_e = max(0, dy-1), min(h_d, dy+2)
+                x_s, x_e = max(0, dx-1), min(w_d, dx+2)
+                area = depth_frame[y_s:y_e, x_s:x_e]
+                
+                if area.size > 0 and depth > 0:
+                    diff = area.max() - area.min()
+                    if diff > 100: # Se c'è un salto di >10cm in 3x3 pixel
+                        self.get_logger().warn(f"   ⚠️ Possibile bordo: variazione area {diff}mm")
 
             if invalid_count > 5:
                 self.get_logger().warn(f"❗ Attenzione: {invalid_count}/10 campioni hanno depth nulla!")
@@ -2872,18 +3263,38 @@ class OakSuperPointOdometry(Node):
         # 1. Verifica disponibilità code
         if not all(hasattr(self, q) for q in ['q_mono', 'q_depth', 'q_sp']): 
             return
-        
+            
         mono_pkts = self.q_mono.tryGetAll()
         depth_pkts = self.q_depth.tryGetAll()
         sp_pkts = self.q_sp.tryGetAll()
         
+        yolo_detections = []
+        semantic_mask = None
+        
+        if self.use_yolo_segmentation and hasattr(self, 'q_yolo'):
+            yolo_pkts = self.q_yolo.tryGetAll()
+            if yolo_pkts:
+                # Use decode_yolo_v6 for YoloDetectionNetwork output
+                yolo_detections = self.decode_yolo_v6(yolo_pkts[-1])
+                semantic_mask = self.generate_semantic_mask(yolo_detections, (self.mono_h, self.mono_w))
+                
+                # Pubblica le detection ROS
+                msg_ts_yolo = self.get_clock().now() # O usa timestamp hardware se preferibile
+                self._publish_yolo_detections(yolo_detections, msg_ts_yolo)
+
         # 2. Se non ci sono pacchetti, esci senza pubblicare
-        if not (mono_pkts and depth_pkts and sp_pkts): 
+        if not (mono_pkts and depth_pkts and (sp_pkts or self.execution_provider == 'CPU')): 
             return
         
         try:
             # 3. Estrazione frame corrente
             mono_frame = mono_pkts[-1].getFrame()
+            
+            # 🔄 FIX: Handle Planar format from DepthAI (C, H, W) -> (H, W, C)
+            # scn is 480 error fix: if channels are first, transpose.
+            if mono_frame.ndim == 3 and mono_frame.shape[0] <= 4 and mono_frame.shape[2] > 4:
+                mono_frame = mono_frame.transpose(1, 2, 0)
+            
             depth_frame = depth_pkts[-1].getFrame()
             sp_pkt = sp_pkts[-1]
             
@@ -2923,9 +3334,15 @@ class OakSuperPointOdometry(Node):
 
             if do_superpoint:
                 # --- A. SUPERPOINT KEYFRAME ---
-                kpts_raw, scores_raw, desc_raw = self.extract_stable_superpoint_features(
-                    sp_pkt, depth_frame, mono_frame, self.last_good_keypoints
-                )
+                # Check provider
+                if self.execution_provider == 'VPU' and sp_pkts:
+                    kpts_raw, scores_raw, desc_raw = self.extract_stable_superpoint_features(
+                        sp_pkts[-1], depth_frame, mono_frame, self.last_good_keypoints, semantic_mask
+                    )
+                else:
+                    # CPU Fallback - HARRIS/ORB
+                    # This is a placeholder for actual CPU fallback implementation
+                    kpts_raw = None 
                 
                 # Inizializza KLT se abbiamo buoni punti
                 if self.enable_hybrid and kpts_raw is not None and len(kpts_raw) > 10:
@@ -3015,7 +3432,7 @@ class OakSuperPointOdometry(Node):
             
             if getattr(self, 'publish_superpoint_debug', False):
                 debug_img = self.create_superpoint_debug_image(
-                    mono_frame, tracked_kpts, matches, self.prev_keypoints
+                    mono_frame, tracked_kpts, matches, self.prev_keypoints, yolo_detections
                 )
                 if debug_img is not None and hasattr(self, 'pub_debug_image'):
                     try:

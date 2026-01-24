@@ -117,6 +117,44 @@ class ImageCompressorNode(Node):
         self.last_pub_time[key] = now
         return True
 
+    def _extract_frame(self, msg: Image) -> np.ndarray | None:
+        """Estrae un numpy array dal messaggio Image in modo robusto"""
+        try:
+            total_bytes = len(msg.data)
+            pixels = msg.width * msg.height
+            
+            if pixels == 0:
+                return None
+                
+            # Determinazione byte per canale (8 o 16 bit)
+            is_16bit = "16" in msg.encoding or msg.encoding == "mono16"
+            bpc = 2 if is_16bit else 1
+            
+            channels = total_bytes // (pixels * bpc)
+            dtype = np.uint16 if is_16bit else np.uint8
+            
+            raw_data = np.frombuffer(msg.data, dtype=dtype)
+            
+            if channels == 1:
+                return raw_data.reshape(msg.height, msg.width)
+            elif channels == 3:
+                # Se l'encoding suggerisce planare o se il reshape interleaved fallisce
+                if "p" in msg.encoding.lower() or "planar" in msg.encoding.lower():
+                    return raw_data.reshape(3, msg.height, msg.width).transpose(1, 2, 0)
+                else:
+                    try:
+                        return raw_data.reshape(msg.height, msg.width, 3)
+                    except ValueError:
+                        # Fallback Planar (spesso usato da DepthAI via XLink)
+                        return raw_data.reshape(3, msg.height, msg.width).transpose(1, 2, 0)
+            else:
+                # Altri formati (es. 4 canali o sconosciuti)
+                return raw_data.reshape(msg.height, msg.width, -1)
+                
+        except Exception as e:
+            self.get_logger().error(f"❌ Errore estrazione frame ({msg.encoding}): {e}")
+            return None
+
     def compress_jpeg(self, frame: np.ndarray) -> bytes | None:
         """Resize + JPEG encode (velocissimo su RPi)"""
         if self.resize_factor != 1.0:
@@ -160,9 +198,9 @@ class ImageCompressorNode(Node):
         if not self.should_publish("mono"):
             return
 
-        frame = np.frombuffer(msg.data, dtype=np.uint8).reshape(
-            msg.height, msg.width
-        )
+        frame = self._extract_frame(msg)
+        if frame is None:
+            return
 
         data = self.compress_jpeg(frame)
         if data is None:
@@ -178,9 +216,9 @@ class ImageCompressorNode(Node):
         if not self.should_publish("debug"):
             return
 
-        frame = np.frombuffer(msg.data, dtype=np.uint8).reshape(
-            msg.height, msg.width, -1
-        )
+        frame = self._extract_frame(msg)
+        if frame is None:
+            return
 
         data = self.compress_jpeg(frame)
         if data is None:
@@ -196,9 +234,9 @@ class ImageCompressorNode(Node):
         if not self.should_publish("depth"):
             return
 
-        depth = np.frombuffer(msg.data, dtype=np.uint16).reshape(
-            msg.height, msg.width
-        )
+        depth = self._extract_frame(msg)
+        if depth is None:
+            return
 
         data = self.compress_depth_png(depth)
         if data is None:

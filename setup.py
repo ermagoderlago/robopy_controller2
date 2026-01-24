@@ -70,8 +70,8 @@ setup(
                 # OAK-D Models (blob files) - NUOVA SEZIONE
         (
             os.path.join("share", package_name, "models"),
-            safe_glob("robopy_controller/models/**/*.blob") + 
-            safe_glob("robopy_controller/models/*.blob") +
+            safe_glob("robopy_controller/models/**/*.*blob") + 
+            safe_glob("robopy_controller/models/*.*blob") +
             safe_glob("robopy_controller/models/**/*.json") +
             safe_glob("robopy_controller/models/**/*.xml"),
         ),

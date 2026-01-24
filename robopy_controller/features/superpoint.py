@@ -14,10 +14,18 @@ class EnhancedSuperPointExtractor:
         self.config = config
         self.logger = logger
         
-        # Parametri Ottimizzati
-        self.nms_dist = 3          # Distanza minima tra punti (pixel)
+        # ✅ CRITICO: Dimensioni INPUT della NN (NON del frame!)
+        # Se la NN ha resize/crop, DEVI specificare le dimensioni esatte
+        self.nn_input_height = config.get('nn_input_height', 360)  # Default 360
+        self.nn_input_width = config.get('nn_input_width', 480)   # Default 480
+        
+        # Parametri Ottimizzati - FIXED per SuperPoint
+        self.nms_dist = 4          # Distanza minima tra punti (pixel) - CRITICO per stride 8
         self.border_margin = 5    # Pixel da ignorare ai bordi
-        self.conf_thresh = 0.020   # Soglia base
+        self.conf_thresh = 0.015   # Soglia FISSA - NO auto-scaling
+        
+        # NMS implementation: 'scipy' (default) or 'numpy' (embedded-friendly)
+        self.nms_method = config.get('nms_method', 'numpy')  # Default NumPy per embedded
         
         # Statistiche
         self.stats = {
@@ -30,21 +38,13 @@ class EnhancedSuperPointExtractor:
     
     def grid_filter_keypoints_enhanced(self, keypoints, descriptors, scores, 
                                     grid_size=24, max_per_cell=1):
-        """Grid filter AGGRESSIVO per distribuzione uniforme."""
-        h, w = 200, 320
-
-        # ✅ FIX CRITICO
+        """Grid filter per distribuzione uniforme - ✅ ORDINATO per score."""
         keep_indices = []
         
         if len(keypoints) == 0:
             return keypoints, descriptors, scores
         
-        # ... codice filtro ...
-        # Poiché il codice originale aveva "... codice filtro ...",
-        # presumo che dobbiamo implementarlo o che fosse un commento nel file.
-        # Guardando la logica, sembra mancare l'implementazione del filtro griglia.
-        # Implementiamo una versione standard.
-        
+        # ✅ FIX CRITICO: ordina per score dentro ogni cella
         grid = {}
         for i, kp in enumerate(keypoints):
             x, y = int(kp[0]), int(kp[1])
@@ -53,9 +53,15 @@ class EnhancedSuperPointExtractor:
             if (gx, gy) not in grid:
                 grid[(gx, gy)] = []
             
-            if len(grid[(gx, gy)]) < max_per_cell:
-                grid[(gx, gy)].append(i)
-                keep_indices.append(i)
+            grid[(gx, gy)].append((i, scores[i]))
+        
+        # Tieni i migliori per score in ogni cella
+        for cell_indices in grid.values():
+            # Ordina per score decrescente
+            cell_indices.sort(key=lambda x: x[1], reverse=True)
+            # Tieni al massimo max_per_cell
+            for idx, score in cell_indices[:max_per_cell]:
+                keep_indices.append(idx)
 
         if len(keep_indices) > 0:
             keep_indices = np.array(keep_indices)
@@ -119,9 +125,22 @@ class EnhancedSuperPointExtractor:
         return keypoints, descriptors, scores
 
 
-    # Aggiungi questa funzione alla classe EnhancedSuperPointExtractor
+    # ⚠️ DEBUG ONLY - NON USARE IN PRODUZIONE
     def extract_debug_only(self, nndata, mono_frame):
-        """Estrazione SEMPLICE senza filtri - solo per debug"""
+        """
+        ⚠️ WARNING: SOLO PER DEBUG - NON USARE IN PRODUZIONE!
+        
+        Questa funzione usa:
+        - Nearest sampling (non bilinear)
+        - NO re-normalizzazione descrittori
+        - NO half-pixel alignment
+        
+        Usala SOLO per verificare:
+        - "Quanti keypoints escono?"
+        - "La heatmap è sensata?"
+        
+        Per produzione: usa extract_enhanced_features()
+        """
         try:
             # 1. Get raw data
             scores_fp16 = []
@@ -140,18 +159,22 @@ class EnhancedSuperPointExtractor:
             desc = np.array(desc_fp16, dtype=np.float32)
             
             # 3. Heatmap (semplice)
-            if scores.shape[0] == 65 * 25 * 40:
-                scores_3d = scores.reshape(65, 25, 40)
+            if scores.shape[0] % 65 == 0:
+                grid_pixels = scores.shape[0] // 65
+                # ✅ FIX CRITICO: usa dimensioni INPUT NN, NON frame
+                H_grid = self.nn_input_height // 8
+                W_grid = self.nn_input_width // 8
+                
+                scores_3d = scores.reshape(65, H_grid, W_grid)
                 # Softmax semplice
                 exp_scores = np.exp(scores_3d - np.max(scores_3d, axis=0))
                 softmax = exp_scores / np.sum(exp_scores, axis=0)
-                heatmap = softmax[:-1, :, :]  # Remove dustbin
+                heatmap_small = softmax[:-1, :, :]  # Remove dustbin
                 
                 # Pixel shuffle
-                heatmap = heatmap.transpose(1, 2, 0).reshape(25, 40, 64)
-                heatmap = heatmap.reshape(25, 40, 8, 8)
+                heatmap = heatmap_small.transpose(1, 2, 0).reshape(H_grid, W_grid, 8, 8)
                 heatmap = heatmap.transpose(0, 2, 1, 3)
-                heatmap = heatmap.reshape(200, 320)
+                heatmap = heatmap.reshape(H_grid * 8, W_grid * 8)
             else:
                 return None, None, None
             
@@ -165,19 +188,24 @@ class EnhancedSuperPointExtractor:
             keypoints = np.column_stack([coords[:, 1], coords[:, 0]]).astype(np.float32)
             
             # 5. Descriptors (semplice)
-            if desc.shape[0] == 256 * 25 * 40:
-                desc_map = desc.reshape(256, 25, 40)
+            if desc.shape[0] % 256 == 0:
+                W_grid = desc.shape[0] // (256 * H_grid)
+                desc_map = desc.reshape(256, H_grid, W_grid)
                 # Normalizzazione L2
                 norms = np.linalg.norm(desc_map, axis=0, keepdims=True)
                 desc_map = desc_map / (norms + 1e-8)
                 
                 # Campionamento nearest
                 sampled_desc = []
+                # Scala i keypoint
+                scale_x = W_grid / heatmap.shape[1]
+                scale_y = H_grid / heatmap.shape[0]
+                
                 for kp in keypoints:
-                    x = int(kp[0] * 0.125)  # 320→40
-                    y = int(kp[1] * 0.125)  # 200→25
-                    x = np.clip(x, 0, 39)
-                    y = np.clip(y, 0, 24)
+                    x = int(kp[0] * scale_x)
+                    y = int(kp[1] * scale_y)
+                    x = np.clip(x, 0, W_grid - 1)
+                    y = np.clip(y, 0, H_grid - 1)
                     sampled_desc.append(desc_map[:, y, x])
                 
                 descriptors = np.array(sampled_desc, dtype=np.float32)
@@ -267,21 +295,18 @@ class EnhancedSuperPointExtractor:
             scores_fp16 = []
             desc_fp16 = []
 
-            # Prova diversi nomi di layer per massima compatibilità
-            possible_score_names = ['semi', 'scores', 'output_semi', 'output_scores', '0', 'output_0']
-            possible_desc_names = ['desc', 'descriptors', 'output_desc', 'output_descriptors', '1', 'output_1']
+            # ✅ FROZEN AFTER DEBUG: nomi layer noti (semi, desc)
+            # Questa lista di fallback è utile solo durante sviluppo.
+            # In produzione, i nomi sono sempre 'semi' e 'desc'.
+            if nndata.hasLayer('semi'):
+                scores_fp16 = nndata.getLayerFp16('semi')
+                if self.stats['frame_count'] % 100 == 0:
+                    self.logger.info(f"✅ Layer scores: 'semi' con {len(scores_fp16)} elementi")
             
-            for name in possible_score_names:
-                if nndata.hasLayer(name):
-                    scores_fp16 = nndata.getLayerFp16(name)
-                    self.logger.info(f"✅ Trovato layer scores: '{name}' con {len(scores_fp16)} elementi")
-                    break
-            
-            for name in possible_desc_names:
-                if nndata.hasLayer(name):
-                    desc_fp16 = nndata.getLayerFp16(name)
-                    self.logger.info(f"✅ Trovato layer descrittori: '{name}' con {len(desc_fp16)} elementi")
-                    break
+            if nndata.hasLayer('desc'):
+                desc_fp16 = nndata.getLayerFp16('desc')
+                if self.stats['frame_count'] % 100 == 0:
+                    self.logger.info(f"✅ Layer descrittori: 'desc' con {len(desc_fp16)} elementi")
 
             # 3. Validazione dati estratti
             if not scores_fp16 or len(scores_fp16) == 0:
@@ -292,9 +317,10 @@ class EnhancedSuperPointExtractor:
                 self.logger.error("❌ Descrittori vuoti o None")
                 return None, None, None
 
-            # DEBUG: stampa primi valori per verifica
-            self.logger.debug(f"Scores FP16 primi 5: {scores_fp16[:5]}")
-            self.logger.debug(f"Desc FP16 primi 5: {desc_fp16[:5]}")
+            # Debug ridotto (ogni 30 frame)
+            if self.stats.get('frame_count', 0) % 30 == 0:
+                self.logger.debug(f"Scores FP16 primi 5: {scores_fp16[:5]}")
+                self.logger.debug(f"Desc FP16 primi 5: {desc_fp16[:5]}")
 
             # 4. Conversione a float32
             try:
@@ -308,48 +334,71 @@ class EnhancedSuperPointExtractor:
 
             # 5. Processamento heatmap
             total_scores = scores_float.shape[0]
+            # Formati attesi:
+            # 1) 65 * H_grid * W_grid (formato standard SuperPoint)
+            # 2) H_img * W_img (heatmap già reshaped)
             
-            # Formati attesi per input 320x200:
-            # 1) 65x25x40 = 65000 elementi (formato standard SuperPoint)
-            # 2) 200x320 = 64000 elementi (heatmap già reshaped)
-            
-            if total_scores == 65 * 25 * 40:  # Formato standard
-                self.logger.debug("📊 Formato scores: 65x25x40")
-                scores_reshaped = scores_float.reshape(65, 25, 40)
+            if total_scores % 65 == 0:  # Formato standard
+                grid_pixels = total_scores // 65
+                # Determiniamo H_grid e W_grid in base all'aspect ratio dell'immagine di input
+                # Se non abbiamo l'immagine, assumiamo l'aspect ratio 4:3 o 16:10 standard
+                # In alternativa, usiamo le dimensioni della heatmap se possibile.
+                
+                # ✅ FIX CRITICO: usa dimensioni INPUT NN, NON frame!
+                # Se NN ha resize/crop, mono_frame.shape è SBAGLIATO
+                H_grid = self.nn_input_height // 8
+                W_grid = self.nn_input_width // 8
+                
+                # Verifica che corrisponda
+                if H_grid * W_grid != grid_pixels:
+                    self.logger.error(f"❌ Grid mismatch: H_grid={H_grid}, W_grid={W_grid}, grid_pixels={grid_pixels}")
+                    self.logger.error(f"   NN input configurato: {self.nn_input_width}×{self.nn_input_height}")
+                    # Fallback: prova a calcolare
+                    H_grid = int(round(math.sqrt(grid_pixels * 0.75)))  # assume 4:3
+                    W_grid = grid_pixels // H_grid
+                
+                self.logger.info(f"📊 Rilevata griglia NN: {W_grid}x{H_grid} ({total_scores} elementi)")
+                
+                scores_reshaped = scores_float.reshape(65, H_grid, W_grid)
                 heatmap = self._process_heatmap_superpoint(scores_reshaped)
                 
-            elif total_scores == 200 * 320:  # Heatmap già reshaped
-                self.logger.debug("📊 Formato scores: 200x320 (già reshaped)")
-                heatmap = scores_float.reshape(200, 320)
-                
+            elif mono_frame is not None and total_scores == mono_frame.shape[0] * mono_frame.shape[1]:
+                self.logger.debug(f"📊 Formato scores: {mono_frame.shape[1]}x{mono_frame.shape[0]} (già reshaped)")
+                heatmap = scores_float.reshape(mono_frame.shape[0], mono_frame.shape[1])
             else:
-                self.logger.error(f"❌ Dimensioni scores inattese: {total_scores}")
-                self.logger.error(f"   Attesi: {65*25*40}=65000 (65x25x40) oppure {200*320}=64000 (200x320)")
-                return None, None, None
+                # Fallback estremo: prova a indovinare se è quadrato o altro
+                side = int(math.sqrt(total_scores))
+                if side * side == total_scores:
+                    heatmap = scores_float.reshape(side, side)
+                else:
+                    self.logger.error(f"❌ Dimensioni scores inattese: {total_scores}")
+                    return None, None, None
 
             # 6. Validazione heatmap
             h, w = heatmap.shape
-            if h != 200 or w != 320:
-                self.logger.warn(f"⚠️  Heatmap ha dimensioni inattese: {w}x{h}, atteso 320x200")
+            
+            # Se abbiamo un frame di riferimento, verifichiamo la corrispondenza
+            if mono_frame is not None:
+                fh, fw = mono_frame.shape[:2]
+                if h != fh or w != fw:
+                    self.logger.warn(f"⚠️ Heatmap ({w}x{h}) non coincide con frame ({fw}x{fh})")
                 # Potrebbe essere invertito
                 if h == 320 and w == 200:
                     self.logger.warn("⚠️  Dimensioni invertite, ruoto...")
                     heatmap = np.rot90(heatmap)
                     h, w = heatmap.shape
 
-            # 7. Statistiche heatmap
-            heatmap_min = np.min(heatmap)
-            heatmap_max = np.max(heatmap)
-            heatmap_mean = np.mean(heatmap)
+            # 7. Statistiche heatmap (ogni 30 frame per non rallentare)
+            if self.stats['frame_count'] % 30 == 0:
+                heatmap_min = np.min(heatmap)
+                heatmap_max = np.max(heatmap)
+                heatmap_mean = np.mean(heatmap)
+                self.logger.info(f"📊 Heatmap: {w}x{h}, min={heatmap_min:.4f}, max={heatmap_max:.4f}, mean={heatmap_mean:.4f}")
             
-            self.logger.info(f"📊 Heatmap: {w}x{h}, min={heatmap_min:.4f}, max={heatmap_max:.4f}, mean={heatmap_mean:.4f}")
-            
-            # Se la heatmap è piatta (tutti valori simili), abbassiamo la soglia
-            if (heatmap_max - heatmap_min) < 0.01:
-                self.logger.warn("⚠️  Heatmap molto piatta, abbasso soglia threshold")
-                current_thresh = self.conf_thresh * 0.1
-            else:
-                current_thresh = self.conf_thresh
+            # ✅ FIX CRITICO: Threshold FISSO - NO auto-scaling
+            # SuperPoint heatmap è sempre normalizzata via softmax
+            # La dinamica dipende dalla rete, non dall'immagine
+            current_thresh = self.conf_thresh
 
             # 8. Filtraggio bordi (evita keypoints su bordi)
             border = self.border_margin
@@ -358,9 +407,15 @@ class EnhancedSuperPointExtractor:
             heatmap[:, 0:border] = 0
             heatmap[:, w-border:w] = 0
 
+            # ✅ FIX CRITICO: applica threshold PRIMA della NMS
+            # SuperPoint: threshold → NMS → top-K
+            heatmap_thr = heatmap.copy()
+            heatmap_thr[heatmap_thr < current_thresh] = 0
+
             # 9. Estrazione keypoints con NMS
-            self.logger.debug(f"🔍 Estrazione keypoints con threshold={current_thresh}")
-            kpts = self._nms_fast_robust(heatmap, h, w, threshold=current_thresh)
+            if self.stats['frame_count'] % 30 == 0:
+                self.logger.debug(f"🔍 Estrazione keypoints con threshold={current_thresh}")
+            kpts = self._nms_fast_robust(heatmap_thr, h, w, threshold=current_thresh)
             
             # Fallback se troppi pochi keypoints
             if kpts is None or len(kpts) < 5:
@@ -380,63 +435,62 @@ class EnhancedSuperPointExtractor:
 
             # 10. Processamento descrittori
             total_desc = desc_float.shape[0]
-            expected_desc = 256 * 25 * 40  # 256x25x40 = 256000
+            # Descrittori attesi: 256 * H_grid * W_grid
+            H_grid, W_grid = heatmap.shape[0] // 8, heatmap.shape[1] // 8
+            expected_desc = 256 * H_grid * W_grid
 
             if total_desc == expected_desc:
-                self.logger.debug("📊 Formato descrittori: 256x25x40")
+                self.logger.debug(f"📊 Formato descrittori: 256x{H_grid}x{W_grid}")
                 
                 # RESHAPE
-                desc_map = desc_float.reshape(256, 25, 40)
-                
-                # DEBUG: Statistiche PRIMA della normalizzazione
-                self.logger.debug(
-                    f"📊 Descrittori pre-normalizzazione: "
-                    f"min={desc_map.min():.3f}, max={desc_map.max():.3f}, mean={desc_map.mean():.3f}"
-                )
+                desc_map = desc_float.reshape(256, H_grid, W_grid)
                 
                 # NORMALIZZAZIONE L2 OBBLIGATORIA (il blob NON è normalizzato)
                 eps = 1e-6
-                desc_norm_per_pixel = np.linalg.norm(desc_map, axis=0, keepdims=True)  # Shape: (1, 25, 40)
-                
-                # DEBUG: Mostra le norme PRIMA della normalizzazione
-                self.logger.debug(
-                    f"📏 Norme pre-normalizzazione: "
-                    f"min={desc_norm_per_pixel.min():.3f}, "
-                    f"mean={desc_norm_per_pixel.mean():.3f}, "
-                    f"max={desc_norm_per_pixel.max():.3f}"
-                )
+                desc_norm_per_pixel = np.linalg.norm(desc_map, axis=0, keepdims=True)  # Shape: (1, H_grid, W_grid)
                 
                 # APPLICA NORMALIZZAZIONE L2
                 desc_map = desc_map / (desc_norm_per_pixel + eps)
 
-                # DEBUG: Verifica POST-normalizzazione
-                desc_norm_after = np.linalg.norm(desc_map, axis=0)
-                self.logger.info(
-                    f"✅ Norme POST-normalizzazione: "
-                    f"min={desc_norm_after.min():.3f}, "
-                    f"mean={desc_norm_after.mean():.3f}, "
-                    f"max={desc_norm_after.max():.3f}"
-                )
-
-                # Statistiche finali
-                self.logger.debug(
-                    f"📊 Descrittori post-normalizzazione: "
-                    f"min={desc_map.min():.3f}, max={desc_map.max():.3f}, mean={desc_map.mean():.3f}"
-                )
-
-                # DEBUG CRITICO: Verifica cosa stiamo per passare
-                self.logger.warn(f"🔍 PRIMA campionamento: desc_map range=[{desc_map.min():.3f}, {desc_map.max():.3f}]")
-                test_pixel_norm = np.linalg.norm(desc_map[:, 16, 28])
-                self.logger.warn(f"🔍 Norma pixel test [16,28]: {test_pixel_norm:.3f}")
+                # Debug ogni 30 frame
+                if self.stats['frame_count'] % 30 == 0:
+                    desc_norm_after = np.linalg.norm(desc_map, axis=0)
+                    self.logger.info(
+                        f"✅ Descrittori: 256x{H_grid}x{W_grid}, norme post-norm: "
+                        f"min={desc_norm_after.min():.3f}, mean={desc_norm_after.mean():.3f}, max={desc_norm_after.max():.3f}"
+                    )
 
                 # 12. Campionamento descrittori sui keypoints (USA LA MAPPA NORMALIZZATA!)
                 desc = self._sample_descriptors_bilinear(kpts, desc_map, (h, w))
+                
+                # ✅ FIX CRITICO #5: RE-NORMALIZZA dopo interpolazione bilineare
+                # L'interpolazione rompe la norma unitaria → matching L2 diventa incoerente
+                if desc is not None and len(desc) > 0:
+                    desc_norms = np.linalg.norm(desc, axis=1, keepdims=True)
+                    desc = desc / (desc_norms + 1e-8)
                     
+                    # Debug ogni 30 frame
+                    if self.stats['frame_count'] % 30 == 0:
+                        final_norms = np.linalg.norm(desc, axis=1)
+                        self.logger.info(
+                            f"✅ Descrittori POST-sampling+renorm: "
+                            f"norme min={final_norms.min():.3f}, mean={final_norms.mean():.3f}, max={final_norms.max():.3f}"
+                        )
+                
             else:
                 self.logger.error(f"❌ Dimensioni descrittori inattese: {total_desc}, attesi {expected_desc}")
                 return None, None, None
 
+            # 12.5 FILTRI DI QUALITÀ DISABILITATI (erano troppo aggressivi)
+            # I filtri rimuovevano punti validi sugli spigoli degli oggetti
+            # TODO: Rivedere logica filter_edge_features con threshold più permissivi
+            # kpts, desc, scores_temp = self.filter_edge_features(kpts, desc, scores_float[:len(kpts)], mono_frame)
+            # kpts_filtered = self.filter_uniform_regions(mono_frame, kpts)
+
             # 13. Estrai scores associati ai keypoints
+            # ⚠️ NOTA: questi sono valori della heatmap POST-NMS, NON il confidence originale
+            # Usali solo per: ordinamento, top-K
+            # NON usarli per: decisioni metriche, fusion depth/semantic
             scores_out = np.zeros(len(kpts), dtype=np.float32)
             for i, (x, y) in enumerate(kpts):
                 xi, yi = int(round(x)), int(round(y))
@@ -546,24 +600,32 @@ class EnhancedSuperPointExtractor:
 
     def _nms_fast_robust(self, heatmap, h, w, threshold):
         """
-        Non-Maximum Suppression robusta con controlli aggiuntivi.
+        ✅ NMS SEMPLIFICATA - SuperPoint style
+        Supporta sia SciPy che NumPy-only per embedded
         """
+        if np.max(heatmap) < threshold:
+            return np.array([], dtype=np.float32)
+        
+        # Scelta implementazione NMS
+        if self.nms_method == 'scipy':
+            return self._nms_scipy(heatmap, h, w, threshold)
+        else:
+            return self._nms_numpy(heatmap, h, w, threshold)
+    
+    def _nms_scipy(self, heatmap, h, w, threshold):
+        """NMS con SciPy maximum_filter (più veloce ma richiede SciPy)"""
         try:
             from scipy.ndimage import maximum_filter
             
-            if np.max(heatmap) < threshold:
-                self.logger.debug(f"⚠️  Heatmap max ({np.max(heatmap):.4f}) < threshold ({threshold:.4f})")
-                return np.array([], dtype=np.float32)
-            
-            # Trova massimi locali in finestra 3x3
-            neighborhood_size = 3
+            # ✅ NMS UNICA con maximum_filter - finestra DISPARI centrata
+            neighborhood_size = 2 * self.nms_dist + 1  # 2*4+1 = 9
             max_filtered = maximum_filter(heatmap, size=neighborhood_size)
             
-            # Identifica massimi locali sopra la soglia
-            is_local_max = (heatmap == max_filtered) & (heatmap > threshold)
+            # ✅ Identifica SOLO massimi locali sopra soglia - STOP
+            is_peak = (heatmap == max_filtered) & (heatmap > threshold)
             
             # Ottieni coordinate
-            y_coords, x_coords = np.where(is_local_max)
+            y_coords, x_coords = np.where(is_peak)
             
             if len(x_coords) == 0:
                 return np.array([], dtype=np.float32)
@@ -575,45 +637,73 @@ class EnhancedSuperPointExtractor:
             # Ordina per score decrescente
             sorted_indices = np.argsort(-scores)
             keypoints = keypoints[sorted_indices]
-            scores = scores[sorted_indices]
             
-            # NMS spaziale
-            kept_kpts = []
-            grid = np.zeros((h, w), dtype=np.uint8)
-            dist_thresh = self.nms_dist
+            # Limita numero massimo
+            max_kpts = self.config.get('max_features', 500)
+            if len(keypoints) > max_kpts:
+                keypoints = keypoints[:max_kpts]
             
-            for i, (kp, score) in enumerate(zip(keypoints, scores)):
-                x, y = int(round(kp[0])), int(round(kp[1]))
+            return keypoints
                 
-                if x < 0 or x >= w or y < 0 or y >= h:
+        except Exception as e:
+            self.logger.error(f"Errore in NMS SciPy: {e}, fallback a NumPy")
+            return self._nms_numpy(heatmap, h, w, threshold)
+    
+    def _nms_numpy(self, heatmap, h, w, threshold):
+        """
+        ✅ NMS NumPy-only - EMBEDDED FRIENDLY
+        No SciPy, solo NumPy - più lento ma funziona su ARM/embedded
+        """
+        try:
+            # Manual maximum filter con NumPy
+            radius = self.nms_dist
+            
+            # Trova tutti i punti sopra threshold
+            candidates = np.argwhere(heatmap > threshold)
+            if len(candidates) == 0:
+                return np.array([], dtype=np.float32)
+            
+            scores = heatmap[candidates[:, 0], candidates[:, 1]]
+            
+            # Ordina per score decrescente
+            sorted_idx = np.argsort(-scores)
+            candidates = candidates[sorted_idx]
+            scores = scores[sorted_idx]
+            
+            # NMS greedy
+            kept = []
+            suppressed = np.zeros(len(candidates), dtype=bool)
+            
+            for i in range(len(candidates)):
+                if suppressed[i]:
                     continue
                 
-                # Area di soppressione
-                x0, x1 = max(0, x - dist_thresh), min(w, x + dist_thresh + 1)
-                y0, y1 = max(0, y - dist_thresh), min(h, y + dist_thresh + 1)
+                y, x = candidates[i]
+                kept.append([float(x), float(y)])
                 
-                # Se l'area è già occupata, scarta
-                if np.any(grid[y0:y1, x0:x1]):
-                    continue
+                # Sopprimi vicini
+                for j in range(i + 1, len(candidates)):
+                    if suppressed[j]:
+                        continue
+                    
+                    yj, xj = candidates[j]
+                    dist_sq = (x - xj)**2 + (y - yj)**2
+                    
+                    if dist_sq <= (radius * radius):
+                        suppressed[j] = True
                 
-                # Mantieni il keypoint
-                kept_kpts.append([float(x), float(y)])
-                
-                # Marca area come occupata
-                grid[y0:y1, x0:x1] = 1
-                
-                # Limita numero massimo
-                if len(kept_kpts) >= self.config.get('max_features', 500):
+                # Limita numero
+                if len(kept) >= self.config.get('max_features', 500):
                     break
             
-            if kept_kpts:
-                return np.array(kept_kpts, dtype=np.float32)
+            if kept:
+                return np.array(kept, dtype=np.float32)
             else:
                 return np.array([], dtype=np.float32)
                 
         except Exception as e:
-            self.logger.error(f"Errore in NMS: {e}")
-            # Fallback: estrai semplicemente tutti i punti sopra la soglia
+            self.logger.error(f"Errore in NMS NumPy: {e}")
+            # Fallback estremo
             y_coords, x_coords = np.where(heatmap > threshold)
             if len(x_coords) > 0:
                 return np.column_stack((x_coords, y_coords)).astype(np.float32)
@@ -630,30 +720,21 @@ class EnhancedSuperPointExtractor:
             return None
         
         try:
-            # DEBUG CRITICO: Verifica cosa abbiamo ricevuto
-            self.logger.warn(f"🔍 RICEVUTO in campionamento: descriptors range=[{descriptors.min():.3f}, {descriptors.max():.3f}]")
-            test_pixel_norm_received = np.linalg.norm(descriptors[:, 16, 28])
-            self.logger.warn(f"🔍 Norma pixel ricevuto [16,28]: {test_pixel_norm_received:.3f}")
-            
-            # Descriptors shape: (256, H_desc, W_desc) = (256, 25, 40)
-            # Image shape: (H_img, W_img) = (200, 320)
-            # Fattore di scala = 8 (200/25 = 320/40 = 8)
-            
-            C, H_desc, W_desc = descriptors.shape  # 256, 25, 40
-            H_img, W_img = img_shape  # 200, 320
-            
-            # DEBUG: Verifica dimensioni
-            self.logger.debug(f"Descriptor map: {C}x{H_desc}x{W_desc}, Image: {W_img}x{H_img}")
+            C, H_desc, W_desc = descriptors.shape
+            H_img, W_img = img_shape
             
             # Scala i keypoint da coordinate immagine a coordinate descrittori
-            scale_x = W_desc / W_img  # 40/320 = 0.125
-            scale_y = H_desc / H_img  # 25/200 = 0.125
+            scale_x = W_desc / W_img
+            scale_y = H_desc / H_img
             
-            kpts_scaled_x = keypoints[:, 0] * scale_x
-            kpts_scaled_y = keypoints[:, 1] * scale_y
+            # Fix half-pixel alignment: SuperPoint descriptors are sampled at the center of 8x8 patches
+            # We add 0.5 to the pixel coordinates before scaling to align with the grid centers.
+            kpts_scaled_x = (keypoints[:, 0] + 0.5) * scale_x - 0.5
+            kpts_scaled_y = (keypoints[:, 1] + 0.5) * scale_y - 0.5
             
-            # DEBUG: Mostra range coordinate scalate
-            self.logger.debug(f"Scaled coords: x[{kpts_scaled_x.min():.2f}-{kpts_scaled_x.max():.2f}], y[{kpts_scaled_y.min():.2f}-{kpts_scaled_y.max():.2f}]")
+            # Ensure coordinates are within bounds for interpolation
+            kpts_scaled_x = np.clip(kpts_scaled_x, 0, W_desc - 1.001)
+            kpts_scaled_y = np.clip(kpts_scaled_y, 0, H_desc - 1.001)
             
             # Coordinate base per interpolazione (vettorizzato)
             x0 = np.floor(kpts_scaled_x).astype(int)
@@ -672,18 +753,10 @@ class EnhancedSuperPointExtractor:
             y1 = np.clip(y1, 0, H_desc - 1)
             
             # Interpolazione bilineare vettorizzata
-            # descriptors[:, y, x] restituisce un vettore di shape (256,)
-            # Trasponendo otteniamo (N, 256)
             desc_00 = descriptors[:, y0, x0].T  # Shape (N, 256)
             desc_01 = descriptors[:, y0, x1].T
             desc_10 = descriptors[:, y1, x0].T
             desc_11 = descriptors[:, y1, x1].T
-            
-            # DEBUG: Verifica che non siano tutti zeri
-            if np.all(desc_00 == 0):
-                self.logger.warn("⚠️ Descrittori campionati sono tutti ZERO - possibile errore indicizzazione!")
-                self.logger.warn(f"   Sample coords: x0={x0[:3]}, y0={y0[:3]}")
-                self.logger.warn(f"   Descriptor map stats: min={descriptors.min():.3f}, max={descriptors.max():.3f}, mean={descriptors.mean():.3f}")
             
             # Interpolazione bilineare completa
             sampled_desc = (
@@ -692,10 +765,6 @@ class EnhancedSuperPointExtractor:
                 (1 - wx) * wy * desc_10 +
                 wx * wy * desc_11
             )
-            
-            # DEBUG: Verifica output
-            norms = np.linalg.norm(sampled_desc, axis=1)
-            self.logger.debug(f"Sampled descriptor norms: min={norms.min():.3f}, mean={norms.mean():.3f}, max={norms.max():.3f}")
             
             return sampled_desc.astype(np.float32)
                 
@@ -737,13 +806,17 @@ class EnhancedSuperPointExtractor:
         if self.stats['frame_count'] > 0:
             self.stats['avg_per_frame'] = self.stats['total_extracted'] / self.stats['frame_count']
         
-        # Log periodico ogni 10 frame
-        if self.stats['frame_count'] % 10 == 0:
+        # Log periodico ogni 30 frame (ridotto da 10)
+        if self.stats['frame_count'] % 30 == 0:
             self.logger.info(f"📊 STATISTICHE: {self.stats['frame_count']} frame, {self.stats['avg_per_frame']:.1f} keypoints/frame")
 
-    # METODI MANCANTI MA CHIAMATI (copiato da sotto)
+    # ========================================================================
+    # LEGACY CODE - DA RIMUOVERE O SPOSTARE IN legacy.py
+    # Queste funzioni non sono usate nel path principale
+    # ========================================================================
+    
     def _call_superpoint_with_params(self, nndata, depth_frame, threshold=0.015):
-        """Wrapper per chiamare SuperPoint con parametri diversi"""
+        """⚠️ LEGACY - non usata nel path principale"""
         orig_threshold = self.config.get('feature_threshold', 0.015)
         
         try:
@@ -759,13 +832,12 @@ class EnhancedSuperPointExtractor:
             self.config['feature_threshold'] = orig_threshold
 
     def _simplified_superpoint_extraction(self, nndata):
-        """Versione semplificata di estrazione SuperPoint"""
+        """⚠️ LEGACY - non usata nel path principale"""
         try:
             if not nndata:
                 return None, None, None
             
             # 1. Recupero Layer
-            scores_fp16 = []
             desc_fp16 = []
 
             if nndata.hasLayer('semi'):
