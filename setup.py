@@ -157,6 +157,7 @@ setup(
             "nav2_bridge_node = robopy_controller.nodes.nav2_bridge_node:main",
             "teleop_bridge_node = robopy_controller.nodes.teleop_bridge_node:main",
             "image_compressor_node = robopy_controller.nodes.image_compressor_node:main",
+            "oak_driver_node = robopy_controller.nodes.oak_driver_node:main",
         ],
     },
 )

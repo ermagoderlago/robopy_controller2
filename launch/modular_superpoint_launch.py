@@ -38,7 +38,7 @@ def generate_launch_description():
     database_path = os.path.expanduser('~/.ros/rtabmap_modular.db') # New DB for modular test
 
     superpoint_blob = os.path.join(pkg_share, 'models', 'superpoint_480x360_raw.blob') #superpoint_raw.blob
-    yolo_blob = os.path.join(pkg_share, 'models', 'yolov8n_seg_512x288.blob')
+    yolo_blob = os.path.join(pkg_share, 'models', 'yolo_seg.blob') #yolov8n_seg_512x288.blob
 
     nav2_velocity_smoother_config = os.path.join(
         pkg_share, 'config', 'nav2_velocity_smoother.yaml'
@@ -59,12 +59,24 @@ def generate_launch_description():
     # REFACTORED SUPERPOINT NODE (MODULAR ORCHESTRATOR)
     # =========================================================================
 
+    # 1. DRIVER NODE (Gestisce Hardware)
+    oak_driver_node = Node(
+        package='robopy_controller',
+        executable='oak_driver_node',
+        name='oak_driver',
+        output='screen'
+        # Parameters loaded internally or via params file if needed
+    )
+
+    # 2. LOGIC NODE (Processing)
     superpoint_node = Node(
         package='robopy_controller',
         executable='superpoint_node', # Uses the refactored nodes/superpoint_node.py
         name='superpoint_node_modular',
         output='screen',
         parameters=[{
+            'use_driver_topic': True,   # <--- ENABLE DRIVER MODE!
+            
             # ---------------- CAMERA ----------------
             'publish_camera_info': True,
             'camera_info_file': '',
@@ -131,10 +143,10 @@ def generate_launch_description():
             'use_rtabmap_format': True,
 
             # ---------------- YOLO ----------------
-            'use_yolo_segmentation': False,
-            'yolo_blob': os.path.join(pkg_share, 'models', 'yolov6nr1_coco_640x352.blob'),
-            'yolo_input_width': 640,
-            'yolo_input_height': 352,
+            'use_yolo_segmentation': True,
+            'yolo_blob': os.path.join(pkg_share, 'models', 'yolo_seg.blob'), #yolov6nr1_coco_640x352.blob
+            'yolo_input_width': 320,
+            'yolo_input_height': 320,
             'yolo_confidence_threshold': 0.4,
             'filter_people': True,
             'filter_floor': True,
@@ -345,6 +357,7 @@ def generate_launch_description():
     # =========================================================================
 
     return LaunchDescription([
+        oak_driver_node,  # <--- Added
         robot_state_publisher,
         superpoint_node,
         *tf_static_nodes,

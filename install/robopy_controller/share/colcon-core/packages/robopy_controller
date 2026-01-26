@@ -1,1 +1,1 @@
-bluedot:buildhat:cv_bridge:diagnostic_msgs:geometry_msgs:onnxruntime:picamera2:psutil:rclpy:robot_localization:rosidl_default_runtime:sensor_msgs:std_msgs
+bluedot:buildhat:cv_bridge:diagnostic_msgs:geometry_msgs:onnxruntime:picamera2:psutil:rclpy:robot_localization:rosidl_default_runtime:sensor_msgs:std_msgs:vision_msgs

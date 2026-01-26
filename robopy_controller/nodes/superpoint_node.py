@@ -60,6 +60,11 @@ from robopy_controller.pose.odometry import HybridOdometrySystem
 from robopy_controller.viz.debug import OdometryDebugSystem
 from robopy_controller.features.optical_flow import KLTTracker
 
+# Driver Mode Imports
+from robopy_controller.msg import OAKSyncFrame
+from cv_bridge import CvBridge
+
+
 try:
     import blobconverter
     HAS_BLOBCONVERTER = True
@@ -542,9 +547,19 @@ class OakSuperPointOdometry(Node):
         self.latest_scores = None
         self.frame_counter = 0
         
+        # Driver Mode Parameter
+        self.declare_parameter('use_driver_topic', False)
+        self.use_driver_topic = bool(self.get_parameter('use_driver_topic').value)
+        self.bridge = CvBridge()
+
         # Pipeline DepthAI
-        if DEPTHAI_AVAILABLE:
+        if self.use_driver_topic:
+            self.get_logger().info("🚀 Running in DRIVER MODE (Subscribing to /oak/sync_frame)")
+            self.create_subscription(OAKSyncFrame, '/oak/sync_frame', self.driver_callback, 10)
+            # Skip Device Setup
+        elif DEPTHAI_AVAILABLE:
             self.setup_depthai_pipeline()
+
         else:
             self.get_logger().warn("DepthAI non disponibile - modalità simulazione")
             self.setup_simulation()
@@ -585,7 +600,9 @@ class OakSuperPointOdometry(Node):
         
         self.get_logger().info("✅ Sistema potenziato inizializzato con successo!")
         
-        self.main_timer = self.create_timer(1.0 / self.fps, self.main_callback)
+        if not self.use_driver_topic:
+            self.main_timer = self.create_timer(1.0 / self.fps, self.main_callback)
+
         
         self.get_logger().info(f"Nodo SuperPoint Odometry avviato a {self.fps} FPS")
         
@@ -3374,10 +3391,58 @@ class OakSuperPointOdometry(Node):
                 self.get_logger().debug(f"Pochi keypoints: {num_extracted}, skip odometria")
                 return                                  
 
+            # Call shared logic
+            self.process_odometry(tracked_kpts, tracked_desc, mono_frame, depth_frame, msg_ts, do_superpoint, yolo_detections)
+
+
+    def driver_callback(self, msg):
+        """Processa frame ricevuti dal driver esterno (OAKSyncFrame)"""
+        try:
+            # 1. Unpack Images
+            mono_frame = self.bridge.imgmsg_to_cv2(msg.mono, desired_encoding="mono8")
+            depth_frame = self.bridge.imgmsg_to_cv2(msg.depth, desired_encoding="16UC1")
+            
+            # Timestamp corretto dal messaggio
+            ts_msg = Time.from_msg(msg.header.stamp)
+            
+            # Pubblica (relay) per visualizzazione
+            if hasattr(self, 'pub_mono'): self.publish_mono_frame(mono_frame, ts_msg)
+            if hasattr(self, 'pub_depth'): self.publish_depth_frame(depth_frame, ts_msg)
+            
+            # 2. Unpack Features
+            # Kpts
+            kpts_raw = []
+            if msg.keypoints.data:
+                 kpts_raw = np.array(msg.keypoints.data, dtype=np.float32).reshape(-1, 2)
+            
+            # Desc
+            # TODO: Handle compressed descriptors (delta). 
+            # For now assume driver sends raw or empty.
+            # If empty, Flann will fail if used.
+            # Assuming KLT fallback for now if desc missing.
+            desc_raw = np.array([]) 
+            
+            # Detections
+            yolo_detections = [] # Decode from msg.detections if needed
+            
+            # 3. Logic Injection
+            self.frame_count += 1
+            
+            # Logic expects tracked_kpts to be defined
             tracked_kpts = kpts_raw
             tracked_desc = desc_raw
+            
+            if len(tracked_kpts) > 0:
+                 self.process_odometry(tracked_kpts, tracked_desc, mono_frame, depth_frame, ts_msg, do_superpoint=True, yolo_detections=yolo_detections)
 
-            # 9. Matching & Odometria
+        except Exception as e:
+            self.get_logger().error(f"Driver callback error: {e}")
+
+
+    def process_odometry(self, tracked_kpts, tracked_desc, mono_frame, depth_frame, msg_ts, do_superpoint, yolo_detections=None):
+            matches = []
+
+            # 9. Matching & Odometry
             if self.prev_descriptors is not None and len(self.prev_descriptors) > 0:
                 current_pose = None
                 inlier_ratio = 0.0
@@ -3386,27 +3451,21 @@ class OakSuperPointOdometry(Node):
                 # Se siamo in modalità KLT, i match sono IMPLICITI (stesso indice)
                 if not do_superpoint and self.enable_hybrid:
                      matches = []
-                     # status è un array booleano: True se il punto i-esimo di prev_keypoints è stato tracciato
-                     # status è un array booleano o bool
-                     if 'status' in locals() and status is not None and not isinstance(status, bool) and len(status) == len(self.prev_keypoints):
-                         curr_idx = 0
-                         for prev_idx, valid in enumerate(status):
-                             if valid:
-                                 # prev_idx in prev_keypoints matches curr_idx in tracked_kpts
-                                 matches.append(cv2.DMatch(prev_idx, curr_idx, 0.0))
-                                 curr_idx += 1
-                     else:
-                        # Fallback se le dimensioni non tornano
-                         matches = self.odometry_system.match_features_hybrid(
+                     # Implict match for KLT
+                     # Assumption: tracked_kpts indices align with prev_keypoints
+                     min_len = min(len(self.prev_keypoints), len(tracked_kpts))
+                     for i in range(min_len):
+                         matches.append(cv2.DMatch(i, i, 0.0))
+                else:
+                    # Caso SuperPoint classico o Driver Mode (Global Match)
+                    # Se non abbiamo descrittori (es. driver non li manda), questo fallirà per FLANN.
+                    # Ma se stiamo usando KLT su feature SP, dovremmo gestirlo.
+                    # Per ora assumiamo che il driver mandi feature complete o che si usi logica ibrida.
+                    if tracked_desc is not None and len(tracked_desc) > 0:
+                        matches = self.odometry_system.match_features_hybrid(
                             self.prev_descriptors, tracked_desc,
                             self.prev_keypoints, tracked_kpts
                         )
-                else:
-                    # Caso SuperPoint classico
-                    matches = self.odometry_system.match_features_hybrid(
-                        self.prev_descriptors, tracked_desc,
-                        self.prev_keypoints, tracked_kpts
-                    )
                 
                 # B. Stima Posa
                 if len(matches) >= self.min_matches_for_tracking:
@@ -3420,6 +3479,7 @@ class OakSuperPointOdometry(Node):
                     # C. Pubblica Odometria
                     if current_pose is not None:
                         self.publish_odometry(current_pose, msg_ts, inlier_ratio)
+
                         
             # Aggiorna stato precedente
             self.prev_keypoints = tracked_kpts
