@@ -40,6 +40,8 @@ install(PROGRAMS
   scripts/bluedot_node
   scripts/motor_control_node
   scripts/image_compressor_node
+  scripts/oak_superpoint_odometry_node
+  scripts/teleop_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

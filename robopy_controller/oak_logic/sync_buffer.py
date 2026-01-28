@@ -42,14 +42,17 @@ class TemporalSyncBuffer:
         if not all([self.depth_buf, self.kp_buf, self.yolo_buf]):
             return None
         
-        # Usa timestamp più recente dei keypoints come riferimento (VO is master usually)
-        # Or max of all?
-        # User prompt: "Usa timestamp più recente come riferimento"
-        ref_ts = max(
-            self.depth_buf[-1]['ts'],
-            self.kp_buf[-1]['ts'],
-            self.yolo_buf[-1]['ts']
-        )
+        # Strategy Update:
+        # Depth is fast, KP (NN) might be slow.
+        # Use min(depth, kp) to ensuring we match against what is available for BOTH.
+        # YOLO is auxiliary, so we don't let it hold back the VO stream (handled later).
+        
+        t_depth = self.depth_buf[-1]['ts']
+        t_kp = self.kp_buf[-1]['ts']
+        
+        # We synchronize to the SLOWEST of the critical paths (Depth + KP)
+        # to ensure we have data for both.
+        ref_ts = min(t_depth, t_kp)
         
         # Trova match più vicini in ogni buffer
         depth_match = min(self.depth_buf, key=lambda x: abs(x['ts'] - ref_ts))

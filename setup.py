@@ -158,6 +158,7 @@ setup(
             "teleop_bridge_node = robopy_controller.nodes.teleop_bridge_node:main",
             "image_compressor_node = robopy_controller.nodes.image_compressor_node:main",
             "oak_driver_node = robopy_controller.nodes.oak_driver_node:main",
+            "oak_superpoint_odometry_node = robopy_controller.nodes.oak_superpoint_odometry_node:main",
         ],
     },
 )

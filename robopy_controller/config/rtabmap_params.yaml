@@ -80,6 +80,6 @@ rtabmap:
     Grid/CellSize: "0.02"            # Più piccolo per risoluzione maggiore
 
 
-    Reg/Strategy: 1  # Viso + ICP per 3D
+    Reg/Strategy: "1"  # Viso + ICP per 3D
     Icp/PointToPlane: "true"
     RGBD/OptimizeMaxError: "2.0"  # Più tollerante per 3D

@@ -1,0 +1,13 @@
+#!/usr/bin/env python3
+import sys
+import importlib.util
+
+# Load teleop_node directly from the correct path to avoid namespace conflict
+MODULE_PATH = '/home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/python3.11/site-packages/robopy_controller/nodes/teleop_node.py'
+
+spec = importlib.util.spec_from_file_location("teleop_node", MODULE_PATH)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+if __name__ == '__main__':
+    module.main()

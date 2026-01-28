@@ -3,7 +3,7 @@ import sys
 import importlib.util
 
 # Load module directly from the correct path to avoid namespace conflict
-MODULE_PATH = '/home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/python3.11/site-packages/robopy_controller/nodes/image_compressor_node.py'
+MODULE_PATH = '/home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/python3.11/site-packages/robopy_controller/nodes/oak_superpoint_odometry_node.py'
 
 spec = importlib.util.spec_from_file_location("module", MODULE_PATH)
 module = importlib.util.module_from_spec(spec)

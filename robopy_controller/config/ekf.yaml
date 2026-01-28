@@ -12,7 +12,7 @@ ekf_filter_node:
     world_frame: odom
 
     # ============ ODOMETRIA VISIVA (SuperPoint) ============
-    odom0: /superpoint/odometry
+    odom0: /vo/odom
     odom0_queue_size: 10
     odom0_differential: false
     odom0_relative: false

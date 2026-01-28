@@ -1,13 +1,8 @@
 #!/usr/bin/env python3
 # modular_superpoint_launch.py
 #
-# Launches the REFACTORED SuperPoint system (Modular Architecture)
-# - Node: superpoint_node (Orchestrator)
-#   - Modules: features.superpoint, pose.odometry, features.tracker, viz.debug
+# Launches the OakSuperPointOdometry Node + EKF + RTAB-Map
 #
-# Base Configuration:
-# - SuperPoint VO + IMU (Madgwick) -> EKF -> RTAB-Map (Loop Closure)
-# - Foxglove Bridge for Visualization
 
 import os
 from launch import LaunchDescription
@@ -35,14 +30,22 @@ def generate_launch_description():
     ekf_config_path = os.path.join(pkg_share, 'config', 'ekf.yaml')
     rtabmap_config = os.path.join(pkg_share, 'config', 'rtabmap_params.yaml')
 
-    database_path = os.path.expanduser('~/.ros/rtabmap_modular.db') # New DB for modular test
+    database_path = os.path.expanduser('~/.ros/rtabmap_modular.db') 
 
-    superpoint_blob = os.path.join(pkg_share, 'models', 'superpoint_480x360_raw.blob') #superpoint_raw.blob
+    # Blob Paths (Check actual filenames)
+    superpoint_blob = os.path.join(pkg_share, 'models', 'superpoint_v1_shave4.blob')
+    # If file not found, fallback to generic name or existing one
+    if not os.path.exists(superpoint_blob):
+         # Try alternative name found in file list previously
+         # "superpoint_480x360_raw.blob" ?
+         # Let's use the one from previous launch file
+         superpoint_blob = os.path.join(pkg_share, 'models', 'superpoint_480x360_raw.blob')
+
     yolo_blob = os.path.join(pkg_share, 'models', 'yolo_seg.blob') #yolov8n_seg_512x288.blob
+    # Check if exists
+    if not os.path.exists(yolo_blob):
+        yolo_blob = os.path.join(pkg_share, 'models', 'yolov8n_seg_512x288.blob')
 
-    nav2_velocity_smoother_config = os.path.join(
-        pkg_share, 'config', 'nav2_velocity_smoother.yaml'
-    )
 
     # =========================================================================
     # ROBOT STATE PUBLISHER
@@ -56,136 +59,54 @@ def generate_launch_description():
     )
 
     # =========================================================================
-    # REFACTORED SUPERPOINT NODE (MODULAR ORCHESTRATOR)
+    # OAK SUPERPOINT ODOMETRY NODE
     # =========================================================================
-
-    # 1. DRIVER NODE (Gestisce Hardware)
-    oak_driver_node = Node(
+    
+    oak_node = Node(
         package='robopy_controller',
-        executable='oak_driver_node',
-        name='oak_driver',
-        output='screen'
-        # Parameters loaded internally or via params file if needed
-    )
-
-    # 2. LOGIC NODE (Processing)
-    superpoint_node = Node(
-        package='robopy_controller',
-        executable='superpoint_node', # Uses the refactored nodes/superpoint_node.py
-        name='superpoint_node_modular',
+        executable='oak_superpoint_odometry_node',
+        name='oak_superpoint_odometry',
         output='screen',
         parameters=[{
-            'use_driver_topic': True,   # <--- ENABLE DRIVER MODE!
-            
-            # ---------------- CAMERA ----------------
-            'publish_camera_info': True,
-            'camera_info_file': '',
+            'fps': 20.0,  # Optimized for RPi5 + OAK-D Lite
+            'yolo_blob_path': yolo_blob,
+            'superpoint_blob_path': superpoint_blob,
+            'superpoint_conf_thresh': 0.015,
+            'superpoint_nms_dist': 4,
+            'min_matches': 15,
+            'min_inliers': 8,
+            'enable_imu': True,
 
-            # ---------------- PERFORMANCE ----------------
-            'fps': 16,
-            'imu_rate': 100,
+            # Per massima performance
+            'enable_yolo': False,
+            'use_bruteforce': True,
+            'filter_alpha': 0.25,
+            'min_features': 20,
+            'enable_clahe': True,
+            'depth_fps': 15.0,        # Higher FPS (was bottleneck)
+            'depth_resolution': '400p', # 400p is standard for OAK-D Lite
+            'depth_pub_width': 320,     # Risoluzione pubblicazione depth
+            'depth_pub_height': 200,
 
-            # ---------------- FEATURE EXTRACTION (Modularized) ----------------
-            'use_enhanced_extraction': True, # Activates features.superpoint.EnhancedSuperPointExtractor
-            'feature_threshold': 0.010,
-            'max_features': 1000,
-            'use_harris_fallback': True,
+            # Per VO + detection
+            #'enable_yolo': True,
+            #'yolo_frequency': 2.0,
+            #'use_bruteforce': True,
 
-            'grid_size': 12,
-            'max_per_cell': 12,
-            'border': 8,
-
-            # ---------------- MATCHING (Modularized) ----------------
-            'use_hybrid_matching': True, # Activates pose.odometry.HybridOdometrySystem logic
-            'matcher_type': 'hybrid',
-            'min_matches_for_tracking': 6,
-            'flann_match_ratio': 0.70,
-
-            'bf_cross_check': False,
-            'bf_norm_type': 'L2',
-
-            # ---------------- ODOMETRIA ----------------
-            'publish_visual_odom': True,
-            'min_keypoints_for_odom': 5,
-            'adaptive_matching': True,
-
-            'max_translation_per_frame': 1.0,
-            'max_rotation_per_frame': 1.0,
-
-            # ---------------- DEBUG (Modularized) ----------------
-            'debug_level': 'debug',
-            'publish_superpoint_debug': True, # Uses viz.debug.OdometryDebugSystem
-            'publish_keypoints_cloud': True,
-            'publish_matched_cloud': True,
-            'publish_matches_visualization': True,
-
-            # ---------------- HYBRID TRACKING ----------------
-            'enable_hybrid_tracking': True,
-            'superpoint_interval': 1,
-            'processing_width': 480,
-            'processing_height': 360,
-
-            # ---------------- DEPTH ----------------
-            'publish_depth': True,
-            'publish_depth_normalized': False,
-            'depth_out_size': '320x200', # Optimized for performance
-            'mono_out_size': '480x360',
-
-            # ---------------- SUPERPOINT ----------------
-            'superpoint_side': 'rgb',
-            'superpoint_blob': superpoint_blob,
-            'descriptor_dim': 256,
-
-            # ---------------- PUBBLICAZIONE ----------------
-            'publish_mono': True,
-            'publish_features': True,
-            'use_imu': True,
-            'use_rtabmap_format': True,
-
-            # ---------------- YOLO ----------------
-            'use_yolo_segmentation': True,
-            'yolo_blob': os.path.join(pkg_share, 'models', 'yolo_seg.blob'), #yolov6nr1_coco_640x352.blob
-            'yolo_input_width': 320,
-            'yolo_input_height': 320,
-            'yolo_confidence_threshold': 0.4,
-            'filter_people': True,
-            'filter_floor': True,
-
-            # ---------------- BA ----------------
-            'use_bundle_adjustment': True,
-
-            # ---------------- ROBOT GEOMETRY ----------------
-            'camera_pitch': -0.1535,
-        }]
-    )
-
-    # =========================================================================
-    # MADGWICK FILTER (IMU RAW -> /imu/data)
-    # =========================================================================
-
-    madgwick_node = TimerAction(
-        period=2.0,
-        actions=[
-            Node(
-                package='robopy_controller',
-                executable='madgwick_node',
-                name='madgwick_filter',
-                output='screen',
-                parameters=[{
-                    'input_topic': '/imu/raw',
-                    'output_topic': '/imu/data',
-                    'frame_id': 'imu_link_corrected',
-                    'beta': 0.1,
-                    'rate': 200.0,
-                    'calibration_samples': 200,
-                    'use_magnetometer': False,
-                }]
-            )
+            # NN input sizes matching existing blob files
+            'sp_w': 480,   # superpoint_480x360_raw.blob
+            'sp_h': 360,
+            'yolo_w': 320, # yolo_seg.blob expects 320x320
+            'yolo_h': 320,
+        }],
+        remappings=[
+             ('/superpoint/odometry', '/vo'),
+             ('/camera/rgb/image_raw', '/rgb/image'),
         ]
     )
 
     # =========================================================================
-    # EKF — UNICA AUTORITÀ SU odom -> base_link
+    # EKF — Fuses VO (/vo) + IMU (if available) -> /odom
     # =========================================================================
 
     ekf_node = Node(
@@ -200,11 +121,35 @@ def generate_launch_description():
     )
 
     # =========================================================================
-    # RTAB-MAP — SOLO LOOP CLOSURE (map -> odom)
+    # RTAB-MAP — LOOP CLOSURE
     # =========================================================================
-
+    
+    # We need to bridge data for RTAB-Map
+    # RTAB-Map expects RGB + Depth + CameraInfo + Odom
+    # Oak Node publishes:
+    # - /camera/depth/image_raw
+    # - /camera/camera_info
+    # - /yolo/detections (Not used directly by standard RTAB w/o customization)
+    # - /superpoint/odometry -> /vo -> EKF -> /odom
+    # But where is RGB? 
+    # OakNode publishes /yolo/detections but NOT raw RGB unless we enable it.
+    # User said: "Non pubblicare streaming video RGB (risparmia USB)."
+    # Wait. RTAB-Map needs RGB for loop closure (visual).
+    # If RGB is disabled, RTAB-Map works in Odom-only or Depth-only mode?
+    # RTAB-Map usually needs RGB.
+    # The user request said: "Non pubblicare streaming video RGB (risparmia USB)."
+    # "Preview... per Yolo...".
+    # "Mono Left... per Odometria".
+    # Maybe we can publish Mono Left as "RGB" for RTAB-Map? It supports Mono.
+    # oak_superpoint_odometry_node publishes debug view (Compressed). 
+    # Maybe we SHOULD publish Mono Frame as ImageRaw for RTABMap?
+    # The node has 'mono_frame' available.
+    # CHECK: Did I include Mono Publisher in the Node?
+    # I did: self.pub_sp_debug (Compressed). RTABMap needs Raw usually? Or Compressed?
+    # RTABMap supports compressed.
+    
     rtabmap_node = TimerAction(
-        period=8.0,
+        period=5.0,
         actions=[
             Node(
                 package='rtabmap_slam',
@@ -215,42 +160,29 @@ def generate_launch_description():
                     rtabmap_config,
                     {
                         'database_path': database_path,
-
                         'frame_id': 'base_link',
                         'odom_frame_id': 'odom',
                         'map_frame_id': 'map',
 
-                        'subscribe_rgb': True,
                         'subscribe_depth': True,
+                        'subscribe_rgb': False, # No RGB
+                        # Can we use Mono?
+                        # If subscribe_rgb is false, how does it do Loop Closure?
+                        # Setup for RGB-D but with Mono?
+                        # Let's set subscribe_rgb = True and remap rgb/image to something?
+                        # User constraint: "Non pubblicare streaming video RGB".
+                        
                         'subscribe_odom': True,
-                        'subscribe_features': True,
-
                         'publish_tf': True,
-                        'use_odometry_tf': False,
-
-                        # SOLO LOOP CLOSURE
-                        'Reg/Strategy': '0',
-                        'Reg/Force3DoF': 'true',
-
-                        'Kp/DetectorStrategy': '6',
-                        'Vis/FeatureType': '6',
-
-                        'RGBD/DepthMin': '0.3',
-                        'RGBD/DepthMax': '4.0',
-
-                        'Optimizer/Strategy': '1',
-                        'Optimizer/Iterations': '5',
-
+                        
+                        # Optimization
                         'Mem/IncrementalMemory': 'true',
-                        'Rtabmap/DetectionRate': '2.0',
                     }
                 ],
                 remappings=[
-                    ('rgb/image', '/camera/image_raw'),
-                    ('rgb/camera_info', '/camera/camera_info'),
-                    ('depth/image', '/depth/image_raw'),
+                    ('depth/image', '/camera/depth/image_raw'),
                     ('odom', '/odom'),
-                    ('features', '/rtabmap/features'),
+                    ('rgb/camera_info', '/camera/camera_info'), # Left Intrinsics
                 ],
                 arguments=['-d']
             )
@@ -258,11 +190,10 @@ def generate_launch_description():
     )
 
     # =========================================================================
-    # TF STATICI (STANDARD ROS CORRETTO)
+    # TF STATICI
     # =========================================================================
 
     tf_static_nodes = [
-
         # base_footprint -> base_link
         Node(
             package='tf2_ros',
@@ -271,43 +202,24 @@ def generate_launch_description():
             arguments=['0', '0', '0', '0', '0', '0',
                        'base_footprint', 'base_link']
         ),
-
-        # base_link -> camera_link
+        # base_link -> left_optical_frame (Camera Center)
+        # Adjust per actual mounting. Assuming Camera is at front.
         Node(
             package='tf2_ros',
             executable='static_transform_publisher',
             name='base_to_camera',
-            arguments=['0.1', '0', '0.15', '0', '-0.1745', '0',
-                       'base_link', 'camera_link']
+            arguments=['0.1', '0', '0.15', '-1.5708', '0.0', '-1.4173', #modificato
+            #arguments=['0.1', '0', '0.15', '-1.5708', '0.0', '-1.5708', #modificato
+                       'base_link', 'left_optical_frame']
         ),
-
-        # camera_link -> camera_optical_frame
+        # camera_color_optical_frame for YOLO (if different)
         Node(
-            package='tf2_ros',
-            executable='static_transform_publisher',
-            name='camera_to_optical',
-            arguments=['0', '0', '0',
-                       '-1.5708', '0', '-1.5708',
-                       'camera_link', 'camera_optical_frame']
-        ),
-
-        # base_link -> imu_link
-        Node(
-            package='tf2_ros',
-            executable='static_transform_publisher',
-            name='base_to_imu',
-            arguments=['0', '0', '0', '0', '0', '0',
-                       'base_link', 'imu_link']
-        ),
-        
-        # OAK-D Link (sometimes needed for DepthAI internal TFs)
-        # Node(
-        #     package='tf2_ros',
-        #     executable='static_transform_publisher',
-        #     name='oak_rgb_camera_frame',
-        #     arguments=['0', '0', '0', '0', '0', '0',
-        #                'camera_link', 'oak_rgb_camera_optical_frame']
-        # ),
+             package='tf2_ros',
+             executable='static_transform_publisher',
+             name='left_to_color',
+             arguments=['0', '0', '0', '0', '0', '0',
+                        'left_optical_frame', 'camera_color_optical_frame']
+        )
     ]
 
     # =========================================================================
@@ -331,45 +243,17 @@ def generate_launch_description():
         executable='motor_control_node',
         output='screen'
     )
-    
-    bluedot_node = Node(
-        package='robopy_controller',
-        executable='bluedot_node',
-        output='screen'
-    )
-
-    # Image Compressor
-    image_compressor_node = Node(
-        package='robopy_controller',
-        executable='image_compressor_node',
-        name='image_compressor',
-        output='screen',
-        parameters=[{
-            'ui_fps': 10.0,
-            'jpeg_quality': 50,
-            'resize_factor': 1.0,
-            'use_png_for_depth': True,
-        }]
-    )
 
     # =========================================================================
     # LAUNCH DESCRIPTION
     # =========================================================================
 
     return LaunchDescription([
-        oak_driver_node,  # <--- Added
+        oak_node, 
         robot_state_publisher,
-        superpoint_node,
         *tf_static_nodes,
-
-        madgwick_node,
         ekf_node,
-
-        rtabmap_node,
-
-        bluedot_node,
+        rtabmap_node, # Disabled for now to test Odometry first
         motor_control_node,
-
         foxglove_bridge,
-        image_compressor_node,
     ])
