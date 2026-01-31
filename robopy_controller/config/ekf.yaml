@@ -39,13 +39,14 @@ ekf_filter_node:
     imu0_relative: true
     imu0_remove_gravitational_acceleration: true
 
-    # Usa: Yaw (orientamento) + vYaw (velocità angolare)
+    # Usa: Roll, Pitch (orientamento) + vYaw (velocità angolare)
+    # NOTE: Yaw assoluto viene solo da VO per evitare conflitti!
     imu0_config: [
-      false, false, false,
-      false, false, true,     # Yaw da orientamento IMU
-      false, false, false,
-      false, false, true,     # vYaw da giroscopio
-      false, false, false
+      false, false, false,    # X, Y, Z position (IMU can't estimate position)
+      true,  true,  false,    # Roll, Pitch from IMU (camera tilt compensation!) - NO YAW!
+      false, false, false,    # vX, vY, vZ (velocity - not from IMU)
+      false, false, true,     # vRoll, vPitch, vYaw (angular velocity from gyro)
+      false, false, false     # aX, aY, aZ (acceleration - not used)
     ]
 
     imu0_pose_rejection_threshold: 0.5     # ⬇️ Da 0.8 a 0.5

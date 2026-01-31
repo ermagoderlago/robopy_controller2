@@ -1,0 +1,184 @@
+# Robot AI Configuration
+# ======================
+# Default configuration file for the AI system.
+# Copy this to ai_config.yaml and customize as needed.
+
+# LLM Configuration
+llm:
+  model: "gemini-2.0-flash"
+  temperature: 0.7
+  max_tokens: 2048
+  top_p: 0.95
+  top_k: 40
+  enable_function_calling: true
+  two_stage_reasoning: false
+  system_prompt: |
+    Sei RoboPy, un robot domestico intelligente. Rispondi sempre in italiano,
+    in modo amichevole e conciso. Puoi controllare luci, clima, TV e navigare
+    nella casa. Cerca di capire l'intento dell'utente e agisci di conseguenza.
+
+# Home Assistant Configuration
+home_assistant:
+  url: "ws://192.168.1.45:8123/api/websocket"
+  # Token should be set via HA_TOKEN environment variable
+  token: ""
+  request_timeout: 10.0
+  # Whitelist domains the AI can control
+  whitelist_domains:
+    - "light"
+    - "switch"
+    - "climate"
+    - "media_player"
+    - "cover"
+    - "input_boolean"
+    - "input_number"
+    - "input_text"
+  # Specific entities to whitelist (optional, empty = all in allowed domains)
+  whitelist_entities: []
+
+# Navigation Configuration
+navigation:
+  default_speed: 0.5
+  max_speed: 1.0
+  goal_tolerance: 0.3
+  # Semantic waypoints
+  waypoints:
+    cucina:
+      x: 2.5
+      y: 1.0
+      theta: 0.0
+      aliases: ["kitchen"]
+    soggiorno:
+      x: 0.0
+      y: 0.0
+      theta: 0.0
+      aliases: ["salotto", "living", "divano"]
+    camera:
+      x: 4.0
+      y: 3.0
+      theta: 0.0
+      aliases: ["bedroom", "letto", "stanza"]
+    bagno:
+      x: 3.0
+      y: 2.5
+      theta: 0.0
+      aliases: ["bathroom"]
+    studio:
+      x: 1.5
+      y: 3.5
+      theta: 0.0
+      aliases: ["ufficio", "office", "scrivania"]
+    ingresso:
+      x: 0.0
+      y: 2.0
+      theta: 0.0
+      aliases: ["entrata", "entrance", "porta"]
+    base:
+      x: 0.0
+      y: 0.0
+      theta: 0.0
+      aliases: ["home", "ricarica", "dock"]
+
+# RAG (Retrieval Augmented Generation) Configuration
+rag:
+  enabled: true
+  chromadb_path: "/home/robopy/ChromaDB"
+  collection_name: "robot_memories"
+  embedding_model: "models/text-embedding-004"
+  embedding_dimension: 768
+  max_context_memories: 5
+  temporal_decay_rate: 0.1
+  min_relevance_score: 0.3
+
+# Security Configuration
+security:
+  input_max_length: 2000
+  enable_pii_redaction: true
+  block_sql_injection: true
+  block_command_injection: true
+  allowed_action_types:
+    - "speak"
+    - "ha_call"
+    - "nav_goto"
+    - "nav_stop"
+    - "nav_follow"
+    - "remember"
+    - "forget"
+    - "set_timer"
+    - "cancel_timer"
+  # HA services that are NEVER allowed
+  blocked_ha_services:
+    - "homeassistant.restart"
+    - "homeassistant.stop"
+    - "system_log.clear"
+    - "recorder.purge"
+
+# Performance Configuration (optimized for Raspberry Pi 5)
+performance:
+  # Use float16 embeddings to save memory
+  use_float16_embeddings: true
+  # Embedding cache size
+  embedding_cache_size: 256
+  # Batch embedding size
+  batch_embedding_size: 8
+  # LLM request timeout
+  llm_timeout: 30.0
+  # Max concurrent LLM requests
+  max_concurrent_requests: 2
+
+# Circuit Breaker Configuration
+circuit_breaker:
+  llm_failure_threshold: 3
+  ha_failure_threshold: 5
+  nav_failure_threshold: 3
+  recovery_timeout: 30
+
+# Logging Configuration
+logging:
+  level: "INFO"
+  json_format: false
+  log_dir: "/home/robopy/logs/robot_ai"
+  max_file_size_mb: 10
+  backup_count: 5
+  log_to_console: true
+
+# TTS Configuration
+tts:
+  enabled: true
+  engine: "google"  # "google", "piper", "espeak"
+  language: "it-IT"
+  voice: "it-IT-Wavenet-A"
+  speaking_rate: 1.0
+  pitch: 0.0
+
+# ASR Configuration
+asr:
+  enabled: true
+  engine: "google"  # "google", "whisper", "vosk"
+  language: "it-IT"
+  sample_rate: 16000
+  # Wake word configuration
+  wake_word: "ehi robot"
+  wake_word_sensitivity: 0.5
+
+# Profiles for different environments
+profiles:
+  development:
+    llm:
+      temperature: 0.9
+    logging:
+      level: "DEBUG"
+  
+  production:
+    llm:
+      temperature: 0.5
+    logging:
+      level: "WARNING"
+      json_format: true
+  
+  low_power:
+    performance:
+      embedding_cache_size: 64
+      max_concurrent_requests: 1
+    llm:
+      max_tokens: 512

@@ -17,6 +17,12 @@
   <exec_depend>rclpy</exec_depend>
   <exec_depend>picamera2</exec_depend>
   <exec_depend>robot_localization</exec_depend>
+  <depend>rclcpp</depend>
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
+  <depend>tf2_geometry_msgs</depend>
+  <depend>image_transport</depend>
+  <depend>nav_msgs</depend>
 
 
   <!-- Dipendenze di build -->

@@ -62,6 +62,10 @@ def generate_launch_description():
     # OAK SUPERPOINT ODOMETRY NODE
     # =========================================================================
     
+    # =========================================================================
+    # NODE PYTHON LEGACY (COMMENTATO)
+    # =========================================================================
+    """
     oak_node = Node(
         package='robopy_controller',
         executable='oak_superpoint_odometry_node',
@@ -104,6 +108,44 @@ def generate_launch_description():
              ('/camera/rgb/image_raw', '/rgb/image'),
         ]
     )
+    """
+
+    # =========================================================================
+    # OAK SUPERPOINT ODOMETRY NODE (C++ NATIVE)
+    # =========================================================================
+    
+    oak_node = Node(
+        package='robopy_controller',
+        executable='oak_superpoint_odometry_cpp',
+        name='oak_superpoint_odometry',
+        output='screen',
+        parameters=[{
+            'superpoint_blob_path': superpoint_blob,
+            'yolo_blob_path': yolo_blob,
+            'enable_yolo': False, # Come richiesto per performance
+            'yolo_frequency': 2.0,
+            
+            # Odometry params
+            'min_features': 20,
+            'min_inliers': 8,
+            'min_depth': 0.3,
+            'max_depth': 8.0,
+            'filter_alpha': 0.25,
+            'use_bruteforce': True,
+            'enable_clahe': True,
+            'publish_tf': False, # EKF publishes odom->base_link (fused VO+IMU)
+            
+            # Camera Config
+            'depth_fps': 20.0,
+            'depth_resolution': '400p',
+            'depth_pub_width': 640,
+            'depth_pub_height': 400,
+        }],
+        remappings=[
+             ('/vo/odom', '/vo'), # Adapting to match system expectation if needed, C++ publishes to /vo/odom by default
+             ('/camera/rgb/image_raw', '/rgb/image'),
+        ]
+    )
 
     # =========================================================================
     # EKF — Fuses VO (/vo) + IMU (if available) -> /odom
@@ -118,6 +160,41 @@ def generate_launch_description():
         remappings=[
             ('odometry/filtered', '/odom')
         ]
+    )
+
+    # =========================================================================
+    # IMU FILTER — Madgwick AHRS
+    # =========================================================================
+    # Note: Raw IMU data now published by C++ node at /oak/imu/data
+    
+    # OAK-D IMU Publisher - DISABLED (now integrated in C++ node)
+    # oak_imu_node = Node(
+    #     package='robopy_controller',
+    #     executable='IMU_oakd_node.py',
+    #     name='oak_imu_publisher',
+    #     output='screen',
+    #     parameters=[{
+    #         'imu_fps': 100,
+    #         'frame_id': 'imu_link',
+    #         'topic': '/oak/imu/data',
+    #         'calibrate_gyro': True,
+    #     }]
+    # )
+    
+    # Madgwick AHRS Filter (orientation estimation)
+    madgwick_node = Node(
+        package='robopy_controller',
+        executable='madgwick_node',  # Fixed: no .py extension
+        name='madgwick_filter',
+        output='screen',
+        parameters=[{
+            'input_topic': '/oak/imu/data',
+            'output_topic': '/imu/data',
+            'frame_id': 'imu_link',
+            'beta': 0.04,  # Madgwick gain (tune if needed)
+            'rate': 200.0,
+            'calibration_samples': 100,
+        }]
     )
 
     # =========================================================================
@@ -244,6 +321,15 @@ def generate_launch_description():
         output='screen'
     )
 
+    # H) Robot AI Orchestrator
+    robot_ai_node = Node(
+        package='robopy_controller',
+        executable='robot_ai_node.py',
+        name='robot_ai_orchestrator',
+        output='screen',
+        emulate_tty=True
+    )
+
     # =========================================================================
     # LAUNCH DESCRIPTION
     # =========================================================================
@@ -252,8 +338,10 @@ def generate_launch_description():
         oak_node, 
         robot_state_publisher,
         *tf_static_nodes,
+        madgwick_node,         # IMU filter (receives from C++ node)
         ekf_node,
         rtabmap_node, # Disabled for now to test Odometry first
         motor_control_node,
+        robot_ai_node,
         foxglove_bridge,
     ])

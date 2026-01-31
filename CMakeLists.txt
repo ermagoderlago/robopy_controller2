@@ -12,7 +12,42 @@ find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(vision_msgs REQUIRED)
+find_package(vision_msgs REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
+find_package(cv_bridge REQUIRED)
+find_package(image_transport REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(OpenCV REQUIRED)
+find_package(depthai CONFIG REQUIRED)
+
+add_executable(oak_superpoint_odometry_cpp src/oak_superpoint_odometry_node.cpp)
+ament_target_dependencies(oak_superpoint_odometry_cpp
+  rclcpp
+  std_msgs
+  sensor_msgs
+  geometry_msgs
+  nav_msgs
+  vision_msgs
+  tf2
+  tf2_ros
+  tf2_geometry_msgs
+  cv_bridge
+  image_transport
+)
+# Link depthai and OpenCV manually if not handled by ament
+target_link_libraries(oak_superpoint_odometry_cpp
+  depthai::core
+  depthai::opencv
+  ${OpenCV_LIBRARIES}
+)
+
+install(TARGETS oak_superpoint_odometry_cpp
+  DESTINATION lib/${PROJECT_NAME}
+)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/KeypointsCompressed.msg"
