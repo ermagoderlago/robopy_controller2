@@ -49,8 +49,8 @@ ekf_filter_node:
       false, false, false     # aX, aY, aZ (acceleration - not used)
     ]
 
-    imu0_pose_rejection_threshold: 0.5     # ⬇️ Da 0.8 a 0.5
-    imu0_twist_rejection_threshold: 0.5    # ⬇️ Da 0.8 a 0.5
+    imu0_pose_rejection_threshold: 2.0     # Relaxed to allow tilt
+    imu0_twist_rejection_threshold: 2.0    # Relaxed
 
     # ============ RUMORE PROCESSO (15x15) ============
     process_noise_covariance: [

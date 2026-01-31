@@ -125,24 +125,32 @@ def generate_launch_description():
             'enable_yolo': False, # Come richiesto per performance
             'yolo_frequency': 2.0,
             
-            # Odometry params
-            'min_features': 20,
-            'min_inliers': 8,
+            # Hybrid Odometry (ORB + SuperPoint)
+            'use_orb_primary': True,      # High FPS tracking
+            'superpoint_relocalization': True, # Robust recovery
+            'max_orb_features': 500,
+            'vo_skip_frames': 1,          # No skipping needed for ORB
+            'lost_tracking_threshold': 10,
+            'relocalization_inliers': 30,
+
+            # Standard Odometry params
+            'min_features': 30,
+            'min_inliers': 12,
             'min_depth': 0.3,
             'max_depth': 8.0,
             'filter_alpha': 0.25,
-            'use_bruteforce': True,
-            'enable_clahe': True,
+            'use_bruteforce': False,
+            'enable_clahe': False,
             'publish_tf': False, # EKF publishes odom->base_link (fused VO+IMU)
             
             # Camera Config
-            'depth_fps': 20.0,
+            'depth_fps': 30.0,
             'depth_resolution': '400p',
-            'depth_pub_width': 640,
-            'depth_pub_height': 400,
+            'depth_pub_width': 320,
+            'depth_pub_height': 200,
         }],
         remappings=[
-             ('/vo/odom', '/vo'), # Adapting to match system expectation if needed, C++ publishes to /vo/odom by default
+             # ('/vo/odom', '/vo'), # REMOVED: Match EKF config which expects /vo/odom
              ('/camera/rgb/image_raw', '/rgb/image'),
         ]
     )
@@ -342,6 +350,6 @@ def generate_launch_description():
         ekf_node,
         rtabmap_node, # Disabled for now to test Odometry first
         motor_control_node,
-        robot_ai_node,
+        #robot_ai_node,
         foxglove_bridge,
     ])
