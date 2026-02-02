@@ -14,7 +14,9 @@ import threading
 try:
     import google.generativeai as genai
     HAS_GENAI = True
-except ImportError:
+except ImportError as e:
+    import sys
+    print(f"DEBUG: Failed to import google.generativeai in embedding_service: {e}", file=sys.stderr)
     HAS_GENAI = False
 
 from ..core.config_manager import ConfigManager
@@ -76,17 +78,14 @@ class EmbeddingService:
     DEFAULT_DIMENSION = 768
     
     def __init__(self, config_manager: ConfigManager = None):
-        if not HAS_GENAI:
-            raise ImportError("google-generativeai is required: pip install google-generativeai")
-        
         self.logger = get_logger("embedding_service")
         self.config = config_manager or ConfigManager()
         self.ai_config = self.config.get_config()
         
         # Initialize Gemini
         api_key = self.ai_config.secrets.gemini_api_key
-        if not api_key:
-            self.logger.warning("Gemini API key not set - embeddings will not work")
+        if not api_key or not HAS_GENAI:
+            self.logger.warning("Gemini API key not set or module missing - embeddings will not work")
             self._configured = False
         else:
             genai.configure(api_key=api_key)

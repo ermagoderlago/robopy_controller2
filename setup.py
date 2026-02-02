@@ -21,7 +21,7 @@ def safe_glob(pattern):
 
 setup(
     name=package_name,
-    version="0.0.0",
+    version="0.01.0",
     packages=find_packages(exclude=["test", "__pycache__"]),
 
     data_files=[
@@ -159,6 +159,7 @@ setup(
             "image_compressor_node = robopy_controller.nodes.image_compressor_node:main",
             "oak_driver_node = robopy_controller.nodes.oak_driver_node:main",
             "oak_superpoint_odometry_node = robopy_controller.nodes.oak_superpoint_odometry_node:main",
+            "robot_ai_node = robopy_controller.nodes.robot_ai_node:main",
         ],
     },
 )

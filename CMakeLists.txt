@@ -132,6 +132,7 @@ install(PROGRAMS
   scripts/image_compressor_node
   scripts/oak_superpoint_odometry_node
   scripts/teleop_node
+  scripts/robot_ai_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

@@ -3,6 +3,8 @@
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
+#include <sensor_msgs/msg/compressed_image.hpp>
+#include <sensor_msgs/msg/imu.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <diagnostic_msgs/msg/diagnostic_array.hpp>
 #include <std_msgs/msg/bool.hpp>
@@ -58,6 +60,7 @@ private:
         double translation_norm = 0.0;
         double rotation_norm = 0.0;
         double depth_valid_ratio = 1.0;
+        std::vector<int> inlier_indices; // Indices of img_pts that are inliers
     };
 
     struct MotionStats {
@@ -111,9 +114,18 @@ private:
         int lost_threshold = 5;  // consecutive failures
         int weak_inlier_threshold = 25;
         int good_inlier_threshold = 40;
+        int critical_inlier_threshold = 10;
         
         // Performance
         int skip_frames = 1;
+        
+        // Debug
+        bool publish_debug = false;
+        
+        // YOLO
+        bool enable_yolo = true;
+        std::string yolo_blob_path = "";
+        float yolo_conf_threshold = 0.5f;
     };
     
     // ===================== Pipeline Methods =====================
@@ -152,6 +164,16 @@ private:
     void publishOdometry(const rclcpp::Time& stamp);
     void publishDiagnostics(const rclcpp::Time& stamp);
     void publishImages(const cv::Mat& gray, const cv::Mat& depth, const rclcpp::Time& stamp);
+    void publishDebugView(const cv::Mat& gray, 
+                         const std::vector<cv::Point2f>& prev_pts,
+                         const std::vector<cv::Point2f>& curr_pts,
+                         const std::vector<int>& inliers,
+                         const rclcpp::Time& stamp);
+    void publishDepthPreview(const cv::Mat& depth, const rclcpp::Time& stamp);
+    
+    // YOLO
+    void processYolo(const std::shared_ptr<dai::ImgDetections>& detections, cv::Mat& display_frame);
+    std::string getItalianLabel(int class_id);
     
     // ===================== State =====================
     Config config_;
@@ -194,6 +216,18 @@ private:
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr rgb_pub_;
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr depth_pub_;
     rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr camera_info_pub_;
+    
+    // Compressed publishers
+    // Compressed publishers
+    rclcpp::Publisher<sensor_msgs::msg::CompressedImage>::SharedPtr rgb_compressed_pub_;
+    rclcpp::Publisher<sensor_msgs::msg::CompressedImage>::SharedPtr depth_compressed_pub_;
+    
+    // Debug Publishers
+    rclcpp::Publisher<sensor_msgs::msg::CompressedImage>::SharedPtr debug_view_pub_;
+    rclcpp::Publisher<sensor_msgs::msg::CompressedImage>::SharedPtr depth_preview_pub_;
+    
+    // IMU
+    rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_pub_;
     
     // Threading
     std::thread processing_thread_;

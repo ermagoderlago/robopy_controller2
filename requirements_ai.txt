@@ -3,7 +3,7 @@ chromadb>=0.4.0
 websockets>=10.0
 google-cloud-texttospeech>=2.0.0
 google-cloud-speech>=2.0.0
-pyaudio>=0.2.11
+pyaudio>=0.2.11 ; platform_system != "Linux" or platform_machine != "aarch64"  # Disabled temporarily on Pi due to build issues
 pygame>=2.0.0
 pydantic>=2.0.0
 pyyaml>=6.0

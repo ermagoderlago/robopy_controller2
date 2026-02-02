@@ -13,7 +13,9 @@ from dataclasses import dataclass, field
 try:
     import google.generativeai as genai
     HAS_GENAI = True
-except ImportError:
+except ImportError as e:
+    import sys
+    print(f"DEBUG: Failed to import google.generativeai: {e}", file=sys.stderr)
     HAS_GENAI = False
 
 from ..core.config_manager import ConfigManager
@@ -82,10 +84,11 @@ class LLMService:
     """
     
     def __init__(self, config_manager: ConfigManager = None):
-        if not HAS_GENAI:
-            raise ImportError("google-generativeai is required: pip install google-generativeai")
-        
         self.logger = get_logger("llm_service")
+        
+        if not HAS_GENAI:
+            self.logger.error("google-generativeai is missing or failed to import. LLM disabled.")
+        
         self.config = config_manager or ConfigManager()
         self.ai_config = self.config.get_config()
         self.event_bus = EventBus()
@@ -95,8 +98,8 @@ class LLMService:
         
         # Initialize Gemini
         api_key = self.ai_config.secrets.gemini_api_key
-        if not api_key:
-            self.logger.warning("Gemini API key not set - LLM will not work")
+        if not api_key or not HAS_GENAI:
+            self.logger.warning("Gemini API key not set or module missing - LLM will not work")
             self._model = None
         else:
             genai.configure(api_key=api_key)

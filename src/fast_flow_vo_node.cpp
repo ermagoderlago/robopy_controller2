@@ -1,8 +1,11 @@
 #include "fast_flow_vo_node.hpp"
 
 #include <cv_bridge/cv_bridge.hpp>
+#include <cv_bridge/cv_bridge.hpp>
 #include <sensor_msgs/image_encodings.hpp>
+#include <sensor_msgs/msg/compressed_image.hpp>
 #include <opencv2/calib3d.hpp>
+#include <opencv2/imgcodecs.hpp>
 
 #include <chrono>
 #include <sstream>
@@ -22,7 +25,7 @@ FastFlowVONode::FastFlowVONode(const rclcpp::NodeOptions& options)
     config_.camera_frame = declare_parameter<std::string>("camera_frame", "oak_left_camera_optical_frame");
     
     // FAST Detection
-    config_.fast_threshold = declare_parameter<int>("fast_threshold", 15);
+    config_.fast_threshold = declare_parameter<int>("fast_threshold", 10);
     config_.max_features = declare_parameter<int>("max_features", 400);
     config_.grid_rows = declare_parameter<int>("grid_rows", 6);
     config_.grid_cols = declare_parameter<int>("grid_cols", 8);
@@ -56,8 +59,19 @@ FastFlowVONode::FastFlowVONode(const rclcpp::NodeOptions& options)
     config_.weak_inlier_threshold = declare_parameter<int>("weak_inlier_threshold", 25);
     config_.good_inlier_threshold = declare_parameter<int>("good_inlier_threshold", 40);
     
+    // Resilience: Halt motion if inliers are critically low
+    config_.critical_inlier_threshold = declare_parameter<int>("critical_inlier_threshold", 10);
+    
     // Performance
     config_.skip_frames = declare_parameter<int>("skip_frames", 1);
+    
+    // Debug
+    config_.publish_debug = declare_parameter<bool>("publish_debug", false);
+    
+    // YOLO
+    config_.enable_yolo = declare_parameter<bool>("enable_yolo", true);
+    config_.yolo_blob_path = declare_parameter<std::string>("yolo_blob_path", "");
+    config_.yolo_conf_threshold = declare_parameter<float>("yolo_conf_threshold", 0.5f);
     
     // Initialize FAST detector
     fast_detector_ = cv::FastFeatureDetector::create(config_.fast_threshold, true);
@@ -77,9 +91,21 @@ FastFlowVONode::FastFlowVONode(const rclcpp::NodeOptions& options)
     tracking_pub_ = create_publisher<std_msgs::msg::Bool>("/vo/tracking_ok", 10);
     
     // Image publishers for RTAB-Map
+    // Image publishers for RTAB-Map
     rgb_pub_ = create_publisher<sensor_msgs::msg::Image>("/rgb/image", 10);
     depth_pub_ = create_publisher<sensor_msgs::msg::Image>("/camera/depth/image_raw", 10);
     camera_info_pub_ = create_publisher<sensor_msgs::msg::CameraInfo>("/camera/camera_info", 10);
+    
+    // Compressed publishers for Foxglove
+    rgb_compressed_pub_ = create_publisher<sensor_msgs::msg::CompressedImage>("/rgb/image/compressed", 10);
+    depth_compressed_pub_ = create_publisher<sensor_msgs::msg::CompressedImage>("/camera/depth/image_raw/compressed", 10);
+    
+    // Debug Publishers
+    debug_view_pub_ = create_publisher<sensor_msgs::msg::CompressedImage>("/vo/debug_view/compressed", 10);
+    depth_preview_pub_ = create_publisher<sensor_msgs::msg::CompressedImage>("/camera/depth/preview/compressed", 10);
+    
+    // IMU
+    imu_pub_ = create_publisher<sensor_msgs::msg::Imu>("/oak/imu/data", 10);
     
     // Start processing thread
     running_ = true;
@@ -109,11 +135,11 @@ bool FastFlowVONode::initializeDepthAI() {
         
         monoLeft->setBoardSocket(dai::CameraBoardSocket::CAM_B);
         monoLeft->setResolution(dai::MonoCameraProperties::SensorResolution::THE_400_P);
-        monoLeft->setFps(config_.depth_fps);
+        monoLeft->setFps(15.0);  // Safe mode: 15fps
         
         monoRight->setBoardSocket(dai::CameraBoardSocket::CAM_C);
         monoRight->setResolution(dai::MonoCameraProperties::SensorResolution::THE_400_P);
-        monoRight->setFps(config_.depth_fps);
+        monoRight->setFps(15.0);  // Safe mode: 15fps
         
         stereo->setDefaultProfilePreset(dai::node::StereoDepth::PresetMode::DEFAULT);
         stereo->setLeftRightCheck(true);
@@ -125,16 +151,80 @@ bool FastFlowVONode::initializeDepthAI() {
         
         auto xoutRect = pipeline_->create<dai::node::XLinkOut>();
         xoutRect->setStreamName("rect_left");
+        xoutRect->input.setBlocking(false);
+        xoutRect->input.setQueueSize(1);
         stereo->rectifiedLeft.link(xoutRect->input);
         
         auto xoutDepth = pipeline_->create<dai::node::XLinkOut>();
         xoutDepth->setStreamName("depth");
+        xoutDepth->input.setBlocking(false);
+        xoutDepth->input.setQueueSize(1);
         stereo->depth.link(xoutDepth->input);
         
         auto config = stereo->initialConfig.get();
         config.postProcessing.thresholdFilter.minRange = static_cast<int>(config_.min_depth * 1000);
         config.postProcessing.thresholdFilter.maxRange = static_cast<int>(config_.max_depth * 1000);
         stereo->initialConfig.set(config);
+        
+        // --- IMU (Safe Mode) ---
+        auto imu = pipeline_->create<dai::node::IMU>();
+        imu->enableIMUSensor(dai::IMUSensor::ACCELEROMETER_RAW, 50); // 50Hz stable
+        imu->enableIMUSensor(dai::IMUSensor::GYROSCOPE_RAW, 50);
+        imu->setBatchReportThreshold(5);
+        imu->setMaxBatchReports(20);
+
+        auto xoutImu = pipeline_->create<dai::node::XLinkOut>();
+        xoutImu->setStreamName("imu");
+        xoutImu->input.setBlocking(false);
+        xoutImu->input.setQueueSize(1);
+        imu->out.link(xoutImu->input);
+        
+        // --- YOLO PIPELINE ---
+        if (config_.enable_yolo && !config_.yolo_blob_path.empty()) {
+            RCLCPP_INFO(get_logger(), "Enabling YOLO: %s", config_.yolo_blob_path.c_str());
+            
+            // Camera RGB - Must be 1080P for IMX378/214
+            auto camRgb = pipeline_->create<dai::node::ColorCamera>();
+            camRgb->setBoardSocket(dai::CameraBoardSocket::CAM_A);
+            camRgb->setResolution(dai::ColorCameraProperties::SensorResolution::THE_1080_P); 
+            camRgb->setFps(15.0);  // Match Stereo FPS
+            camRgb->setInterleaved(false);
+            camRgb->setColorOrder(dai::ColorCameraProperties::ColorOrder::BGR);
+            camRgb->setPreviewKeepAspectRatio(false);
+            
+            // Resize for YOLO (640x352 for YOLOv6 Nano)
+            auto manip = pipeline_->create<dai::node::ImageManip>();
+            manip->initialConfig.setResize(640, 352); // Match blob resolution
+            manip->initialConfig.setFrameType(dai::RawImgFrame::Type::BGR888p);
+            manip->setKeepAspectRatio(true); 
+            camRgb->preview.link(manip->inputImage);
+            
+            auto yoloNn = pipeline_->create<dai::node::YoloDetectionNetwork>();
+            yoloNn->setBlobPath(config_.yolo_blob_path);
+            yoloNn->setConfidenceThreshold(config_.yolo_conf_threshold);
+            yoloNn->setNumClasses(80);
+            yoloNn->setCoordinateSize(4);
+            // YOLOv6 Nano Masks (Fix for runtime errors)
+            yoloNn->setAnchorMasks({
+                {"side80", {0,1,2}},
+                {"side40", {0,1,2}},
+                {"side20", {0,1,2}}
+            });
+            yoloNn->setIouThreshold(0.5f);
+            manip->out.link(yoloNn->input);
+            
+            auto xoutYolo = pipeline_->create<dai::node::XLinkOut>();
+            xoutYolo->setStreamName("yolo");
+            xoutYolo->input.setBlocking(false);
+            xoutYolo->input.setQueueSize(1);
+            yoloNn->out.link(xoutYolo->input);
+            
+            auto xoutRgb = pipeline_->create<dai::node::XLinkOut>();
+            xoutRgb->setStreamName("color");
+            xoutRgb->input.setBlocking(false);
+            xoutRgb->input.setQueueSize(1);
+            manip->out.link(xoutRgb->input); // Output the resized frame for preview
+        }
         
         device_ = std::make_unique<dai::Device>(*pipeline_);
         
@@ -184,6 +274,14 @@ void FastFlowVONode::computeCameraTransform() {
 void FastFlowVONode::processLoop() {
     auto qRect = device_->getOutputQueue("rect_left", 4, false);
     auto qDepth = device_->getOutputQueue("depth", 4, false);
+    auto qImu = device_->getOutputQueue("imu", 50, false); // IMU queue (Restored)
+    
+    // Optional YOLO queues
+    std::shared_ptr<dai::DataOutputQueue> qYolo, qColor;
+    if (config_.enable_yolo && !config_.yolo_blob_path.empty()) {
+        qYolo = device_->getOutputQueue("yolo", 4, false);
+        qColor = device_->getOutputQueue("color", 4, false);
+    }
     
     int frame_counter = 0;
     
@@ -191,6 +289,45 @@ void FastFlowVONode::processLoop() {
         try {
             auto rectFrame = qRect->tryGet<dai::ImgFrame>();
             auto depthFrame = qDepth->tryGet<dai::ImgFrame>();
+            
+            // YOLO Processing
+            if (qYolo && qColor) {
+                auto yoloData = qYolo->tryGet<dai::ImgDetections>();
+                auto colorFrame = qColor->tryGet<dai::ImgFrame>();
+                
+                if (yoloData && colorFrame) {
+                    cv::Mat color = colorFrame->getCvFrame();
+                    processYolo(yoloData, color);
+                }
+            }
+            
+            // IMU Processing (Restored)
+            auto imuData = qImu->tryGet<dai::IMUData>();
+            if (imuData) {
+                auto packets = imuData->packets;
+                for (const auto& packet : packets) {
+                    sensor_msgs::msg::Imu imu_msg;
+                    // Use system time for now, or packet timestamp if synchronized
+                    // packet.acceleroMeter.timestamp.get() gives high precision time
+                    imu_msg.header.stamp = this->now(); 
+                    imu_msg.header.frame_id = "imu_link";
+                    
+                    // Accelerometer (m/s^2)
+                    imu_msg.linear_acceleration.x = packet.acceleroMeter.x;
+                    imu_msg.linear_acceleration.y = packet.acceleroMeter.y;
+                    imu_msg.linear_acceleration.z = packet.acceleroMeter.z;
+                    
+                    // Gyroscope (rad/s)
+                    imu_msg.angular_velocity.x = packet.gyroscope.x;
+                    imu_msg.angular_velocity.y = packet.gyroscope.y;
+                    imu_msg.angular_velocity.z = packet.gyroscope.z;
+                    
+                    // No orientation from raw IMU, EKF will compute it
+                    imu_msg.orientation_covariance[0] = -1;
+                    
+                    imu_pub_->publish(imu_msg);
+                }
+            }
             
             if (rectFrame && depthFrame) {
                 frame_counter++;
@@ -250,6 +387,11 @@ void FastFlowVONode::processFrame(const cv::Mat& gray, const cv::Mat& depth,
             }
         }
         
+        // Publish Debug View if enabled
+        if (config_.publish_debug) {
+            publishDebugView(gray, prev_pts, curr_pts, result.inlier_indices, stamp);
+        }
+        
         if (!tracking_ok) {
             consecutive_failures_++;
         }
@@ -285,7 +427,66 @@ void FastFlowVONode::processFrame(const cv::Mat& gray, const cv::Mat& depth,
     processed_frames_++;
 }
 
-// ===================== 1. FAST Detection =====================
+// ===================== YOLO & Italian Labels =====================
+
+void FastFlowVONode::processYolo(const std::shared_ptr<dai::ImgDetections>& detections, cv::Mat& display_frame) {
+    if (!detections) return;
+    
+    auto now = this->now();
+    
+    // Draw detections
+    for (auto& det : detections->detections) {
+        int x1 = det.xmin * display_frame.cols;
+        int y1 = det.ymin * display_frame.rows;
+        int x2 = det.xmax * display_frame.cols;
+        int y2 = det.ymax * display_frame.rows;
+        
+        // Clamp
+        x1 = std::max(0, std::min(x1, display_frame.cols - 1));
+        y1 = std::max(0, std::min(y1, display_frame.rows - 1));
+        x2 = std::max(0, std::min(x2, display_frame.cols - 1));
+        y2 = std::max(0, std::min(y2, display_frame.rows - 1));
+        
+        cv::rectangle(display_frame, cv::Point(x1, y1), cv::Point(x2, y2), cv::Scalar(0, 255, 0), 2);
+        
+        std::string label = getItalianLabel(det.label);
+        std::string conf = std::to_string((int)(det.confidence * 100)) + "%";
+        std::string text = label + " " + conf;
+        
+        cv::putText(display_frame, text, cv::Point(x1, y1 - 10), 
+                    cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 255, 0), 2);
+    }
+    
+    // Publish Compressed
+    std::vector<uchar> buf;
+    cv::imencode(".jpg", display_frame, buf, {cv::IMWRITE_JPEG_QUALITY, 60});
+    
+    sensor_msgs::msg::CompressedImage msg;
+    msg.header.stamp = now;
+    msg.header.frame_id = "camera_color_optical_frame"; // YOLO uses color frame
+    msg.format = "jpeg";
+    msg.data = buf;
+    
+    rgb_compressed_pub_->publish(msg);
+}
+
+std::string FastFlowVONode::getItalianLabel(int class_id) {
+    static const std::vector<std::string> labels = {
+        "Persona", "Bicicletta", "Auto", "Moto", "Aereo", "Bus", "Treno", "Camion", "Barca", "Semaforo",
+        "Idrante", "Segnale Stop", "Parchimetro", "Panchina", "Uccello", "Gatto", "Cane", "Cavallo", "Pecora", "Mucca",
+        "Elefante", "Orso", "Zebra", "Giraffa", "Zaino", "Ombrello", "Borsa", "Cravatta", "Valigia", "Frisbee",
+        "Sci", "Snowboard", "Pallone", "Aquilone", "Mazza da baseball", "Guantone", "Skateboard", "Surf", "Racchetta", "Bottiglia",
+        "Bicchiere", "Tazza", "Forchetta", "Coltello", "Cucchiaio", "Ciotola", "Banana", "Mela", "Sandwich", "Arancia",
+        "Broccoli", "Carota", "Hot dog", "Pizza", "Ciambella", "Torta", "Sedia", "Divano", "Pianta", "Letto",
+        "Tavolo", "WC", "TV", "Laptop", "Mouse", "Tastiera", "Cellulare", "Microonde", "Forno", "Tostapane",
+        "Lavandino", "Frigo", "Libro", "Orologio", "Vaso", "Forbici", "Teddy Bear", "Phon", "Spazzolino"
+    };
+    
+    if (class_id >= 0 && class_id < (int)labels.size()) {
+        return labels[class_id];
+    }
+    return "Ignoto";
+}
 
 void FastFlowVONode::detectFAST(const cv::Mat& gray, std::vector<cv::Point2f>& points) {
     points.clear();
@@ -451,6 +652,7 @@ FastFlowVONode::TrackingResult FastFlowVONode::estimatePnP(
     result.rvec = rvec;
     result.tvec = tvec;
     result.inliers = inliers.size();
+    result.inlier_indices = inliers; // Store indices for debug view
     
     // Calculate norms
     double tx = tvec.at<double>(0);
@@ -567,8 +769,11 @@ void FastFlowVONode::updateState(const TrackingResult& result) {
         last_good_tracking_time_ = this->now();
     } else if (result.inliers >= config_.weak_inlier_threshold) {
         tracking_state_ = TrackingState::TRACKING_WEAK;
-    } else {
+    } else if (result.inliers >= config_.critical_inlier_threshold) {
         tracking_state_ = TrackingState::TRACKING_WEAK;
+    } else {
+        tracking_state_ = TrackingState::TRACKING_LOST;
+        current_covariance_scale_ = 1000.0; // Instant penalty
     }
 }
 
@@ -607,6 +812,11 @@ void FastFlowVONode::updatePose(const TrackingResult& result) {
     delta.linear() = R;
     delta.translation() = t_filtered;
     
+    // Resilience: If tracking is LOST or critical, do not update pose
+    if (tracking_state_ == TrackingState::TRACKING_LOST) {
+        return;
+    }
+
     // Update global pose
     std::lock_guard<std::mutex> lock(state_mutex_);
     pose_ = pose_ * delta;
@@ -647,8 +857,8 @@ void FastFlowVONode::publishOdometry(const rclcpp::Time& stamp) {
         base_pos_cov *= 3.0;
         base_rot_cov *= 2.0;
     } else if (tracking_state_ == TrackingState::TRACKING_LOST) {
-        base_pos_cov *= 10.0;
-        base_rot_cov *= 5.0;
+        base_pos_cov = 9999.0;
+        base_rot_cov = 9999.0;
     }
     
     // Fill covariance matrix
@@ -774,6 +984,107 @@ void FastFlowVONode::publishImages(const cv::Mat& gray, const cv::Mat& depth,
     camera_info_msg.d = {0.0, 0.0, 0.0, 0.0, 0.0};
     
     camera_info_pub_->publish(camera_info_msg);
+    
+    // --- Manual Compression ---
+    
+    // RGB -> JPG (Only if YOLO is disabled, otherwise YOLO publishes the colored/labeled one)
+    if (!config_.enable_yolo || config_.yolo_blob_path.empty()) {
+        std::vector<uchar> buf_rgb;
+        cv::imencode(".jpg", rgb, buf_rgb, {cv::IMWRITE_JPEG_QUALITY, 50}); 
+        
+        sensor_msgs::msg::CompressedImage rgb_comp;
+        rgb_comp.header = rgb_msg->header;
+        rgb_comp.format = "jpeg";
+        rgb_comp.data = buf_rgb;
+        rgb_compressed_pub_->publish(rgb_comp);
+    }
+    
+    // Depth -> PNG (Lossless) - kept for strict data adherence
+    // BUT we also publish a "Preview" which is the colored JPEG requested by user
+    std::vector<uchar> buf_depth;
+    cv::imencode(".png", depth, buf_depth); 
+    
+    sensor_msgs::msg::CompressedImage depth_comp;
+    depth_comp.header = depth_msg->header;
+    depth_comp.format = "png";
+    depth_comp.data = buf_depth;
+    depth_compressed_pub_->publish(depth_comp);
+    
+    if (config_.publish_debug) {
+        publishDepthPreview(depth, stamp);
+    }
+}
+
+void FastFlowVONode::publishDebugView(const cv::Mat& gray, 
+                                     const std::vector<cv::Point2f>& prev_pts,
+                                     const std::vector<cv::Point2f>& curr_pts,
+                                     const std::vector<int>& inliers,
+                                     const rclcpp::Time& stamp) {
+    
+    if (curr_pts.empty()) return;
+
+    cv::Mat debug_img;
+    cv::cvtColor(gray, debug_img, cv::COLOR_GRAY2BGR);
+    
+    // Create a set of inlier indices for O(1) lookup
+    std::vector<bool> is_inlier(curr_pts.size(), false);
+    for (int idx : inliers) {
+        if (idx >= 0 && idx < (int)curr_pts.size()) {
+            is_inlier[idx] = true;
+        }
+    }
+    
+    // Draw tracks
+    for (size_t i = 0; i < curr_pts.size(); i++) {
+        cv::Scalar color = is_inlier[i] ? cv::Scalar(0, 255, 0) : cv::Scalar(0, 0, 255); // Green vs Red
+        
+        cv::line(debug_img, prev_pts[i], curr_pts[i], color, 1);
+        cv::circle(debug_img, curr_pts[i], 2, color, -1);
+    }
+    
+    // Draw status
+    std::string status_text = stateToString(tracking_state_);
+    cv::putText(debug_img, status_text, cv::Point(10, 30), 
+                cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 255, 255), 2);
+                
+    // Compress and Publish
+    std::vector<uchar> buf;
+    cv::imencode(".jpg", debug_img, buf, {cv::IMWRITE_JPEG_QUALITY, 60});
+    
+    sensor_msgs::msg::CompressedImage msg;
+    msg.header.stamp = stamp;
+    msg.header.frame_id = config_.camera_frame;
+    msg.format = "jpeg";
+    msg.data = buf;
+    
+    debug_view_pub_->publish(msg);
+}
+
+void FastFlowVONode::publishDepthPreview(const cv::Mat& depth, const rclcpp::Time& stamp) {
+    // Convert 16UC1 to 8UC1 with Jet Colormap
+    cv::Mat adjMap;
+    
+    // Normalize: 0.3m (300mm) -> 255, 5.0m (5000mm) -> 0
+    // We clip at 5m for better contrast in near range
+    double min_val = config_.min_depth * 1000.0;
+    double max_val = 5000.0; // Fixed visual range for consistency
+    
+    depth.convertTo(adjMap, CV_8UC1, 255.0 / (max_val - min_val), -min_val * 255.0 / (max_val - min_val));
+    
+    cv::Mat color_depth;
+    cv::applyColorMap(adjMap, color_depth, cv::COLORMAP_JET);
+    
+    // Compress
+    std::vector<uchar> buf;
+    cv::imencode(".jpg", color_depth, buf, {cv::IMWRITE_JPEG_QUALITY, 60});
+    
+    sensor_msgs::msg::CompressedImage msg;
+    msg.header.stamp = stamp;
+    msg.header.frame_id = config_.camera_frame;
+    msg.format = "jpeg";
+    msg.data = buf;
+    
+    depth_preview_pub_->publish(msg);
 }
 
 // ===================== Main Function =====================

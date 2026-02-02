@@ -156,20 +156,20 @@ class TTSService:
         
         if self._client:
             # Perform Google Cloud TTS request
-            synthesis_input = texttospeech.SynthesisInput(text=text)
-            
-            voice = texttospeech.VoiceSelectionParams(
-                language_code=lang,
-                name=self.ai_config.tts.voice
-            )
-            
-            audio_config = texttospeech.AudioConfig(
-                audio_encoding=texttospeech.AudioEncoding.MP3,
-                speaking_rate=self.ai_config.tts.speaking_rate,
-                pitch=self.ai_config.tts.pitch
-            )
-            
             try:
+                synthesis_input = texttospeech.SynthesisInput(text=text)
+                
+                voice = texttospeech.VoiceSelectionParams(
+                    language_code=lang,
+                    name=self.ai_config.tts.voice
+                )
+                
+                audio_config = texttospeech.AudioConfig(
+                    audio_encoding=texttospeech.AudioEncoding.MP3,
+                    speaking_rate=self.ai_config.tts.speaking_rate,
+                    pitch=self.ai_config.tts.pitch
+                )
+            
                 response = await asyncio.to_thread(
                     self._client.synthesize_speech,
                     input=synthesis_input,
@@ -184,15 +184,17 @@ class TTSService:
                 
             except Exception as e:
                 self.logger.error(f"Google TTS synthesis error: {e}")
-                # Fallback?
                 raise TTSError(f"Synthesis failed: {e}")
         else:
-            # TODO: Implement local fallback (espeak, pyttsx3 etc.)
-            self.logger.warning("No TTS engine available")
-            raise TTSError("No TTS engine available")
+            # Console fallback
+            self.logger.info(f"[CONSOLE TTS] {text}")
+            return "CONSOLE_TTS"
     
     async def _play_audio(self, filename: str) -> None:
         """Play audio file."""
+        if filename == "CONSOLE_TTS":
+            return
+
         if not HAS_PYGAME:
             self.logger.warning("Cannot play audio: pygame not installed")
             return

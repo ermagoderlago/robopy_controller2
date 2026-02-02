@@ -27,10 +27,10 @@ if parent_dir not in sys.path:
 
 from robot_ai.core import (
     ConfigManager, EventBus, StateMachine, CircuitBreakerRegistry,
-    AIError, EventType, SystemState, AILogger, get_logger,
+    AIError, EventType, SystemState,
 )
-from robot_ai.utils import InputSanitizer
-from robot_ai.services import LLMService, TTSService, ASRService, EmbeddingService
+from robot_ai.utils import InputSanitizer, AILogger, get_logger
+from robot_ai.services import LLMService, FunctionDeclaration, TTSService, ASRService, EmbeddingService
 from robot_ai.rag import MemoryStore, Memory, MemoryType, MetadataManager
 from robot_ai.integrations import HomeAssistantClient, NavigationClient
 from robot_ai.skills import SkillRegistry, SkillResult
@@ -66,9 +66,9 @@ class AIOrchestrator(Node):
         
         # 2. RAG System
         self.memory_store = MemoryStore(
-            persist_dir=self.config.rag.chromadb_path,
-            collection_name=self.config.rag.collection_name,
-            embedding_dimension=self.config.rag.embedding_dimension
+            persist_dir=self.config.memory.persist_dir,
+            collection_name=self.config.memory.collection_name,
+            embedding_dimension=self.config.memory.embedding_dimension
         )
         self.metadata_manager = MetadataManager()
         
@@ -140,6 +140,7 @@ class AIOrchestrator(Node):
     async def _startup(self):
         """System startup sequence."""
         try:
+            self.state_machine.transition_to(SystemState.INITIALIZING)
             self.ai_logger.info("Starting up services...")
             
             # Connect to HA
@@ -157,7 +158,10 @@ class AIOrchestrator(Node):
             self.state_machine.transition_to(SystemState.READY)
             self.ai_logger.info("System READY")
             
-            await self.tts_service.speak("Sistema avviato e pronto.")
+            try:
+                await self.tts_service.speak("Sistema avviato e pronto.")
+            except Exception as e:
+                self.ai_logger.warning(f"Startup TTS failed (non-critical): {e}")
             
         except Exception as e:
             self.ai_logger.error(f"Startup failed: {e}")
@@ -200,7 +204,15 @@ class AIOrchestrator(Node):
         
         try:
             current_state = self.state_machine.state
-            if current_state not in [SystemState.READY, SystemState.IDLE]:
+            
+            # Wait for system to be ready if booting (up to 10 seconds)
+            wait_attempts = 0
+            while current_state in [SystemState.BOOTING, SystemState.INITIALIZING] and wait_attempts < 20:
+                await asyncio.sleep(0.5)
+                current_state = self.state_machine.state
+                wait_attempts += 1
+                
+            if current_state not in [SystemState.READY, SystemState.LISTENING]:
                 self.ai_logger.warning(f"System not ready (State: {current_state}), ignoring input")
                 return
             
@@ -226,8 +238,8 @@ class AIOrchestrator(Node):
                 embedding = await self.embedding_service.embed(clean_text)
                 results = self.memory_store.search(
                     embedding, 
-                    top_k=self.config.rag.max_context_memories,
-                    min_score=self.config.rag.min_relevance_score
+                    top_k=self.config.rag.top_k,
+                    min_score=self.config.rag.min_score
                 )
                 context_memories = [r.memory for r in results]
                 self.ai_logger.debug(f"Retrieved {len(context_memories)} memories")
@@ -307,7 +319,7 @@ class AIOrchestrator(Node):
     def _convert_to_gemini_function(self, func_decl: Dict) -> Any:
         # Helper to convert internal dict to Gemini object if needed
         # The LLMService handles dicts fine usually
-        return LLMService.FunctionDeclaration(**func_decl)
+        return FunctionDeclaration(**func_decl)
 
     async def _handle_execution_result(self, result: SkillResult):
         """Handle execution result."""
@@ -357,7 +369,7 @@ class AIOrchestrator(Node):
     def _publish_status(self):
         """Publish node status."""
         msg = String()
-        msg.data = self.state_machine.state.value
+        msg.data = self.state_machine.state.name
         self.state_pub.publish(msg)
 
 def main(args=None):
@@ -373,7 +385,8 @@ def main(args=None):
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 if __name__ == '__main__':
     main()

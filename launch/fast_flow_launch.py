@@ -77,6 +77,14 @@ def generate_launch_description():
             # State
             'lost_threshold': 5,
             'skip_frames': 1,
+            
+            # Debug
+            'publish_debug': True,
+            
+            # YOLO (YOLOv6 Nano - Optimized)
+            'enable_yolo': True,
+            'yolo_blob_path': os.path.join(pkg_share, 'models', 'yolov6nr1_coco_640x352.blob'),
+            'yolo_conf_threshold': 0.5,
         }]
     )
     
@@ -220,7 +228,7 @@ def generate_launch_description():
     # 
     robot_ai_node = Node(
         package='robopy_controller',
-        executable='robot_ai_node.py',
+        executable='robot_ai_node',
         name='robot_ai_orchestrator',
         output='screen',
         emulate_tty=True
@@ -262,7 +270,7 @@ def generate_launch_description():
             ]
         )]
     )
-    
+
     return LaunchDescription([
         robot_state_publisher,
         fast_flow_vo,
@@ -272,5 +280,5 @@ def generate_launch_description():
         motor_control,
         foxglove,
         rtabmap,
-        #robot_ai_node,
+        robot_ai_node,
     ])

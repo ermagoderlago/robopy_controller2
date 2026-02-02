@@ -127,14 +127,19 @@ class MemoryStore:
         hnsw_ef_construction: int = 200,
         hnsw_m: int = 16
     ):
-        if not HAS_CHROMADB:
-            raise ImportError("chromadb is required: pip install chromadb")
-        
         self.logger = get_logger("memory_store")
         self.persist_dir = Path(persist_dir)
         self.collection_name = collection_name
         self.embedding_dimension = embedding_dimension
+        self._enabled = HAS_CHROMADB
+        self._lock = threading.RLock()
         
+        if not self._enabled:
+            self.logger.warning("ChromaDB not found. Memory store functionality disabled.")
+            self._client = None
+            self._collection = None
+            return
+
         # Ensure directory exists
         self.persist_dir.mkdir(parents=True, exist_ok=True)
         
@@ -161,7 +166,6 @@ class MemoryStore:
             metadata={"hnsw:space": "cosine", **hnsw_params}
         )
         
-        self._lock = threading.RLock()
         self.logger.info(
             f"Memory store initialized",
             persist_dir=str(self.persist_dir),
@@ -180,6 +184,8 @@ class MemoryStore:
             Memory ID
         """
         with self._lock:
+            if not self._enabled:
+                return ""
             if not memory.id:
                 memory.id = self._generate_id(memory.content)
             
@@ -204,6 +210,8 @@ class MemoryStore:
     def add_batch(self, memories: List[Memory]) -> List[str]:
         """Add multiple memories in batch."""
         with self._lock:
+            if not self._enabled:
+                return []
             ids = []
             embeddings = []
             metadatas = []
@@ -237,6 +245,8 @@ class MemoryStore:
     def update(self, memory: Memory) -> None:
         """Update an existing memory."""
         with self._lock:
+            if not self._enabled:
+                return
             memory.updated_at = time.time()
             
             metadata = memory.to_dict()
@@ -257,6 +267,8 @@ class MemoryStore:
     def delete(self, memory_id: str) -> bool:
         """Delete a memory by ID."""
         with self._lock:
+            if not self._enabled:
+                return False
             try:
                 self._collection.delete(ids=[memory_id])
                 self.logger.debug(f"Deleted memory: {memory_id}")
@@ -267,6 +279,8 @@ class MemoryStore:
     def delete_by_type(self, memory_type: MemoryType) -> int:
         """Delete all memories of a specific type."""
         with self._lock:
+            if not self._enabled:
+                return 0
             results = self._collection.get(
                 where={"memory_type": memory_type.value}
             )
@@ -280,6 +294,8 @@ class MemoryStore:
     def get(self, memory_id: str) -> Optional[Memory]:
         """Get a memory by ID."""
         with self._lock:
+            if not self._enabled:
+                return None
             results = self._collection.get(
                 ids=[memory_id],
                 include=["embeddings", "metadatas", "documents"]
@@ -322,6 +338,8 @@ class MemoryStore:
             List of SearchResult ordered by relevance
         """
         with self._lock:
+            if not self._enabled:
+                return []
             where_filter = {}
             if memory_type:
                 where_filter["memory_type"] = memory_type.value
@@ -376,6 +394,8 @@ class MemoryStore:
     def get_recent(self, limit: int = 10, memory_type: MemoryType = None) -> List[Memory]:
         """Get most recent memories."""
         with self._lock:
+            if not self._enabled:
+                return []
             where_filter = {}
             if memory_type:
                 where_filter["memory_type"] = memory_type.value
@@ -401,6 +421,8 @@ class MemoryStore:
     
     def count(self, memory_type: MemoryType = None) -> int:
         """Count memories, optionally filtered by type."""
+        if not self._enabled:
+            return 0
         if memory_type:
             results = self._collection.get(
                 where={"memory_type": memory_type.value}
@@ -411,6 +433,8 @@ class MemoryStore:
     def get_statistics(self) -> Dict[str, Any]:
         """Get memory store statistics."""
         with self._lock:
+            if not self._enabled:
+                return {"status": "disabled"}
             stats = {
                 "total_memories": self.count(),
                 "by_type": {},
@@ -433,6 +457,8 @@ class MemoryStore:
     def clear(self) -> None:
         """Clear all memories. Use with caution!"""
         with self._lock:
+            if not self._enabled:
+                return
             self._client.delete_collection(self.collection_name)
             self._collection = self._client.create_collection(
                 name=self.collection_name,

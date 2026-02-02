@@ -87,13 +87,13 @@ class AILogger:
     """
     
     _loggers: Dict[str, 'AILogger'] = {}
-    _lock = threading.Lock()
+    _lock = threading.RLock()
     _configured = False
     
     @classmethod
     def configure(
         cls,
-        log_dir: str = "/var/log/robot_ai",
+        log_dir: str = str(Path.home() / ".robot_ai" / "logs"),
         level: str = "INFO",
         max_size_mb: int = 100,
         backup_count: int = 5,
