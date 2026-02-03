@@ -62,13 +62,17 @@ def generate_launch_description():
             'max_depth': 8.0,
             'depth_fps': 30.0,
             
+            # Floor Reflection Filter (rejects points Y > camera_height = underground/reflections)
+            'enable_floor_filter': True,
+            'camera_height': 0.08,  # Camera height from floor in meters
+            
             # PnP
             'min_points': 20,
             'min_inliers': 15,
             'reproj_error': 3.0,
             
             # Motion Validation
-            'max_translation_per_frame': 0.5,
+            'max_translation_per_frame': 0.2,
             'max_rotation_per_frame': 0.52,  # ~30°
             
             # EMA Filter
@@ -82,9 +86,15 @@ def generate_launch_description():
             'publish_debug': True,
             
             # YOLO (YOLOv6 Nano - Optimized)
-            'enable_yolo': True,
+            'enable_yolo': False,
             'yolo_blob_path': os.path.join(pkg_share, 'models', 'yolov6nr1_coco_640x352.blob'),
             'yolo_conf_threshold': 0.5,
+            
+            # Motion Gate (prevents drift when stationary in front of white walls)
+            'enable_motion_gate': True,
+            'imu_gyro_threshold': 0.02,     # rad/s - rotation threshold
+            'imu_accel_threshold': 0.15,    # m/s^2 - acceleration deviation from gravity
+            'cmd_vel_timeout': 0.5,         # seconds - consider motors idle after this
         }]
     )
     
@@ -271,6 +281,23 @@ def generate_launch_description():
         )]
     )
 
+    # ------------------------------------------------
+    # SERVO CODA (Tail Wagging)
+    # ------------------------------------------------
+    servo_coda = TimerAction(
+        period=2.0,
+        actions=[Node(
+            package='robopy_controller',
+            executable='servo_coda_node',
+            name='servo_coda_node',
+            output='screen',
+            parameters=[{
+                'servo_pin': 18,
+                'calibration_wag': True,  # Slow wag until tracking starts
+            }]
+        )]
+    )
+
     return LaunchDescription([
         robot_state_publisher,
         fast_flow_vo,
@@ -281,4 +308,5 @@ def generate_launch_description():
         foxglove,
         rtabmap,
         robot_ai_node,
+        servo_coda,
     ])

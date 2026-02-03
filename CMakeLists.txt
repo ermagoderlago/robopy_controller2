@@ -133,6 +133,7 @@ install(PROGRAMS
   scripts/oak_superpoint_odometry_node
   scripts/teleop_node
   scripts/robot_ai_node
+  scripts/servo_coda_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

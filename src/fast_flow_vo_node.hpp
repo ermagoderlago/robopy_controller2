@@ -6,8 +6,11 @@
 #include <sensor_msgs/msg/compressed_image.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 #include <nav_msgs/msg/odometry.hpp>
+#include <geometry_msgs/msg/twist.hpp>
+#include <geometry_msgs/msg/transform_stamped.hpp>
 #include <diagnostic_msgs/msg/diagnostic_array.hpp>
 #include <std_msgs/msg/bool.hpp>
+#include <tf2_ros/transform_broadcaster.h>
 
 #include <depthai/depthai.hpp>
 #include <opencv2/opencv.hpp>
@@ -79,6 +82,7 @@ private:
         std::string odom_frame = "odom";
         std::string base_frame = "base_link";
         std::string camera_frame = "oak_left_camera_optical_frame";
+        bool publish_tf = false;  // TF publishing (usually RTAB-Map handles this)
         
         // FAST Detection
         int fast_threshold = 15;
@@ -96,6 +100,10 @@ private:
         double min_depth = 0.3;
         double max_depth = 8.0;
         double depth_fps = 30.0;
+        
+        // Floor Reflection Filter
+        bool enable_floor_filter = true;     // Enable/disable underground point rejection
+        double camera_height = 0.08;         // Camera height from floor (meters)
         
         // PnP
         int min_points = 20;
@@ -126,7 +134,16 @@ private:
         bool enable_yolo = true;
         std::string yolo_blob_path = "";
         float yolo_conf_threshold = 0.5f;
+        
+        // Motion Gate (prevents drift when stationary)
+        bool enable_motion_gate = true;
+        double imu_gyro_threshold = 0.02;    // rad/s - below this = no rotation
+        double imu_accel_threshold = 0.15;   // m/s^2 - deviation from gravity
+        double cmd_vel_timeout = 0.5;        // seconds - cmd_vel considered stale after this
     };
+    
+    // TF Broadcaster (optional)
+    std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
     
     // ===================== Pipeline Methods =====================
     
@@ -185,27 +202,28 @@ private:
     // OpenCV
     cv::Ptr<cv::FastFeatureDetector> fast_detector_;
     
-    // State (protected by mutex)
-    mutable std::mutex state_mutex_;
+    // State (protected by mutexes)
+    mutable std::mutex state_mutex_;  // For pose and frame data
+    mutable std::mutex time_mutex_;   // For rclcpp::Time variables
     FrameData prev_frame_;
-    bool has_prev_frame_ = false;
+    std::atomic<bool> has_prev_frame_{false};
     
     Eigen::Isometry3d pose_ = Eigen::Isometry3d::Identity();
     Eigen::Vector3d filtered_translation_ = Eigen::Vector3d::Zero();
-    bool filter_initialized_ = false;
+    std::atomic<bool> filter_initialized_{false};
     
-    // Tracking State
-    TrackingState tracking_state_ = TrackingState::UNINITIALIZED;
-    int consecutive_failures_ = 0;
-    rclcpp::Time last_good_tracking_time_;
+    // Tracking State (thread-safe)
+    std::atomic<int> tracking_state_{static_cast<int>(TrackingState::UNINITIALIZED)};
+    std::atomic<int> consecutive_failures_{0};
+    rclcpp::Time last_good_tracking_time_;  // Protected by time_mutex_
     MotionStats motion_stats_;
     
     // Camera Transform (base_link -> camera)
     Eigen::Isometry3d T_base_camera_ = Eigen::Isometry3d::Identity();
     bool transform_initialized_ = false;
     
-    // Covariance
-    double current_covariance_scale_ = 1.0;
+    // Covariance (thread-safe)
+    std::atomic<double> current_covariance_scale_{1.0};
     
     // ROS Publishers
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;
@@ -233,13 +251,24 @@ private:
     std::thread processing_thread_;
     std::atomic<bool> running_{false};
     
+    // Motion Gate State
+    rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_sub_;
+    std::atomic<bool> motors_active_{false};
+    std::atomic<bool> imu_motion_detected_{false};
+    rclcpp::Time last_cmd_vel_time_;  // Protected by time_mutex_
+    std::atomic<double> last_imu_gyro_norm_{0.0};
+    std::atomic<double> last_imu_accel_deviation_{0.0};
+    void cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg);
+    bool isRobotMoving();
+    void processIMU(const std::shared_ptr<dai::IMUData>& imuData);
+    
     // Camera intrinsics
     cv::Mat camera_matrix_;
     double fx_ = 0.0, fy_ = 0.0, cx_ = 0.0, cy_ = 0.0;
     
-    // Performance
-    rclcpp::Time last_diag_time_;
-    int processed_frames_ = 0;
+    // Performance (thread-safe)
+    rclcpp::Time last_diag_time_;  // Protected by time_mutex_
+    std::atomic<uint64_t> processed_frames_{0};
     
     // Helper
     std::string stateToString(TrackingState state) const;

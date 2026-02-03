@@ -23,6 +23,13 @@ FastFlowVONode::FastFlowVONode(const rclcpp::NodeOptions& options)
     config_.odom_frame = declare_parameter<std::string>("odom_frame", "odom");
     config_.base_frame = declare_parameter<std::string>("base_frame", "base_link");
     config_.camera_frame = declare_parameter<std::string>("camera_frame", "oak_left_camera_optical_frame");
+    config_.publish_tf = declare_parameter<bool>("publish_tf", false);
+    
+    // Initialize TF broadcaster if enabled
+    if (config_.publish_tf) {
+        tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(this);
+        RCLCPP_INFO(get_logger(), "TF broadcasting ENABLED (odom -> base_link)");
+    }
     
     // FAST Detection
     config_.fast_threshold = declare_parameter<int>("fast_threshold", 10);
@@ -40,6 +47,10 @@ FastFlowVONode::FastFlowVONode(const rclcpp::NodeOptions& options)
     config_.min_depth = declare_parameter<double>("min_depth", 0.3);
     config_.max_depth = declare_parameter<double>("max_depth", 8.0);
     config_.depth_fps = declare_parameter<double>("depth_fps", 30.0);
+    
+    // Floor Reflection Filter
+    config_.enable_floor_filter = declare_parameter<bool>("enable_floor_filter", true);
+    config_.camera_height = declare_parameter<double>("camera_height", 0.08);
     
     // PnP
     config_.min_points = declare_parameter<int>("min_points", 20);
@@ -72,6 +83,15 @@ FastFlowVONode::FastFlowVONode(const rclcpp::NodeOptions& options)
     config_.enable_yolo = declare_parameter<bool>("enable_yolo", true);
     config_.yolo_blob_path = declare_parameter<std::string>("yolo_blob_path", "");
     config_.yolo_conf_threshold = declare_parameter<float>("yolo_conf_threshold", 0.5f);
+    
+    // Motion Gate (prevents drift when stationary)
+    config_.enable_motion_gate = declare_parameter<bool>("enable_motion_gate", true);
+    config_.imu_gyro_threshold = declare_parameter<double>("imu_gyro_threshold", 0.02);
+    config_.imu_accel_threshold = declare_parameter<double>("imu_accel_threshold", 0.15);
+    config_.cmd_vel_timeout = declare_parameter<double>("cmd_vel_timeout", 0.5);
+    
+    // Initialize motion gate time
+    last_cmd_vel_time_ = this->now();
     
     // Initialize FAST detector
     fast_detector_ = cv::FastFeatureDetector::create(config_.fast_threshold, true);
@@ -106,6 +126,14 @@ FastFlowVONode::FastFlowVONode(const rclcpp::NodeOptions& options)
     
     // IMU
     imu_pub_ = create_publisher<sensor_msgs::msg::Imu>("/oak/imu/data", 10);
+    
+    // Motion Gate: Subscribe to cmd_vel to detect motor commands
+    if (config_.enable_motion_gate) {
+        cmd_vel_sub_ = create_subscription<geometry_msgs::msg::Twist>(
+            "/cmd_vel", 10,
+            std::bind(&FastFlowVONode::cmdVelCallback, this, std::placeholders::_1));
+        RCLCPP_INFO(get_logger(), "Motion Gate ENABLED: VO updates only when motors/IMU active");
+    }
     
     // Start processing thread
     running_ = true;
@@ -301,14 +329,12 @@ void FastFlowVONode::processLoop() {
                 }
             }
             
-            // IMU Processing (Restored)
+            // IMU Processing (with Motion Gate detection)
             auto imuData = qImu->tryGet<dai::IMUData>();
             if (imuData) {
                 auto packets = imuData->packets;
                 for (const auto& packet : packets) {
                     sensor_msgs::msg::Imu imu_msg;
-                    // Use system time for now, or packet timestamp if synchronized
-                    // packet.acceleroMeter.timestamp.get() gives high precision time
                     imu_msg.header.stamp = this->now(); 
                     imu_msg.header.frame_id = "imu_link";
                     
@@ -324,6 +350,28 @@ void FastFlowVONode::processLoop() {
                     
                     // No orientation from raw IMU, EKF will compute it
                     imu_msg.orientation_covariance[0] = -1;
+                    
+                    // Motion Gate: Check if IMU detects movement
+                    if (config_.enable_motion_gate) {
+                        double gyro_norm = std::sqrt(
+                            packet.gyroscope.x * packet.gyroscope.x +
+                            packet.gyroscope.y * packet.gyroscope.y +
+                            packet.gyroscope.z * packet.gyroscope.z);
+                        
+                        // Accel deviation from gravity (9.8 m/s^2)
+                        double accel_magnitude = std::sqrt(
+                            packet.acceleroMeter.x * packet.acceleroMeter.x +
+                            packet.acceleroMeter.y * packet.acceleroMeter.y +
+                            packet.acceleroMeter.z * packet.acceleroMeter.z);
+                        double accel_deviation = std::abs(accel_magnitude - 9.81);
+                        
+                        last_imu_gyro_norm_ = gyro_norm;
+                        last_imu_accel_deviation_ = accel_deviation;
+                        
+                        // Motion detected if gyro OR accel above threshold
+                        imu_motion_detected_ = (gyro_norm > config_.imu_gyro_threshold) ||
+                                               (accel_deviation > config_.imu_accel_threshold);
+                    }
                     
                     imu_pub_->publish(imu_msg);
                 }
@@ -348,6 +396,21 @@ void FastFlowVONode::processLoop() {
             
             std::this_thread::sleep_for(std::chrono::microseconds(500));
             
+        } catch (const std::runtime_error& e) {
+            // Catch DepthAI and other runtime errors
+            std::string err_msg = e.what();
+            if (err_msg.find("XLink") != std::string::npos || 
+                err_msg.find("Device") != std::string::npos) {
+                RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 1000,
+                    "DepthAI error: %s", e.what());
+            } else {
+                RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 1000,
+                    "Runtime error: %s", e.what());
+            }
+            // Don't crash, try to recover on next iteration
+        } catch (const cv::Exception& e) {
+            RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 1000,
+                "OpenCV error [%s:%d]: %s", e.file.c_str(), e.line, e.what());
         } catch (const std::exception& e) {
             RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 1000,
                                  "Processing error: %s", e.what());
@@ -406,8 +469,8 @@ void FastFlowVONode::processFrame(const cv::Mat& gray, const cv::Mat& depth,
     
     if (new_points.size() >= (size_t)config_.min_points) {
         std::lock_guard<std::mutex> lock(state_mutex_);
-        prev_frame_.gray = gray.clone();
-        prev_frame_.depth = depth.clone();
+        gray.copyTo(prev_frame_.gray);
+        depth.copyTo(prev_frame_.depth);
         prev_frame_.points = new_points;
         prev_frame_.timestamp = stamp;
         has_prev_frame_ = true;
@@ -424,7 +487,7 @@ void FastFlowVONode::processFrame(const cv::Mat& gray, const cv::Mat& depth,
         last_diag_time_ = stamp;
     }
     
-    processed_frames_++;
+    processed_frames_.fetch_add(1, std::memory_order_relaxed);
 }
 
 // ===================== YOLO & Italian Labels =====================
@@ -609,6 +672,12 @@ bool FastFlowVONode::associateDepth(const cv::Mat& depth,
         float X = (prev_pts[i].x - cx_) * z / fx_;
         float Y = (prev_pts[i].y - cy_) * z / fy_;
         
+        // Floor reflection filter: reject points "underground" (Y > camera_height)
+        if (config_.enable_floor_filter && Y > config_.camera_height) {
+            // This point is below floor level - likely a reflection
+            continue;
+        }
+        
         obj_pts.emplace_back(X, Y, z);
         img_pts.push_back(curr_pts[i]);
         valid_count++;
@@ -683,7 +752,8 @@ bool FastFlowVONode::validateMotion(const TrackingResult& result) {
     if (result.translation_norm > config_.max_translation_per_frame) {
         RCLCPP_WARN(get_logger(), "Rejected: translation too large (%.3fm > %.3fm)",
                     result.translation_norm, config_.max_translation_per_frame);
-        current_covariance_scale_ *= 2.0;
+        double cov = current_covariance_scale_.load(std::memory_order_acquire);
+        current_covariance_scale_.store(cov * 2.0, std::memory_order_release);
         return false;
     }
     
@@ -692,7 +762,8 @@ bool FastFlowVONode::validateMotion(const TrackingResult& result) {
         RCLCPP_WARN(get_logger(), "Rejected: rotation too large (%.1f° > %.1f°)",
                     result.rotation_norm * 180.0 / CV_PI,
                     config_.max_rotation_per_frame * 180.0 / CV_PI);
-        current_covariance_scale_ *= 2.0;
+        double cov = current_covariance_scale_.load(std::memory_order_acquire);
+        current_covariance_scale_.store(cov * 2.0, std::memory_order_release);
         return false;
     }
     
@@ -707,7 +778,8 @@ bool FastFlowVONode::validateMotion(const TrackingResult& result) {
     motion_stats_.update(result.translation_norm, result.rotation_norm);
     
     // Reset covariance scale on good tracking
-    current_covariance_scale_ = std::max(1.0, current_covariance_scale_ * 0.9);
+    double cov = current_covariance_scale_.load(std::memory_order_acquire);
+    current_covariance_scale_.store(std::max(1.0, cov * 0.9), std::memory_order_release);
     
     return true;
 }
@@ -715,9 +787,9 @@ bool FastFlowVONode::validateMotion(const TrackingResult& result) {
 // ===================== 6. EMA Translation Filter =====================
 
 Eigen::Vector3d FastFlowVONode::filterTranslation(const Eigen::Vector3d& raw_t) {
-    if (!filter_initialized_) {
+    if (!filter_initialized_.load(std::memory_order_acquire)) {
         filtered_translation_ = raw_t;
-        filter_initialized_ = true;
+        filter_initialized_.store(true, std::memory_order_release);
         return raw_t;
     }
     
@@ -755,25 +827,34 @@ double FastFlowVONode::MotionStats::getAvgRotation() const {
 
 void FastFlowVONode::updateState(const TrackingResult& result) {
     if (!result.success) {
-        if (consecutive_failures_ >= config_.lost_threshold) {
-            tracking_state_ = TrackingState::TRACKING_LOST;
+        int failures = consecutive_failures_.fetch_add(1, std::memory_order_relaxed);
+        
+        if (failures >= config_.lost_threshold) {
+            tracking_state_.store(static_cast<int>(TrackingState::TRACKING_LOST), std::memory_order_release);
         } else {
-            tracking_state_ = TrackingState::TRACKING_WEAK;
+            tracking_state_.store(static_cast<int>(TrackingState::TRACKING_WEAK), std::memory_order_release);
         }
-        current_covariance_scale_ *= 1.5;
+        
+        double current = current_covariance_scale_.load(std::memory_order_acquire);
+        current_covariance_scale_.store(current * 1.5, std::memory_order_release);
         return;
     }
     
+    consecutive_failures_.store(0, std::memory_order_release);
+    
     if (result.inliers >= config_.good_inlier_threshold) {
-        tracking_state_ = TrackingState::TRACKING_GOOD;
-        last_good_tracking_time_ = this->now();
+        tracking_state_.store(static_cast<int>(TrackingState::TRACKING_GOOD), std::memory_order_release);
+        {
+            std::lock_guard<std::mutex> lock(time_mutex_);
+            last_good_tracking_time_ = this->now();
+        }
     } else if (result.inliers >= config_.weak_inlier_threshold) {
-        tracking_state_ = TrackingState::TRACKING_WEAK;
+        tracking_state_.store(static_cast<int>(TrackingState::TRACKING_WEAK), std::memory_order_release);
     } else if (result.inliers >= config_.critical_inlier_threshold) {
-        tracking_state_ = TrackingState::TRACKING_WEAK;
+        tracking_state_.store(static_cast<int>(TrackingState::TRACKING_WEAK), std::memory_order_release);
     } else {
-        tracking_state_ = TrackingState::TRACKING_LOST;
-        current_covariance_scale_ = 1000.0; // Instant penalty
+        tracking_state_.store(static_cast<int>(TrackingState::TRACKING_LOST), std::memory_order_release);
+        current_covariance_scale_.store(1000.0, std::memory_order_release);
     }
 }
 
@@ -813,7 +894,18 @@ void FastFlowVONode::updatePose(const TrackingResult& result) {
     delta.translation() = t_filtered;
     
     // Resilience: If tracking is LOST or critical, do not update pose
-    if (tracking_state_ == TrackingState::TRACKING_LOST) {
+    TrackingState ts = static_cast<TrackingState>(tracking_state_.load(std::memory_order_acquire));
+    if (ts == TrackingState::TRACKING_LOST) {
+        return;
+    }
+    
+    // Motion Gate: Block pose updates if robot is stationary
+    // This prevents drift in front of white walls when the robot is not moving
+    if (config_.enable_motion_gate && !isRobotMoving()) {
+        // Robot is stationary - don't update pose to prevent phantom drift
+        RCLCPP_DEBUG_THROTTLE(get_logger(), *get_clock(), 2000,
+            "Motion Gate: Blocking VO update (motors_active=%d, imu_motion=%d)",
+            motors_active_.load(), imu_motion_detected_.load());
         return;
     }
 
@@ -848,15 +940,18 @@ void FastFlowVONode::publishOdometry(const rclcpp::Time& stamp) {
     odom_msg.pose.pose.orientation.z = orientation.z();
     odom_msg.pose.pose.orientation.w = orientation.w();
     
-    // Adaptive covariance
-    double base_pos_cov = 0.01 * current_covariance_scale_;
-    double base_rot_cov = 0.05 * current_covariance_scale_;
+    // Adaptive covariance (thread-safe read)
+    double cov_scale = current_covariance_scale_.load(std::memory_order_acquire);
+    double base_pos_cov = 0.01 * cov_scale;
+    double base_rot_cov = 0.05 * cov_scale;
     
-    // State-based scaling
-    if (tracking_state_ == TrackingState::TRACKING_WEAK) {
+    // State-based scaling (thread-safe read)
+    TrackingState current_state = static_cast<TrackingState>(
+        tracking_state_.load(std::memory_order_acquire));
+    if (current_state == TrackingState::TRACKING_WEAK) {
         base_pos_cov *= 3.0;
         base_rot_cov *= 2.0;
-    } else if (tracking_state_ == TrackingState::TRACKING_LOST) {
+    } else if (current_state == TrackingState::TRACKING_LOST) {
         base_pos_cov = 9999.0;
         base_rot_cov = 9999.0;
     }
@@ -874,6 +969,25 @@ void FastFlowVONode::publishOdometry(const rclcpp::Time& stamp) {
     std::fill(odom_msg.twist.covariance.begin(), odom_msg.twist.covariance.end(), -1.0);
     
     odom_pub_->publish(odom_msg);
+    
+    // Publish TF if enabled (usually RTAB-Map handles this)
+    if (config_.publish_tf && tf_broadcaster_) {
+        geometry_msgs::msg::TransformStamped tf_msg;
+        tf_msg.header.stamp = stamp;
+        tf_msg.header.frame_id = config_.odom_frame;
+        tf_msg.child_frame_id = config_.base_frame;
+        
+        tf_msg.transform.translation.x = position.x();
+        tf_msg.transform.translation.y = position.y();
+        tf_msg.transform.translation.z = position.z();
+        
+        tf_msg.transform.rotation.x = orientation.x();
+        tf_msg.transform.rotation.y = orientation.y();
+        tf_msg.transform.rotation.z = orientation.z();
+        tf_msg.transform.rotation.w = orientation.w();
+        
+        tf_broadcaster_->sendTransform(tf_msg);
+    }
 }
 
 void FastFlowVONode::publishDiagnostics(const rclcpp::Time& stamp) {
@@ -884,7 +998,11 @@ void FastFlowVONode::publishDiagnostics(const rclcpp::Time& stamp) {
     status.name = "Visual Odometry (FAST+Flow)";
     status.hardware_id = "OAK-D";
     
-    switch (tracking_state_) {
+    // Thread-safe read of tracking state
+    TrackingState diag_state = static_cast<TrackingState>(
+        tracking_state_.load(std::memory_order_acquire));
+    
+    switch (diag_state) {
         case TrackingState::UNINITIALIZED:
             status.level = diagnostic_msgs::msg::DiagnosticStatus::WARN;
             status.message = "Initializing";
@@ -906,12 +1024,13 @@ void FastFlowVONode::publishDiagnostics(const rclcpp::Time& stamp) {
     diagnostic_msgs::msg::KeyValue kv;
     
     kv.key = "State";
-    kv.value = stateToString(tracking_state_);
+    kv.value = stateToString(diag_state);
     status.values.push_back(kv);
     
     kv.key = "Covariance_Scale";
     std::ostringstream oss;
-    oss << std::fixed << std::setprecision(2) << current_covariance_scale_;
+    double cov_diag = current_covariance_scale_.load(std::memory_order_acquire);
+    oss << std::fixed << std::setprecision(2) << cov_diag;
     kv.value = oss.str();
     status.values.push_back(kv);
     
@@ -1043,7 +1162,9 @@ void FastFlowVONode::publishDebugView(const cv::Mat& gray,
     }
     
     // Draw status
-    std::string status_text = stateToString(tracking_state_);
+    TrackingState debug_state = static_cast<TrackingState>(
+        tracking_state_.load(std::memory_order_acquire));
+    std::string status_text = stateToString(debug_state);
     cv::putText(debug_img, status_text, cv::Point(10, 30), 
                 cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 255, 255), 2);
                 
@@ -1085,6 +1206,46 @@ void FastFlowVONode::publishDepthPreview(const cv::Mat& depth, const rclcpp::Tim
     msg.data = buf;
     
     depth_preview_pub_->publish(msg);
+}
+
+// ===================== Motion Gate Functions =====================
+
+void FastFlowVONode::cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg) {
+    // Check if any velocity command is non-zero
+    bool has_motion = (std::abs(msg->linear.x) > 0.001) ||
+                      (std::abs(msg->linear.y) > 0.001) ||
+                      (std::abs(msg->angular.z) > 0.001);
+    
+    motors_active_.store(has_motion, std::memory_order_release);
+    
+    {
+        std::lock_guard<std::mutex> lock(time_mutex_);
+        last_cmd_vel_time_ = this->now();
+    }
+    
+    RCLCPP_DEBUG_THROTTLE(get_logger(), *get_clock(), 2000,
+        "cmd_vel received: linear=%.3f, angular=%.3f, motors_active=%d",
+        msg->linear.x, msg->angular.z, has_motion);
+}
+
+bool FastFlowVONode::isRobotMoving() {
+    // Get last cmd_vel time with lock
+    rclcpp::Time cmd_time;
+    {
+        std::lock_guard<std::mutex> lock(time_mutex_);
+        cmd_time = last_cmd_vel_time_;
+    }
+    
+    // Check if cmd_vel is recent and active
+    bool cmd_vel_active = false;
+    double time_since_cmd = (this->now() - cmd_time).seconds();
+    
+    if (time_since_cmd < config_.cmd_vel_timeout) {
+        cmd_vel_active = motors_active_.load(std::memory_order_acquire);
+    }
+    
+    // Robot is moving if motors are active OR IMU detects motion
+    return cmd_vel_active || imu_motion_detected_.load(std::memory_order_acquire);
 }
 
 // ===================== Main Function =====================
