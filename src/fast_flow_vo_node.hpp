@@ -100,10 +100,14 @@ private:
         double min_depth = 0.3;
         double max_depth = 8.0;
         double depth_fps = 30.0;
+        double camera_fps = 30.0;  // Stereo camera FPS
+        bool enable_depth_filter = true;  // Enable/disable depth range filtering
         
-        // Floor Reflection Filter
+        // Floor Reflection Filter (with camera pitch compensation)
         bool enable_floor_filter = true;     // Enable/disable underground point rejection
         double camera_height = 0.08;         // Camera height from floor (meters)
+        double camera_pitch = 0.0;           // Camera pitch angle (radians, positive = tilted up)
+        double floor_z_threshold = -0.02;    // Points below this Z in base_link frame are rejected (meters)
         
         // PnP
         int min_points = 20;
@@ -179,6 +183,7 @@ private:
     void updateState(const TrackingResult& result);
     void updatePose(const TrackingResult& result);
     void publishOdometry(const rclcpp::Time& stamp);
+    void publishGuess(const rclcpp::Time& stamp);  // Guess for RTAB-Map
     void publishDiagnostics(const rclcpp::Time& stamp);
     void publishImages(const cv::Mat& gray, const cv::Mat& depth, const rclcpp::Time& stamp);
     void publishDebugView(const cv::Mat& gray, 
@@ -225,6 +230,12 @@ private:
     // Covariance (thread-safe)
     std::atomic<double> current_covariance_scale_{1.0};
     
+    // Velocity tracking (for twist-only odometry)
+    rclcpp::Time last_velocity_time_;
+    Eigen::Vector3d last_delta_translation_ = Eigen::Vector3d::Zero();
+    double last_delta_yaw_ = 0.0;
+    std::atomic<bool> velocity_initialized_{false};
+    
     // ROS Publishers
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;
     rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_pub_;
@@ -247,6 +258,9 @@ private:
     // IMU
     rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_pub_;
     
+    // Guess publisher for RTAB-Map (initial motion estimate)
+    rclcpp::Publisher<geometry_msgs::msg::TransformStamped>::SharedPtr guess_pub_;
+    
     // Threading
     std::thread processing_thread_;
     std::atomic<bool> running_{false};
@@ -261,6 +275,15 @@ private:
     void cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg);
     bool isRobotMoving();
     void processIMU(const std::shared_ptr<dai::IMUData>& imuData);
+    
+    // IMU Pitch Calibration (auto-calibrates camera pitch from gravity vector at startup)
+    std::atomic<bool> pitch_calibrated_{false};
+    std::atomic<double> calibrated_pitch_{0.0};      // Calibrated camera pitch (radians)
+    int calibration_sample_count_ = 0;               // Number of samples collected
+    double accel_sum_x_ = 0.0;                       // Accumulated accelerometer X
+    double accel_sum_y_ = 0.0;                       // Accumulated accelerometer Y  
+    double accel_sum_z_ = 0.0;                       // Accumulated accelerometer Z
+    static const int CALIBRATION_SAMPLES = 50;       // Samples needed for calibration
     
     // Camera intrinsics
     cv::Mat camera_matrix_;

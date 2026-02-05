@@ -53,12 +53,14 @@ class TeleopKeyboard(Node):
         # Timer a 50Hz per pubblicazione fluida
         self.timer = self.create_timer(0.02, self.loop)
         
-        self.get_logger().info("=== TELEOP KEYBOARD (VERSIONE MIGLIORATA) ===")
+        self.get_logger().info("=== TELEOP KEYBOARD  ===")
         self.get_logger().info("W/S: avanti/indietro (mantenere premuto)")
-        self.get_logger().info("A/D: sinistra/destra (mantenere premuto)")
+        self.get_logger().info("Q/E: avanti diagonale sx/dx")
+        self.get_logger().info("Z/C: indietro diagonale sx/dx")
+        self.get_logger().info("A/D: ruota sx/dx (sul posto)")
         self.get_logger().info("SPACE: STOP immediato")
         self.get_logger().info("+/-: velocità")
-        self.get_logger().info("Q: esci")
+        self.get_logger().info("X: esci")
         self.get_logger().info(f"Deadzone timeout: {self.deadzone_timeout}s")
         
         # Pubblica stato iniziale
@@ -84,21 +86,41 @@ class TeleopKeyboard(Node):
         self.target_x = 0.0
         self.target_y = 0.0
         
-        # Calcola comando in base a tutti i tasti premuti
+        # --- MOVIMENTI LINEARI ---
+        # W: avanti dritto
         if 'w' in self.keys_pressed:
             self.target_y = 1.0
+        # S: indietro dritto
         if 's' in self.keys_pressed:
             self.target_y = -1.0
+            
+        # --- MOVIMENTI DIAGONALI AVANTI ---
+        # Q: avanti + leggermente sinistra (destra max, sinistra mezza)
+        if 'q' in self.keys_pressed:
+            self.target_y = 1.0   # avanti
+            self.target_x = -0.5  # curva sinistra (mezzo)
+        # E: avanti + leggermente destra (sinistra max, destra mezza)
+        if 'e' in self.keys_pressed:
+            self.target_y = 1.0   # avanti
+            self.target_x = 0.5   # curva destra (mezzo)
+            
+        # --- MOVIMENTI DIAGONALI INDIETRO ---
+        # Z: indietro + leggermente sinistra
+        if 'z' in self.keys_pressed:
+            self.target_y = -1.0  # indietro
+            self.target_x = -0.5  # curva sinistra
+        # C: indietro + leggermente destra
+        if 'c' in self.keys_pressed:
+            self.target_y = -1.0  # indietro
+            self.target_x = 0.5   # curva destra
+            
+        # --- ROTAZIONE SUL POSTO ---
+        # A: ruota a sinistra sul posto
         if 'a' in self.keys_pressed:
             self.target_x = -1.0
+        # D: ruota a destra sul posto
         if 'd' in self.keys_pressed:
             self.target_x = 1.0
-            
-        # Normalizza se ci sono comandi diagonali
-        if self.target_x != 0 and self.target_y != 0:
-            norm = (self.target_x**2 + self.target_y**2)**0.5
-            self.target_x /= norm
-            self.target_y /= norm
 
     # --------------------------------------------------
 
@@ -148,15 +170,47 @@ class TeleopKeyboard(Node):
                 if key in ('w', 'W'):
                     self.keys_pressed.add('w')
                     self.keys_pressed.discard('s')
+                    self.keys_pressed.discard('a')
+                    self.keys_pressed.discard('d')
                 elif key in ('s', 'S'):
                     self.keys_pressed.add('s')
                     self.keys_pressed.discard('w')
+                    self.keys_pressed.discard('a')
+                    self.keys_pressed.discard('d')
+                elif key in ('q', 'Q'):
+                    self.keys_pressed.add('q')
+                    self.keys_pressed.discard('e')
+                    self.keys_pressed.discard('w')
+                    self.keys_pressed.discard('s')
+                    self.keys_pressed.discard('a')
+                    self.keys_pressed.discard('d')
+                elif key in ('e', 'E'):
+                    self.keys_pressed.add('e')
+                    self.keys_pressed.discard('q')
+                    self.keys_pressed.discard('w')
+                    self.keys_pressed.discard('s')
+                    self.keys_pressed.discard('a')
+                    self.keys_pressed.discard('d')
                 elif key in ('a', 'A'):
                     self.keys_pressed.add('a')
                     self.keys_pressed.discard('d')
                 elif key in ('d', 'D'):
                     self.keys_pressed.add('d')
                     self.keys_pressed.discard('a')
+                elif key in ('z', 'Z'):
+                    self.keys_pressed.add('z')
+                    self.keys_pressed.discard('c')
+                    self.keys_pressed.discard('w')
+                    self.keys_pressed.discard('s')
+                    self.keys_pressed.discard('q')
+                    self.keys_pressed.discard('e')
+                elif key in ('c', 'C'):
+                    self.keys_pressed.add('c')
+                    self.keys_pressed.discard('z')
+                    self.keys_pressed.discard('w')
+                    self.keys_pressed.discard('s')
+                    self.keys_pressed.discard('q')
+                    self.keys_pressed.discard('e')
                 elif key == ' ':
                     # STOP immediato - svuota tutti i tasti
                     self.keys_pressed.clear()
@@ -172,7 +226,7 @@ class TeleopKeyboard(Node):
                 elif key == '-':
                     self.speed = max(0.1, self.speed - 0.2)
                     self.get_logger().info(f"Velocità: {self.speed:.1f}")
-                elif key in ('q', 'Q'):
+                elif key in ('x', 'X'):
                     self.shutdown()
                     return
                     

@@ -186,7 +186,12 @@ class MadgwickNode(Node):
         out.linear_acceleration.y = ay
         out.linear_acceleration.z = az
 
-        out.orientation_covariance = [0.02,0,0, 0,0.02,0, 0,0,0.02]
+        # Roll/Pitch accurate from gravity, Yaw unreliable (no magnetometer)
+        out.orientation_covariance = [
+            0.02, 0, 0,
+            0, 0.02, 0,
+            0, 0, 5.0  # VERY HIGH variance for Yaw = minimal influence, drift correction only
+        ]
         out.angular_velocity_covariance = [1e-3]*9
         out.linear_acceleration_covariance = [1e-2]*9
 

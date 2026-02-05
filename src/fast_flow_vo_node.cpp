@@ -47,10 +47,14 @@ FastFlowVONode::FastFlowVONode(const rclcpp::NodeOptions& options)
     config_.min_depth = declare_parameter<double>("min_depth", 0.3);
     config_.max_depth = declare_parameter<double>("max_depth", 8.0);
     config_.depth_fps = declare_parameter<double>("depth_fps", 30.0);
+    config_.camera_fps = declare_parameter<double>("camera_fps", 30.0);  // Stereo camera FPS
+    config_.enable_depth_filter = declare_parameter<bool>("enable_depth_filter", true);
     
-    // Floor Reflection Filter
+    // Floor Reflection Filter (with camera pitch compensation)
     config_.enable_floor_filter = declare_parameter<bool>("enable_floor_filter", true);
     config_.camera_height = declare_parameter<double>("camera_height", 0.08);
+    config_.camera_pitch = declare_parameter<double>("camera_pitch", 0.0);  // radians, positive = tilted up
+    config_.floor_z_threshold = declare_parameter<double>("floor_z_threshold", -0.02);  // Z below this in base_link = rejected
     
     // PnP
     config_.min_points = declare_parameter<int>("min_points", 20);
@@ -127,6 +131,9 @@ FastFlowVONode::FastFlowVONode(const rclcpp::NodeOptions& options)
     // IMU
     imu_pub_ = create_publisher<sensor_msgs::msg::Imu>("/oak/imu/data", 10);
     
+    // Guess publisher for RTAB-Map (initial motion estimate)
+    guess_pub_ = create_publisher<geometry_msgs::msg::TransformStamped>("/vo/guess", 10);
+    
     // Motion Gate: Subscribe to cmd_vel to detect motor commands
     if (config_.enable_motion_gate) {
         cmd_vel_sub_ = create_subscription<geometry_msgs::msg::Twist>(
@@ -163,11 +170,11 @@ bool FastFlowVONode::initializeDepthAI() {
         
         monoLeft->setBoardSocket(dai::CameraBoardSocket::CAM_B);
         monoLeft->setResolution(dai::MonoCameraProperties::SensorResolution::THE_400_P);
-        monoLeft->setFps(15.0);  // Safe mode: 15fps
+        monoLeft->setFps(config_.camera_fps);  // Configurable FPS
         
         monoRight->setBoardSocket(dai::CameraBoardSocket::CAM_C);
         monoRight->setResolution(dai::MonoCameraProperties::SensorResolution::THE_400_P);
-        monoRight->setFps(15.0);  // Safe mode: 15fps
+        monoRight->setFps(config_.camera_fps);  // Configurable FPS
         
         stereo->setDefaultProfilePreset(dai::node::StereoDepth::PresetMode::DEFAULT);
         stereo->setLeftRightCheck(true);
@@ -215,7 +222,7 @@ bool FastFlowVONode::initializeDepthAI() {
             auto camRgb = pipeline_->create<dai::node::ColorCamera>();
             camRgb->setBoardSocket(dai::CameraBoardSocket::CAM_A);
             camRgb->setResolution(dai::ColorCameraProperties::SensorResolution::THE_1080_P); 
-            camRgb->setFps(15.0);  // Match Stereo FPS
+            camRgb->setFps(config_.camera_fps);  // Match Stereo FPS
             camRgb->setInterleaved(false);
             camRgb->setColorOrder(dai::ColorCameraProperties::ColorOrder::BGR);
             camRgb->setPreviewKeepAspectRatio(false);
@@ -330,47 +337,94 @@ void FastFlowVONode::processLoop() {
             }
             
             // IMU Processing (with Motion Gate detection)
+            // IMU Processing (with Motion Gate detection)
             auto imuData = qImu->tryGet<dai::IMUData>();
             if (imuData) {
                 auto packets = imuData->packets;
                 for (const auto& packet : packets) {
                     sensor_msgs::msg::Imu imu_msg;
                     imu_msg.header.stamp = this->now(); 
-                    imu_msg.header.frame_id = "imu_link";
+                    imu_msg.header.frame_id = "imu_link"; // We verify this matches ROS body frame
                     
-                    // Accelerometer (m/s^2)
-                    imu_msg.linear_acceleration.x = packet.acceleroMeter.x;
-                    imu_msg.linear_acceleration.y = packet.acceleroMeter.y;
-                    imu_msg.linear_acceleration.z = packet.acceleroMeter.z;
+                    // TRANSFORM IMU DATA: Optical Frame (Z-Fwd, X-Right, Y-Down) -> ROS FLU (X-Fwd, Y-Left, Z-Up)
+                    // Also convert Accelerometer from Gravity Vector (OAK default) to Proper Acceleration (ROS standard)
+                    // Proper Accel Up = +9.8. OAK Y-Down reads +9.8 (Gravity). So ROS_Z = OAK_Y.
                     
-                    // Gyroscope (rad/s)
-                    imu_msg.angular_velocity.x = packet.gyroscope.x;
-                    imu_msg.angular_velocity.y = packet.gyroscope.y;
-                    imu_msg.angular_velocity.z = packet.gyroscope.z;
+                    // Accelerometer Mapping:
+                    // ROS_X (Fwd)  = -OAK_Z (OAK Z is Fwd, Gravity points Down/Back in tilt. -G_z is N_x) -> Actually simpler: just swap axes?
+                    // Let's use the values found: OAK_Y=+9.6 (Down component). Target ROS_Z=+9.8. So ROS_Z = OAK_Y.
+                    // OAK_Z=-1.9 (Back component). Target ROS_X (Fwd). Tilted Up, N has +X comp. So ROS_X = -OAK_Z.
+                    // ROS_Y (Left) = OAK_X (Right). Right is +X. Left is +Y. So ROS_Y = -OAK_X. (Wait, N_y=0).
+                    
+                    double ax_ros = -packet.acceleroMeter.z;
+                    double ay_ros = -packet.acceleroMeter.x;
+                    double az_ros = packet.acceleroMeter.y;
+                    
+                    imu_msg.linear_acceleration.x = ax_ros;
+                    imu_msg.linear_acceleration.y = ay_ros;
+                    imu_msg.linear_acceleration.z = az_ros;
+                    
+                    // Gyroscope Mapping (Rotation Rates):
+                    // Rotate Frame: X_ros=Z_opt, Y_ros=-X_opt, Z_ros=-Y_opt
+                    double gx_ros = packet.gyroscope.z;
+                    double gy_ros = -packet.gyroscope.x;
+                    double gz_ros = packet.gyroscope.y; // Yaw is rotation around Vertical
+                    
+                    // Deadband filter: eliminate noise when stationary
+                    const double GYRO_DEADBAND = 0.01; // rad/s (~0.57 deg/s)
+                    if (std::abs(gx_ros) < GYRO_DEADBAND) gx_ros = 0.0;
+                    if (std::abs(gy_ros) < GYRO_DEADBAND) gy_ros = 0.0;
+                    if (std::abs(gz_ros) < GYRO_DEADBAND) gz_ros = 0.0;
+                    
+                    imu_msg.angular_velocity.x = gx_ros;
+                    imu_msg.angular_velocity.y = gy_ros;
+                    imu_msg.angular_velocity.z = gz_ros;
                     
                     // No orientation from raw IMU, EKF will compute it
                     imu_msg.orientation_covariance[0] = -1;
                     
-                    // Motion Gate: Check if IMU detects movement
-                    if (config_.enable_motion_gate) {
-                        double gyro_norm = std::sqrt(
-                            packet.gyroscope.x * packet.gyroscope.x +
-                            packet.gyroscope.y * packet.gyroscope.y +
-                            packet.gyroscope.z * packet.gyroscope.z);
+                    // ========== PITCH CALIBRATION (at startup) ==========
+                    if (!pitch_calibrated_.load(std::memory_order_acquire)) {
+                        accel_sum_x_ += ax_ros;
+                        accel_sum_y_ += ay_ros;
+                        accel_sum_z_ += az_ros;
+                        calibration_sample_count_++;
                         
-                        // Accel deviation from gravity (9.8 m/s^2)
-                        double accel_magnitude = std::sqrt(
-                            packet.acceleroMeter.x * packet.acceleroMeter.x +
-                            packet.acceleroMeter.y * packet.acceleroMeter.y +
-                            packet.acceleroMeter.z * packet.acceleroMeter.z);
+                        if (calibration_sample_count_ >= CALIBRATION_SAMPLES) {
+                            double avg_x = accel_sum_x_ / CALIBRATION_SAMPLES;
+                            double avg_z = accel_sum_z_ / CALIBRATION_SAMPLES;
+                            
+                            // Pitch from ROS Accel (X-Fwd, Z-Up)
+                            // Tilted Up: Ax > 0 (Gravity projects back, Normal projects Fwd)
+                            // Pitch = atan2(Ax, Az)
+                            double pitch = std::atan2(avg_x, avg_z);
+                            
+                            // Sanity check: cap at +/- 45 degrees
+                            if (std::abs(pitch) > 0.78) pitch = 0.0;
+                            
+                            calibrated_pitch_.store(pitch, std::memory_order_release);
+                            pitch_calibrated_.store(true, std::memory_order_release);
+                            
+                            RCLCPP_INFO(get_logger(), 
+                                "📐 Camera pitch calibrated: %.1f° (ROS Accel: x=%.2f, z=%.2f)",
+                                pitch * 180.0 / M_PI, avg_x, avg_z);
+                        }
+                    }
+                    
+                    // ========== MOTION GATE ==========
+                    if (config_.enable_motion_gate) {
+                        double gyro_norm = std::sqrt(gx_ros*gx_ros + gy_ros*gy_ros + gz_ros*gz_ros);
+                        
+                        // Accel deviation from gravity
+                        double accel_magnitude = std::sqrt(ax_ros*ax_ros + ay_ros*ay_ros + az_ros*az_ros);
                         double accel_deviation = std::abs(accel_magnitude - 9.81);
                         
-                        last_imu_gyro_norm_ = gyro_norm;
-                        last_imu_accel_deviation_ = accel_deviation;
+                        last_imu_gyro_norm_.store(gyro_norm, std::memory_order_release);
+                        last_imu_accel_deviation_.store(accel_deviation, std::memory_order_release);
                         
-                        // Motion detected if gyro OR accel above threshold
-                        imu_motion_detected_ = (gyro_norm > config_.imu_gyro_threshold) ||
-                                               (accel_deviation > config_.imu_accel_threshold);
+                        bool motion = (gyro_norm > config_.imu_gyro_threshold) ||
+                                     (accel_deviation > config_.imu_accel_threshold);
+                        imu_motion_detected_.store(motion, std::memory_order_release);
                     }
                     
                     imu_pub_->publish(imu_msg);
@@ -444,6 +498,7 @@ void FastFlowVONode::processFrame(const cv::Mat& gray, const cv::Mat& depth,
                 if (result.success && validateMotion(result)) {
                     updatePose(result);
                     publishOdometry(stamp);
+                    publishGuess(stamp);  // Provide motion hint to RTAB-Map
                     tracking_ok = true;
                     consecutive_failures_ = 0;
                 }
@@ -666,19 +721,39 @@ bool FastFlowVONode::associateDepth(const cv::Mat& depth,
         
         float z = depth.at<uint16_t>(v, u) / 1000.0f;
         
-        if (z < config_.min_depth || z > config_.max_depth) continue;
+        // Depth range filtering (only if enabled)
+        if (config_.enable_depth_filter && (z < config_.min_depth || z > config_.max_depth)) continue;
+        // Always reject invalid depth
+        if (z <= 0.01f) continue;
         
-        // Backproject to 3D
-        float X = (prev_pts[i].x - cx_) * z / fx_;
-        float Y = (prev_pts[i].y - cy_) * z / fy_;
+        // Backproject to 3D (camera optical frame: Z forward, X right, Y down)
+        float X_cam = (prev_pts[i].x - cx_) * z / fx_;
+        float Y_cam = (prev_pts[i].y - cy_) * z / fy_;
+        float Z_cam = z;
         
-        // Floor reflection filter: reject points "underground" (Y > camera_height)
-        if (config_.enable_floor_filter && Y > config_.camera_height) {
-            // This point is below floor level - likely a reflection
-            continue;
+        // Floor reflection filter: transform to base_link and check Z height
+        // Camera optical frame: Z forward, X right, Y down
+        // Base link frame: X forward, Y left, Z up
+        // Uses calibrated pitch from IMU gravity vector
+        if (config_.enable_floor_filter && pitch_calibrated_.load(std::memory_order_acquire)) {
+            double pitch = calibrated_pitch_.load(std::memory_order_acquire);
+            double cos_pitch = std::cos(pitch);
+            double sin_pitch = std::sin(pitch);
+            
+            // Transform from camera optical to base_link (simplified for pitch only):
+            // X_base = Z_cam * cos(pitch) + Y_cam * sin(pitch) (forward)
+            // Y_base = -X_cam (left)
+            // Z_base = -Y_cam * cos(pitch) + Z_cam * sin(pitch) + camera_height (up)
+            double Z_base = -Y_cam * cos_pitch + Z_cam * sin_pitch + config_.camera_height;
+            
+            // Reject points below floor (Z_base < floor_z_threshold)
+            if (Z_base < config_.floor_z_threshold) {
+                // This point is below floor level - likely a reflection or underground object
+                continue;
+            }
         }
         
-        obj_pts.emplace_back(X, Y, z);
+        obj_pts.emplace_back(X_cam, Y_cam, Z_cam);
         img_pts.push_back(curr_pts[i]);
         valid_count++;
     }
@@ -767,10 +842,11 @@ bool FastFlowVONode::validateMotion(const TrackingResult& result) {
         return false;
     }
     
-    // Check for noise floor
+    // Check for noise floor - Zero Velocity Update (ZUPT)
+    // If motion is below thresholds, robot is stationary - skip pose update
     if (result.translation_norm < config_.min_translation && 
-        result.rotation_norm < 0.001) {
-        // Robot is stationary, still valid but skip update
+        result.rotation_norm < 0.01) {  // ~0.6 degrees
+        // Robot is stationary, still valid but skip update to prevent drift
         return false;
     }
     
@@ -912,6 +988,12 @@ void FastFlowVONode::updatePose(const TrackingResult& result) {
     // Update global pose
     std::lock_guard<std::mutex> lock(state_mutex_);
     pose_ = pose_ * delta;
+    
+    // Save delta for velocity calculation
+    last_delta_translation_ = t_filtered;
+    // Extract yaw from rotation matrix
+    double yaw = atan2(R(1, 0), R(0, 0));
+    last_delta_yaw_ = yaw;
 }
 
 // ===================== Publishing =====================
@@ -922,72 +1004,152 @@ void FastFlowVONode::publishOdometry(const rclcpp::Time& stamp) {
     odom_msg.header.frame_id = config_.odom_frame;
     odom_msg.child_frame_id = config_.base_frame;
     
+    // ===================== VELOCITY CALCULATION =====================
+    // This VO is used as a VELOCITY SENSOR, not a pose estimator!
+    // Position comes from RTAB-Map, orientation from IMU
+    
+    Eigen::Vector3d delta_t;
+    double delta_yaw;
     Eigen::Vector3d position;
     Eigen::Quaterniond orientation;
     
     {
         std::lock_guard<std::mutex> lock(state_mutex_);
+        delta_t = last_delta_translation_;
+        delta_yaw = last_delta_yaw_;
         position = pose_.translation();
         orientation = Eigen::Quaterniond(pose_.rotation());
     }
     
-    odom_msg.pose.pose.position.x = position.x();
-    odom_msg.pose.pose.position.y = position.y();
-    odom_msg.pose.pose.position.z = position.z();
-    
-    odom_msg.pose.pose.orientation.x = orientation.x();
-    odom_msg.pose.pose.orientation.y = orientation.y();
-    odom_msg.pose.pose.orientation.z = orientation.z();
-    odom_msg.pose.pose.orientation.w = orientation.w();
-    
-    // Adaptive covariance (thread-safe read)
-    double cov_scale = current_covariance_scale_.load(std::memory_order_acquire);
-    double base_pos_cov = 0.01 * cov_scale;
-    double base_rot_cov = 0.05 * cov_scale;
-    
-    // State-based scaling (thread-safe read)
-    TrackingState current_state = static_cast<TrackingState>(
-        tracking_state_.load(std::memory_order_acquire));
-    if (current_state == TrackingState::TRACKING_WEAK) {
-        base_pos_cov *= 3.0;
-        base_rot_cov *= 2.0;
-    } else if (current_state == TrackingState::TRACKING_LOST) {
-        base_pos_cov = 9999.0;
-        base_rot_cov = 9999.0;
+    // Calculate dt
+    double dt = 0.0;
+    {
+        std::lock_guard<std::mutex> lock(time_mutex_);
+        if (velocity_initialized_.load()) {
+            dt = (stamp - last_velocity_time_).seconds();
+        } else {
+            velocity_initialized_.store(true);
+        }
+        last_velocity_time_ = stamp;
     }
     
-    // Fill covariance matrix
-    std::fill(odom_msg.pose.covariance.begin(), odom_msg.pose.covariance.end(), 0.0);
-    odom_msg.pose.covariance[0]  = base_pos_cov;      // x
-    odom_msg.pose.covariance[7]  = base_pos_cov;      // y
-    odom_msg.pose.covariance[14] = base_pos_cov * 3;  // z
-    odom_msg.pose.covariance[21] = base_rot_cov * 2;  // roll
-    odom_msg.pose.covariance[28] = base_rot_cov * 2;  // pitch
-    odom_msg.pose.covariance[35] = base_rot_cov;      // yaw
+    // Compute velocity from delta motion (velocity = delta / dt)
+    double vx = 0.0, vy = 0.0, vyaw = 0.0;
+    if (dt > 0.001 && dt < 0.5) {  // Reasonable dt range
+        vx = delta_t.x() / dt;
+        vy = delta_t.y() / dt;
+        vyaw = delta_yaw / dt;
+    }
     
-    // Twist covariance (not estimated)
-    std::fill(odom_msg.twist.covariance.begin(), odom_msg.twist.covariance.end(), -1.0);
+    // ===================== POSE: SET TO ZERO =====================
+    // NON vogliamo che l'EKF usi la nostra pose!
+    // Pose è a zero con covariance infinita = "non usarmi"
+    odom_msg.pose.pose.position.x = 0.0;
+    odom_msg.pose.pose.position.y = 0.0;
+    odom_msg.pose.pose.position.z = 0.0;
+    
+    odom_msg.pose.pose.orientation.x = 0.0;
+    odom_msg.pose.pose.orientation.y = 0.0;
+    odom_msg.pose.pose.orientation.z = 0.0;
+    odom_msg.pose.pose.orientation.w = 1.0;  // Identity quaternion
+    
+    // ===================== POSE COVARIANCE: INFINITE =====================
+    // Tell EKF: "Don't trust my position at all!"
+    std::fill(odom_msg.pose.covariance.begin(), odom_msg.pose.covariance.end(), 0.0);
+    for (int i = 0; i < 6; ++i) {
+        odom_msg.pose.covariance[i * 6 + i] = 9999.0;  // Diagonal = inf
+    }
+    
+    // ===================== TWIST (VELOCITY) =====================
+    odom_msg.twist.twist.linear.x = vx;
+    odom_msg.twist.twist.linear.y = vy;
+    odom_msg.twist.twist.linear.z = 0.0;  // 2D
+    odom_msg.twist.twist.angular.x = 0.0;
+    odom_msg.twist.twist.angular.y = 0.0;
+    odom_msg.twist.twist.angular.z = vyaw;
+    
+    // ===================== TWIST COVARIANCE: Adaptive =====================
+    // Base covariance for velocity
+    double base_vel_cov = 0.01;
+    
+    TrackingState current_state = static_cast<TrackingState>(
+        tracking_state_.load(std::memory_order_acquire));
+    
+    if (current_state == TrackingState::TRACKING_WEAK) {
+        base_vel_cov *= 3.0;  // Less confident
+    } else if (current_state == TrackingState::TRACKING_LOST) {
+        base_vel_cov = 9999.0;  // Can't trust velocity at all
+    }
+    
+    // ZUPT: If motion is very small, we're confident it's zero
+    double motion_magnitude = sqrt(vx*vx + vy*vy);
+    if (motion_magnitude < 0.01 && fabs(vyaw) < 0.01) {
+        // Robot is stationary - very confident in zero velocity
+        vx = 0.0;
+        vy = 0.0;
+        vyaw = 0.0;
+        odom_msg.twist.twist.linear.x = 0.0;
+        odom_msg.twist.twist.linear.y = 0.0;
+        odom_msg.twist.twist.angular.z = 0.0;
+        base_vel_cov = 0.001;  // Very confident!
+    }
+    
+    std::fill(odom_msg.twist.covariance.begin(), odom_msg.twist.covariance.end(), 0.0);
+    odom_msg.twist.covariance[0]  = base_vel_cov;      // vx
+    odom_msg.twist.covariance[7]  = base_vel_cov;      // vy
+    odom_msg.twist.covariance[14] = base_vel_cov * 2;  // vz (less confident)
+    odom_msg.twist.covariance[21] = base_vel_cov * 2;  // wx
+    odom_msg.twist.covariance[28] = base_vel_cov * 2;  // wy
+    odom_msg.twist.covariance[35] = base_vel_cov;      // wz (yaw rate)
     
     odom_pub_->publish(odom_msg);
     
-    // Publish TF if enabled (usually RTAB-Map handles this)
-    if (config_.publish_tf && tf_broadcaster_) {
-        geometry_msgs::msg::TransformStamped tf_msg;
-        tf_msg.header.stamp = stamp;
-        tf_msg.header.frame_id = config_.odom_frame;
-        tf_msg.child_frame_id = config_.base_frame;
-        
-        tf_msg.transform.translation.x = position.x();
-        tf_msg.transform.translation.y = position.y();
-        tf_msg.transform.translation.z = position.z();
-        
-        tf_msg.transform.rotation.x = orientation.x();
-        tf_msg.transform.rotation.y = orientation.y();
-        tf_msg.transform.rotation.z = orientation.z();
-        tf_msg.transform.rotation.w = orientation.w();
-        
-        tf_broadcaster_->sendTransform(tf_msg);
+    // TF publishing disabled - RTAB-Map handles odom->base_link
+    // The pose we have isn't accurate enough for TF
+}
+
+void FastFlowVONode::publishGuess(const rclcpp::Time& stamp) {
+    // Only publish guess if tracking is good
+    TrackingState ts = static_cast<TrackingState>(tracking_state_.load(std::memory_order_acquire));
+    if (ts != TrackingState::TRACKING_GOOD && ts != TrackingState::TRACKING_WEAK) {
+        return;  // Don't provide guess if tracking is lost
     }
+    
+    Eigen::Vector3d delta_t;
+    double delta_yaw;
+    {
+        std::lock_guard<std::mutex> lock(state_mutex_);
+        delta_t = last_delta_translation_;
+        delta_yaw = last_delta_yaw_;
+    }
+    
+    // Skip if motion is negligible
+    if (delta_t.norm() < 0.0001 && std::abs(delta_yaw) < 0.0001) {
+        return;
+    }
+    
+    geometry_msgs::msg::TransformStamped msg;
+    msg.header.stamp = stamp;
+    msg.header.frame_id = config_.base_frame;
+    msg.child_frame_id = config_.base_frame;
+    
+    // Delta translation (motion since last frame)
+    msg.transform.translation.x = delta_t.x();
+    msg.transform.translation.y = delta_t.y();
+    msg.transform.translation.z = 0.0;  // 2D
+    
+    // Delta rotation as quaternion
+    double half_yaw = delta_yaw * 0.5;
+    msg.transform.rotation.x = 0.0;
+    msg.transform.rotation.y = 0.0;
+    msg.transform.rotation.z = std::sin(half_yaw);
+    msg.transform.rotation.w = std::cos(half_yaw);
+    
+    guess_pub_->publish(msg);
+    
+    RCLCPP_DEBUG_THROTTLE(get_logger(), *get_clock(), 2000,
+        "Guess published: dx=%.4f, dy=%.4f, dyaw=%.4f",
+        delta_t.x(), delta_t.y(), delta_yaw);
 }
 
 void FastFlowVONode::publishDiagnostics(const rclcpp::Time& stamp) {

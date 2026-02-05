@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
-FAST + Optical Flow Visual Odometry Launch File
-NO SuperPoint, NO neural networks, just FAST + KLT
+RTAB-Map System with CORRECTED TF and data flow
+- FAST+KLT VO → velocity only
+- RTAB-Map rgbd_odom → pose + TF
+- IMU → orientation
 """
 
 import os
 from launch import LaunchDescription
-from launch.actions import TimerAction, DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration
+from launch.actions import TimerAction
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from ament_index_python.packages import get_package_share_directory
@@ -21,9 +22,6 @@ def generate_launch_description():
     with open(urdf_file, 'r') as f:
         robot_description = ParameterValue(f.read(), value_type=str)
     
-    # ------------------------------------------------
-    # ROBOT STATE PUBLISHER
-    # ------------------------------------------------
     robot_state_publisher = Node(
         package='robot_state_publisher',
         executable='robot_state_publisher',
@@ -31,76 +29,92 @@ def generate_launch_description():
         output='screen'
     )
     
-    # ------------------------------------------------
-    # FAST + OPTICAL FLOW VO (NO SuperPoint!)
-    # ------------------------------------------------
-    fast_flow_vo = Node(
+    # ================================================
+    # STATIC TF
+    # ================================================
+    camera_tf = Node(
+        package='tf2_ros',
+        executable='static_transform_publisher',
+        name='base_to_camera_tf',
+        arguments=[
+            '0.05', '0.0', '0.08',
+            '-1.5708', '0.0', '-1.4173',
+            'base_link',
+            'oak_left_camera_optical_frame'
+        ],
+        output='log'
+    )
+    
+    imu_tf = Node(
+        package='tf2_ros',
+        executable='static_transform_publisher',
+        name='base_to_imu_tf',
+        arguments=[
+            '0.0', '0.0', '0.0',
+            '0.0', '0.0', '0.0', '1.0',
+            'base_link',
+            'imu_link'
+        ],
+        output='log'
+    )
+    
+    # ================================================
+    # FAST+KLT VO (VELOCITY SENSOR ONLY!)
+    # Pubblica: /fast_flow/velocity (TWIST ONLY!)
+    #           /rgb/image + /camera/depth/image_raw
+    #           /oak/imu/data
+    # NO TF publishing!
+    # ================================================
+    oak_camera = Node(
         package='robopy_controller',
         executable='fast_flow_vo_cpp',
         name='fast_flow_vo',
         output='screen',
         parameters=[{
-            # Frames
+            'camera_frame': 'oak_left_camera_optical_frame',
             'odom_frame': 'odom',
             'base_frame': 'base_link',
-            'camera_frame': 'oak_left_camera_optical_frame',
+            
+            # CRITICO: NO TF publishing! RTAB-Map lo fa
+            'publish_tf': False,
+            
+            # Camera settings
+            'camera_fps': 30.0,
+            'skip_frames': 1,
             
             # FAST Detection
             'fast_threshold': 15,
-            'max_features': 400,
-            'grid_rows': 6,
-            'grid_cols': 8,
+            'max_features': 800,
             
             # KLT Tracking
-            'klt_win_size': 21,
-            'klt_max_level': 3,
-            'klt_max_error': 12.0,
-            'fb_threshold': 1.0,
+            'klt_win_size': 31,
+            'klt_max_level': 4,
+            'klt_max_error': 15.0,
+            'fb_threshold': 1.5,
             
             # Depth
-            'min_depth': 0.3,
-            'max_depth': 8.0,
-            'depth_fps': 30.0,
+            'enable_depth_filter': False,
+            'enable_floor_filter': False,
             
-            # Floor Reflection Filter (rejects points Y > camera_height = underground/reflections)
-            'enable_floor_filter': True,
-            'camera_height': 0.08,  # Camera height from floor in meters
-            
-            # PnP
-            'min_points': 20,
-            'min_inliers': 15,
-            'reproj_error': 3.0,
-            
-            # Motion Validation
-            'max_translation_per_frame': 0.2,
-            'max_rotation_per_frame': 0.52,  # ~30°
-            
-            # EMA Filter
-            'ema_alpha': 0.3,
-            
-            # State
-            'lost_threshold': 5,
-            'skip_frames': 1,
-            
-            # Debug
-            'publish_debug': True,
-            
-            # YOLO (YOLOv6 Nano - Optimized)
-            'enable_yolo': False,
-            'yolo_blob_path': os.path.join(pkg_share, 'models', 'yolov6nr1_coco_640x352.blob'),
-            'yolo_conf_threshold': 0.5,
-            
-            # Motion Gate (prevents drift when stationary in front of white walls)
+            # Motion Gate (ZUPT)
             'enable_motion_gate': True,
-            'imu_gyro_threshold': 0.02,     # rad/s - rotation threshold
-            'imu_accel_threshold': 0.15,    # m/s^2 - acceleration deviation from gravity
-            'cmd_vel_timeout': 0.5,         # seconds - consider motors idle after this
-        }]
+            'imu_gyro_threshold': 0.02,
+            'imu_accel_threshold': 0.15,
+            'cmd_vel_timeout': 0.5,
+            
+            # YOLO
+            'enable_yolo': False,
+            'publish_debug': True,
+        }],
+        remappings=[
+            ('imu', '/oak/imu/data'),
+            ('odom', '/fast_flow/velocity'),  # Velocity su topic dedicato
+        ]
     )
     
-    # ------------------------------------------------
-    # IMU FILTER (MADGWICK)
-    # ------------------------------------------------
+    # ================================================
+    # IMU MADGWICK FILTER
+    # ================================================
     madgwick = TimerAction(
         period=1.0,
         actions=[Node(
@@ -113,13 +127,76 @@ def generate_launch_description():
                 'output_topic': '/imu/data',
                 'frame_id': 'imu_link',
                 'beta': 0.1,
+                'use_mag': False,
+                'publish_tf': False,
             }]
         )]
     )
     
-    # ------------------------------------------------
-    # EKF LOCALIZATION
-    # ------------------------------------------------
+    # ================================================
+    # RTAB-Map RGBD ODOMETRY
+    # Pubblica: /rtabmap/odom (POSE con basso drift)
+    #           TF: odom → base_link (SOLO LUI!)
+    # ================================================
+    rgbd_odom = TimerAction(
+        period=1.5,
+        actions=[Node(
+            package='rtabmap_odom',
+            executable='rgbd_odometry',
+            name='rgbd_odometry',
+            output='screen',
+            arguments=['--ros-args', '--log-level', 'WARN'],
+            parameters=[{
+                'frame_id': 'base_link',
+                'odom_frame_id': 'odom',
+                
+                # SOLO LUI PUBBLICA TF odom→base_link!
+                'publish_tf': True,
+                
+                'wait_for_transform': 0.2,
+                'approx_sync': True,
+                'queue_size': 10,
+                
+                # Odometry strategy
+                'Odom/Strategy': '0',
+                'Odom/ResetCountdown': '1',
+                'Odom/GuessSmoothingDelay': '0.5',
+                
+                # Visual features
+                'Vis/FeatureType': '6',
+                'Vis/MaxFeatures': '1000',
+                'Vis/MinInliers': '20',
+                'Vis/InlierDistance': '0.05',
+                
+                # ICP refinement (reduced iterations with guess)
+                'Reg/Strategy': '1',
+                'Icp/VoxelSize': '0.05',
+                'Icp/PointToPlane': 'true',
+                'Icp/Iterations': '5',  # Reduced: guess gives good start
+                'Icp/Epsilon': '0.001',
+                
+                # Guess from FAST+KLT VO (speeds up ICP!)
+                'guess_frame_id': 'base_link',
+                'guess_min_rotation': '0.0',
+                'guess_min_translation': '0.0',
+            }],
+            remappings=[
+                ('rgb/image', '/rgb/image'),
+                ('rgb/camera_info', '/camera/camera_info'),
+                ('depth/image', '/camera/depth/image_raw'),
+                ('odom', '/rtabmap/odom'),
+                ('guess', '/vo/guess'),  # Motion guess from FAST+KLT VO
+            ]
+        )]
+    )
+    
+    # ================================================
+    # EKF FUSION (TRIADE SENSORI)
+    # Input 1: /fast_flow/velocity (30Hz, velocity)
+    # Input 2: /rtabmap/odom (15Hz, pose)
+    # Input 3: /imu/data (50Hz, orientation)
+    # Output: /odom_filtered (50Hz)
+    # ================================================
     ekf_node = TimerAction(
         period=2.0,
         actions=[Node(
@@ -128,114 +205,142 @@ def generate_launch_description():
             name='ekf_localization',
             output='screen',
             parameters=[{
-                'frequency': 30.0,
+                'frequency': 50.0,
                 'two_d_mode': True,
-                'publish_tf': True,
                 
                 'map_frame': 'map',
                 'odom_frame': 'odom',
                 'base_link_frame': 'base_link',
                 'world_frame': 'odom',
                 
-                # IMU (yaw + angular velocity)
+                # EKF NON pubblica TF (rgbd_odom lo fa già)
+                'publish_tf': False,
+                'publish_acceleration': False,
+                
+                # ================== INPUT 1: VELOCITY ==================
+                'odom0': '/fast_flow/velocity',
+                'odom0_config': [
+                    False, False, False,  # NO position
+                    False, False, False,  # NO orientation
+                    True,  True,  False,  # SÌ velocity x,y
+                    False, False, True,   # SÌ yaw rate
+                    False, False, False,
+                ],
+                'odom0_differential': False,
+                'odom0_relative': False,
+                
+                # ================== INPUT 2: POSE ==================
+                'odom1': '/rtabmap/odom',
+                'odom1_config': [
+                    True,  True,  False,  # SÌ position x,y
+                    False, False, False,  # NO orientation (usa IMU)
+                    False, False, False,  # NO velocity (usa VO!)
+                    False, False, False,
+                    False, False, False,
+                ],
+                'odom1_differential': False,
+                
+                # ================== INPUT 3: IMU ==================
                 'imu0': '/imu/data',
                 'imu0_config': [
-                    False, False, False,  # pos
-                    False, False, True,   # rot (yaw only)
-                    False, False, False,  # vel
-                    False, False, True,   # ang vel (yaw rate)
-                    False, False, False,  # accel
+                    False, False, False,
+                    False, False, True,   # SÌ yaw
+                    False, False, False,
+                    False, False, True,   # SÌ yaw_rate
+                    False, False, False,
                 ],
                 'imu0_differential': False,
                 'imu0_relative': False,
                 
-                # Visual Odometry
-                'odom0': '/vo/odom',
-                'odom0_config': [
-                    True, True, False,    # pos (x, y)
-                    False, False, True,   # rot (yaw)
-                    False, False, False,  # vel
-                    False, False, False,  # ang vel
-                    False, False, False,  # accel
-                ],
-                'odom0_differential': False,
-                
-                # Process noise (tuned for VO + IMU)
                 'process_noise_covariance': [
-                    0.05, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0.05, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0.06, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0.03, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0.03, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0.1, 0, 0, 0, 0, 0, 0, 0, 0, 0,  # yaw
-                    0, 0, 0, 0, 0, 0, 0.025, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0.025, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0.04, 0, 0, 0, 0, 0, 0,
+                    0.03, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0.03, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0.04, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0.02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0.02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0.02, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0.02, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0.02, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0.03, 0, 0, 0, 0, 0, 0,
                     0, 0, 0, 0, 0, 0, 0, 0, 0, 0.01, 0, 0, 0, 0, 0,
                     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.01, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.02, 0, 0, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.015, 0, 0, 0,
                     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.01, 0, 0,
                     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.01, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.015,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.01,
                 ],
             }],
             remappings=[
-                ('odometry/filtered', '/odom')
+                ('odometry/filtered', '/odom_filtered'),
             ]
         )]
     )
     
-    # ------------------------------------------------
-    # MOTOR CONTROL
-    # ------------------------------------------------
-    motor_control = TimerAction(
+    # ================================================
+    # RTAB-MAP SLAM (loop closure)
+    # ================================================
+    rtabmap = TimerAction(
         period=3.0,
+        actions=[Node(
+            package='rtabmap_slam',
+            executable='rtabmap',
+            name='rtabmap',
+            output='screen',
+            arguments=['--delete_db_on_start'],
+            parameters=[{
+                'frame_id': 'base_link',
+                'odom_frame_id': 'odom',
+                'map_frame_id': 'map',
+                
+                'subscribe_rgb': True,
+                'subscribe_depth': True,
+                'subscribe_odom_info': True,
+                'approx_sync': True,
+                'queue_size': 10,
+                
+                'publish_tf': True,
+                
+                'Mem/IncrementalMemory': 'true',
+                'RGBD/ProximityBySpace': 'true',
+                'RGBD/AngularUpdate': '0.1',
+                'RGBD/LinearUpdate': '0.1',
+                'RGBD/OptimizeMaxError': '3.0',
+                'Optimizer/Strategy': '1',
+                'Optimizer/Iterations': '30',
+            }],
+            remappings=[
+                ('rgb/image', '/rgb/image'),
+                ('rgb/camera_info', '/camera/camera_info'),
+                ('depth/image', '/camera/depth/image_raw'),
+                ('odom', '/rtabmap/odom'),
+            ]
+        )]
+    )
+    
+    # ================================================
+    # ALTRI NODI
+    # ================================================
+    motor_control = TimerAction(
+        period=4.0,
         actions=[Node(
             package='robopy_controller',
             executable='motor_control_node',
-            name='motor_control_node',
+            name='motor_control',
             output='screen'
         )]
     )
     
-    # ------------------------------------------------
-    # STATIC TF: base_link -> oak_left_camera_optical_frame
-    # ------------------------------------------------
-    # Transl: 0.05, 0, 0.08 | Rot: -90 roll, 0 pitch, -90 yaw (approx for optical)
-    camera_tf = Node(
-        package='tf2_ros',
-        executable='static_transform_publisher',
-        name='base_to_camera_tf',
-        arguments=[
-            '0.05', '0.0', '0.08',           # x, y, z
-            '-1.5708', '0.0', '-1.4173',     # yaw, pitch, roll (ROS standard: z, y, x axes)
-            'base_link', 'oak_left_camera_optical_frame'
-        ],
-        output='log'
-    )
-
-    # ------------------------------------------------
-    # FOXGLOVE BRIDGE (quiet mode)
-    # ------------------------------------------------
     foxglove = TimerAction(
-        period=4.0,
+        period=5.0,
         actions=[Node(
             package='foxglove_bridge',
             executable='foxglove_bridge',
             name='foxglove_bridge',
             output='log',
-            arguments=['--ros-args', '--log-level', 'WARN'],
-            parameters=[{
-                'port': 8765,
-                'address': '0.0.0.0',
-            }]
+            parameters=[{'port': 8765}]
         )]
     )
-
-    # ------------------------------------------------
-    # Robot AI Orchestrator
-    # ------------------------------------------------
-    # 
+    
     robot_ai_node = Node(
         package='robopy_controller',
         executable='robot_ai_node',
@@ -243,70 +348,20 @@ def generate_launch_description():
         output='screen',
         emulate_tty=True
     )
-    
-    # ------------------------------------------------
-    # RTAB-MAP (external VO)
-    # ------------------------------------------------
-    rtabmap = TimerAction(
-        period=5.0,
-        actions=[Node(
-            package='rtabmap_slam',
-            executable='rtabmap',
-            name='rtabmap',
-            output='screen',
-            arguments=['--ros-args', '--log-level', 'WARN'],
-            parameters=[{
-                'frame_id': 'base_link',
-                'odom_frame_id': 'odom',
-                'map_frame_id': 'map',
-                'subscribe_depth': True,
-                'subscribe_rgb': True,
-                'approx_sync': True,
-                'queue_size': 20,
-                
-                # External odometry (from our VO + EKF)
-                'odom_sensor_sync': False,
-                'wait_for_transform': 0.2,
-                
-                # RTAB-Map parameters
-                'Mem/IncrementalMemory': 'true',
-                'RGBD/AngularUpdate': '0.1',
-                'RGBD/LinearUpdate': '0.1',
-            }],
-            remappings=[
-                ('rgb/image', '/rgb/image'),
-                ('rgb/camera_info', '/camera/camera_info'),
-                ('depth/image', '/camera/depth/image_raw'),
-            ]
-        )]
-    )
-
-    # ------------------------------------------------
-    # SERVO CODA (Tail Wagging)
-    # ------------------------------------------------
-    servo_coda = TimerAction(
-        period=2.0,
-        actions=[Node(
-            package='robopy_controller',
-            executable='servo_coda_node',
-            name='servo_coda_node',
-            output='screen',
-            parameters=[{
-                'servo_pin': 18,
-                'calibration_wag': True,  # Slow wag until tracking starts
-            }]
-        )]
-    )
 
     return LaunchDescription([
         robot_state_publisher,
-        fast_flow_vo,
         camera_tf,
-        madgwick,
-        ekf_node,
+        imu_tf,
+        
+        # ORDINE CRITICO:
+        oak_camera,       # 1. Camera + velocity (30Hz)
+        madgwick,         # 2. IMU filter (50Hz)
+        rgbd_odom,        # 3. RTAB-Map Odometry (15Hz, TF odom→base_link)
+        ekf_node,         # 4. EKF fusion (50Hz, NO TF)
+        rtabmap,          # 5. SLAM (TF map→odom)
+        
         motor_control,
         foxglove,
-        rtabmap,
         robot_ai_node,
-        servo_coda,
     ])
