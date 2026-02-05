@@ -108,7 +108,6 @@ def generate_launch_description():
         }],
         remappings=[
             ('imu', '/oak/imu/data'),
-            ('odom', '/fast_flow/velocity'),  # Velocity su topic dedicato
         ]
     )
     

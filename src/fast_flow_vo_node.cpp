@@ -110,7 +110,7 @@ FastFlowVONode::FastFlowVONode(const rclcpp::NodeOptions& options)
     computeCameraTransform();
     
     // ROS Publishers
-    odom_pub_ = create_publisher<nav_msgs::msg::Odometry>("/vo/odom", 10);
+    odom_pub_ = create_publisher<nav_msgs::msg::Odometry>("/fast_flow/velocity", 10);
     diag_pub_ = create_publisher<diagnostic_msgs::msg::DiagnosticArray>("/diagnostics", 10);
     tracking_pub_ = create_publisher<std_msgs::msg::Bool>("/vo/tracking_ok", 10);
     
