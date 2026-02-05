@@ -1,1 +1,0 @@
-/home/robopy/robopy/robopi_controller/robopy_controller_host/launch/rtabmap_rgbd_launch.py

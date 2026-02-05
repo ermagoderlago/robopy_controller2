@@ -1,1 +1,1 @@
-/home/robopy/robopy/robopi_controller/robopy_controller_host/build/robopy_controller/launch/mono_launch.py
+/home/robopy/robopy/robopi_controller/robopy_controller_host/launch/mono_launch.py

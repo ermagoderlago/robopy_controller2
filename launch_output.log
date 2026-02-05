@@ -1,0 +1,98 @@
+[INFO] [launch]: All log files can be found below /home/robopy/.ros/log/2026-01-10-09-22-32-688904-raspberrypi-22536
+[INFO] [launch]: Default logging verbosity is set to INFO
+[INFO] [robot_state_publisher-1]: process started with pid [22565]
+[INFO] [superpoint_node-2]: process started with pid [22567]
+[INFO] [static_transform_publisher-3]: process started with pid [22569]
+[INFO] [static_transform_publisher-4]: process started with pid [22571]
+[INFO] [static_transform_publisher-5]: process started with pid [22573]
+[INFO] [static_transform_publisher-6]: process started with pid [22575]
+[INFO] [static_transform_publisher-7]: process started with pid [22577]
+[INFO] [ekf_node-8]: process started with pid [22579]
+[INFO] [bluedot_node-9]: process started with pid [22581]
+[INFO] [motor_control_node-10]: process started with pid [22583]
+[INFO] [republish-11]: process started with pid [22585]
+[INFO] [foxglove_bridge-12]: process started with pid [22587]
+[robot_state_publisher-1] [WARN] [1768033353.168610504] [rcl]: ROS_LOCALHOST_ONLY is deprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_RANGE and ROS_STATIC_PEERS instead.
+[robot_state_publisher-1] [WARN] [1768033353.168641171] [rcl]: 'localhost_only' is disabled, 'automatic_discovery_range' and 'static_peers' will be used.
+[static_transform_publisher-5] [WARN] [1768033353.223597031] [rcl]: ROS_LOCALHOST_ONLY is deprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_RANGE and ROS_STATIC_PEERS instead.
+[static_transform_publisher-5] [WARN] [1768033353.223635439] [rcl]: 'localhost_only' is disabled, 'automatic_discovery_range' and 'static_peers' will be used.
+[static_transform_publisher-3] [WARN] [1768033353.228111400] [rcl]: ROS_LOCALHOST_ONLY is deprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_RANGE and ROS_STATIC_PEERS instead.
+[static_transform_publisher-3] [WARN] [1768033353.228163623] [rcl]: 'localhost_only' is disabled, 'automatic_discovery_range' and 'static_peers' will be used.
+[static_transform_publisher-5] [WARN] [1768033353.231471742] []: Old-style arguments are deprecated; see --help for new-style arguments
+[static_transform_publisher-3] [WARN] [1768033353.232610695] []: Old-style arguments are deprecated; see --help for new-style arguments
+[static_transform_publisher-6] [WARN] [1768033353.239752437] [rcl]: ROS_LOCALHOST_ONLY is deprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_RANGE and ROS_STATIC_PEERS instead.
+[static_transform_publisher-6] [WARN] [1768033353.240346090] [rcl]: 'localhost_only' is disabled, 'automatic_discovery_range' and 'static_peers' will be used.
+[static_transform_publisher-6] [WARN] [1768033353.246703399] []: Old-style arguments are deprecated; see --help for new-style arguments
+[static_transform_publisher-7] [WARN] [1768033353.254942612] [rcl]: ROS_LOCALHOST_ONLY is deprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_RANGE and ROS_STATIC_PEERS instead.
+[static_transform_publisher-7] [WARN] [1768033353.254972742] [rcl]: 'localhost_only' is disabled, 'automatic_discovery_range' and 'static_peers' will be used.
+[static_transform_publisher-4] [WARN] [1768033353.254684962] [rcl]: ROS_LOCALHOST_ONLY is deprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_RANGE and ROS_STATIC_PEERS instead.
+[static_transform_publisher-4] [WARN] [1768033353.258788643] [rcl]: 'localhost_only' is disabled, 'automatic_discovery_range' and 'static_peers' will be used.
+[static_transform_publisher-7] [WARN] [1768033353.262382727] []: Old-style arguments are deprecated; see --help for new-style arguments
+[static_transform_publisher-4] [WARN] [1768033353.267957956] []: Old-style arguments are deprecated; see --help for new-style arguments
+[republish-11] [WARN] [1768033353.303973204] [rcl]: ROS_LOCALHOST_ONLY is deprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_RANGE and ROS_STATIC_PEERS instead.
+[republish-11] [WARN] [1768033353.304017315] [rcl]: 'localhost_only' is disabled, 'automatic_discovery_range' and 'static_peers' will be used.
+[ekf_node-8] [WARN] [1768033353.326590475] [rcl]: ROS_LOCALHOST_ONLY is deprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_RANGE and ROS_STATIC_PEERS instead.
+[ekf_node-8] [WARN] [1768033353.326636790] [rcl]: 'localhost_only' is disabled, 'automatic_discovery_range' and 'static_peers' will be used.
+[static_transform_publisher-3] [INFO] [1768033353.420926202] [base_to_oak_mount]: Spinning until stopped - publishing transform
+[static_transform_publisher-3] translation: ('0.100000', '0.000000', '0.150000')
+[static_transform_publisher-3] rotation: ('0.000000', '0.000000', '0.000000', '1.000000')
+[static_transform_publisher-3] from 'base_link' to 'oak_mount_link'
+[static_transform_publisher-5] [INFO] [1768033353.423726391] [oak_mount_to_depth]: Spinning until stopped - publishing transform
+[static_transform_publisher-5] translation: ('0.000000', '0.000000', '0.000000')
+[static_transform_publisher-5] rotation: ('0.000000', '0.000000', '0.000000', '1.000000')
+[static_transform_publisher-5] from 'oak_mount_link' to 'oak_depth_frame'
+[foxglove_bridge-12] [WARN] [1768033353.442560262] [rcl]: ROS_LOCALHOST_ONLY is deprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_RANGE and ROS_STATIC_PEERS instead.
+[foxglove_bridge-12] [WARN] [1768033353.442593614] [rcl]: 'localhost_only' is disabled, 'automatic_discovery_range' and 'static_peers' will be used.
+[static_transform_publisher-6] [INFO] [1768033353.497975608] [oak_mount_to_imu]: Spinning until stopped - publishing transform
+[static_transform_publisher-6] translation: ('0.000000', '0.000000', '0.000000')
+[static_transform_publisher-6] rotation: ('0.000000', '0.000000', '0.000000', '1.000000')
+[static_transform_publisher-6] from 'oak_mount_link' to 'oak_imu_frame'
+[static_transform_publisher-7] [INFO] [1768033353.561050328] [oak_camera_to_optical]: Spinning until stopped - publishing transform
+[static_transform_publisher-7] translation: ('0.000000', '0.000000', '0.000000')
+[static_transform_publisher-7] rotation: ('-0.500000', '0.500002', '-0.500000', '0.499998')
+[static_transform_publisher-7] from 'oak_mono_camera_frame' to 'oak_mono_camera_optical_frame'
+[static_transform_publisher-4] [INFO] [1768033353.604966564] [oak_mount_to_camera]: Spinning until stopped - publishing transform
+[static_transform_publisher-4] translation: ('0.000000', '0.000000', '0.000000')
+[static_transform_publisher-4] rotation: ('0.000000', '0.000000', '0.000000', '1.000000')
+[static_transform_publisher-4] from 'oak_mount_link' to 'oak_mono_camera_frame'
+[robot_state_publisher-1] [WARN] [1768033353.617482552] [kdl_parser]: The root link base_link has an inertia specified in the URDF, but KDL does not support a root link with an inertia.  As a workaround, you can add an extra dummy link to your URDF.
+[robot_state_publisher-1] [INFO] [1768033353.618378170] [robot_state_publisher]: Robot initialized
+[ekf_node-8] [ERROR] [1768033353.668647883] [ekf_filter_node]: Initial state must be of size 15. Provided config was of size 6. The initial state will be ignored.
+[republish-11] [INFO] [1768033353.790170399] [image_compressor]: The 'in_transport' parameter is set to: raw
+[republish-11] [INFO] [1768033353.792777660] [image_compressor]: The 'out_transport' parameter is set to: 
+[foxglove_bridge-12] [INFO] [1768033353.951410210] [foxglove_bridge]: Starting foxglove_bridge (jazzy, 3.2.2@releases/typescript/v0.7.1-592-gcf6d7a3)
+[foxglove_bridge-12] [INFO] [1768033353.965818417] [foxglove_bridge]: Server listening on port 8765
+[foxglove_bridge-12] [INFO] [1768033354.045678567] [foxglove_bridge]: Advertising new channel 1 for topic "/set_pose"
+[foxglove_bridge-12] [INFO] [1768033354.063546226] [foxglove_bridge]: Advertising new channel 2 for topic "/rosout"
+[foxglove_bridge-12] [INFO] [1768033354.103397541] [foxglove_bridge]: Advertising new channel 3 for topic "/tf_static"
+[foxglove_bridge-12] [INFO] [1768033354.112588058] [foxglove_bridge]: Advertising new channel 4 for topic "/robot_description"
+[foxglove_bridge-12] [INFO] [1768033354.152609875] [foxglove_bridge]: Advertising new channel 5 for topic "/parameter_events"
+[foxglove_bridge-12] [INFO] [1768033354.187979784] [foxglove_bridge]: Advertising new channel 6 for topic "/odom"
+[foxglove_bridge-12] [INFO] [1768033354.188153859] [foxglove_bridge]: Advertising new channel 7 for topic "/tf"
+[foxglove_bridge-12] [INFO] [1768033354.196604574] [foxglove_bridge]: Advertising new channel 8 for topic "/joint_states"
+[foxglove_bridge-12] [INFO] [1768033354.204449266] [foxglove_bridge]: Advertising new channel 9 for topic "/imu/data"
+[foxglove_bridge-12] [INFO] [1768033354.207066453] [foxglove_bridge]: Advertising new channel 10 for topic "/superpoint/odometry"
+[foxglove_bridge-12] [INFO] [1768033354.234897155] [foxglove_bridge]: Advertising new channel 11 for topic "/diagnostics"
+[motor_control_node-10] [WARN] [1768033354.526674091] [rcl]: ROS_LOCALHOST_ONLY is deprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_RANGE and ROS_STATIC_PEERS instead.
+[motor_control_node-10] [WARN] [1768033354.526697943] [rcl]: 'localhost_only' is disabled, 'automatic_discovery_range' and 'static_peers' will be used.
+[bluedot_node-9] [WARN] [1768033355.035697152] [rcl]: ROS_LOCALHOST_ONLY is deprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_RANGE and ROS_STATIC_PEERS instead.
+[bluedot_node-9] [WARN] [1768033355.035737226] [rcl]: 'localhost_only' is disabled, 'automatic_discovery_range' and 'static_peers' will be used.
+[INFO] [madgwick_node-13]: process started with pid [22760]
+[foxglove_bridge-12] [INFO] [1768033355.339496497] [foxglove_bridge]: Advertising new channel 12 for topic "/superpoint/debug_image/compressed"
+[foxglove_bridge-12] [INFO] [1768033355.339679869] [foxglove_bridge]: Advertising new channel 13 for topic "/out/compressedDepth"
+[foxglove_bridge-12] [INFO] [1768033355.354963879] [foxglove_bridge]: Advertising new channel 14 for topic "/out"
+[bluedot_node-9] [INFO] [1768033355.416453087] [bluedot_node]: [SERVO] Angolo: 90.0°
+[bluedot_node-9] [INFO] [1768033355.417643226] [bluedot_node]: Bluedot node avviato con filtro timeout tastiera (0.3s)
+[motor_control_node-10] [INFO] [1768033355.526460068] [motor_control_node]: ✅ Motor control node avviato (passive motors)
+[foxglove_bridge-12] [INFO] [1768033355.609108240] [foxglove_bridge]: received connection graph subscribe request
+[foxglove_bridge-12] [INFO] [1768033355.609348594] [foxglove_bridge]: received subscribe request for channel 7 from client 1 (sink 1)
+[foxglove_bridge-12] [WARN] [1768033355.609881283] [foxglove_bridge]: Limiting history depth for topic '/tf' to 10 (was 200). You may want to increase the max_qos_depth parameter value.
+[foxglove_bridge-12] [INFO] [1768033355.622815737] [foxglove_bridge]: created ROS subscription on /tf (tf2_msgs/msg/TFMessage) successfully for channel 7 (client 1, sink 1)
+[foxglove_bridge-12] [INFO] [1768033355.623926857] [foxglove_bridge]: received subscribe request for channel 3 from client 1 (sink 1)
+[foxglove_bridge-12] [INFO] [1768033355.631612992] [foxglove_bridge]: created ROS subscription on /tf_static (tf2_msgs/msg/TFMessage) successfully for channel 3 (client 1, sink 1)
+[foxglove_bridge-12] [INFO] [1768033355.631799567] [foxglove_bridge]: received subscribe request for channel 4 from client 1 (sink 1)
+[foxglove_bridge-12] [INFO] [1768033355.643819310] [foxglove_bridge]: created ROS subscription on /robot_description (std_msgs/msg/String) successfully for channel 4 (client 1, sink 1)
+[foxglove_bridge-12] [INFO] [1768033355.644030349] [foxglove_bridge]: received subscribe request for channel 9 from client 1 (sink 1)
+[foxglove_bridge-12] [INFO] [1768033355.652984587] [foxglove_bridge]: created ROS subscription on /imu/data (sensor_msgs/msg/Imu) successfully for channel 9 (client 1, sink 1)
+[foxglove_bridge-12] [INFO] [1768033355.653235200] [foxglove_bridge]: received subscribe request for channel 11 from client 1 (sink 1)
+[foxglove_bridge-12] [INFO] [1768033355.661356764] [foxglove_bridge]: created ROS subscription on /diagnostics (diagnostic_msgs/msg/DiagnosticArray) successfully for channel 11 (client 1, sink 1)

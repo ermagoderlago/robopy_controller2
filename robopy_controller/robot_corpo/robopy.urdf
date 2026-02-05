@@ -1,3 +1,4 @@
+<!-- robopy.urdf -->
 <?xml version="1.0"?>
 <robot name="tracked_robot">
 
@@ -64,42 +65,62 @@
     </inertial>
   </link>
 
-<!-- Joint for Left Track -->
-<joint name="left_track_joint" type="continuous">
-  <parent link="base_link"/>
-  <child link="left_track"/>
-  <origin xyz="0 0.1 0" rpy="0 1.5708 0"/> <!-- Yaw 90°, cilindro su Y -->
-  <axis xyz="0 1 0"/>
-</joint>
+  <!-- Joint for Left Track -->
+  <joint name="left_track_joint" type="continuous">
+    <parent link="base_link"/>
+    <child link="left_track"/>
+    <origin xyz="0 0.1 0" rpy="0 1.5708 0"/>
+    <axis xyz="0 1 0"/>
+  </joint>
 
-<!-- Joint for Right Track -->
-<joint name="right_track_joint" type="continuous">
-  <parent link="base_link"/>
-  <child link="right_track"/>
-  <origin xyz="0 -0.1 0" rpy="0 1.5708 0"/> <!-- Yaw 90°, cilindro su Y -->
-  <axis xyz="0 1 0"/>
-</joint>
+  <!-- Joint for Right Track -->
+  <joint name="right_track_joint" type="continuous">
+    <parent link="base_link"/>
+    <child link="right_track"/>
+    <origin xyz="0 -0.1 0" rpy="0 1.5708 0"/>
+    <axis xyz="0 1 0"/>
+  </joint>
 
-  
-    <!-- Camera Link -->
+  <!-- Camera Link -->
   <link name="camera_link">
     <visual>
       <geometry>
-        <box size="0.05 0.05 0.05"/>
+        <box size="0.05 0.02 0.02"/>
       </geometry>
       <material name="blue">
         <color rgba="0 0 1 1"/>
       </material>
     </visual>
+    <collision>
+      <geometry>
+        <box size="0.05 0.02 0.02"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.1"/>
+      <inertia ixx="0.0001" iyy="0.0001" izz="0.0001" ixy="0" ixz="0" iyz="0"/>
+    </inertial>
   </link>
 
+  <!-- Camera inclinata 30Â° verso l'alto -->
   <joint name="camera_joint" type="fixed">
-    <parent link="base_link"/>
-    <child link="camera_link"/>
-    <origin xyz="0.0 0.0 0.30" rpy="0 0 0"/>
+      <parent link="base_link"/>
+      <child link="camera_link"/>
+      <!-- roll = +30Â° (sul piano XZ, inclinazione verso lâ€™alto) -->
+      <origin xyz="0.10 0.0 0.10" rpy="0.523599 0 0"/>
   </joint>
 
-  <!-- Ultrasonic Sensor Link -->
+  <!-- FRAME OTTICO standard ROS (NON MODIFICATO) -->
+  <link name="camera_optical_frame"/>
+
+  <joint name="camera_optical_joint" type="fixed">
+      <parent link="camera_link"/>
+      <child link="camera_optical_frame"/>
+      <!-- REP-103 standard (SEMPRE QUESTO, SENZA AGGIUNGERE ANGOLI!) -->
+      <origin xyz="0 0 0" rpy="-1.5708 0 -1.5708"/>
+  </joint>
+
+  <!-- Ultrasonic Sensor -->
   <link name="ultrasonic_link">
     <visual>
       <geometry>
@@ -109,13 +130,21 @@
         <color rgba="0 1 0 1"/>
       </material>
     </visual>
+    <collision>
+      <geometry>
+        <cylinder radius="0.015" length="0.03"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.1"/>
+      <inertia ixx="0.0001" iyy="0.0001" izz="0.0001" ixy="0" ixz="0" iyz="0"/>
+    </inertial>
   </link>
 
   <joint name="ultrasonic_joint" type="fixed">
     <parent link="base_link"/>
     <child link="ultrasonic_link"/>
-    <origin xyz="0.1 0.0 0.02" rpy="1.5708 0 0"/> <!-- rotate so cylinder faces forward -->
+    <origin xyz="0.1 0.0 0.02" rpy="1.5708 0 0"/>
   </joint>
-
 
 </robot>

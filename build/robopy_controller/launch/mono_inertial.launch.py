@@ -1,1 +1,0 @@
-/home/robopy/robopy/robopi_controller/robopy_controller_host/launch/mono_inertial.launch.py

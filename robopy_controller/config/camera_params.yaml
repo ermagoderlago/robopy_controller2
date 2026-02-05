@@ -1,0 +1,47 @@
+**/camera:
+  ros__parameters:
+    camera_name: "oak"
+    camera_model: "OAK-D-LITE"
+    
+    # Frame ID
+    base_frame: "camera_link"
+    camera_frame: "camera_optical_frame"
+    imu_frame: "imu_link"
+    
+    # RGB camera
+    rgb_camera:
+      resolution: "720p"  # 1280x720
+      fps: 10.0
+      publish_topic: true
+      enable_compressed: false
+    
+    # Stereo/Depth camera
+    stereo_camera:
+      resolution: "400p"  # 640x400
+      fps: 10.0
+      publish_topic: true
+      depth_align: "RGB"
+      depth_unit: "millimeter"
+    
+    # IMU
+    imu:
+      frequency: 400
+      mode: 0  # IMU_FUSION
+    
+    # Neural Network
+    nn:
+      enable: true
+      model: "/home/robopy/ros2_jazzy/src/robopy_controller/models/mobilenet-ssd_openvino_2021.4_6shave.blob"
+      model_name: "mobilenet-ssd"
+      confidence_threshold: 0.5
+      spatial_detection: true
+    
+    # Sync
+    sync_video_meta: true
+    enable_sync: true
+    
+    # Depth
+    depth:
+      depth_align: "RGB"
+      output_16bit: true
+      enable_compressed: false
