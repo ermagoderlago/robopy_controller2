@@ -8,7 +8,8 @@ RTAB-Map System with CORRECTED TF and data flow
 
 import os
 from launch import LaunchDescription
-from launch.actions import TimerAction
+from launch.actions import DeclareLaunchArgument, TimerAction
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from ament_index_python.packages import get_package_share_directory
@@ -16,6 +17,20 @@ from ament_index_python.packages import get_package_share_directory
 
 def generate_launch_description():
     pkg_share = get_package_share_directory('robopy_controller')
+
+    # ================================================
+    # LAUNCH ARGUMENTS
+    # ================================================
+    arg_localization = DeclareLaunchArgument(
+        'localization', default_value='false',
+        description='Localization mode (true) or mapping mode (false)'
+    )
+
+    arg_database_path = DeclareLaunchArgument(
+        'database_path',
+        default_value=os.path.expanduser('~/robopy_maps/current.db'),
+        description='Path to RTAB-Map database'
+    )
     
     # URDF
     urdf_file = os.path.join(pkg_share, 'urdf', 'robopy.urdf')
@@ -286,7 +301,6 @@ def generate_launch_description():
             executable='rtabmap',
             name='rtabmap',
             output='screen',
-            arguments=['--delete_db_on_start'],
             parameters=[{
                 'frame_id': 'base_link',
                 'odom_frame_id': 'odom',
@@ -297,10 +311,18 @@ def generate_launch_description():
                 'subscribe_odom_info': True,
                 'approx_sync': True,
                 'queue_size': 10,
-                
+
                 'publish_tf': True,
-                
-                'Mem/IncrementalMemory': 'true',
+
+                'database_path': LaunchConfiguration('database_path'),
+                'Mem/IncrementalMemory': PythonExpression([
+                    "'false' if '", LaunchConfiguration('localization'),
+                    "' == 'true' else 'true'"
+                ]),
+                'Mem/InitWMWithAllNodes': PythonExpression([
+                    "'true' if '", LaunchConfiguration('localization'),
+                    "' == 'true' else 'false'"
+                ]),
                 'RGBD/ProximityBySpace': 'true',
                 'RGBD/AngularUpdate': '0.1',
                 'RGBD/LinearUpdate': '0.1',
@@ -350,6 +372,8 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
+        arg_localization,
+        arg_database_path,
         robot_state_publisher,
         camera_tf,
         imu_tf,
