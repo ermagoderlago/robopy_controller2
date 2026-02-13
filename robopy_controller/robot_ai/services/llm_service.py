@@ -7,15 +7,17 @@ Gemini API wrapper with function calling, caching, and circuit breaker.
 import asyncio
 import time
 import json
+import base64
 from typing import Any, Callable, Dict, List, Optional, Union
 from dataclasses import dataclass, field
 
 try:
-    import google.generativeai as genai
+    from google import genai
+    from google.genai import types
     HAS_GENAI = True
 except ImportError as e:
     import sys
-    print(f"DEBUG: Failed to import google.generativeai: {e}", file=sys.stderr)
+    print(f"DEBUG: Failed to import google.genai: {e}", file=sys.stderr)
     HAS_GENAI = False
 
 from ..core.config_manager import ConfigManager
@@ -96,26 +98,31 @@ class LLMService:
             allowed_actions=set(self.ai_config.security.allowed_action_types)
         )
         
-        # Initialize Gemini
+        # Initialize Gemini with new SDK
         api_key = self.ai_config.secrets.gemini_api_key
         if not api_key or not HAS_GENAI:
             self.logger.warning("Gemini API key not set or module missing - LLM will not work")
-            self._model = None
+            self._client = None
+            self._model_name = None
         else:
-            genai.configure(api_key=api_key)
-            self._model = genai.GenerativeModel(
-                model_name=self.ai_config.llm.model,
-                generation_config={
-                    "temperature": self.ai_config.llm.temperature,
-                    "max_output_tokens": self.ai_config.llm.max_tokens,
-                    "top_p": self.ai_config.llm.top_p,
-                    "top_k": self.ai_config.llm.top_k,
-                }
+            self._client = genai.Client(api_key=api_key)
+            self._model_name = self.ai_config.llm.model
+            self._generation_config = types.GenerateContentConfig(
+                temperature=self.ai_config.llm.temperature,
+                max_output_tokens=self.ai_config.llm.max_tokens,
+                top_p=self.ai_config.llm.top_p,
+                top_k=self.ai_config.llm.top_k,
             )
         
         # System prompt cache
         self._system_prompt: Optional[str] = None
         self._cached_chat = None
+        
+        # Live API session
+        self._live_session = None
+        self._live_ctx = None  # async context manager
+        self._live_model = "gemini-2.5-flash-native-audio-preview-12-2025"
+        self._live_lock = asyncio.Lock()
         
         # Circuit breaker
         self._breaker = CircuitBreakerRegistry().get_or_create(
@@ -132,14 +139,18 @@ class LLMService:
     
     def set_system_prompt(self, prompt: str) -> None:
         """
-        Set system prompt (cached for efficiency).
+        Set system prompt. Forces Live session reconnect to apply.
         
         Args:
             prompt: System prompt text
         """
-        self._system_prompt = prompt
-        self._cached_chat = None  # Reset chat to use new prompt
-        self.logger.debug("System prompt set", length=len(prompt))
+        if self._system_prompt != prompt:
+            self._system_prompt = prompt
+            self._cached_chat = None
+            # Disconnect live session so it reconnects with new prompt
+            if self._live_session:
+                asyncio.ensure_future(self._disconnect_live())
+            self.logger.debug("System prompt updated", length=len(prompt))
     
     async def generate(
         self,
@@ -164,7 +175,7 @@ class LLMService:
         Returns:
             LLMResponse with text and actions
         """
-        if not self._model:
+        if not self._client:
             raise LLMError("LLM not configured - API key missing")
         
         start_time = time.perf_counter()
@@ -214,9 +225,210 @@ class LLMService:
             
             return llm_response
             
+        except LLMError:
+            raise
         except Exception as e:
-            self.logger.error(f"LLM generation failed: {str(e)}", exc_info=True)
-            raise LLMError(f"Generation failed: {str(e)}")
+            error_str = str(e)
+            self.logger.error(f"LLM generation failed: {error_str}")
+            
+            # User-friendly error messages
+            if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+                raise LLMError("rate_limit")
+            elif "API_KEY_INVALID" in error_str or "expired" in error_str.lower():
+                raise LLMError("Chiave API Gemini non valida o scaduta. Controlla GEMINI_API_KEY.")
+            else:
+                raise LLMError(f"Errore LLM: {error_str[:100]}")
+    
+    # =========================================================================
+    # Live API (persistent WebSocket session — Native Audio Dialog)
+    # =========================================================================
+    
+    async def _connect_live(self, tools: List[types.FunctionDeclaration] = None):
+        """Connect to Gemini Live API session with native audio + transcription + tools."""
+        if not self._client:
+            raise LLMError("LLM not configured - API key missing")
+        
+        async with self._live_lock:
+            # If we need to update tools, we might need to reconnect (omitted for now, assuming static tools)
+            if self._live_session:
+                return  # Already connected
+            
+            # Configure tools if provided
+            live_tools = [types.Tool(function_declarations=tools)] if tools else None
+
+            config = types.LiveConnectConfig(
+                response_modalities=["AUDIO"],
+                output_audio_transcription=types.AudioTranscriptionConfig(),
+                tools=live_tools,
+            )
+            if self._system_prompt:
+                config.system_instruction = types.Content(parts=[types.Part.from_text(text=self._system_prompt)])
+            
+            try:
+                # connect() returns async context manager — enter manually
+                self._live_ctx = self._client.aio.live.connect(
+                    model=self._live_model,
+                    config=config
+                )
+                self._live_session = await self._live_ctx.__aenter__()
+                self.logger.info("Live API session connected", model=self._live_model, tools=bool(live_tools))
+            except Exception as e:
+                self.logger.error(f"Failed to connect Live session: {e}")
+                self._live_session = None
+                self._live_ctx = None
+                raise LLMError(f"Live session connect failed: {e}")
+    
+    async def _disconnect_live(self):
+        """Disconnect Live API session."""
+        async with self._live_lock:
+            if self._live_ctx:
+                try:
+                    await self._live_ctx.__aexit__(None, None, None)
+                except Exception:
+                    pass
+                self._live_session = None
+                self._live_ctx = None
+                self.logger.info("Live API session disconnected")
+    
+    async def generate_live(
+        self,
+        prompt: str,
+        context: List[Dict[str, str]] = None,
+        functions: List[types.FunctionDeclaration] = None,
+        images: List[bytes] = None,
+    ) -> LLMResponse:
+        """
+        Generate response via Live API (Native Audio Dialog).
+        Uses persistent WebSocket — no RPM/daily request limits.
+        
+        Args:
+            prompt: User prompt
+            context: Conversation context
+            functions: Available tools/skills
+            images: List of image bytes (jpeg/png)
+            
+        Returns:
+            LLMResponse with text (transcript), audio_data, and actions
+        """
+        if not self._client:
+            raise LLMError("LLM not configured - API key missing")
+        
+        start_time = time.perf_counter()
+        
+        # Ensure session is connected (pass tools if connecting)
+        if not self._live_session:
+            await self._connect_live(tools=functions)
+        
+        # Build message parts
+        parts = []
+        
+        # Add context and prompt
+        full_text = prompt
+        if context:
+            text_parts = []
+            for msg in context:
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                text_parts.append(f"[{role.capitalize()}]: {content}")
+            text_parts.append(prompt)
+            full_text = "\n".join(text_parts)
+        
+        parts.append(types.Part.from_text(text=full_text))
+        
+        # Add images
+        if images:
+            for img_bytes in images:
+                parts.append(types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg"))
+
+        try:
+            # Send content via Live session
+            await self._live_session.send_client_content(
+                turns=types.Content(
+                    role="user",
+                    parts=parts
+                )
+            )
+            
+            # Receive response: transcript + audio + tools
+            transcript = ""
+            audio_chunks = []
+            actions = []
+            
+            async for msg in self._live_session.receive():
+                if not msg.server_content:
+                    continue
+                sc = msg.server_content
+                
+                # 1. Audio
+                if sc.model_turn:
+                    for part in sc.model_turn.parts:
+                        # Audio
+                        if hasattr(part, 'inline_data') and part.inline_data:
+                            if isinstance(part.inline_data.data, bytes):
+                                audio_chunks.append(part.inline_data.data)
+                        
+                        # Function Calls inside model_turn
+                        if hasattr(part, 'function_call') and part.function_call:
+                            fc = part.function_call
+                            actions.append({
+                                "action_type": fc.name,
+                                "args": dict(fc.args)
+                            })
+                
+                # 2. Transcription
+                if hasattr(sc, 'output_transcription') and sc.output_transcription:
+                    t = getattr(sc.output_transcription, 'text', '')
+                    if t:
+                        transcript += t
+                
+                # 3. Explicit Tool Call (if separate field)
+                if hasattr(sc, 'tool_call') and sc.tool_call:
+                     if hasattr(sc.tool_call, 'function_calls'):
+                         for fc in sc.tool_call.function_calls:
+                             actions.append({
+                                 "action_type": fc.name,
+                                 "args": dict(fc.args)
+                             })
+
+                # Done
+                if sc.turn_complete:
+                    break
+            
+            latency_ms = (time.perf_counter() - start_time) * 1000
+            self._total_requests += 1
+            
+            # Merge audio chunks
+            audio_data = b"".join(audio_chunks) if audio_chunks else None
+            
+            self.logger.info(
+                "Live API generation completed",
+                latency_ms=round(latency_ms, 2),
+                transcript_len=len(transcript),
+                audio_bytes=len(audio_data) if audio_data else 0,
+                actions=len(actions)
+            )
+            
+            return LLMResponse(
+                text=transcript.strip(),
+                latency_ms=latency_ms,
+                model=self._live_model,
+                actions=actions
+            )
+            
+        except Exception as e:
+            error_str = str(e)
+            self.logger.error(f"Live API error: {error_str}")
+            
+            # Session may have expired — force reconnect on next call
+            self._live_session = None
+            self._live_ctx = None
+            
+            if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+                raise LLMError("rate_limit")
+            elif "API_KEY_INVALID" in error_str or "expired" in error_str.lower():
+                raise LLMError("Chiave API Gemini non valida o scaduta.")
+            else:
+                raise LLMError(f"Live API error: {error_str[:100]}")
     
     async def _generate_internal(
         self,
@@ -224,32 +436,36 @@ class LLMService:
         functions: List[FunctionDeclaration] = None,
         max_tokens: int = None
     ):
-        """Internal generation method."""
-        generation_config = {}
-        if max_tokens:
-            generation_config["max_output_tokens"] = max_tokens
+        """Internal generation method with retry for rate limits."""
+        config = types.GenerateContentConfig(
+            temperature=self.ai_config.llm.temperature,
+            top_p=self.ai_config.llm.top_p,
+            top_k=self.ai_config.llm.top_k,
+            max_output_tokens=max_tokens or self.ai_config.llm.max_tokens,
+        )
         
-        # Prepare tools if functions provided
-        tools = None
-        if functions and self.ai_config.llm.enable_function_calling:
-            tools = self._build_tools(functions)
+        max_retries = 3
+        retry_delays = [5, 15, 30]  # seconds
         
-        # Generate
-        if tools:
-            response = await asyncio.to_thread(
-                self._model.generate_content,
-                content,
-                tools=tools,
-                generation_config=generation_config if generation_config else None
-            )
-        else:
-            response = await asyncio.to_thread(
-                self._model.generate_content,
-                content,
-                generation_config=generation_config if generation_config else None
-            )
-        
-        return response
+        for attempt in range(max_retries):
+            try:
+                response = await asyncio.to_thread(
+                    self._client.models.generate_content,
+                    model=self._model_name,
+                    contents=content,
+                    config=config
+                )
+                return response
+            except Exception as e:
+                error_str = str(e)
+                is_rate_limit = "429" in error_str or "RESOURCE_EXHAUSTED" in error_str
+                
+                if is_rate_limit and attempt < max_retries - 1:
+                    delay = retry_delays[attempt]
+                    self.logger.warning(f"Rate limit hit, retry {attempt+1}/{max_retries} in {delay}s")
+                    await asyncio.sleep(delay)
+                else:
+                    raise
     
     def _build_content(
         self,
@@ -257,31 +473,39 @@ class LLMService:
         context: List[Dict[str, str]] = None,
         images: List[bytes] = None
     ) -> Union[str, List]:
-        """Build content for generation."""
-        parts = []
+        """Build content for generation using google.genai types."""
+        
+        # Build prompt parts
+        text_parts = []
         
         # Add system prompt if set
         if self._system_prompt:
-            parts.append(f"[System]\n{self._system_prompt}\n\n")
+            text_parts.append(f"[System Instructions]\n{self._system_prompt}\n\n")
         
         # Add context (conversation history)
         if context:
             for msg in context:
                 role = msg.get("role", "user")
                 content = msg.get("content", "")
-                parts.append(f"[{role.capitalize()}]: {content}\n")
+                text_parts.append(f"[{role.capitalize()}]: {content}\n")
         
         # Add current prompt
-        parts.append(f"[User]: {prompt}")
+        text_parts.append(f"[User]: {prompt}")
+        full_text = "".join(text_parts)
         
         # If we have images, return multimodal content
         if images:
-            content = [{"text": "".join(parts)}]
-            for img in images:
-                content.append({"inline_data": {"mime_type": "image/jpeg", "data": img}})
-            return content
+            parts = [types.Part.from_text(text=full_text)]
+            for img_bytes in images:
+                try:
+                    # Provide image as bytes
+                    parts.append(types.Part.from_bytes(data=base64.b64decode(img_bytes), mime_type="image/jpeg"))
+                except Exception as e:
+                    self.logger.error(f"Failed to process image part: {e}")
+            
+            return parts
         
-        return "".join(parts)
+        return full_text
     
     def _build_tools(self, functions: List[FunctionDeclaration]) -> List:
         """Build Gemini tools from function declarations."""
@@ -401,7 +625,7 @@ Genera la risposta JSON con formato:
             "total_requests": self._total_requests,
             "total_tokens": self._total_tokens,
             "circuit_breaker": self._breaker.get_status() if self._breaker else None,
-            "configured": self._model is not None
+            "configured": self._client is not None
         }
     
     def reset_statistics(self) -> None:

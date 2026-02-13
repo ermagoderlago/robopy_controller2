@@ -12,11 +12,11 @@ from collections import OrderedDict
 import threading
 
 try:
-    import google.generativeai as genai
+    from google import genai
     HAS_GENAI = True
 except ImportError as e:
     import sys
-    print(f"DEBUG: Failed to import google.generativeai in embedding_service: {e}", file=sys.stderr)
+    print(f"DEBUG: Failed to import google.genai in embedding_service: {e}", file=sys.stderr)
     HAS_GENAI = False
 
 from ..core.config_manager import ConfigManager
@@ -74,21 +74,22 @@ class EmbeddingService:
         embeddings = await service.embed_batch(["Hello", "World"])
     """
     
-    EMBEDDING_MODEL = "models/text-embedding-004"
-    DEFAULT_DIMENSION = 768
+    EMBEDDING_MODEL = "gemini-embedding-001"
+    DEFAULT_DIMENSION = 3072  # gemini-embedding-001 output dimension
     
     def __init__(self, config_manager: ConfigManager = None):
         self.logger = get_logger("embedding_service")
         self.config = config_manager or ConfigManager()
         self.ai_config = self.config.get_config()
         
-        # Initialize Gemini
+        # Initialize Gemini client (new google-genai SDK)
         api_key = self.ai_config.secrets.gemini_api_key
         if not api_key or not HAS_GENAI:
             self.logger.warning("Gemini API key not set or module missing - embeddings will not work")
             self._configured = False
+            self._client = None
         else:
-            genai.configure(api_key=api_key)
+            self._client = genai.Client(api_key=api_key)
             self._configured = True
         
         # Cache
@@ -233,27 +234,25 @@ class EmbeddingService:
         return [emb for _, emb in results]
     
     async def _embed_internal(self, text: str) -> List[float]:
-        """Internal embedding method."""
+        """Internal embedding method using new google-genai SDK."""
         result = await asyncio.to_thread(
-            genai.embed_content,
+            self._client.models.embed_content,
             model=self.EMBEDDING_MODEL,
-            content=text,
-            task_type="retrieval_document"
+            contents=text
         )
-        return result["embedding"]
+        # New API returns result.embeddings[0].values
+        return list(result.embeddings[0].values)
     
     async def _embed_batch_internal(self, texts: List[str]) -> List[List[float]]:
-        """Internal batch embedding method."""
-        results = []
-        for text in texts:
-            result = await asyncio.to_thread(
-                genai.embed_content,
-                model=self.EMBEDDING_MODEL,
-                content=text,
-                task_type="retrieval_document"
-            )
-            results.append(result["embedding"])
-        return results
+        """Internal batch embedding method using new google-genai SDK."""
+        # New API supports batch embedding natively
+        result = await asyncio.to_thread(
+            self._client.models.embed_content,
+            model=self.EMBEDDING_MODEL,
+            contents=texts
+        )
+        # Extract values from each embedding
+        return [list(emb.values) for emb in result.embeddings]
     
     def _hash_text(self, text: str) -> str:
         """Generate hash for cache key."""

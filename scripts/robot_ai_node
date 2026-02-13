@@ -1,6 +1,24 @@
 #!/usr/bin/env python3
 import sys
+import os
 import importlib.util
+import subprocess
+
+# Auto-load GEMINI_API_KEY from setup_keys.sh if not already set
+if not os.environ.get('GEMINI_API_KEY'):
+    setup_keys_path = '/home/robopy/robopy/robopi_controller/robopy_controller_host/setup_keys.sh'
+    if os.path.exists(setup_keys_path):
+        # Extract the API key from the script
+        try:
+            with open(setup_keys_path, 'r') as f:
+                for line in f:
+                    if line.startswith('export GEMINI_API_KEY='):
+                        key = line.split('=', 1)[1].strip().strip('"').strip("'")
+                        os.environ['GEMINI_API_KEY'] = key
+                        print(f"✅ GEMINI_API_KEY loaded from {setup_keys_path}")
+                        break
+        except Exception as e:
+            print(f"⚠️ Could not load API key from {setup_keys_path}: {e}")
 
 # Load module directly from the correct path to avoid namespace conflict
 # NOTE: This path depends on the install location derived from colcon build

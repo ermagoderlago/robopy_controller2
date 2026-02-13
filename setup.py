@@ -79,7 +79,7 @@ setup(
         # Faces DB
         (
             os.path.join("share", package_name, "known_faces"),
-            safe_glob("robopy_controller/known_faces/*"),
+            safe_glob("robopy_controller/known_faces/**/*"),
         ),
         (
             os.path.join("share", package_name, "unknown_faces"),
@@ -160,6 +160,7 @@ setup(
             "oak_driver_node = robopy_controller.nodes.oak_driver_node:main",
             "oak_superpoint_odometry_node = robopy_controller.nodes.oak_superpoint_odometry_node:main",
             "robot_ai_node = robopy_controller.nodes.robot_ai_node:main",
+            "ai_chat = scripts.ai_chat:main",
         ],
     },
 )

@@ -134,6 +134,7 @@ install(PROGRAMS
   scripts/teleop_node
   scripts/robot_ai_node
   scripts/servo_coda_node
+  scripts/homeassistant_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

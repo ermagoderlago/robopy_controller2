@@ -228,10 +228,12 @@ bool FastFlowVONode::initializeDepthAI() {
             camRgb->setPreviewKeepAspectRatio(false);
             
             // Resize for YOLO (640x352 for YOLOv6 Nano)
+            // Resize for YOLO (640x352 for YOLOv6 Nano)
             auto manip = pipeline_->create<dai::node::ImageManip>();
-            manip->initialConfig.setResize(640, 352); // Match blob resolution
+            // Using 640x352 for YOLOv6 (Standard Detection Model)
+            manip->initialConfig.setResize(640, 352); 
             manip->initialConfig.setFrameType(dai::RawImgFrame::Type::BGR888p);
-            manip->setKeepAspectRatio(true); 
+            manip->setKeepAspectRatio(true);  
             camRgb->preview.link(manip->inputImage);
             
             auto yoloNn = pipeline_->create<dai::node::YoloDetectionNetwork>();
@@ -254,11 +256,14 @@ bool FastFlowVONode::initializeDepthAI() {
             xoutYolo->input.setQueueSize(1);
             yoloNn->out.link(xoutYolo->input);
             
+            // DISABLED TO SAVE BANDWIDTH (X_LINK_ERROR FIX)
+            /*
             auto xoutRgb = pipeline_->create<dai::node::XLinkOut>();
             xoutRgb->setStreamName("color");
             xoutRgb->input.setBlocking(false);
             xoutRgb->input.setQueueSize(1);
             manip->out.link(xoutRgb->input); // Output the resized frame for preview
+            */
         }
         
         device_ = std::make_unique<dai::Device>(*pipeline_);
@@ -312,10 +317,10 @@ void FastFlowVONode::processLoop() {
     auto qImu = device_->getOutputQueue("imu", 50, false); // IMU queue (Restored)
     
     // Optional YOLO queues
-    std::shared_ptr<dai::DataOutputQueue> qYolo, qColor;
+    std::shared_ptr<dai::DataOutputQueue> qYolo;
     if (config_.enable_yolo && !config_.yolo_blob_path.empty()) {
         qYolo = device_->getOutputQueue("yolo", 4, false);
-        qColor = device_->getOutputQueue("color", 4, false);
+        // qColor disabled to save bandwidth
     }
     
     int frame_counter = 0;
@@ -325,14 +330,15 @@ void FastFlowVONode::processLoop() {
             auto rectFrame = qRect->tryGet<dai::ImgFrame>();
             auto depthFrame = qDepth->tryGet<dai::ImgFrame>();
             
-            // YOLO Processing
-            if (qYolo && qColor) {
+            // YOLO Processing (Using Mono Frame for Visualization to save bandwidth)
+            if (qYolo && rectFrame) {
                 auto yoloData = qYolo->tryGet<dai::ImgDetections>();
-                auto colorFrame = qColor->tryGet<dai::ImgFrame>();
                 
-                if (yoloData && colorFrame) {
-                    cv::Mat color = colorFrame->getCvFrame();
-                    processYolo(yoloData, color);
+                if (yoloData) {
+                    cv::Mat gray = rectFrame->getCvFrame();
+                    cv::Mat display_bgr;
+                    cv::cvtColor(gray, display_bgr, cv::COLOR_GRAY2BGR);
+                    processYolo(yoloData, display_bgr);
                 }
             }
             
@@ -434,7 +440,7 @@ void FastFlowVONode::processLoop() {
             if (rectFrame && depthFrame) {
                 frame_counter++;
                 
-                if (frame_counter % config_.skip_frames != 0) {
+                if (config_.skip_frames > 1 && frame_counter % config_.skip_frames != 0) {
                     continue;
                 }
                 
@@ -573,6 +579,10 @@ void FastFlowVONode::processYolo(const std::shared_ptr<dai::ImgDetections>& dete
         
         cv::putText(display_frame, text, cv::Point(x1, y1 - 10), 
                     cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 255, 0), 2);
+        
+        // DEBUG LOGGING REQUESTED BY USER
+        RCLCPP_INFO(get_logger(), "👀 YOLO DETECTED: %s (%.1f%%) at [%d, %d]", 
+                    label.c_str(), det.confidence * 100, x1, y1);
     }
     
     // Publish Compressed

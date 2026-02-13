@@ -1,0 +1,22 @@
+#!/usr/bin/env python3
+import sys
+import rclpy
+import signal
+from robopy_controller.nodes.homeassistant_node import main
+
+def signal_handler(sig, frame):
+    # This ensures that rclpy.shutdown() is called in the main thread
+    # The node's main loop (rclpy.spin) will exit and cleanup happens in main()
+    pass
+
+if __name__ == '__main__':
+    # Register signal handler to catch Ctrl+C
+    signal.signal(signal.SIGINT, signal_handler)
+    
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass
+    except Exception as e:
+        print(f"Error in homeassistant_node wrapper: {e}", file=sys.stderr)
+        sys.exit(1)

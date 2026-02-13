@@ -34,6 +34,7 @@ class SkillMetadata:
     requires_internet: bool = False
     requires_ha: bool = False
     requires_nav: bool = False
+    requires_vision: bool = False
 
 
 class BaseSkill(ABC):

@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+#fast_flow_launch.py
+
 """
 RTAB-Map System with CORRECTED TF and data flow
 - FAST+KLT VO → velocity only
@@ -8,7 +10,9 @@ RTAB-Map System with CORRECTED TF and data flow
 
 import os
 from launch import LaunchDescription
-from launch.actions import TimerAction
+from launch.actions import TimerAction, DeclareLaunchArgument, OpaqueFunction, IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from ament_index_python.packages import get_package_share_directory
@@ -17,10 +21,26 @@ from ament_index_python.packages import get_package_share_directory
 def generate_launch_description():
     pkg_share = get_package_share_directory('robopy_controller')
     
+    # Launch Arguments
+    args = [
+        DeclareLaunchArgument('delete_db', default_value='false', description='Delete RTAB-Map database on start'),
+        DeclareLaunchArgument('localization', default_value='false', description='Location mode (no mapping)'),
+        DeclareLaunchArgument('enable_nav2', default_value='false', description='Enable Navigation2 stack'),
+    ]
+    
     # URDF
     urdf_file = os.path.join(pkg_share, 'urdf', 'robopy.urdf')
     with open(urdf_file, 'r') as f:
         robot_description = ParameterValue(f.read(), value_type=str)
+
+    # YOLO Blob Path
+    # YOLO Blob Path
+    # FORCE YOLOv6 (640x352) - Strict detection model to avoid crashes
+    yolo_blob = os.path.join(pkg_share, 'models', 'yolov6nr1_coco_640x352.blob')
+    if not os.path.exists(yolo_blob):
+         # Fallback only if absolutely necessary, but warn user
+         print(f"WARNING: YOLOv6 blob not found at {yolo_blob}")
+         yolo_blob = os.path.join(pkg_share, 'models', 'yolo_seg.blob')
     
     robot_state_publisher = Node(
         package='robot_state_publisher',
@@ -79,8 +99,8 @@ def generate_launch_description():
             'publish_tf': False,
             
             # Camera settings
-            'camera_fps': 30.0,
-            'skip_frames': 1,
+            'camera_fps': 10.0, # Reduced to 10Hz to fix X_LINK_ERROR
+            'skip_frames': 1,  # Process every frame (0 causes div-by-zero!)
             
             # FAST Detection
             'fast_threshold': 15,
@@ -102,8 +122,9 @@ def generate_launch_description():
             'imu_accel_threshold': 0.15,
             'cmd_vel_timeout': 0.5,
             
-            # YOLO
+            # YOLO (DISABLED TO ISOLATE X_LINK_ERROR)
             'enable_yolo': False,
+            'yolo_blob_path': yolo_blob,  # PASSED EXPLICITLY
             'publish_debug': True,
         }],
         remappings=[
@@ -173,18 +194,12 @@ def generate_launch_description():
                 'Icp/PointToPlane': 'true',
                 'Icp/Iterations': '5',  # Reduced: guess gives good start
                 'Icp/Epsilon': '0.001',
-                
-                # Guess from FAST+KLT VO (speeds up ICP!)
-                'guess_frame_id': 'base_link',
-                'guess_min_rotation': '0.0',
-                'guess_min_translation': '0.0',
             }],
             remappings=[
                 ('rgb/image', '/rgb/image'),
                 ('rgb/camera_info', '/camera/camera_info'),
                 ('depth/image', '/camera/depth/image_raw'),
                 ('odom', '/rtabmap/odom'),
-                ('guess', '/vo/guess'),  # Motion guess from FAST+KLT VO
             ]
         )]
     )
@@ -280,40 +295,57 @@ def generate_launch_description():
     # ================================================
     rtabmap = TimerAction(
         period=3.0,
-        actions=[Node(
-            package='rtabmap_slam',
-            executable='rtabmap',
-            name='rtabmap',
-            output='screen',
-            arguments=['--delete_db_on_start'],
-            parameters=[{
-                'frame_id': 'base_link',
-                'odom_frame_id': 'odom',
-                'map_frame_id': 'map',
-                
-                'subscribe_rgb': True,
-                'subscribe_depth': True,
-                'subscribe_odom_info': True,
-                'approx_sync': True,
-                'queue_size': 10,
-                
-                'publish_tf': True,
-                
-                'Mem/IncrementalMemory': 'true',
-                'RGBD/ProximityBySpace': 'true',
-                'RGBD/AngularUpdate': '0.1',
-                'RGBD/LinearUpdate': '0.1',
-                'RGBD/OptimizeMaxError': '3.0',
-                'Optimizer/Strategy': '1',
-                'Optimizer/Iterations': '30',
-            }],
-            remappings=[
-                ('rgb/image', '/rgb/image'),
-                ('rgb/camera_info', '/camera/camera_info'),
-                ('depth/image', '/camera/depth/image_raw'),
-                ('odom', '/rtabmap/odom'),
-            ]
-        )]
+        actions=[OpaqueFunction(function=lambda context: [
+            Node(
+                package='rtabmap_slam',
+                executable='rtabmap',
+                name='rtabmap',
+                output='screen',
+                arguments=['--delete_db_on_start'] if LaunchConfiguration('delete_db').perform(context).lower() == 'true' else [],
+                parameters=[{
+                    'frame_id': 'base_link',
+                    'odom_frame_id': 'odom',
+                    'map_frame_id': 'map',
+                    
+                    'subscribe_rgb': True,
+                    'subscribe_depth': True,
+                    'subscribe_odom_info': True,
+                    'approx_sync': True,
+                    'queue_size': 10,
+                    
+                    'publish_tf': True,
+                    
+                    'Mem/IncrementalMemory': 'false' if LaunchConfiguration('localization').perform(context).lower() == 'true' else 'true',
+                    'Mem/InitWMWithAllNodes': 'true' if LaunchConfiguration('localization').perform(context).lower() == 'true' else 'false',
+                    
+                    'RGBD/ProximityBySpace': 'true',
+                    'RGBD/AngularUpdate': '0.1',
+                    'RGBD/LinearUpdate': '0.1',
+                    'RGBD/OptimizeMaxError': '3.0',
+                    'Optimizer/Strategy': '1',
+                    'Optimizer/Iterations': '30',
+                    
+                    # --- TUNING MAPPING (GHOSTS) ---
+                    'Grid/RangeMax': '3.5',
+                    'Grid/MaxGroundHeight': '0.10',
+                    'Grid/MinGroundHeight': '-0.50',
+                    'Grid/MinClusterSize': '20',
+                    'Grid/NormalsSegmentation': 'false', 
+                    
+                    # --- TUNING LOOP CLOSURE ---
+                    'Kp/MaxFeatures': '1000',
+                    'Vis/FeatureType': '6',
+                    'Rtabmap/LoopThr': '0.08',
+                    'RGBD/LoopClosureReextractFeatures': 'true',
+                }],
+                remappings=[
+                    ('rgb/image', '/rgb/image'),
+                    ('rgb/camera_info', '/camera/camera_info'),
+                    ('depth/image', '/camera/depth/image_raw'),
+                    ('odom', '/rtabmap/odom'),
+                ]
+            )
+        ])]
     )
     
     # ================================================
@@ -340,6 +372,31 @@ def generate_launch_description():
         )]
     )
     
+    # ================================================
+    # NAV2 STACK (Navigation) - ENABLE ON DEMAND
+    # ================================================
+    def launch_nav2(context, *args, **kwargs):
+        if LaunchConfiguration('enable_nav2').perform(context).lower() == 'true':
+            nav2_params_file = os.path.join(pkg_share, 'config', 'nav2_params.yaml')
+            nav2_bringup_dir = get_package_share_directory('nav2_bringup')
+            
+            return [IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    os.path.join(nav2_bringup_dir, 'launch', 'navigation_launch.py')
+                ),
+                launch_arguments={
+                    'params_file': nav2_params_file,
+                    'use_sim_time': 'false',
+                    'autostart': 'true',
+                }.items()
+            )]
+        return []
+
+    nav2_stack = TimerAction(
+        period=8.0,  # Wait for RTAB-Map to be ready
+        actions=[OpaqueFunction(function=launch_nav2)]
+    )
+    
     robot_ai_node = Node(
         package='robopy_controller',
         executable='robot_ai_node',
@@ -348,7 +405,16 @@ def generate_launch_description():
         emulate_tty=True
     )
 
+    homeassistant_node = Node(
+        package='robopy_controller',
+        executable='homeassistant_node',
+        name='homeassistant_node',
+        output='screen',
+        parameters=[{'update_interval': 150.0}]
+    )
+
     return LaunchDescription([
+        *args,  # Include declared launch arguments
         robot_state_publisher,
         camera_tf,
         imu_tf,
@@ -359,8 +425,11 @@ def generate_launch_description():
         rgbd_odom,        # 3. RTAB-Map Odometry (15Hz, TF odom→base_link)
         ekf_node,         # 4. EKF fusion (50Hz, NO TF)
         rtabmap,          # 5. SLAM (TF map→odom)
+        nav2_stack,       # 6. Navigation
         
         motor_control,
         foxglove,
         robot_ai_node,
+        homeassistant_node,
+
     ])

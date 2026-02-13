@@ -1,7 +1,4 @@
-#!/bin/bash
-# Imposta la chiave API di Gemini
-export GEMINI_API_KEY="AIzaSyAQ0hVCMee-5vqtBZYJQU6lOGicwOC4rvs"
+export GEMINI_API_KEY="AIzaSyARu-LGxU98fEW5oREeGw4yom54w7nsjQI"
+export HA_TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiIwZTU4MTA4OWEyZjk0YTk3OGQ2NWQyOTY5YWM3MjEyOSIsImlhdCI6MTc2MDI5ODE2MCwiZXhwIjoyMDc1NjU4MTYwfQ.8dymD3-cId-1v7kVIuvqXiZCrOF9ONVMvIh2_cGXgvo"
 
-echo "✅ GEMINI_API_KEY impostata per questa sessione."
-echo "Per renderla permanente, aggiungi questa riga al tuo ~/.bashrc:"
-echo "export GEMINI_API_KEY=\"AIzaSyAQ0hVCMee-5vqtBZYJQU6lOGicwOC4rvs\""
+echo "✅ GEMINI_API_KEY e HA_TOKEN impostate per questa sessione."
