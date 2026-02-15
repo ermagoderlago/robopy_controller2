@@ -25,7 +25,7 @@ def generate_launch_description():
     args = [
         DeclareLaunchArgument('delete_db', default_value='false', description='Delete RTAB-Map database on start'),
         DeclareLaunchArgument('localization', default_value='false', description='Location mode (no mapping)'),
-        DeclareLaunchArgument('enable_nav2', default_value='false', description='Enable Navigation2 stack'),
+        DeclareLaunchArgument('enable_nav2', default_value='true', description='Enable Navigation2 stack'),
     ]
     
     # URDF
@@ -99,7 +99,7 @@ def generate_launch_description():
             'publish_tf': False,
             
             # Camera settings
-            'camera_fps': 10.0, # Reduced to 10Hz to fix X_LINK_ERROR
+            'camera_fps': 5.0, # Reduced to 10Hz to fix X_LINK_ERROR
             'skip_frames': 1,  # Process every frame (0 causes div-by-zero!)
             
             # FAST Detection
@@ -108,6 +108,10 @@ def generate_launch_description():
             
             # KLT Tracking
             'klt_win_size': 31,
+            'enable_floor_filter': False,
+            'camera_height': 0.08,
+            'camera_pitch': 0.0,
+            'floor_z_threshold': -0.02,
             'klt_max_level': 4,
             'klt_max_error': 15.0,
             'fb_threshold': 1.5,
@@ -183,8 +187,8 @@ def generate_launch_description():
                 'Odom/GuessSmoothingDelay': '0.5',
                 
                 # Visual features
-                'Vis/FeatureType': '6',
-                'Vis/MaxFeatures': '1000',
+                'Vis/FeatureType': '4',
+                'Vis/MaxFeatures': '1000', # Restored to 1000
                 'Vis/MinInliers': '20',
                 'Vis/InlierDistance': '0.05',
                 
@@ -325,15 +329,21 @@ def generate_launch_description():
                     'Optimizer/Strategy': '1',
                     'Optimizer/Iterations': '30',
                     
+                    # 'Rtabmap/DetectionRate': '1.0',  # REMOVED limit
+                    
                     # --- TUNING MAPPING (GHOSTS) ---
                     'Grid/RangeMax': '3.5',
                     'Grid/MaxGroundHeight': '0.10',
                     'Grid/MinGroundHeight': '-0.50',
+                    # 'Grid/MinClusterSize': '100',      # INCREASED: Ignore small noise
+                    # 'Grid/RayTracing': 'true',         # Ensure dynamic obstacles are cleared
+                    # 'Grid/NoiseFilteringRadius': '0.1', # Filter isolated points
+                    # 'Grid/NoiseFilteringMinNeighbors': '5',
                     'Grid/MinClusterSize': '20',
                     'Grid/NormalsSegmentation': 'false', 
                     
                     # --- TUNING LOOP CLOSURE ---
-                    'Kp/MaxFeatures': '1000',
+                    'Kp/MaxFeatures': '1000',         # Restored to 1000
                     'Vis/FeatureType': '6',
                     'Rtabmap/LoopThr': '0.08',
                     'RGBD/LoopClosureReextractFeatures': 'true',
@@ -378,12 +388,11 @@ def generate_launch_description():
     def launch_nav2(context, *args, **kwargs):
         if LaunchConfiguration('enable_nav2').perform(context).lower() == 'true':
             nav2_params_file = os.path.join(pkg_share, 'config', 'nav2_params.yaml')
-            nav2_bringup_dir = get_package_share_directory('nav2_bringup')
+            # Use our custom launch file to avoid launching unconfigured nodes
+            custom_nav2_launch = os.path.join(pkg_share, 'launch', 'custom_nav2_launch.py')
             
             return [IncludeLaunchDescription(
-                PythonLaunchDescriptionSource(
-                    os.path.join(nav2_bringup_dir, 'launch', 'navigation_launch.py')
-                ),
+                PythonLaunchDescriptionSource(custom_nav2_launch),
                 launch_arguments={
                     'params_file': nav2_params_file,
                     'use_sim_time': 'false',
@@ -397,12 +406,34 @@ def generate_launch_description():
         actions=[OpaqueFunction(function=launch_nav2)]
     )
     
+    # Need depthimage_to_laserscan for costmap!
+    depth_to_scan = Node(
+        package='depthimage_to_laserscan',
+        executable='depthimage_to_laserscan_node',
+        name='depthimage_to_laserscan',
+        output='screen',
+        parameters=[{
+            'output_frame': 'base_link',
+            'range_min': 0.3,
+            'range_max': 3.0,
+            'scan_height': 5 # pixels
+        }],
+        remappings=[
+            ('depth', '/camera/depth/image_raw'),
+            ('depth_camera_info', '/camera/camera_info'),
+            ('scan', '/scan')
+        ]
+    )
+    
     robot_ai_node = Node(
         package='robopy_controller',
         executable='robot_ai_node',
         name='robot_ai_orchestrator',
         output='screen',
-        emulate_tty=True
+        emulate_tty=True,
+        remappings=[
+            ('/camera/image_raw', '/rgb/image')
+        ]
     )
 
     homeassistant_node = Node(
@@ -431,5 +462,5 @@ def generate_launch_description():
         foxglove,
         robot_ai_node,
         homeassistant_node,
-
+        depth_to_scan
     ])

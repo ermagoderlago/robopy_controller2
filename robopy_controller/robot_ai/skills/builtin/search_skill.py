@@ -1,14 +1,14 @@
 """
 Robot AI Skills - Search Skill
 ==============================
-Skill for finding objects in the environment.
+Skill per la ricerca di oggetti nell'ambiente.
 """
 
 import re
 import asyncio
 from typing import Any, Dict, List, Optional, Callable
 
-from ..base_skill import BaseSkill, SkillMetadata, SkillResult
+from ..base_skill import BaseSkill, SkillMetadata, SkillResult, SkillErrorCode
 
 class SearchSkill(BaseSkill):
     """
@@ -46,6 +46,14 @@ class SearchSkill(BaseSkill):
     def match(self, text: str, context: Dict[str, Any] = None) -> float:
         """Match search commands."""
         # Check explicit keywords
+        # Exclude common chat phrases
+        text_lower = text.lower()
+        if "dove abiti" in text_lower or \
+           "dove sei" in text_lower or \
+           "dove vivi" in text_lower or \
+           "sai dove siamo" in text_lower:
+            return 0.0
+
         if any(p.search(text) for p in self.SEARCH_PATTERNS):
             return 0.8
         return 0.0

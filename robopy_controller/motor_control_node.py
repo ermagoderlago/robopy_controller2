@@ -3,6 +3,7 @@
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Float64MultiArray
+from geometry_msgs.msg import Twist
 from buildhat import PassiveMotor, Hat
 import math
 import time
@@ -11,11 +12,16 @@ import time
 # PARAMETRI DI TUNING
 # =========================
 
-MAX_SPEED = 100.0
-MIN_MOVING_SPEED = 30.0
-MAX_ACCEL = 300.0        # % / secondo
+MAX_PWM = 100.0 # Valore massimo per BuildHAT (0-100)
+MIN_MOVING_PWM = 20.0 # Deadzone motori
+
+# MAPPING FISICO (STIMATO)
+MAX_MPS = 0.5  # Velocità massima in m/s (a PWM 100)
+BASE_WIDTH = 0.15 # Distanza tra le ruote (metri)
+
+MAX_ACCEL = 300.0        # % / secondo (PWM change rate)
 CONTROL_RATE = 0.02      # 50 Hz
-CMD_TIMEOUT = 0.1
+CMD_TIMEOUT = 0.5        # Stop se non ricevo comandi per x sec
 INPUT_DEADZONE = 0.05
 
 
@@ -23,20 +29,34 @@ class MotorControlNode(Node):
     def __init__(self):
         super().__init__('motor_control_node')
 
-        # --- ROS ---
+        # --- ROS SUBSCRIPTIONS ---
+        # 1. BlueDot (Joystick)
         self.create_subscription(
             Float64MultiArray,
             'bluedot_input',
-            self.cmd_callback,
+            self.bluedot_callback,
+            10
+        )
+        
+        # 2. Nav2 / Cmd Vel (Autonomous)
+        self.create_subscription(
+            Twist,
+            'cmd_vel',
+            self.cmd_vel_callback,
             10
         )
 
         self.timer = self.create_timer(CONTROL_RATE, self.control_loop)
 
         # --- HAT & MOTORI ---
-        self.hat = Hat()
-        self.motoreL = PassiveMotor('B')
-        self.motoreD = PassiveMotor('A')
+        try:
+            self.hat = Hat()
+            self.motoreL = PassiveMotor('B')
+            self.motoreD = PassiveMotor('A')
+        except Exception as e:
+            self.get_logger().error(f"Errore inizializzazione motori: {e}")
+            self.motoreL = None
+            self.motoreD = None
 
         # --- STATO ---
         self.target_left = 0.0
@@ -45,16 +65,16 @@ class MotorControlNode(Node):
         self.current_right = 0.0
         self.last_cmd_time = time.time()
 
-        self.get_logger().info("✅ Motor control node avviato (passive motors)")
+        self.get_logger().info("✅ Motor control node avviato (Dual Input: BlueDot + CmdVel)")
 
     # =============================
-    # INPUT ROS
+    # INPUT 1: BLUEDOT (Joystick)
     # =============================
-    def cmd_callback(self, msg):
+    def bluedot_callback(self, msg):
         if len(msg.data) != 2:
             return
 
-        x, y = msg.data
+        x, y = msg.data # -1.0 a 1.0
         self.last_cmd_time = time.time()
 
         if abs(x) < INPUT_DEADZONE and abs(y) < INPUT_DEADZONE:
@@ -62,11 +82,37 @@ class MotorControlNode(Node):
             self.target_right = 0.0
             return
 
-        linear = y * MAX_SPEED
-        angular = x * MAX_SPEED
+        # Mixing Arcade Drive per PWM diretto
+        linear = y * MAX_PWM
+        angular = x * MAX_PWM
 
         self.target_left = self._clamp(linear + angular)
         self.target_right = self._clamp(linear - angular)
+
+    # =============================
+    # INPUT 2: CMD_VEL (Nav2)
+    # =============================
+    def cmd_vel_callback(self, msg):
+        self.last_cmd_time = time.time()
+        
+        # Conversione Twist m/s -> PWM
+        linear = msg.linear.x
+        angular = msg.angular.z
+        
+        # Differential Drive Kinematics to Wheel Velocity (m/s)
+        v_left_mps = linear - (angular * BASE_WIDTH / 2.0)
+        v_right_mps = linear + (angular * BASE_WIDTH / 2.0)
+        
+        # Map m/s to PWM %
+        # PWM = (v_mps / MAX_MPS) * 100
+        target_l = (v_left_mps / MAX_MPS) * 100.0
+        target_r = (v_right_mps / MAX_MPS) * 100.0
+        
+        self.target_left = self._clamp(target_l)
+        self.target_right = self._clamp(target_r)
+        
+        # Debug temporaneo per verificare ricezione
+        # self.get_logger().info(f"CmdVel: Lin={linear:.2f} Ang={angular:.2f} -> L={target_l:.1f} R={target_r:.1f}")
 
     # =============================
     # CONTROL LOOP (50 Hz)
@@ -101,27 +147,26 @@ class MotorControlNode(Node):
     # APPLICAZIONE MOTORI
     # =============================
     def _apply_motors(self):
+        if self.motoreL is None: return
+
         l = self._apply_min_speed(self.current_left)
         r = self._apply_min_speed(self.current_right)
 
-        if l == 0.0 and r == 0.0:
-            self.motoreL.stop()
-            self.motoreD.stop()
-            return
-
-        self.motoreL.start(-l)
-        self.motoreD.start(-r) 
+        # Inversione polarità se necessario (tuning empirico)
+        # Assumiamo motori montati 'standard', altrimenti invertire qui es: -l
+        self.motoreL.start(-l) 
+        self.motoreD.start(-r)
 
     # =============================
     # UTILITIES
     # =============================
     def _apply_min_speed(self, v):
-        if abs(v) < 0.01:
+        if abs(v) < 0.1: # Cutoff molto basso
             return 0.0
-        return math.copysign(max(abs(v), MIN_MOVING_SPEED), v)
+        return math.copysign(max(abs(v), MIN_MOVING_PWM), v)
 
     def _clamp(self, v):
-        return max(-MAX_SPEED, min(MAX_SPEED, v))
+        return max(-MAX_PWM, min(MAX_PWM, v))
 
 
 def main(args=None):

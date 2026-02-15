@@ -327,11 +327,16 @@ void FastFlowVONode::processLoop() {
     
     while (running_ && rclcpp::ok()) {
         try {
-            auto rectFrame = qRect->tryGet<dai::ImgFrame>();
-            auto depthFrame = qDepth->tryGet<dai::ImgFrame>();
+            auto rectFrame = qRect->get<dai::ImgFrame>();
+            auto depthFrame = qDepth->get<dai::ImgFrame>();
+            
+            if (!rectFrame || !depthFrame) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                continue;
+            }
             
             // YOLO Processing (Using Mono Frame for Visualization to save bandwidth)
-            if (qYolo && rectFrame) {
+            if (qYolo) {
                 auto yoloData = qYolo->tryGet<dai::ImgDetections>();
                 
                 if (yoloData) {
@@ -342,25 +347,13 @@ void FastFlowVONode::processLoop() {
                 }
             }
             
-            // IMU Processing (with Motion Gate detection)
-            // IMU Processing (with Motion Gate detection)
-            auto imuData = qImu->tryGet<dai::IMUData>();
-            if (imuData) {
+            // IMU Processing (Process all available packets in the queue)
+            while (auto imuData = qImu->tryGet<dai::IMUData>()) {
                 auto packets = imuData->packets;
                 for (const auto& packet : packets) {
                     sensor_msgs::msg::Imu imu_msg;
                     imu_msg.header.stamp = this->now(); 
-                    imu_msg.header.frame_id = "imu_link"; // We verify this matches ROS body frame
-                    
-                    // TRANSFORM IMU DATA: Optical Frame (Z-Fwd, X-Right, Y-Down) -> ROS FLU (X-Fwd, Y-Left, Z-Up)
-                    // Also convert Accelerometer from Gravity Vector (OAK default) to Proper Acceleration (ROS standard)
-                    // Proper Accel Up = +9.8. OAK Y-Down reads +9.8 (Gravity). So ROS_Z = OAK_Y.
-                    
-                    // Accelerometer Mapping:
-                    // ROS_X (Fwd)  = -OAK_Z (OAK Z is Fwd, Gravity points Down/Back in tilt. -G_z is N_x) -> Actually simpler: just swap axes?
-                    // Let's use the values found: OAK_Y=+9.6 (Down component). Target ROS_Z=+9.8. So ROS_Z = OAK_Y.
-                    // OAK_Z=-1.9 (Back component). Target ROS_X (Fwd). Tilted Up, N has +X comp. So ROS_X = -OAK_Z.
-                    // ROS_Y (Left) = OAK_X (Right). Right is +X. Left is +Y. So ROS_Y = -OAK_X. (Wait, N_y=0).
+                    imu_msg.header.frame_id = "imu_link";
                     
                     double ax_ros = -packet.acceleroMeter.z;
                     double ay_ros = -packet.acceleroMeter.x;
@@ -370,14 +363,11 @@ void FastFlowVONode::processLoop() {
                     imu_msg.linear_acceleration.y = ay_ros;
                     imu_msg.linear_acceleration.z = az_ros;
                     
-                    // Gyroscope Mapping (Rotation Rates):
-                    // Rotate Frame: X_ros=Z_opt, Y_ros=-X_opt, Z_ros=-Y_opt
                     double gx_ros = packet.gyroscope.z;
                     double gy_ros = -packet.gyroscope.x;
-                    double gz_ros = packet.gyroscope.y; // Yaw is rotation around Vertical
+                    double gz_ros = packet.gyroscope.y;
                     
-                    // Deadband filter: eliminate noise when stationary
-                    const double GYRO_DEADBAND = 0.01; // rad/s (~0.57 deg/s)
+                    const double GYRO_DEADBAND = 0.01;
                     if (std::abs(gx_ros) < GYRO_DEADBAND) gx_ros = 0.0;
                     if (std::abs(gy_ros) < GYRO_DEADBAND) gy_ros = 0.0;
                     if (std::abs(gz_ros) < GYRO_DEADBAND) gz_ros = 0.0;
@@ -386,10 +376,8 @@ void FastFlowVONode::processLoop() {
                     imu_msg.angular_velocity.y = gy_ros;
                     imu_msg.angular_velocity.z = gz_ros;
                     
-                    // No orientation from raw IMU, EKF will compute it
                     imu_msg.orientation_covariance[0] = -1;
                     
-                    // ========== PITCH CALIBRATION (at startup) ==========
                     if (!pitch_calibrated_.load(std::memory_order_acquire)) {
                         accel_sum_x_ += ax_ros;
                         accel_sum_y_ += ay_ros;
@@ -399,13 +387,7 @@ void FastFlowVONode::processLoop() {
                         if (calibration_sample_count_ >= CALIBRATION_SAMPLES) {
                             double avg_x = accel_sum_x_ / CALIBRATION_SAMPLES;
                             double avg_z = accel_sum_z_ / CALIBRATION_SAMPLES;
-                            
-                            // Pitch from ROS Accel (X-Fwd, Z-Up)
-                            // Tilted Up: Ax > 0 (Gravity projects back, Normal projects Fwd)
-                            // Pitch = atan2(Ax, Az)
                             double pitch = std::atan2(avg_x, avg_z);
-                            
-                            // Sanity check: cap at +/- 45 degrees
                             if (std::abs(pitch) > 0.78) pitch = 0.0;
                             
                             calibrated_pitch_.store(pitch, std::memory_order_release);
@@ -417,11 +399,8 @@ void FastFlowVONode::processLoop() {
                         }
                     }
                     
-                    // ========== MOTION GATE ==========
                     if (config_.enable_motion_gate) {
                         double gyro_norm = std::sqrt(gx_ros*gx_ros + gy_ros*gy_ros + gz_ros*gz_ros);
-                        
-                        // Accel deviation from gravity
                         double accel_magnitude = std::sqrt(ax_ros*ax_ros + ay_ros*ay_ros + az_ros*az_ros);
                         double accel_deviation = std::abs(accel_magnitude - 9.81);
                         
@@ -437,24 +416,19 @@ void FastFlowVONode::processLoop() {
                 }
             }
             
-            if (rectFrame && depthFrame) {
-                frame_counter++;
-                
-                if (config_.skip_frames > 1 && frame_counter % config_.skip_frames != 0) {
-                    continue;
-                }
-                
+            // Process Frames
+            frame_counter++;
+            if (config_.skip_frames <= 1 || frame_counter % config_.skip_frames == 0) {
                 cv::Mat gray = rectFrame->getCvFrame();
                 cv::Mat depth = depthFrame->getCvFrame();
                 auto stamp = this->now();
                 
-                // Publish images for RTAB-Map
                 publishImages(gray, depth, stamp);
-                
                 processFrame(gray, depth, stamp);
             }
             
-            std::this_thread::sleep_for(std::chrono::microseconds(500));
+            // Minimal sleep to avoid absolute core hogging
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
             
         } catch (const std::runtime_error& e) {
             // Catch DepthAI and other runtime errors
@@ -1276,8 +1250,7 @@ void FastFlowVONode::publishImages(const cv::Mat& gray, const cv::Mat& depth,
     
     camera_info_pub_->publish(camera_info_msg);
     
-    // --- Manual Compression ---
-    
+    /* --- Manual Compression DISABLED to save CPU ---
     // RGB -> JPG (Only if YOLO is disabled, otherwise YOLO publishes the colored/labeled one)
     if (!config_.enable_yolo || config_.yolo_blob_path.empty()) {
         std::vector<uchar> buf_rgb;
@@ -1291,7 +1264,6 @@ void FastFlowVONode::publishImages(const cv::Mat& gray, const cv::Mat& depth,
     }
     
     // Depth -> PNG (Lossless) - kept for strict data adherence
-    // BUT we also publish a "Preview" which is the colored JPEG requested by user
     std::vector<uchar> buf_depth;
     cv::imencode(".png", depth, buf_depth); 
     
@@ -1300,6 +1272,7 @@ void FastFlowVONode::publishImages(const cv::Mat& gray, const cv::Mat& depth,
     depth_comp.format = "png";
     depth_comp.data = buf_depth;
     depth_compressed_pub_->publish(depth_comp);
+    */
     
     if (config_.publish_debug) {
         publishDepthPreview(depth, stamp);

@@ -1,0 +1,22 @@
+Starting >>> robopy_controller
+[Processing: robopy_controller]
+[Processing: robopy_controller]
+[Processing: robopy_controller]
+[Processing: robopy_controller]
+[Processing: robopy_controller]
+[Processing: robopy_controller]
+[Processing: robopy_controller]
+[Processing: robopy_controller]
+[Processing: robopy_controller]
+[Processing: robopy_controller]
+[Processing: robopy_controller]
+[Processing: robopy_controller]
+[Processing: robopy_controller]
+[Processing: robopy_controller]
+[Processing: robopy_controller]
+[Processing: robopy_controller]
+Aborted  <<< robopy_controller [8min 34s]
+
+Summary: 0 packages finished [8min 35s]
+  1 package aborted: robopy_controller
+  1 package had stderr output: robopy_controller

@@ -1,0 +1,46 @@
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/usr/lib/aarch64-linux-gnu/libthread_db.so.1".
+[New Thread 0x7ffff3258d00 (LWP 134183)]
+[New Thread 0x7ffff2a48d00 (LWP 134184)]
+[WARN] [1771192817.902204315] [rcl]: ROS_LOCALHOST_ONLY is deprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_RANGE and ROS_STATIC_PEERS instead.
+[WARN] [1771192817.902357113] [rcl]: 'localhost_only' is disabled, 'automatic_discovery_range' and 'static_peers' will be used.
+[New Thread 0x7ffff2238d00 (LWP 134185)]
+[New Thread 0x7ffff1a28d00 (LWP 134186)]
+[New Thread 0x7ffff1218d00 (LWP 134187)]
+[New Thread 0x7ffff0a08d00 (LWP 134188)]
+[New Thread 0x7fffebffcd00 (LWP 134189)]
+[New Thread 0x7fffeb7ecd00 (LWP 134190)]
+[New Thread 0x7fffeafdcd00 (LWP 134191)]
+[New Thread 0x7fffea6c8d00 (LWP 134192)]
+[New Thread 0x7fffe9db4d00 (LWP 134193)]
+[New Thread 0x7fffe95a4d00 (LWP 134194)]
+[INFO] [1771192818.151066699] [controller_server]: 
+	controller_server lifecycle node launched. 
+	Waiting on external lifecycle transitions to activate
+	See https://design.ros2.org/articles/node_lifecycle.html for more information.
+[INFO] [1771192818.214641224] [controller_server]: Creating controller server
+[INFO] [1771192818.235688299] [local_costmap.local_costmap]: 
+	local_costmap lifecycle node launched. 
+	Waiting on external lifecycle transitions to activate
+	See https://design.ros2.org/articles/node_lifecycle.html for more information.
+[INFO] [1771192818.242179189] [local_costmap.local_costmap]: Creating Costmap
+[INFO] [1771192819.405253408] [controller_server]: Configuring controller interface
+[INFO] [1771192819.405359465] [controller_server]: getting progress checker plugins..
+[INFO] [1771192819.405802987] [controller_server]: getting goal checker plugins..
+[INFO] [1771192819.406161583] [controller_server]: Controller frequency set to 2.0000Hz
+[INFO] [1771192819.406331862] [local_costmap.local_costmap]: Configuring
+[New Thread 0x7fffe8a0cd00 (LWP 134241)]
+[INFO] [1771192819.464423561] [local_costmap.local_costmap]: Using plugin "obstacle_layer"
+[INFO] [1771192819.657660638] [local_costmap.local_costmap]: Subscribed to Topics: scan
+[INFO] [1771192819.688520762] [local_costmap.local_costmap]: Initialized plugin "obstacle_layer"
+[INFO] [1771192819.688616467] [local_costmap.local_costmap]: Using plugin "inflation_layer"
+[INFO] [1771192819.692207350] [local_costmap.local_costmap]: Initialized plugin "inflation_layer"
+[New Thread 0x7fffc3b1cd00 (LWP 134242)]
+[New Thread 0x7fffc330cd00 (LWP 134243)]
+[INFO] [1771192819.845040200] [controller_server]: Created progress_checker : progress_checker of type nav2_controller::SimpleProgressChecker
+[INFO] [1771192819.845693539] [controller_server]: Controller Server has progress_checker  progress checkers available.
+[INFO] [1771192819.855558589] [controller_server]: Created goal checker : general_goal_checker of type nav2_controller::SimpleGoalChecker
+[INFO] [1771192819.856505764] [controller_server]: Controller Server has general_goal_checker  goal checkers available.
+[INFO] [1771192819.879579246] [controller_server]: Created controller : FollowPath of type nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController
+[INFO] [1771192819.892411934] [controller_server]: Controller Server has FollowPath  controllers available.
+[New Thread 0x7fffc299cd00 (LWP 134244)]

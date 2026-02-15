@@ -1,13 +1,13 @@
 """
 Robot AI Skills - Home Assistant Skill
 =======================================
-Skill for controlling Home Assistant entities.
+Skill per il controllo delle entità Home Assistant.
 """
 
 import re
 from typing import Any, Dict, List, Optional
 
-from ..base_skill import BaseSkill, SkillMetadata, SkillResult
+from ..base_skill import BaseSkill, SkillMetadata, SkillResult, SkillErrorCode
 
 
 class HomeAssistantSkill(BaseSkill):
@@ -122,15 +122,17 @@ class HomeAssistantSkill(BaseSkill):
         intent = self._parse_intent(text)
         
         if not intent.get("action"):
-            return SkillResult(
-                success=False,
-                message="Non ho capito cosa vuoi fare"
+            return SkillResult.failure_result(
+                "Non ho capito cosa vuoi fare",
+                SkillErrorCode.INVALID_PARAMETERS,
+                speak="Non ho capito cosa vuoi fare",
             )
         
         if not intent.get("entity_type"):
-            return SkillResult(
-                success=False,
-                message="Non ho capito quale dispositivo controllare"
+            return SkillResult.failure_result(
+                "Non ho capito quale dispositivo controllare",
+                SkillErrorCode.INVALID_PARAMETERS,
+                speak="Non ho capito quale dispositivo controllare",
             )
         
         # Build HA action
@@ -153,9 +155,9 @@ class HomeAssistantSkill(BaseSkill):
                     actions=[action]
                 )
             except Exception as e:
-                return SkillResult(
-                    success=False,
-                    message=f"Errore: {str(e)}"
+                return SkillResult.failure_result(
+                    f"Errore HA: {str(e)}",
+                    SkillErrorCode.EXTERNAL_SERVICE_ERROR,
                 )
         
         # No client, return action to be executed by orchestrator

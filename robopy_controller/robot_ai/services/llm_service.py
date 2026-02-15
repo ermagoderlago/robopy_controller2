@@ -245,50 +245,58 @@ class LLMService:
     
     async def _connect_live(self, tools: List[types.FunctionDeclaration] = None):
         """Connect to Gemini Live API session with native audio + transcription + tools."""
+        async with self._live_lock:
+            await self._connect_live_unsafe(tools)
+
+    async def _connect_live_unsafe(self, tools: List[types.FunctionDeclaration] = None):
+        """Internal connect without locking (caller must hold lock)."""
         if not self._client:
             raise LLMError("LLM not configured - API key missing")
         
-        async with self._live_lock:
-            # If we need to update tools, we might need to reconnect (omitted for now, assuming static tools)
-            if self._live_session:
-                return  # Already connected
-            
-            # Configure tools if provided
-            live_tools = [types.Tool(function_declarations=tools)] if tools else None
+        # If we need to update tools, we might need to reconnect (omitted for now, assuming static tools)
+        if self._live_session:
+            return  # Already connected
+        
+        # Configure tools if provided
+        live_tools = [types.Tool(function_declarations=tools)] if tools else None
 
-            config = types.LiveConnectConfig(
-                response_modalities=["AUDIO"],
-                output_audio_transcription=types.AudioTranscriptionConfig(),
-                tools=live_tools,
+        config = types.LiveConnectConfig(
+            response_modalities=["AUDIO"],
+            output_audio_transcription=types.AudioTranscriptionConfig(),
+            tools=live_tools,
+        )
+        if self._system_prompt:
+            config.system_instruction = types.Content(parts=[types.Part.from_text(text=self._system_prompt)])
+        
+        try:
+            # connect() returns async context manager — enter manually
+            self._live_ctx = self._client.aio.live.connect(
+                model=self._live_model,
+                config=config
             )
-            if self._system_prompt:
-                config.system_instruction = types.Content(parts=[types.Part.from_text(text=self._system_prompt)])
-            
-            try:
-                # connect() returns async context manager — enter manually
-                self._live_ctx = self._client.aio.live.connect(
-                    model=self._live_model,
-                    config=config
-                )
-                self._live_session = await self._live_ctx.__aenter__()
-                self.logger.info("Live API session connected", model=self._live_model, tools=bool(live_tools))
-            except Exception as e:
-                self.logger.error(f"Failed to connect Live session: {e}")
-                self._live_session = None
-                self._live_ctx = None
-                raise LLMError(f"Live session connect failed: {e}")
+            self._live_session = await self._live_ctx.__aenter__()
+            self.logger.info("Live API session connected", model=self._live_model, tools=bool(live_tools))
+        except Exception as e:
+            self.logger.error(f"Failed to connect Live session: {e}")
+            self._live_session = None
+            self._live_ctx = None
+            raise LLMError(f"Live session connect failed: {e}")
     
     async def _disconnect_live(self):
         """Disconnect Live API session."""
         async with self._live_lock:
-            if self._live_ctx:
-                try:
-                    await self._live_ctx.__aexit__(None, None, None)
-                except Exception:
-                    pass
-                self._live_session = None
-                self._live_ctx = None
-                self.logger.info("Live API session disconnected")
+            await self._disconnect_live_unsafe()
+
+    async def _disconnect_live_unsafe(self):
+        """Internal disconnect without locking."""
+        if self._live_ctx:
+            try:
+                await self._live_ctx.__aexit__(None, None, None)
+            except Exception:
+                pass
+            self._live_session = None
+            self._live_ctx = None
+            self.logger.info("Live API session disconnected")
     
     async def generate_live(
         self,
@@ -300,24 +308,26 @@ class LLMService:
         """
         Generate response via Live API (Native Audio Dialog).
         Uses persistent WebSocket — no RPM/daily request limits.
-        
-        Args:
-            prompt: User prompt
-            context: Conversation context
-            functions: Available tools/skills
-            images: List of image bytes (jpeg/png)
-            
-        Returns:
-            LLMResponse with text (transcript), audio_data, and actions
+        Protected by lock to prevent concurrent usage errors.
         """
         if not self._client:
             raise LLMError("LLM not configured - API key missing")
         
+        async with self._live_lock:
+            return await self._generate_live_locked(prompt, context, functions, images)
+
+    async def _generate_live_locked(
+        self,
+        prompt: str,
+        context: List[Dict[str, str]] = None,
+        functions: List[types.FunctionDeclaration] = None,
+        images: List[bytes] = None,
+    ) -> LLMResponse:
         start_time = time.perf_counter()
         
         # Ensure session is connected (pass tools if connecting)
         if not self._live_session:
-            await self._connect_live(tools=functions)
+            await self._connect_live_unsafe(tools=functions)
         
         # Build message parts
         parts = []
@@ -499,7 +509,12 @@ class LLMService:
             for img_bytes in images:
                 try:
                     # Provide image as bytes
-                    parts.append(types.Part.from_bytes(data=base64.b64decode(img_bytes), mime_type="image/jpeg"))
+                    if isinstance(img_bytes, str):
+                        data = base64.b64decode(img_bytes)
+                    else:
+                        data = img_bytes
+                    
+                    parts.append(types.Part.from_bytes(data=data, mime_type="image/jpeg"))
                 except Exception as e:
                     self.logger.error(f"Failed to process image part: {e}")
             

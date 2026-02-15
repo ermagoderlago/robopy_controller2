@@ -15,6 +15,7 @@ from .embedding_service import (
 from .tts_service import TTSService
 from .asr_service import ASRService
 from .face_recognition_service import FaceRecognitionService, FaceRecognitionResult, UserProfile
+from .visual_memory_service import VisualMemoryService
 
 __all__ = [
     "LLMService",
@@ -26,5 +27,6 @@ __all__ = [
     "FaceRecognitionService",
     "FaceRecognitionResult",
     "UserProfile",
+    "VisualMemoryService",
 ]
 

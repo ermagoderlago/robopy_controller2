@@ -1,13 +1,13 @@
 """
 Robot AI Skills - Navigation Skill
 ====================================
-Skill for semantic navigation commands.
+Skill per comandi di navigazione semantica.
 """
 
 import re
 from typing import Any, Dict, List, Optional
 
-from ..base_skill import BaseSkill, SkillMetadata, SkillResult
+from ..base_skill import BaseSkill, SkillMetadata, SkillResult, SkillErrorCode
 
 
 class NavigationSkill(BaseSkill):
@@ -147,10 +147,10 @@ class NavigationSkill(BaseSkill):
         if intent["action"] in ["goto", "return"]:
             destination = intent.get("destination")
             if not destination:
-                return SkillResult(
-                    success=False,
-                    message="Non ho capito dove vuoi che vada",
-                    speak="Non ho capito dove vuoi che vada"
+                return SkillResult.failure_result(
+                    "Non ho capito dove vuoi che vada",
+                    SkillErrorCode.INVALID_PARAMETERS,
+                    speak="Non ho capito dove vuoi che vada",
                 )
             
             return await self._handle_goto(destination)
@@ -165,15 +165,15 @@ class NavigationSkill(BaseSkill):
                     "da te"
                 )
             else:
-                return SkillResult(
-                    success=False,
-                    message="Non so dove sei",
-                    speak="Non so dove sei"
+                return SkillResult.failure_result(
+                    "Non so dove sei",
+                    SkillErrorCode.INVALID_PARAMETERS,
+                    speak="Non so dove sei",
                 )
         
-        return SkillResult(
-            success=False,
-            message="Non ho capito il comando di navigazione"
+        return SkillResult.failure_result(
+            "Non ho capito il comando di navigazione",
+            SkillErrorCode.INVALID_PARAMETERS,
         )
     
     def _parse_intent(self, text: str) -> Dict[str, Any]:
@@ -217,9 +217,9 @@ class NavigationSkill(BaseSkill):
         """Handle goto command."""
         waypoint = self.WAYPOINTS.get(destination)
         if not waypoint:
-            return SkillResult(
-                success=False,
-                message=f"Non conosco la posizione '{destination}'"
+            return SkillResult.failure_result(
+                f"Non conosco la posizione '{destination}'",
+                SkillErrorCode.INVALID_PARAMETERS,
             )
         
         self._current_destination = destination
@@ -247,9 +247,9 @@ class NavigationSkill(BaseSkill):
                     actions=[action]
                 )
             except Exception as e:
-                return SkillResult(
-                    success=False,
-                    message=f"Errore navigazione: {str(e)}"
+                return SkillResult.failure_result(
+                    f"Errore navigazione: {str(e)}",
+                    SkillErrorCode.EXTERNAL_SERVICE_ERROR,
                 )
         
         return SkillResult(

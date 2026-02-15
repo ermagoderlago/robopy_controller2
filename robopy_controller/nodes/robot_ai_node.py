@@ -28,11 +28,14 @@ import time
 import asyncio
 import datetime
 import threading
+import cv2
+import numpy as np
 from typing import Any, Dict, List, Optional
 
 import rclpy
 from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
+from rclpy.qos import QoSProfile, DurabilityPolicy
 from std_msgs.msg import String, Bool
 from sensor_msgs.msg import CompressedImage
 from geometry_msgs.msg import PoseStamped
@@ -49,8 +52,12 @@ from robot_ai.core import (
     AIError, EventType,
 )
 from robot_ai.utils import AILogger, get_logger
-from robot_ai.services import LLMService, FunctionDeclaration, TTSService, ASRService, EmbeddingService
+from robot_ai.services import (
+    LLMService, FunctionDeclaration, TTSService, ASRService, EmbeddingService,
+    VisualMemoryService
+)
 from robot_ai.services.face_recognition_service import FaceRecognitionService, FaceRecognitionResult
+from robot_ai.services.nightly_dream_service import NightlyDreamService
 from robot_ai.rag import MemoryStore, Memory, MemoryType, MetadataManager
 from robot_ai.integrations import HomeAssistantClient, NavigationClient
 
@@ -61,8 +68,14 @@ from robot_ai.skills.skill_registry import SkillRegistry
 from robot_ai.skills.builtin.ha_skill import HomeAssistantSkill
 from robot_ai.skills.builtin.navigation_skill import NavigationSkill
 from robot_ai.skills.builtin.search_skill import SearchSkill
+from robot_ai.skills.builtin.nightly_dream_skill import NightlyDreamSkill
 from robot_ai.skills.base_skill import SkillResult
 import inspect
+try:
+    from apscheduler.schedulers.background import BackgroundScheduler
+    HAS_SCHEDULER = True
+except ImportError:
+    HAS_SCHEDULER = False
 
 
 class AIOrchestrator(Node):
@@ -141,7 +154,7 @@ Esempi di tono corretto:
 
 ## Comportamento per Stato Connettività
 - ONLINE: ragionamento completo, memoria, visione, azioni HA immediate
-- DEGRADED: semplifica risposte, comunica 'Scusa, sono un po lento...', prioritizza comandi urgenti
+- DEGRADED: continua a rispondere normalmente, sii conciso. Non scusarti per la lentezza.
 - OFFLINE: accetta solo comandi semplici hardcoded, comunica 'Sono offline, funziono solo con comandi semplici'
 
 ## Politica Decisionale (Quando agire vs chiedere)
@@ -169,14 +182,18 @@ Esempi di tono corretto:
         self._ha_context_cache: str = ""
         self._ha_context_timestamp: float = 0.0
         
+        # Visual Memory Short-term History
+        self.visual_memory_history: List[str] = []
+        
         self.embedding_service = EmbeddingService(self.config_manager)
         self.tts_service = TTSService(self.config_manager)
         self.asr_service = ASRService(self.config_manager)
         
         # 3b. Face Recognition
         fr_cfg = self.config.face_recognition
+        known_dir = fr_cfg.known_faces_dir if fr_cfg.enabled else ""
         self.face_recognition_service = FaceRecognitionService(
-            known_faces_dir=fr_cfg.known_faces_dir,
+            known_faces_dir=known_dir,
             tolerance=fr_cfg.tolerance,
             confidence_high=fr_cfg.confidence_high,
             confidence_low=fr_cfg.confidence_low,
@@ -187,9 +204,20 @@ Esempi di tono corretto:
         self.ha_client = HomeAssistantClient(self.config_manager)
         self.nav_client = NavigationClient(self, self.config_manager)
         
+        # 4b. Services
+        self.nightly_dream_service = NightlyDreamService(
+            self.config_manager, self.memory_store, self.llm_service, self.embedding_service
+        )
+        self.visual_memory_service = VisualMemoryService(
+            self, self.config_manager, self.llm_service, self.memory_store
+        )
+        
         # 5. Skills
         self.skill_registry = SkillRegistry()
         self._register_builtin_skills()
+        self.skill_registry.register(NightlyDreamSkill(self.nightly_dream_service))
+        # Update NightlyDreamService with skills summary for context
+        self.nightly_dream_service.set_skills_summary(self.skill_registry.get_summary())
         
         # 6. ROS Interfaces
         self._setup_ros_interfaces()
@@ -216,8 +244,10 @@ Esempi di tono corretto:
         self.face_pub = self.create_publisher(String, 'ai/face/recognized', 10)
         
         # Conversation status (for Foxglove)
+        # Use TransientLocal so late subscribers get the last message
+        qos_profile = QoSProfile(depth=10, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.text_in_pub = self.create_publisher(String, 'ai/conversation/input', 10)
-        self.text_out_pub = self.create_publisher(String, 'ai/conversation/response', 10)
+        self.text_out_pub = self.create_publisher(String, 'ai/conversation/response', qos_profile)
         
         # Subscribers
         self.create_subscription(String, 'ai/input/text', self._text_input_callback, 10)
@@ -238,6 +268,9 @@ Esempi di tono corretto:
                 f"🧑 Face recognition enabled: interval={fr_cfg.recognition_interval}s, "
                 f"people={self.face_recognition_service.get_statistics()['known_people']}"
             )
+
+        # Timer for Visual Memory (1Hz)
+        self.create_timer(1.0, lambda: asyncio.run_coroutine_threadsafe(self.visual_memory_service.spin(), self._loop))
     
     def _register_builtin_skills(self):
         """Register built-in skills."""
@@ -325,7 +358,14 @@ Esempi di tono corretto:
             # Used directly as JPEG/PNG bytes, no conversion needed
             # Validates that it's actually an image we can use
             if 'jpeg' in msg.format or 'jpg' in msg.format or 'png' in msg.format:
+                # 1. Decode for LLM (Base64 string)
                 self._latest_frame = base64.b64encode(msg.data).decode('utf-8')
+                
+                # 2. Decode for Visual Memory (OpenCV)
+                np_arr = np.frombuffer(msg.data, np.uint8)
+                cv_image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+                if cv_image is not None and hasattr(self, 'visual_memory_service'):
+                    self.visual_memory_service.update_frame(cv_image)
             else:
                 self.ai_logger.debug(f"Unsupported image format: {msg.format}")
         except Exception as e:
@@ -383,8 +423,13 @@ Esempi di tono corretto:
             skill = self.skill_registry.find_best_match(clean_text, min_confidence=0.8)
             if skill:
                 self.ai_logger.info(f"Fast-path skill match: {skill.name}")
-                result = await skill.safe_execute(clean_text)
-                await self._handle_execution_result(result)
+                result_or_gen = await skill.safe_execute(clean_text)
+                
+                if hasattr(result_or_gen, '__aiter__'):
+                     async for result in result_or_gen:
+                         await self._handle_execution_result(result)
+                else:
+                     await self._handle_execution_result(result_or_gen)
                 self.state_machine.transition_to(SystemState.READY)
                 return
             
@@ -505,11 +550,14 @@ Esempi di tono corretto:
             self.ai_logger.info(f"Executing skill {skill_name} with text: {execution_text}")
             
             # Support async generators (Task-like skills)
-            if inspect.isasyncgenfunction(skill.execute):
-                async for result in skill.execute(execution_text):
+            # Execute and handle both coroutines and async generators
+            result_or_gen = skill.execute(execution_text)
+            
+            if inspect.isasyncgen(result_or_gen):
+                async for result in result_or_gen:
                     await self._handle_execution_result(result)
             else:
-                result = await skill.execute(execution_text)
+                result = await result_or_gen
                 await self._handle_execution_result(result)
                 
         except Exception as e:
@@ -722,14 +770,18 @@ Esempi di tono corretto:
         
         old_state = self._connectivity_state
         
-        if avg_recent < 1.5 and self._connectivity_state != "ONLINE":
-            self._connectivity_state = "ONLINE"
-        elif avg_recent >= 2.5 and avg_recent < 5.0 and self._connectivity_state == "ONLINE":
-            self._connectivity_state = "DEGRADED"
-        elif avg_recent >= 5.0:
-            self._connectivity_state = "OFFLINE"
+        # New Thresholds for Live API / Local Inference
+        # < 15.0s: ONLINE
+        # >= 15.0s: DEGRADED (slow but functional)
+        # Note: OFFLINE is only set by _track_llm_error on consecutive failures
         
-        if old_state != self._connectivity_state:
+        target_state = "ONLINE"
+        if avg_recent >= 15.0:
+            target_state = "DEGRADED"
+        
+        # Apply state transition
+        if self._connectivity_state != target_state:
+            self._connectivity_state = target_state
             self.ai_logger.info(
                 f"🌐 Connectivity: {old_state} → {self._connectivity_state} "
                 f"(avg latency: {avg_recent:.1f}s)"
@@ -750,10 +802,19 @@ Esempi di tono corretto:
         """Update system prompt with current datetime and connectivity state."""
         now = datetime.datetime.now()
         time_str = now.strftime("%A %d %B %Y, ore %H:%M")
+        
+        # Build prompt with visual history
+        visual_context = ""
+        if self.visual_memory_history:
+            visual_context = "\n\nMEMORIA VISIVA RECENTE (Ultime 5 osservazioni):\n" + "\n".join(
+                [f"- {entry}" for entry in self.visual_memory_history[-5:]]
+            )
+
         prompt = (
             f"{self._base_system_prompt}\n\n"
             f"Data e ora corrente: {time_str}\n"
             f"Stato connettività: {self._connectivity_state}"
+            f"{visual_context}"
         )
         self.llm_service.set_system_prompt(prompt)
 
@@ -784,7 +845,7 @@ Esempi di tono corretto:
         msg.data = f"{self.state_machine.state.name}|{self._connectivity_state}"
         self.state_pub.publish(msg)
         # Update system prompt with fresh time on each status tick
-        self._update_system_prompt()
+        # self._update_system_prompt()  # Removed to avoid thread/loop issues and unnecessary updates
 
     async def cleanup(self):
         """Graceful shutdown — close Live API session and services."""
@@ -795,25 +856,51 @@ Esempi di tono corretto:
             pass
         self.ai_logger.info("AI orchestrator shutdown complete.")
 
+    def _setup_nightly_job(self):
+        """Setup nightly dream analysis job."""
+        if not HAS_SCHEDULER:
+            self.ai_logger.warning("APScheduler not installed. Nightly job disabled.")
+            return
+
+        scheduler = BackgroundScheduler()
+        # Schedule at 02:00 AM
+        scheduler.add_job(
+            lambda: asyncio.run_coroutine_threadsafe(self.nightly_dream_service.run_analysis(), self._loop),
+            'cron', 
+            hour=2, 
+            minute=0
+        )
+        scheduler.start()
+        self.ai_logger.info("Nightly dream job scheduled for 02:00 AM.")
+
 def main(args=None):
     rclpy.init(args=args)
     
-    node = AIOrchestrator()
-    executor = MultiThreadedExecutor()
-    executor.add_node(node)
-    
     try:
-        executor.spin()
-    except KeyboardInterrupt:
-        node.get_logger().info("Ctrl+C received, shutting down...")
-    finally:
-        # Clean up Live API session
-        import asyncio
+        node = AIOrchestrator()
+        
+        # Setup scheduler
+        node._setup_nightly_job()
+        
+        executor = MultiThreadedExecutor()
+        executor.add_node(node)
+        
         try:
-            asyncio.get_event_loop().run_until_complete(node.cleanup())
-        except Exception:
+            executor.spin()
+        except KeyboardInterrupt:
             pass
-        node.destroy_node()
+        finally:
+            # Clean up Live API session
+            import asyncio
+            try:
+                asyncio.get_event_loop().run_until_complete(node.cleanup())
+            except Exception:
+                pass
+            node.destroy_node()
+            
+    except Exception as e:
+        print(f"Error starting node: {e}")
+    finally:
         if rclpy.ok():
             rclpy.shutdown()
 

@@ -1,24 +1,98 @@
 """
 Robot AI Skills - Base Skill
 ==============================
-Abstract base class for all skills.
+Classe base astratta per tutte le skill.
 """
 
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Set
 from dataclasses import dataclass, field
+from enum import Enum
 import time
+
+
+class SkillErrorCode(Enum):
+    """Codici errore standard per le skill (Sprint 0 hardening)."""
+
+    SUCCESS = 'SUCCESS'
+    SKILL_NOT_FOUND = 'SKILL_NOT_FOUND'
+    INVALID_PARAMETERS = 'INVALID_PARAMETERS'
+    EXECUTION_TIMEOUT = 'EXECUTION_TIMEOUT'
+    EXTERNAL_SERVICE_ERROR = 'EXTERNAL_SERVICE_ERROR'
+    PERMISSION_DENIED = 'PERMISSION_DENIED'
+    UNKNOWN_ERROR = 'UNKNOWN_ERROR'
 
 
 @dataclass
 class SkillResult:
-    """Result from skill execution."""
+    """
+    Risultato dell'esecuzione di una skill.
+    
+    Campi:
+        success: Se la skill è stata eseguita con successo.
+        message: Messaggio leggibile (breve).
+        data: Dati di output specifici della skill.
+        actions: Lista di azioni da eseguire.
+        speak: Testo da pronunciare all'utente.
+        error_code: Codice errore standard (se fallimento).
+        duration_ms: Tempo di esecuzione in millisecondi.
+    """
     success: bool
-    message: str = ""
+    message: str = ''
     data: Dict[str, Any] = field(default_factory=dict)
     actions: List[Dict[str, Any]] = field(default_factory=list)
     speak: Optional[str] = None
+    error_code: Optional[SkillErrorCode] = None
     duration_ms: float = 0
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Converte in dizionario serializzabile JSON."""
+        return {
+            "success": self.success,
+            "message": self.message,
+            "data": self.data,
+            "actions": self.actions,
+            "speak": self.speak,
+            "error_code": self.error_code.value if self.error_code else None,
+            "duration_ms": self.duration_ms,
+        }
+    
+    @staticmethod
+    def success_result(
+        message: str,
+        data: Optional[Dict[str, Any]] = None,
+        actions: Optional[List[Dict[str, Any]]] = None,
+        speak: Optional[str] = None,
+        duration_ms: float = 0.0,
+    ) -> "SkillResult":
+        """Factory: crea risultato di successo."""
+        return SkillResult(
+            success=True,
+            message=message,
+            data=data or {},
+            actions=actions or [],
+            speak=speak,
+            error_code=None,
+            duration_ms=duration_ms,
+        )
+    
+    @staticmethod
+    def failure_result(
+        message: str,
+        error_code: SkillErrorCode = SkillErrorCode.UNKNOWN_ERROR,
+        speak: Optional[str] = None,
+        duration_ms: float = 0.0,
+    ) -> "SkillResult":
+        """Factory: crea risultato di fallimento."""
+        return SkillResult(
+            success=False,
+            message=message,
+            data={},
+            actions=[],
+            speak=speak or f"Errore: {message}",
+            error_code=error_code,
+            duration_ms=duration_ms,
+        )
 
 
 @dataclass
@@ -26,8 +100,8 @@ class SkillMetadata:
     """Metadata for a skill."""
     name: str
     description: str
-    version: str = "1.0.0"
-    author: str = ""
+    version: str = '1.0.0'
+    author: str = ''
     keywords: List[str] = field(default_factory=list)
     priority: int = 0
     enabled: bool = True
@@ -63,11 +137,12 @@ class BaseSkill(ABC):
     """
     
     def __init__(self):
+        """Initialize stats and execution tracking."""
         self._stats = {
-            "invocations": 0,
-            "successes": 0,
-            "failures": 0,
-            "total_duration_ms": 0
+            'invocations': 0,
+            'successes': 0,
+            'failures': 0,
+            'total_duration_ms': 0
         }
         self._last_execution: Optional[float] = None
     
@@ -131,7 +206,7 @@ class BaseSkill(ABC):
     
     def keyword_match(self, text: str) -> float:
         """
-        Helper: Calculate match score based on keywords.
+        Calculate match score based on keywords.
         
         Args:
             text: Input text
@@ -163,7 +238,16 @@ class BaseSkill(ABC):
         self._stats["invocations"] += 1
         
         try:
-            result = await self.execute(text, context or {})
+            # Execute skill
+            res = self.execute(text, context or {})
+            
+            # Helper to check for async generator without imports if possible, or use hasattr
+            if hasattr(res, '__aiter__'):  # AsyncGenerator
+                return res
+            
+            # Coroutine -> await it
+            result = await res
+            
             duration_ms = (time.perf_counter() - start_time) * 1000
             
             result.duration_ms = duration_ms
@@ -184,7 +268,7 @@ class BaseSkill(ABC):
             
             return SkillResult(
                 success=False,
-                message=f"Skill execution error: {str(e)}",
+                message=f'Skill execution error: {str(e)}',
                 duration_ms=duration_ms
             )
     
@@ -201,13 +285,13 @@ class BaseSkill(ABC):
         )
         
         return {
-            "name": self.name,
-            "invocations": self._stats["invocations"],
-            "successes": self._stats["successes"],
-            "failures": self._stats["failures"],
-            "success_rate": round(success_rate, 2),
-            "avg_duration_ms": round(avg_duration, 2),
-            "last_execution": self._last_execution
+            'name': self.name,
+            'invocations': self._stats['invocations'],
+            'successes': self._stats['successes'],
+            'failures': self._stats['failures'],
+            'success_rate': round(success_rate, 2),
+            'avg_duration_ms': round(avg_duration, 2),
+            'last_execution': self._last_execution
         }
     
     def reset_statistics(self) -> None:

@@ -379,3 +379,12 @@ class SkillRegistry:
     def get_function_declarations(self) -> List[Dict[str, Any]]:
         """Get all skills as LLM function declarations."""
         return [skill.to_function_declaration() for skill in self.get_all()]
+
+    def get_summary(self) -> str:
+        """Get a text summary of all registered skills for LLM context."""
+        skills = self.get_all(enabled_only=True)
+        summary = "## Abilità Disponibili (Skills)\n"
+        for skill in skills:
+            md = skill.get_metadata()
+            summary += f"- **{md.name}**: {md.description} (Keywords: {', '.join(md.keywords)})\n"
+        return summary
