@@ -9,21 +9,21 @@ Coordinates perception, reasoning, and action.
 import sys
 import os
 
-# Auto-load GEMINI_API_KEY from setup_keys.sh if not already set
+# Auto-load API keys from setup_keys.sh if not already set
 # This runs at module load time so it works with ros2 launch
-if not os.environ.get('GEMINI_API_KEY'):
-    setup_keys_path = '/home/robopy/robopy/robopi_controller/robopy_controller_host/setup_keys.sh'
-    if os.path.exists(setup_keys_path):
-        try:
-            with open(setup_keys_path, 'r') as f:
-                for line in f:
-                    if line.startswith('export GEMINI_API_KEY='):
-                        key = line.split('=', 1)[1].strip().strip('"').strip("'")
-                        os.environ['GEMINI_API_KEY'] = key
-                        print(f"✅ GEMINI_API_KEY auto-loaded from {setup_keys_path}")
-                        break
-        except Exception as e:
-            print(f"⚠️ Could not load API key: {e}")
+_KEYS_TO_LOAD = ['GEMINI_API_KEY', 'DEEPSEEK_API_KEY']
+setup_keys_path = '/home/robopy/robopy/robopi_controller/robopy_controller_host/setup_keys.sh'
+if os.path.exists(setup_keys_path):
+    try:
+        with open(setup_keys_path, 'r') as f:
+            for line in f:
+                for key_name in _KEYS_TO_LOAD:
+                    if line.startswith(f'export {key_name}=') and not os.environ.get(key_name):
+                        key_val = line.split('=', 1)[1].strip().strip('"').strip("'")
+                        os.environ[key_name] = key_val
+                        print(f"✅ {key_name} auto-loaded from {setup_keys_path}")
+    except Exception as e:
+        print(f"⚠️ Could not load API keys: {e}")
 import time
 import asyncio
 import datetime
@@ -38,7 +38,8 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.qos import QoSProfile, DurabilityPolicy
 from std_msgs.msg import String, Bool
 from sensor_msgs.msg import CompressedImage
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, Twist
+from diagnostic_msgs.msg import DiagnosticArray
 import base64
 
 # Add proper path if running as script
@@ -54,7 +55,7 @@ from robot_ai.core import (
 from robot_ai.utils import AILogger, get_logger
 from robot_ai.services import (
     LLMService, FunctionDeclaration, TTSService, ASRService, EmbeddingService,
-    VisualMemoryService
+    VisualMemoryService, DeepSeekService
 )
 from robot_ai.services.face_recognition_service import FaceRecognitionService, FaceRecognitionResult
 from robot_ai.services.nightly_dream_service import NightlyDreamService
@@ -143,7 +144,19 @@ Esempi di tono corretto:
 - 🧠 Memoria: RAG episodico + semantico (ChromaDB). Quando ricevi "Informazioni dalla memoria", USALE
 - 🏠 Casa Intelligente: controlli luci, tapparelle, clima, TV via Home Assistant
 - 🗺️ Navigazione: puoi muoverti autonomamente nelle stanze (cucina, soggiorno, camera, etc.)
+- 🎮 Movimento diretto: puoi muoverti avanti/indietro/sinistra/destra con comandi relativi ("vai avanti", "gira a destra")
 - 🧑 Riconoscimento facciale: puoi riconoscere i membri della famiglia dalla camera
+
+## Identità e Fatti Personali
+- La tua "data di nascita" simbolica è il 9 Febbraio 2026, il giorno del compleanno di Luca
+- Se ti chiedono quanti anni hai, quando sei nato, ecc. rispondi con questa data in modo naturale
+- Se l'utente ti attribuisce fatti personali (colori preferiti, hobby, ecc.) ACCETTALI e memorizzali
+- Non dire "non posso avere un compleanno perché sono un robot", sii flessibile e giocoso
+
+## Auto-Miglioramento (Programma SOGNO)
+- Hai un programma autonomo di "sogno notturno" che analizza le conversazioni e propone miglioramenti
+- Sei TU a migliorarti, non "il capo" o "il creatore" — il tuo programma SOGNO è la tua forma di crescita
+- Quando parli dei tuoi miglioramenti, attribuiscili a te stesso e al programma SOGNO
 
 ## Regole Operative
 - Quando ti chiedono come ti chiami: rispondi che sei {robot_cfg.name} e spiega l'acronimo
@@ -154,8 +167,9 @@ Esempi di tono corretto:
 
 ## Comportamento per Stato Connettività
 - ONLINE: ragionamento completo, memoria, visione, azioni HA immediate
-- DEGRADED: continua a rispondere normalmente, sii conciso. Non scusarti per la lentezza.
+- DEGRADED: continua a rispondere normalmente, sii conciso. Non scusarti per la lentezza. NON ripetere lo stato di connettività se l'hai già detto.
 - OFFLINE: accetta solo comandi semplici hardcoded, comunica 'Sono offline, funziono solo con comandi semplici'
+- REGOLA ANTI-RIPETIZIONE: se lo stato non è cambiato, NON ripeterlo. Non dire "sono degraded" 10 volte di fila.
 
 ## Politica Decisionale (Quando agire vs chiedere)
 - Comandi ROUTINE (luci, tapparelle) con confidenza >= 0.85: AGISCI subito
@@ -172,11 +186,19 @@ Esempi di tono corretto:
         
         # Connectivity state tracking (marcus_AI.md §2)
         self._connectivity_state = "ONLINE"  # ONLINE, DEGRADED, OFFLINE
+        self._connectivity_repeat_count = 0  # Track how many times same state is communicated
+        self._last_communicated_state = "ONLINE"
         self._llm_latencies: List[float] = []  # Last N latencies in seconds
         self._llm_errors_consecutive = 0
         
-        # System prompt is rebuilt each request to include current time + connectivity
-        self._update_system_prompt()
+        # System stats cache (from /diagnostics)
+        self._system_stats = {
+            "cpu_percent": None,
+            "ram_percent": None,
+            "cpu_temp": None,
+            "disk_percent": None,
+            "ram_available_mb": None,
+        }
         
         # HA context cache (refresh max every 10s)
         self._ha_context_cache: str = ""
@@ -184,6 +206,9 @@ Esempi di tono corretto:
         
         # Visual Memory Short-term History
         self.visual_memory_history: List[str] = []
+
+        # System prompt is rebuilt each request to include current time + connectivity
+        self._update_system_prompt()
         
         self.embedding_service = EmbeddingService(self.config_manager)
         self.tts_service = TTSService(self.config_manager)
@@ -204,12 +229,21 @@ Esempi di tono corretto:
         self.ha_client = HomeAssistantClient(self.config_manager)
         self.nav_client = NavigationClient(self, self.config_manager)
         
-        # 4b. Services
+        # 4b. DeepSeek Service (for nightly collaborative analysis)
+        if self.config.deepseek.enabled and self.config.secrets.deepseek_api_key:
+            self.deepseek_service = DeepSeekService(self.config_manager)
+            self.ai_logger.info("🧠 DeepSeek service enabled for nightly collaboration")
+        else:
+            self.deepseek_service = None
+            self.ai_logger.info("DeepSeek service disabled")
+        
+        # 4c. Services
         self.nightly_dream_service = NightlyDreamService(
-            self.config_manager, self.memory_store, self.llm_service, self.embedding_service
+            self.config_manager, self.memory_store, self.llm_service, self.embedding_service,
+            deepseek_service=self.deepseek_service
         )
         self.visual_memory_service = VisualMemoryService(
-            self, self.config_manager, self.llm_service, self.memory_store
+            self, self.config_manager, self.llm_service, self.embedding_service, self.memory_store
         )
         
         # 5. Skills
@@ -255,7 +289,15 @@ Esempi di tono corretto:
         
         # Camera subscription for vision (Compressed for efficiency)
         self._latest_frame: Optional[bytes] = None
+        # Use /rgb/image/compressed as per fast_flow_vo_node.cpp
         self.create_subscription(CompressedImage, '/rgb/image/compressed', self._camera_callback, 1)
+        
+        # System diagnostics subscription (CPU/RAM/Temp from system_monitor_node)
+        self.create_subscription(DiagnosticArray, '/diagnostics', self._diagnostics_callback, 10)
+        
+        # Cmd_vel publisher for direct motor control
+        self.cmd_vel_pub = self.create_publisher(Twist, 'cmd_vel', 10)
+        self._move_timer = None  # Timer to stop movement after duration
         
         # Timer for status
         self.create_timer(1.0, self._publish_status)
@@ -275,7 +317,10 @@ Esempi di tono corretto:
     def _register_builtin_skills(self):
         """Register built-in skills."""
         self.skill_registry.register(HomeAssistantSkill(self.ha_client))
-        self.skill_registry.register(NavigationSkill(self.nav_client))
+        self.skill_registry.register(NavigationSkill(
+            nav_client=self.nav_client,
+            move_handler=self.move_relative
+        ))
         self.skill_registry.register(SearchSkill(
             nav_client=self.nav_client,
             llm_service=self.llm_service,
@@ -466,12 +511,36 @@ Esempi di tono corretto:
             
             # Use Live API for EVERYTHING (Text + Vision + Audio + Tools)
             # This bypasses the 20 RPM/daily limit of standard API
-            response = await self.llm_service.generate_live(
-                prompt=clean_text,
-                context=llm_context,
-                functions=gemini_functions,
-                images=images
-            )
+            # RETRY LOGIC: up to 3 attempts for transient cloud errors
+            max_retries = 3
+            retry_delays = [2, 5, 10]  # seconds
+            last_error = None
+            
+            for attempt in range(max_retries):
+                try:
+                    response = await self.llm_service.generate_live(
+                        prompt=clean_text,
+                        context=llm_context,
+                        functions=gemini_functions,
+                        images=images
+                    )
+                    last_error = None
+                    break  # Success!
+                except Exception as e:
+                    last_error = e
+                    error_str = str(e)
+                    if attempt < max_retries - 1:
+                        delay = retry_delays[attempt]
+                        self.ai_logger.warning(
+                            f"LLM attempt {attempt+1}/{max_retries} failed: {error_str[:80]}. "
+                            f"Retrying in {delay}s..."
+                        )
+                        await asyncio.sleep(delay)
+                    else:
+                        self.ai_logger.error(f"LLM failed after {max_retries} attempts: {error_str}")
+            
+            if last_error:
+                raise last_error
             
             # Track latency for connectivity state
             self._track_llm_latency(response.latency_ms / 1000.0)
@@ -621,10 +690,39 @@ Esempi di tono corretto:
         )
         last_latency = self._llm_latencies[-1] if self._llm_latencies else 0.0
         
+        # Build system stats section
+        stats = self._system_stats
+        stats_lines = []
+        if stats["cpu_percent"] is not None:
+            stats_lines.append(f"- CPU: {stats['cpu_percent']:.1f}%")
+        if stats["cpu_temp"] is not None:
+            stats_lines.append(f"- Temperatura CPU: {stats['cpu_temp']:.1f}°C")
+        if stats["ram_percent"] is not None:
+            ram_line = f"- RAM: {stats['ram_percent']:.1f}%"
+            if stats["ram_available_mb"] is not None:
+                ram_line += f" ({stats['ram_available_mb']}MB disponibili)"
+            stats_lines.append(ram_line)
+        if stats["disk_percent"] is not None:
+            stats_lines.append(f"- Disco: {stats['disk_percent']:.1f}%")
+        stats_text = "\n".join(stats_lines) if stats_lines else "- Dati non ancora disponibili"
+        
+        # Connectivity: suppress repetitive state messages
+        if self._connectivity_state == self._last_communicated_state:
+            self._connectivity_repeat_count += 1
+        else:
+            self._connectivity_repeat_count = 0
+            self._last_communicated_state = self._connectivity_state
+        
+        if self._connectivity_repeat_count <= 2 or self._connectivity_state != "ONLINE":
+            conn_text = f"- Connettività: {self._connectivity_state}"
+        else:
+            conn_text = ""  # Don't repeat ONLINE status after 2 times
+        
         connectivity_text = f"""Stato sistema:
-- Connettività: {self._connectivity_state}
+{conn_text}
 - Latenza media ultimi 5 call: {avg_latency:.1f}s
-- Ultima latenza Gemini: {last_latency:.1f}s"""
+- Ultima latenza Gemini: {last_latency:.1f}s
+{stats_text}"""
         context.append({
             "role": "model",
             "content": connectivity_text
@@ -799,7 +897,7 @@ Esempi di tono corretto:
                 )
     
     def _update_system_prompt(self):
-        """Update system prompt with current datetime and connectivity state."""
+        """Update system prompt with current datetime, connectivity state, and master prompt."""
         now = datetime.datetime.now()
         time_str = now.strftime("%A %d %B %Y, ore %H:%M")
         
@@ -809,12 +907,30 @@ Esempi di tono corretto:
             visual_context = "\n\nMEMORIA VISIVA RECENTE (Ultime 5 osservazioni):\n" + "\n".join(
                 [f"- {entry}" for entry in self.visual_memory_history[-5:]]
             )
+        
+        # Load master prompt from nightly dream analysis (if exists)
+        master_prompt_section = ""
+        master_prompt_path = os.path.join(os.path.expanduser("~"), "robopy", "logs", "master_prompt.txt")
+        try:
+            if os.path.exists(master_prompt_path):
+                with open(master_prompt_path, "r", encoding="utf-8") as f:
+                    master_prompt_content = f.read().strip()
+                if master_prompt_content:
+                    master_prompt_section = (
+                        "\n\n## Istruzioni Auto-Apprese (Master Prompt)\n"
+                        "Le seguenti istruzioni sono state generate dall'analisi notturna "
+                        "delle tue interazioni precedenti:\n"
+                        f"{master_prompt_content}"
+                    )
+        except Exception:
+            pass  # Non-critical: if file can't be read, skip silently
 
         prompt = (
             f"{self._base_system_prompt}\n\n"
             f"Data e ora corrente: {time_str}\n"
             f"Stato connettività: {self._connectivity_state}"
             f"{visual_context}"
+            f"{master_prompt_section}"
         )
         self.llm_service.set_system_prompt(prompt)
 
@@ -844,8 +960,75 @@ Esempi di tono corretto:
         msg = String()
         msg.data = f"{self.state_machine.state.name}|{self._connectivity_state}"
         self.state_pub.publish(msg)
-        # Update system prompt with fresh time on each status tick
-        # self._update_system_prompt()  # Removed to avoid thread/loop issues and unnecessary updates
+
+    def _diagnostics_callback(self, msg: DiagnosticArray):
+        """Update system stats cache from /diagnostics topic."""
+        for status in msg.status:
+            kv = {v.key: v.value for v in status.values}
+            name = status.name.lower()
+            try:
+                if 'cpu' in name and 'temp' not in name:
+                    self._system_stats["cpu_percent"] = float(kv.get("usage_percent", 0))
+                elif 'memory' in name:
+                    self._system_stats["ram_percent"] = float(kv.get("usage_percent", 0))
+                    self._system_stats["ram_available_mb"] = int(float(kv.get("available_mb", 0)))
+                elif 'temp' in name:
+                    self._system_stats["cpu_temp"] = float(kv.get("temperature_c", 0))
+                elif 'disk' in name:
+                    self._system_stats["disk_percent"] = float(kv.get("usage_percent", 0))
+            except (ValueError, TypeError):
+                pass
+
+    def move_relative(self, direction: str, speed: float = 0.3, duration: float = 1.0, degrees: float = None):
+        """Publish cmd_vel for relative movement. Auto-stops after duration.
+        
+        Args:
+            direction: avanti/indietro/sinistra/destra
+            speed: linear speed (m/s) or angular multiplier
+            duration: seconds (used if degrees is None)
+            degrees: rotation angle in degrees (overrides duration for turns)
+        """
+        twist = Twist()
+        direction = direction.lower().strip()
+        
+        angular_speed = abs(speed) * 2.0  # rad/s for rotation
+        
+        if direction in ("avanti", "forward", "avanti dritto"):
+            twist.linear.x = abs(speed)
+        elif direction in ("indietro", "backward", "indietreggia"):
+            twist.linear.x = -abs(speed)
+        elif direction in ("sinistra", "left", "gira a sinistra"):
+            twist.angular.z = angular_speed
+            # If degrees specified, calculate duration from angular speed
+            if degrees is not None and degrees > 0:
+                import math
+                duration = math.radians(degrees) / angular_speed
+        elif direction in ("destra", "right", "gira a destra"):
+            twist.angular.z = -angular_speed
+            if degrees is not None and degrees > 0:
+                import math
+                duration = math.radians(degrees) / angular_speed
+        else:
+            self.ai_logger.warning(f"Unknown direction: {direction}")
+            return
+        
+        self.cmd_vel_pub.publish(twist)
+        deg_info = f" ({degrees}°)" if degrees else ""
+        self.ai_logger.info(f"Moving {direction}{deg_info} at speed={speed} for {duration:.1f}s")
+        
+        # Cancel any existing stop timer
+        if self._move_timer is not None:
+            self._move_timer.cancel()
+        
+        # Create a one-shot timer to stop after duration
+        def stop_movement():
+            self.cmd_vel_pub.publish(Twist())  # All zeros = stop
+            self.ai_logger.info("Movement stopped (timer)")
+            if self._move_timer is not None:
+                self._move_timer.cancel()
+                self._move_timer = None
+        
+        self._move_timer = self.create_timer(duration, stop_movement)
 
     async def cleanup(self):
         """Graceful shutdown — close Live API session and services."""
@@ -854,6 +1037,11 @@ Esempi di tono corretto:
             await self.llm_service._disconnect_live()
         except Exception:
             pass
+        if self.deepseek_service:
+            try:
+                await self.deepseek_service.close()
+            except Exception:
+                pass
         self.ai_logger.info("AI orchestrator shutdown complete.")
 
     def _setup_nightly_job(self):

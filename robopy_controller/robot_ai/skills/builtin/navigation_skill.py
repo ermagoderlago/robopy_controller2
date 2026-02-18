@@ -20,6 +20,7 @@ class NavigationSkill(BaseSkill):
     - "Vieni qui"
     - "Seguimi"
     - "Fermati"
+    - "Vai avanti" / "Gira a sinistra" (relative movement)
     """
     
     # Navigation intent patterns
@@ -37,6 +38,12 @@ class NavigationSkill(BaseSkill):
     ]
     RETURN_PATTERNS = [
         re.compile(r'\b(torna|ritorna|tornatene)\b', re.IGNORECASE),
+    ]
+    MOVE_RELATIVE_PATTERNS = [
+        re.compile(r'\b(avanti|indietro|forward|backward)\b', re.IGNORECASE),
+        re.compile(r'\bgira\s+a\s+(destra|sinistra)\b', re.IGNORECASE),
+        re.compile(r'\b(muoviti|spostati|vai)\s+(avanti|indietro|un po)\b', re.IGNORECASE),
+        re.compile(r'\b(gira|ruota|girare)\s+(di\s+)?\d+', re.IGNORECASE),
     ]
     
     # Semantic waypoints with aliases
@@ -78,9 +85,10 @@ class NavigationSkill(BaseSkill):
         },
     }
     
-    def __init__(self, nav_client = None):
+    def __init__(self, nav_client=None, move_handler=None):
         super().__init__()
         self.nav_client = nav_client  # Will be injected
+        self.move_handler = move_handler  # Callback: move_handler(direction, speed, duration)
         self._current_destination = None
         self._is_following = False
     
@@ -107,7 +115,8 @@ class NavigationSkill(BaseSkill):
             self.COME_PATTERNS +
             self.FOLLOW_PATTERNS +
             self.STOP_PATTERNS +
-            self.RETURN_PATTERNS
+            self.RETURN_PATTERNS +
+            self.MOVE_RELATIVE_PATTERNS
         )
         
         if any(p.search(text) for p in all_patterns):
@@ -132,6 +141,16 @@ class NavigationSkill(BaseSkill):
         if any(p.search(text) for p in self.STOP_PATTERNS):
             score = 0.95
         
+        # Relative movement ("vai avanti", "gira a destra") 
+        if any(p.search(text) for p in self.MOVE_RELATIVE_PATTERNS):
+            # Only if NO waypoint destination mentioned
+            has_waypoint = any(
+                any(alias in text_lower for alias in data["aliases"])
+                for data in self.WAYPOINTS.values()
+            )
+            if not has_waypoint:
+                score = max(score, 0.9)
+        
         return min(1.0, score)
     
     async def execute(self, text: str, context: Dict[str, Any] = None) -> SkillResult:
@@ -143,6 +162,9 @@ class NavigationSkill(BaseSkill):
         
         if intent["action"] == "follow":
             return await self._handle_follow()
+        
+        if intent["action"] == "move_relative":
+            return self._handle_move_relative(intent)
         
         if intent["action"] in ["goto", "return"]:
             destination = intent.get("destination")
@@ -199,11 +221,43 @@ class NavigationSkill(BaseSkill):
         elif any(p.search(text) for p in self.GOTO_PATTERNS):
             intent["action"] = "goto"
         
-        # Find destination
+        # Check for relative movement (before waypoint check)
+        has_waypoint = False
         for waypoint, data in self.WAYPOINTS.items():
             if any(alias in text_lower for alias in data["aliases"]):
                 intent["destination"] = waypoint
+                has_waypoint = True
                 break
+        
+        # If relative movement words AND no waypoint, it's a relative move
+        if not has_waypoint and any(p.search(text) for p in self.MOVE_RELATIVE_PATTERNS):
+            intent["action"] = "move_relative"
+            # Parse direction
+            if "avanti" in text_lower or "forward" in text_lower:
+                intent["direction"] = "avanti"
+            elif "indietro" in text_lower or "backward" in text_lower:
+                intent["direction"] = "indietro"
+            elif "sinistra" in text_lower or "left" in text_lower:
+                intent["direction"] = "sinistra"
+            elif "destra" in text_lower or "right" in text_lower:
+                intent["direction"] = "destra"
+            # Parse duration from text (e.g. "per 2 secondi")
+            dur_match = re.search(r'per\s+(\d+\.?\d*)\s*second', text_lower)
+            if dur_match:
+                intent["duration"] = float(dur_match.group(1))
+            else:
+                intent["duration"] = 1.5  # Default
+            
+            # Parse degrees from text (e.g. "gira di 30 gradi", "ruota di 90°")
+            deg_match = re.search(r'(?:di\s+)?(\d+\.?\d*)\s*(?:grad|°)', text_lower)
+            if deg_match:
+                intent["degrees"] = float(deg_match.group(1))
+                # If we have degrees but no direction yet, infer from context
+                if not intent.get("direction"):
+                    if "sinistra" in text_lower or "left" in text_lower:
+                        intent["direction"] = "sinistra"
+                    else:
+                        intent["direction"] = "destra"  # Default to right for degree rotations
         
         # Speed detection
         if any(w in text_lower for w in ["veloce", "presto", "rapidamente"]):
@@ -314,6 +368,38 @@ class NavigationSkill(BaseSkill):
             actions=[action]
         )
     
+    def _handle_move_relative(self, intent: Dict[str, Any]) -> SkillResult:
+        """Handle relative movement command (avanti, indietro, sinistra, destra)."""
+        direction = intent.get("direction")
+        if not direction:
+            return SkillResult.failure_result(
+                "Non ho capito in che direzione vuoi che mi muova",
+                SkillErrorCode.INVALID_PARAMETERS,
+            )
+        
+        speed_map = {"slow": 0.15, "normal": 0.3, "fast": 0.5}
+        speed = speed_map.get(intent.get("speed", "normal"), 0.3)
+        duration = intent.get("duration", 1.5)
+        degrees = intent.get("degrees")  # None if not specified
+        
+        if self.move_handler:
+            self.move_handler(direction, speed, duration, degrees)
+            direction_text = {
+                "avanti": "avanti", "indietro": "indietro",
+                "sinistra": "a sinistra", "destra": "a destra"
+            }.get(direction, direction)
+            deg_info = f" di {degrees:.0f} gradi" if degrees else ""
+            return SkillResult(
+                success=True,
+                message=f"Mi muovo {direction_text}{deg_info}",
+                speak=f"Ok, mi muovo {direction_text}{deg_info}",
+            )
+        else:
+            return SkillResult.failure_result(
+                "Movimento diretto non disponibile al momento",
+                SkillErrorCode.EXTERNAL_SERVICE_ERROR,
+            )
+    
     def get_waypoints(self) -> List[str]:
         """Get list of known waypoint names."""
         return list(self.WAYPOINTS.keys())
@@ -333,17 +419,26 @@ class NavigationSkill(BaseSkill):
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["goto", "come", "follow", "stop", "return"],
-                    "description": "Navigation action"
+                    "enum": ["goto", "come", "follow", "stop", "return", "move_relative"],
+                    "description": "Navigation action. Use 'move_relative' for directional commands like 'vai avanti', 'gira a sinistra'"
                 },
                 "destination": {
                     "type": "string",
-                    "description": "Target location name"
+                    "description": "Target location name (for goto/return)"
+                },
+                "direction": {
+                    "type": "string",
+                    "enum": ["avanti", "indietro", "sinistra", "destra"],
+                    "description": "Movement direction (for move_relative)"
                 },
                 "speed": {
                     "type": "string",
                     "enum": ["slow", "normal", "fast"],
                     "description": "Movement speed"
+                },
+                "duration": {
+                    "type": "number",
+                    "description": "Duration in seconds (for move_relative, default 1.5)"
                 }
             },
             "required": ["action"]

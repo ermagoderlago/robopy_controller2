@@ -16,6 +16,7 @@ from .tts_service import TTSService
 from .asr_service import ASRService
 from .face_recognition_service import FaceRecognitionService, FaceRecognitionResult, UserProfile
 from .visual_memory_service import VisualMemoryService
+from .deepseek_service import DeepSeekService
 
 __all__ = [
     "LLMService",
@@ -28,5 +29,6 @@ __all__ = [
     "FaceRecognitionResult",
     "UserProfile",
     "VisualMemoryService",
+    "DeepSeekService",
 ]
 

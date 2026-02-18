@@ -26,3 +26,23 @@ colcon build --packages-select robopy_controller \
 ```bash
 source install/setup.bash
 ```
+
+4. I pacchetti ROS2 sono installati in:
+'''bash
+cd ~/ros2_jazzy
+'''
+
+e per compilarli uso:
+'''bash
+
+colcon build \
+  --symlink-install \
+  --packages-select depthai_core \
+  --cmake-args \
+    -GNinja \
+    -DBUILD_TESTING=OFF \
+    -C ~/ros2_jazzy/pi5_optimization.cmake \
+    -DCMAKE_VERBOSE_MAKEFILE=ON \
+    -DCMAKE_PREFIX_PATH="$HOME/ros2_jazzy/install" \
+    -DCMAKE_FIND_ROOT_PATH="$HOME/ros2_jazzy/install"
+'''

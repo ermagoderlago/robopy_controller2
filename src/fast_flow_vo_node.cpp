@@ -1250,20 +1250,27 @@ void FastFlowVONode::publishImages(const cv::Mat& gray, const cv::Mat& depth,
     
     camera_info_pub_->publish(camera_info_msg);
     
-    /* --- Manual Compression DISABLED to save CPU ---
-    // RGB -> JPG (Only if YOLO is disabled, otherwise YOLO publishes the colored/labeled one)
-    if (!config_.enable_yolo || config_.yolo_blob_path.empty()) {
-        std::vector<uchar> buf_rgb;
-        cv::imencode(".jpg", rgb, buf_rgb, {cv::IMWRITE_JPEG_QUALITY, 50}); 
-        
-        sensor_msgs::msg::CompressedImage rgb_comp;
-        rgb_comp.header = rgb_msg->header;
-        rgb_comp.format = "jpeg";
-        rgb_comp.data = buf_rgb;
-        rgb_compressed_pub_->publish(rgb_comp);
+    // RGB -> JPG (Conditional: Only if subscribers exist to save CPU)
+    if (rgb_compressed_pub_->get_subscription_count() > 0) {
+        if (!config_.enable_yolo || config_.yolo_blob_path.empty()) {
+            std::vector<uchar> buf_rgb;
+            try {
+                // Resize if needed? No, AI needs full res or close to it.
+                // Compress with lower quality to save CPU/Bandwidth
+                cv::imencode(".jpg", rgb, buf_rgb, {cv::IMWRITE_JPEG_QUALITY, 50}); 
+                
+                sensor_msgs::msg::CompressedImage rgb_comp;
+                rgb_comp.header = rgb_msg->header;
+                rgb_comp.format = "jpeg";
+                rgb_comp.data = buf_rgb;
+                rgb_compressed_pub_->publish(rgb_comp);
+            } catch (const cv::Exception& ex) {
+                RCLCPP_WARN(get_logger(), "RGB compression failed: %s", ex.what());
+            }
+        }
     }
     
-    // Depth -> PNG (Lossless) - kept for strict data adherence
+    /* Depth -> PNG (Lossless) - kept disabled for now unless needed
     std::vector<uchar> buf_depth;
     cv::imencode(".png", depth, buf_depth); 
     

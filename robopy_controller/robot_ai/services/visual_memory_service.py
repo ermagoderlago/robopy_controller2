@@ -31,6 +31,7 @@ from tf2_geometry_msgs import do_transform_point
 from ..core.config_manager import ConfigManager
 from ..utils.logging_utils import get_logger
 from ..services.llm_service import LLMService
+from ..services.embedding_service import EmbeddingService
 from ..rag.memory_store import MemoryStore, Memory, MemoryType
 
 class VisualMemoryService:
@@ -38,11 +39,12 @@ class VisualMemoryService:
     Service for automatic visual memory analysis.
     """
 
-    def __init__(self, node: Node, config_manager: ConfigManager, llm_service: LLMService, memory_store: MemoryStore):
+    def __init__(self, node: Node, config_manager: ConfigManager, llm_service: LLMService, embedding_service: EmbeddingService, memory_store: MemoryStore):
         self.node = node
         self.logger = get_logger("visual_memory")
         self.config = config_manager
         self.llm_service = llm_service
+        self.embedding_service = embedding_service
         self.memory_store = memory_store
         
         self.bridge = CvBridge()
@@ -178,26 +180,24 @@ class VisualMemoryService:
                 self.logger.warning("Gemini returned empty text response.")
                 return
             
-            # Cleanup JSON markdown
-            if "```json" in text:
-                text = text.split("```json")[1].split("```")[0].strip()
-            elif "```" in text:
-                text = text.split("```")[1].strip()
-            
-            # Attempt to find JSON start/end if still not clean
-            if "{" in text:
-                start = text.find("{")
-                end = text.rfind("}") + 1
-                text = text[start:end]
-                
+            # Robust JSON extraction
             try:
-                data = json.loads(text)
+                # Find the first { and last }
+                start_idx = text.find("{")
+                end_idx = text.rfind("}")
+                
+                if start_idx != -1 and end_idx != -1:
+                    json_str = text[start_idx : end_idx + 1]
+                    data = json.loads(json_str)
+                else:
+                    raise ValueError("No JSON object found in text")
+                    
                 description = data.get("description", "")
                 objects = data.get("objects", [])
                 
                 self.logger.info(f"👁️ Visual Memory: {description}")
-            except json.JSONDecodeError as e:
-                self.logger.error(f"Failed to parse JSON: {e}. Raw text: {text[:1000]}")
+            except (json.JSONDecodeError, ValueError) as e:
+                self.logger.error(f"Failed to parse JSON: {e}. Raw text: {text}")
                 return
             
             # Update Short-term History in RobotAI
@@ -209,11 +209,19 @@ class VisualMemoryService:
                 if len(self.node.visual_memory_history) > 5:
                     self.node.visual_memory_history.pop(0)
             
+            # Generate Embedding
+            embedding = None
+            try:
+                embedding = await self.embedding_service.embed(f"Visual Memory: {description}")
+            except Exception as e:
+                self.logger.error(f"Failed to generate embedding for visual memory: {e}")
+
             # Save to Memory
             mem = Memory(
                 id="",
                 content=f"Visual Memory: {description}",
                 memory_type=MemoryType.VISUAL_OBSERVATION,
+                embedding=embedding,
                 metadata={
                     "source": "visual_memory", 
                     "objects": [o['label'] for o in objects],

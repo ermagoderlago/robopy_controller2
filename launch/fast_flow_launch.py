@@ -179,16 +179,16 @@ def generate_launch_description():
                 
                 'wait_for_transform': 0.2,
                 'approx_sync': True,
-                'queue_size': 10,
+                'queue_size': 5,  # Ridotto da 10 per risparmiare RAM
                 
                 # Odometry strategy
                 'Odom/Strategy': '0',
                 'Odom/ResetCountdown': '1',
                 'Odom/GuessSmoothingDelay': '0.5',
                 
-                # Visual features
-                'Vis/FeatureType': '4',
-                'Vis/MaxFeatures': '1000', # Restored to 1000
+                # Visual features - ottimizzato per ARM
+                'Vis/FeatureType': '6',   # GFTT/ORB - miglior compromesso velocità/robustezza su ARM
+                'Vis/MaxFeatures': '500', # Ridotto da 1000 per limitare il carico CPU
                 'Vis/MinInliers': '20',
                 'Vis/InlierDistance': '0.05',
                 
@@ -315,35 +315,34 @@ def generate_launch_description():
                     'subscribe_depth': True,
                     'subscribe_odom_info': True,
                     'approx_sync': True,
-                    'queue_size': 10,
+                    'queue_size': 5,  # Ridotto da 10 per risparmiare RAM
                     
                     'publish_tf': True,
                     
                     'Mem/IncrementalMemory': 'false' if LaunchConfiguration('localization').perform(context).lower() == 'true' else 'true',
                     'Mem/InitWMWithAllNodes': 'true' if LaunchConfiguration('localization').perform(context).lower() == 'true' else 'false',
                     
+                    # --- RAM SAVINGS ---
+                    'Rtabmap/CreateIntermediateNodes': 'false',  # Evita nodi intermedi ridondanti
+                    'Mem/NotLinkedNodesKept': 'false',          # Non mantenere nodi non collegati
+                    'Rtabmap/TimeThr': '500',                   # Riduce freq aggiunta nodi
+                    
                     'RGBD/ProximityBySpace': 'true',
                     'RGBD/AngularUpdate': '0.1',
-                    'RGBD/LinearUpdate': '0.1',
+                    'RGBD/LinearUpdate': '0.2',   # Aggiornamento ogni 20cm (era 10cm)
                     'RGBD/OptimizeMaxError': '3.0',
                     'Optimizer/Strategy': '1',
                     'Optimizer/Iterations': '30',
-                    
-                    # 'Rtabmap/DetectionRate': '1.0',  # REMOVED limit
                     
                     # --- TUNING MAPPING (GHOSTS) ---
                     'Grid/RangeMax': '3.5',
                     'Grid/MaxGroundHeight': '0.10',
                     'Grid/MinGroundHeight': '-0.50',
-                    # 'Grid/MinClusterSize': '100',      # INCREASED: Ignore small noise
-                    # 'Grid/RayTracing': 'true',         # Ensure dynamic obstacles are cleared
-                    # 'Grid/NoiseFilteringRadius': '0.1', # Filter isolated points
-                    # 'Grid/NoiseFilteringMinNeighbors': '5',
                     'Grid/MinClusterSize': '20',
                     'Grid/NormalsSegmentation': 'false', 
                     
                     # --- TUNING LOOP CLOSURE ---
-                    'Kp/MaxFeatures': '1000',         # Restored to 1000
+                    'Kp/MaxFeatures': '1000',
                     'Vis/FeatureType': '6',
                     'Rtabmap/LoopThr': '0.08',
                     'RGBD/LoopClosureReextractFeatures': 'true',
@@ -387,7 +386,8 @@ def generate_launch_description():
     # ================================================
     def launch_nav2(context, *args, **kwargs):
         if LaunchConfiguration('enable_nav2').perform(context).lower() == 'true':
-            nav2_params_file = os.path.join(pkg_share, 'config', 'nav2_params.yaml')
+            # File parametri Nav2 ottimizzato per 4GB RAM (RPP, ObstacleLayer 2D)
+            nav2_params_file = os.path.join(pkg_share, 'config', 'nav2_params_jazzy.yaml')
             # Use our custom launch file to avoid launching unconfigured nodes
             custom_nav2_launch = os.path.join(pkg_share, 'launch', 'custom_nav2_launch.py')
             
@@ -402,27 +402,15 @@ def generate_launch_description():
         return []
 
     nav2_stack = TimerAction(
-        period=8.0,  # Wait for RTAB-Map to be ready
+        period=15.0,  # Wait for RTAB-Map odometry TF to be ready
         actions=[OpaqueFunction(function=launch_nav2)]
     )
     
-    # Need depthimage_to_laserscan for costmap!
-    depth_to_scan = Node(
-        package='depthimage_to_laserscan',
-        executable='depthimage_to_laserscan_node',
-        name='depthimage_to_laserscan',
-        output='screen',
-        parameters=[{
-            'output_frame': 'base_link',
-            'range_min': 0.3,
-            'range_max': 3.0,
-            'scan_height': 5 # pixels
-        }],
-        remappings=[
-            ('depth', '/camera/depth/image_raw'),
-            ('depth_camera_info', '/camera/camera_info'),
-            ('scan', '/scan')
-        ]
+    # Percezione: depthimage_to_laserscan (da perception_composition.launch.py)
+    perception_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(pkg_share, 'launch', 'perception_composition.launch.py')
+        )
     )
     
     robot_ai_node = Node(
@@ -451,16 +439,16 @@ def generate_launch_description():
         imu_tf,
         
         # ORDINE CRITICO:
-        oak_camera,       # 1. Camera + velocity (30Hz)
-        madgwick,         # 2. IMU filter (50Hz)
-        rgbd_odom,        # 3. RTAB-Map Odometry (15Hz, TF odom→base_link)
-        ekf_node,         # 4. EKF fusion (50Hz, NO TF)
-        rtabmap,          # 5. SLAM (TF map→odom)
-        nav2_stack,       # 6. Navigation
+        oak_camera,         # 1. Camera + velocity (30Hz)
+        perception_launch,  # 1b. depth→LaserScan per costmap Nav2
+        madgwick,           # 2. IMU filter (50Hz)
+        rgbd_odom,          # 3. RTAB-Map Odometry (15Hz, TF odom→base_link)
+        ekf_node,           # 4. EKF fusion (50Hz, NO TF)
+        rtabmap,            # 5. SLAM (TF map→odom)
+        nav2_stack,         # 6. Navigation (RPP + NavfnPlanner)
         
         motor_control,
         foxglove,
         robot_ai_node,
         homeassistant_node,
-        depth_to_scan
     ])
