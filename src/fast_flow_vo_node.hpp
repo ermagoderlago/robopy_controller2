@@ -103,6 +103,10 @@ private:
         double camera_fps = 30.0;  // Stereo camera FPS
         bool enable_depth_filter = true;  // Enable/disable depth range filtering
         
+        // LaserScan Offset
+        int scan_height = 3;
+        int scan_y_offset = 0;
+        
         // Floor Reflection Filter (with camera pitch compensation)
         bool enable_floor_filter = true;     // Enable/disable underground point rejection
         double camera_height = 0.08;         // Camera height from floor (meters)
@@ -245,6 +249,7 @@ private:
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr rgb_pub_;
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr depth_pub_;
     rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr camera_info_pub_;
+    rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr camera_info_scan_pub_;
     
     // Compressed publishers
     // Compressed publishers
@@ -291,6 +296,7 @@ private:
     
     // Performance (thread-safe)
     rclcpp::Time last_diag_time_;  // Protected by time_mutex_
+    rclcpp::Time start_time_;     // Session start time
     std::atomic<uint64_t> processed_frames_{0};
     
     // Helper

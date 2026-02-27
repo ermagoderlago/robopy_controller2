@@ -10,6 +10,7 @@ import json
 import base64
 from typing import Any, Callable, Dict, List, Optional, Union
 from dataclasses import dataclass, field
+import logging
 
 try:
     from google import genai
@@ -59,6 +60,34 @@ class FunctionDeclaration:
     description: str
     parameters: Dict[str, Any]
     handler: Optional[Callable] = None
+
+
+def retry_with_backoff(max_retries: int = 3, initial_delay: float = 1.0, backoff_factor: float = 2.0):
+    """Decorator to retry an async function with exponential backoff on failure."""
+    def decorator(func):
+        import functools
+
+        @functools.wraps(func)
+        async def wrapper(*args, **kwargs):
+            delay = initial_delay
+            last_err = None
+            for attempt in range(max_retries):
+                try:
+                    return await func(*args, **kwargs)
+                except Exception as e:
+                    last_err = e
+                    # Non-retryable errors
+                    if "PERMISSION_DENIED" in str(e) or "API_KEY_INVALID" in str(e):
+                        raise
+                    
+                    logging.getLogger("llm_service").warning(
+                        f"Attempt {attempt + 1}/{max_retries} failed for {func.__name__}: {e}. Retrying in {delay}s..."
+                    )
+                    await asyncio.sleep(delay)
+                    delay *= backoff_factor
+            raise last_err
+        return wrapper
+    return decorator
 
 
 class LLMService:
@@ -124,6 +153,10 @@ class LLMService:
         self._live_model = "gemini-2.5-flash-native-audio-preview-12-2025"
         self._live_lock = asyncio.Lock()
         
+        # Session resumption tokens
+        self._session_id: Optional[str] = None
+        self._resumption_token: Optional[str] = None
+        
         # Circuit breaker
         self._breaker = CircuitBreakerRegistry().get_or_create(
             "llm",
@@ -152,6 +185,7 @@ class LLMService:
                 asyncio.ensure_future(self._disconnect_live())
             self.logger.debug("System prompt updated", length=len(prompt))
     
+    @retry_with_backoff(max_retries=3, initial_delay=2.0)
     async def generate(
         self,
         prompt: str,
@@ -260,11 +294,24 @@ class LLMService:
         # Configure tools if provided
         live_tools = [types.Tool(function_declarations=tools)] if tools else None
 
+        # Build resumption config if we have a token
+        resumption_config = None
+        if self._resumption_token:
+            resumption_config = types.SessionResumptionConfig(
+                handle=self._resumption_token
+            )
+            self.logger.info("Reconnecting to Live session with resumption token")
+        else:
+            # Enable resumption for the current session to get a token
+            resumption_config = types.SessionResumptionConfig()
+
         config = types.LiveConnectConfig(
             response_modalities=["AUDIO"],
             output_audio_transcription=types.AudioTranscriptionConfig(),
             tools=live_tools,
+            session_resumption=resumption_config
         )
+        
         if self._system_prompt:
             config.system_instruction = types.Content(parts=[types.Part.from_text(text=self._system_prompt)])
         
@@ -277,10 +324,13 @@ class LLMService:
             self._live_session = await self._live_ctx.__aenter__()
             self.logger.info("Live API session connected", model=self._live_model, tools=bool(live_tools))
         except Exception as e:
-            self.logger.error(f"Failed to connect Live session: {e}")
+            error_str = str(e)
+            self.logger.error(f"Failed to connect Live session: {error_str}")
             self._live_session = None
             self._live_ctx = None
-            raise LLMError(f"Live session connect failed: {e}")
+            if "1008" in error_str or "leaked" in error_str.lower() or "permission_denied" in error_str.lower() or "403" in error_str:
+                raise LLMError(f"API_KEY_INVALID: {error_str[:100]}")
+            raise LLMError(f"Live session connect failed: {error_str}")
     
     async def _disconnect_live(self):
         """Disconnect Live API session."""
@@ -298,6 +348,7 @@ class LLMService:
             self._live_ctx = None
             self.logger.info("Live API session disconnected")
     
+    @retry_with_backoff(max_retries=3, initial_delay=2.0)
     async def generate_live(
         self,
         prompt: str,
@@ -364,7 +415,21 @@ class LLMService:
             audio_chunks = []
             actions = []
             
-            async for msg in self._live_session.receive():
+            # Use an explicit iterator to wrap with timeout
+            receive_iterator = self._live_session.receive().__aiter__()
+            
+            while True:
+                try:
+                    # 15 seconds timeout for EACH chunk. If Google goes silent, we abort.
+                    # This prevents the async iterator from hanging indefinitely.
+                    msg = await asyncio.wait_for(receive_iterator.__anext__(), timeout=15.0)
+                except StopAsyncIteration:
+                    break
+                except asyncio.TimeoutError:
+                    self.logger.error("Live session timeout waiting for server response chunk.")
+                    # Force session close so the exception block catches it
+                    raise LLMError("Timeout risposta dal cloud. Sessione resettata.")
+                    
                 if not msg.server_content:
                     continue
                 sc = msg.server_content
@@ -399,6 +464,20 @@ class LLMService:
                                  "action_type": fc.name,
                                  "args": dict(fc.args)
                              })
+                
+                # 4. Session Resumption Update
+                if hasattr(msg, 'session_resumption_update') and msg.session_resumption_update:
+                    sru = msg.session_resumption_update
+                    self._session_id = getattr(sru, 'session_id', self._session_id)
+                    self._resumption_token = getattr(sru, 'resumption_token', None)
+                    if not self._resumption_token and hasattr(sru, 'new_handle'):
+                         self._resumption_token = sru.new_handle
+                    self.logger.debug("Received session resumption update", session_id=self._session_id)
+
+                # 5. GoAway handling
+                if hasattr(msg, 'goaway') and msg.goaway:
+                    time_left = getattr(msg.goaway, 'time_left', 'unknown')
+                    self.logger.warning(f"Server sent GoAway signal. Time left: {time_left}")
 
                 # Done
                 if sc.turn_complete:
@@ -435,8 +514,10 @@ class LLMService:
             
             if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
                 raise LLMError("rate_limit")
-            elif "API_KEY_INVALID" in error_str or "expired" in error_str.lower():
-                raise LLMError("Chiave API Gemini non valida o scaduta.")
+            elif "400" in error_str or "expired" in error_str.lower() or "INVALID_ARGUMENT" in error_str:
+                raise LLMError("Chiave API Gemini scaduta o non valida. Rinnova la chiave API.")
+            elif "API_KEY_INVALID" in error_str:
+                raise LLMError("Chiave API Gemini non valida.")
             else:
                 raise LLMError(f"Live API error: {error_str[:100]}")
     

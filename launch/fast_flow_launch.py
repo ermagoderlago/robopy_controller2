@@ -10,7 +10,7 @@ RTAB-Map System with CORRECTED TF and data flow
 
 import os
 from launch import LaunchDescription
-from launch.actions import TimerAction, DeclareLaunchArgument, OpaqueFunction, IncludeLaunchDescription
+from launch.actions import TimerAction, DeclareLaunchArgument, OpaqueFunction, IncludeLaunchDescription, ExecuteProcess
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
@@ -20,6 +20,20 @@ from ament_index_python.packages import get_package_share_directory
 
 def generate_launch_description():
     pkg_share = get_package_share_directory('robopy_controller')
+    
+    # FIX: CycloneDDS Participant Limit (per evitare il crash di Nav2 controller_server)
+    # Crea un file xml temporaneo per superare il limite default di 120 nodi.
+    dds_config = "/tmp/cyclonedds_robopy.xml"
+    with open(dds_config, "w") as f:
+        f.write('''<?xml version="1.0" encoding="UTF-8" ?>
+<CycloneDDS xmlns="https://cdds.io/config" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://cdds.io/config https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
+    <Domain id="any">
+        <Discovery>
+            <MaxAutoParticipantIndex>200</MaxAutoParticipantIndex>
+        </Discovery>
+    </Domain>
+</CycloneDDS>''')
+    os.environ["CYCLONEDDS_URI"] = f"file://{dds_config}"
     
     # Launch Arguments
     args = [
@@ -99,11 +113,11 @@ def generate_launch_description():
             'publish_tf': False,
             
             # Camera settings
-            'camera_fps': 5.0, # Reduced to 10Hz to fix X_LINK_ERROR
+            'camera_fps': 15.0, # Alzato a 15Hz (fondamentale per inseguire i punti in ottico KLT senza perderli nei movimenti)
             'skip_frames': 1,  # Process every frame (0 causes div-by-zero!)
             
             # FAST Detection
-            'fast_threshold': 15,
+            'fast_threshold': 10, # Abbassato da 15 a 10 per estrarre più corner su pavimenti piatti
             'max_features': 800,
             
             # KLT Tracking
@@ -120,15 +134,22 @@ def generate_launch_description():
             'enable_depth_filter': False,
             'enable_floor_filter': False,
             
+            # LaserScan Region (Tuning ECO00006)
+            'scan_height': 50,
+            # Spostato in basso rispetto al centro (positivo=in basso)
+            'scan_y_offset': 52,
+            
             # Motion Gate (ZUPT)
             'enable_motion_gate': True,
             'imu_gyro_threshold': 0.02,
             'imu_accel_threshold': 0.15,
             'cmd_vel_timeout': 0.5,
             
-            # YOLO (DISABLED TO ISOLATE X_LINK_ERROR)
+            # YOLO e Debuging
             'enable_yolo': False,
             'yolo_blob_path': yolo_blob,  # PASSED EXPLICITLY
+            # FLAG PER DISABILITARE I TOPIC DEBUG: 
+            # Imposta a False per disattivare /vo/debug_view/compressed e risparmiare CPU/Banda
             'publish_debug': True,
         }],
         remappings=[
@@ -170,35 +191,7 @@ def generate_launch_description():
             name='rgbd_odometry',
             output='screen',
             arguments=['--ros-args', '--log-level', 'WARN'],
-            parameters=[{
-                'frame_id': 'base_link',
-                'odom_frame_id': 'odom',
-                
-                # SOLO LUI PUBBLICA TF odom→base_link!
-                'publish_tf': True,
-                
-                'wait_for_transform': 0.2,
-                'approx_sync': True,
-                'queue_size': 5,  # Ridotto da 10 per risparmiare RAM
-                
-                # Odometry strategy
-                'Odom/Strategy': '0',
-                'Odom/ResetCountdown': '1',
-                'Odom/GuessSmoothingDelay': '0.5',
-                
-                # Visual features - ottimizzato per ARM
-                'Vis/FeatureType': '6',   # GFTT/ORB - miglior compromesso velocità/robustezza su ARM
-                'Vis/MaxFeatures': '500', # Ridotto da 1000 per limitare il carico CPU
-                'Vis/MinInliers': '20',
-                'Vis/InlierDistance': '0.05',
-                
-                # ICP refinement (reduced iterations with guess)
-                'Reg/Strategy': '1',
-                'Icp/VoxelSize': '0.05',
-                'Icp/PointToPlane': 'true',
-                'Icp/Iterations': '5',  # Reduced: guess gives good start
-                'Icp/Epsilon': '0.001',
-            }],
+            parameters=[os.path.join(pkg_share, 'config', 'rtabmap.yaml')],
             remappings=[
                 ('rgb/image', '/rgb/image'),
                 ('rgb/camera_info', '/camera/camera_info'),
@@ -222,72 +215,7 @@ def generate_launch_description():
             executable='ekf_node',
             name='ekf_localization',
             output='screen',
-            parameters=[{
-                'frequency': 50.0,
-                'two_d_mode': True,
-                
-                'map_frame': 'map',
-                'odom_frame': 'odom',
-                'base_link_frame': 'base_link',
-                'world_frame': 'odom',
-                
-                # EKF NON pubblica TF (rgbd_odom lo fa già)
-                'publish_tf': False,
-                'publish_acceleration': False,
-                
-                # ================== INPUT 1: VELOCITY ==================
-                'odom0': '/fast_flow/velocity',
-                'odom0_config': [
-                    False, False, False,  # NO position
-                    False, False, False,  # NO orientation
-                    True,  True,  False,  # SÌ velocity x,y
-                    False, False, True,   # SÌ yaw rate
-                    False, False, False,
-                ],
-                'odom0_differential': False,
-                'odom0_relative': False,
-                
-                # ================== INPUT 2: POSE ==================
-                'odom1': '/rtabmap/odom',
-                'odom1_config': [
-                    True,  True,  False,  # SÌ position x,y
-                    False, False, False,  # NO orientation (usa IMU)
-                    False, False, False,  # NO velocity (usa VO!)
-                    False, False, False,
-                    False, False, False,
-                ],
-                'odom1_differential': False,
-                
-                # ================== INPUT 3: IMU ==================
-                'imu0': '/imu/data',
-                'imu0_config': [
-                    False, False, False,
-                    False, False, True,   # SÌ yaw
-                    False, False, False,
-                    False, False, True,   # SÌ yaw_rate
-                    False, False, False,
-                ],
-                'imu0_differential': False,
-                'imu0_relative': False,
-                
-                'process_noise_covariance': [
-                    0.03, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0.03, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0.04, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0.02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0.02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0.02, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0.02, 0, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0.02, 0, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0.03, 0, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0.01, 0, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.01, 0, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.015, 0, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.01, 0, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.01, 0,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.01,
-                ],
-            }],
+            parameters=[os.path.join(pkg_share, 'config', 'ekf.yaml')],
             remappings=[
                 ('odometry/filtered', '/odom_filtered'),
             ]
@@ -306,47 +234,13 @@ def generate_launch_description():
                 name='rtabmap',
                 output='screen',
                 arguments=['--delete_db_on_start'] if LaunchConfiguration('delete_db').perform(context).lower() == 'true' else [],
-                parameters=[{
-                    'frame_id': 'base_link',
-                    'odom_frame_id': 'odom',
-                    'map_frame_id': 'map',
-                    
-                    'subscribe_rgb': True,
-                    'subscribe_depth': True,
-                    'subscribe_odom_info': True,
-                    'approx_sync': True,
-                    'queue_size': 5,  # Ridotto da 10 per risparmiare RAM
-                    
-                    'publish_tf': True,
-                    
-                    'Mem/IncrementalMemory': 'false' if LaunchConfiguration('localization').perform(context).lower() == 'true' else 'true',
-                    'Mem/InitWMWithAllNodes': 'true' if LaunchConfiguration('localization').perform(context).lower() == 'true' else 'false',
-                    
-                    # --- RAM SAVINGS ---
-                    'Rtabmap/CreateIntermediateNodes': 'false',  # Evita nodi intermedi ridondanti
-                    'Mem/NotLinkedNodesKept': 'false',          # Non mantenere nodi non collegati
-                    'Rtabmap/TimeThr': '500',                   # Riduce freq aggiunta nodi
-                    
-                    'RGBD/ProximityBySpace': 'true',
-                    'RGBD/AngularUpdate': '0.1',
-                    'RGBD/LinearUpdate': '0.2',   # Aggiornamento ogni 20cm (era 10cm)
-                    'RGBD/OptimizeMaxError': '3.0',
-                    'Optimizer/Strategy': '1',
-                    'Optimizer/Iterations': '30',
-                    
-                    # --- TUNING MAPPING (GHOSTS) ---
-                    'Grid/RangeMax': '3.5',
-                    'Grid/MaxGroundHeight': '0.10',
-                    'Grid/MinGroundHeight': '-0.50',
-                    'Grid/MinClusterSize': '20',
-                    'Grid/NormalsSegmentation': 'false', 
-                    
-                    # --- TUNING LOOP CLOSURE ---
-                    'Kp/MaxFeatures': '1000',
-                    'Vis/FeatureType': '6',
-                    'Rtabmap/LoopThr': '0.08',
-                    'RGBD/LoopClosureReextractFeatures': 'true',
-                }],
+                parameters=[
+                    os.path.join(pkg_share, 'config', 'rtabmap.yaml'),
+                    {
+                        'Mem/IncrementalMemory': 'false' if LaunchConfiguration('localization').perform(context).lower() == 'true' else 'true',
+                        'Mem/InitWMWithAllNodes': 'true' if LaunchConfiguration('localization').perform(context).lower() == 'true' else 'false',
+                    }
+                ],
                 remappings=[
                     ('rgb/image', '/rgb/image'),
                     ('rgb/camera_info', '/camera/camera_info'),
@@ -364,9 +258,13 @@ def generate_launch_description():
         period=4.0,
         actions=[Node(
             package='robopy_controller',
-            executable='motor_control_node',
-            name='motor_control',
-            output='screen'
+            executable='smart_buildhat_driver',
+            name='smart_buildhat_driver',
+            output='screen',
+            parameters=[{
+                'kp_linear': 50.0,
+                'ki_linear': 10.0
+            }]
         )]
     )
     
@@ -397,13 +295,48 @@ def generate_launch_description():
                     'params_file': nav2_params_file,
                     'use_sim_time': 'false',
                     'autostart': 'true',
+                    'use_respawn': 'true',  # Auto-restart crashed nodes
                 }.items()
             )]
         return []
 
     nav2_stack = TimerAction(
-        period=15.0,  # Wait for RTAB-Map odometry TF to be ready
+        period=45.0,  # Wait for RTAB-Map odometry TF to be ready (increased for stability)
         actions=[OpaqueFunction(function=launch_nav2)]
+    )
+    
+    # Ensure all Nav2 lifecycle nodes reach active state
+    # The lifecycle_manager may timeout on Pi5 due to slow costmap initialization
+    nav2_ensure_active = TimerAction(
+        period=70.0,  # 45s (Nav2 start delay) + 25s (activation buffer)
+        actions=[OpaqueFunction(function=lambda context, *a, **kw: [
+            ExecuteProcess(
+                cmd=['bash', '-c', '''
+source /home/robopy/ros2_venv/bin/activate 2>/dev/null
+source /home/robopy/robopy/robopi_controller/robopy_controller_host/install/setup.bash 2>/dev/null
+export CYCLONEDDS_URI=/tmp/cyclonedds_robopy.xml
+
+for node in controller_server planner_server behavior_server bt_navigator; do
+    state=$(ros2 lifecycle get /$node 2>/dev/null | grep -oP '^\w+')
+    if [ "$state" = "unconfigured" ]; then
+        echo "[NAV2-ENSURE] Configuring /$node..."
+        ros2 lifecycle set /$node configure 2>/dev/null
+        sleep 3
+        state="inactive"
+    fi
+    if [ "$state" = "inactive" ]; then
+        echo "[NAV2-ENSURE] Activating /$node..."
+        ros2 lifecycle set /$node activate 2>/dev/null
+        sleep 2
+    fi
+    final=$(ros2 lifecycle get /$node 2>/dev/null | grep -oP '^\w+')
+    echo "[NAV2-ENSURE] /$node → $final"
+done
+echo "[NAV2-ENSURE] Done."
+'''],
+                output='screen'
+            )
+        ] if LaunchConfiguration('enable_nav2').perform(context).lower() == 'true' else [])]
     )
     
     # Percezione: depthimage_to_laserscan (da perception_composition.launch.py)
@@ -432,6 +365,15 @@ def generate_launch_description():
         parameters=[{'update_interval': 150.0}]
     )
 
+    servo_coda_node = Node(
+        package='robopy_controller',
+        executable='servo_coda_node',
+        name='servo_coda_node',
+        output='screen',
+        # servo_pin=18 (default), calibration_wag=False
+        parameters=[{'servo_pin': 18}]
+    )
+
     return LaunchDescription([
         *args,  # Include declared launch arguments
         robot_state_publisher,
@@ -446,9 +388,11 @@ def generate_launch_description():
         ekf_node,           # 4. EKF fusion (50Hz, NO TF)
         rtabmap,            # 5. SLAM (TF map→odom)
         nav2_stack,         # 6. Navigation (RPP + NavfnPlanner)
+        nav2_ensure_active, # 6b. Ensure Nav2 nodes reach active on Pi5
         
         motor_control,
         foxglove,
         robot_ai_node,
         homeassistant_node,
+        servo_coda_node,
     ])

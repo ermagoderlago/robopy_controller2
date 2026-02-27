@@ -366,13 +366,34 @@ class HomeAssistantClient:
         
         self.logger.debug(f"Calling service: {domain}.{service} on {entity_id}")
         
-        try:
-            result = await self._breaker.call_async(self._send_request, request)
-            self.logger.info(f"Service call successful: {domain}.{service}")
-            return result
-        except Exception as e:
-            self.logger.error(f"Service call failed: {e}")
-            raise
+        # Retry Logic (Programma SOGNO: Comunicazione Resiliente)
+        max_retries = 3
+        retry_delays = [2, 5, 10]
+        last_error = None
+        
+        for attempt in range(max_retries):
+            try:
+                result = await self._breaker.call_async(self._send_request, request)
+                self.logger.info(f"Service call successful: {domain}.{service}")
+                return result
+            except Exception as e:
+                last_error = e
+                if "No response" in str(e) or "timeout" in str(e).lower() or not self.is_connected:
+                    if attempt < max_retries - 1:
+                        delay = retry_delays[attempt]
+                        self.logger.warning(
+                            f"HA call attempt {attempt+1}/{max_retries} failed: {e}. "
+                            f"Retrying in {delay}s..."
+                        )
+                        await asyncio.sleep(delay)
+                    else:
+                        self.logger.error(f"Service call failed after {max_retries} attempts: {e}")
+                else:
+                    # Non-transient error (e.g., auth, format), don't retry
+                    self.logger.error(f"Service call failed with non-transient error: {e}")
+                    raise e
+                    
+        raise last_error
     
     async def get_state(self, entity_id: str) -> Optional[str]:
         """

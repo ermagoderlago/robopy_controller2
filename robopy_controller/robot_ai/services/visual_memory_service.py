@@ -14,7 +14,9 @@ import asyncio
 import threading
 import base64
 import numpy as np
+import numpy as np
 import cv2
+import re
 from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime
 
@@ -107,6 +109,13 @@ class VisualMemoryService:
         """Update camera intrinsics."""
         self._latest_camera_info = msg
 
+    def force_capture(self):
+        """Force a visual analysis on the next spin cycle, bypassing motion/time checks.
+        Useful for verifying environmental changes after an action (e.g. turning on a light).
+        """
+        self._force_next_analysis = True
+        self.logger.info("External request to force visual capture received.")
+
     async def spin(self):
         """Main loop called by orchestrator."""
         cfg = self.config.get_config().visual_memory
@@ -115,20 +124,25 @@ class VisualMemoryService:
 
         now = time.time()
         
-        # Check frequency
-        if (now - self._last_analysis_time) < 15.0: # Hardcoded 15s for verification
-            return
-
-        # Check startup trigger
-        should_analyze = False
-        if cfg.startup_analysis and not self._startup_analysis_done:
-            # Wait for image before triggering
-            if self._latest_rgb is not None:
-                self.logger.info("Triggering startup visual analysis...")
-                self._startup_analysis_done = True
-                should_analyze = True
-        elif self._is_moving:
+        # Check if forced
+        if getattr(self, '_force_next_analysis', False):
+            self.logger.info("Forcing visual analysis (triggered by action)...")
+            self._force_next_analysis = False
             should_analyze = True
+        else:
+            # Check frequency
+            if (now - self._last_analysis_time) < 15.0: # Hardcoded 15s for verification
+                return
+    
+            # Check startup trigger
+            if cfg.startup_analysis and not self._startup_analysis_done:
+                # Wait for image before triggering
+                if self._latest_rgb is not None:
+                    self.logger.info("Triggering startup visual analysis...")
+                    self._startup_analysis_done = True
+                    should_analyze = True
+            elif self._is_moving:
+                should_analyze = True
         
         if not should_analyze:
             return
@@ -172,6 +186,7 @@ class VisualMemoryService:
             response = await self.llm_service.generate(
                 prompt,
                 images=[jpg_bytes], # Pass raw bytes, LLMService will handle it
+                max_tokens=800 # Prevent premature truncation of visual description
             )
             
             # Parse Result
@@ -181,24 +196,36 @@ class VisualMemoryService:
                 return
             
             # Robust JSON extraction
+            description = ""
+            objects = []
             try:
                 # Find the first { and last }
                 start_idx = text.find("{")
                 end_idx = text.rfind("}")
                 
-                if start_idx != -1 and end_idx != -1:
+                if start_idx != -1 and end_idx != -1 and start_idx < end_idx:
                     json_str = text[start_idx : end_idx + 1]
                     data = json.loads(json_str)
+                    description = data.get("description", "")
+                    objects = data.get("objects", [])
                 else:
-                    raise ValueError("No JSON object found in text")
-                    
-                description = data.get("description", "")
-                objects = data.get("objects", [])
-                
-                self.logger.info(f"👁️ Visual Memory: {description}")
+                    raise ValueError("JSON non chiuso.")
+            
             except (json.JSONDecodeError, ValueError) as e:
-                self.logger.error(f"Failed to parse JSON: {e}. Raw text: {text}")
+                self.logger.warning(f"Standard JSON parse failed ({e}), attempting regex recovery.")
+                # Regex per recuperare tutto quello che c'è dopo "description": "
+                match = re.search(r'"description"\s*:\s*"([^"]*)', text)
+                if match:
+                    description = match.group(1).strip()
+                    self.logger.info(f"Regex successfully salvaged description: {description[:30]}...")
+                else:
+                    self.logger.error(f"Failed to parse JSON and Regex recovery failed. Raw text: {text}")
+                    return
+                    
+            if not description:
                 return
+                
+            self.logger.info(f"👁️ Visual Memory: {description}")
             
             # Update Short-term History in RobotAI
             if hasattr(self.node, 'visual_memory_history'):
@@ -224,8 +251,8 @@ class VisualMemoryService:
                 embedding=embedding,
                 metadata={
                     "source": "visual_memory", 
-                    "objects": [o['label'] for o in objects],
-                    "timestamp": time.time()
+                    "objects": json.dumps([o['label'] for o in objects]),  # ChromaDB requires primitive types
+                    "timestamp": datetime.now().isoformat()
                 }
             )
             self.memory_store.add(mem)

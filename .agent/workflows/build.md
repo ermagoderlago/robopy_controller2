@@ -46,3 +46,9 @@ colcon build \
     -DCMAKE_PREFIX_PATH="$HOME/ros2_jazzy/install" \
     -DCMAKE_FIND_ROOT_PATH="$HOME/ros2_jazzy/install"
 '''
+
+per attivare la chiave IA devi usare:
+
+source /home/robopy/robopy/robopi_controller/robopy_controller_host/setup_keys.sh
+
+prima di lanciare og

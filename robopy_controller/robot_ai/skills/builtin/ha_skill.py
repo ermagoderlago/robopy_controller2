@@ -155,9 +155,11 @@ class HomeAssistantSkill(BaseSkill):
                     actions=[action]
                 )
             except Exception as e:
+                err_msg = "Azione fallita, ci ho provato ma la connessione domotica è instabile."
                 return SkillResult.failure_result(
                     f"Errore HA: {str(e)}",
                     SkillErrorCode.EXTERNAL_SERVICE_ERROR,
+                    speak=err_msg
                 )
         
         # No client, return action to be executed by orchestrator

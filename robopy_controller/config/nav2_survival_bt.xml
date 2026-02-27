@@ -1,0 +1,43 @@
+<root main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <RecoveryNode number_of_retries="4" name="NavigateRecovery">
+      
+      <!-- Esecuzione Standard: Ripianifica a 1.0Hz e Segui Path -->
+      <PipelineSequence name="NavigateWithReplanning">
+        <RateController hz="1.0">
+          <RecoveryNode number_of_retries="1" name="ComputePathToPose">
+            <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased"/>
+            <ClearEntireCostmap name="ClearGlobalCostmap-Context" server_timeout="5000"/>
+          </RecoveryNode>
+        </RateController>
+        
+        <RecoveryNode number_of_retries="1" name="FollowPath">
+          <FollowPath path="{path}" controller_id="FollowPath"/>
+          <ClearEntireCostmap name="ClearLocalCostmap-Context" server_timeout="5000"/>
+        </RecoveryNode>
+      </PipelineSequence>
+
+      <!-- Sequenza di Sblocco Sopravvivenza (In caso di timeout / ostacolo invisibile) -->
+      <Sequence name="SurvivalRecoverySequence">
+        <!-- 1. Indietreggia alla cieca per sbloccarsi -->
+        <BackUp backup_dist="0.15" backup_speed="0.15" name="DisengageBackUp"/>
+        
+        <Wait wait_duration="0.5"/>
+        
+        <!-- 2. Pulisci la memoria locale e globale -->
+        <ClearEntireCostmap name="ClearGlobalCostmap-Recovery" server_timeout="5000"/>
+        <ClearEntireCostmap name="ClearLocalCostmap-Recovery" server_timeout="5000"/>
+        
+        <!-- 3. Ruota sul posto di 90 gradi per aggiornare l'odometria visiva e mappare -->
+        <!-- 90 gradi = 1.57 radianti -->
+        <Spin spin_dist="1.57" spin_speed="0.3" name="MappingSpin90Deg"/>
+        
+        <Wait wait_duration="0.5"/>
+        
+        <!-- 4. Ricalcola un percorso fresco dallo spazio appena scoperto -->
+        <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased"/>
+      </Sequence>
+      
+    </RecoveryNode>
+  </BehaviorTree>
+</root>

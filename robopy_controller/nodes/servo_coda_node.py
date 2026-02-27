@@ -43,12 +43,8 @@ class ServoCodaNode(Node):
         self.create_subscription(Bool, '/movement_detected', self.movement_cb, 10)
         self.create_subscription(Bool, '/vo/tracking_status', self.tracking_cb, 10)
         
-        # Start calibration waggle if enabled
-        if self.calibration_wag:
-            self.calibration_thread = threading.Thread(target=self.calibration_wag_loop, daemon=True)
-            self.calibration_thread.start()
-        else:
-            self.startup_sequence()
+        # Start startup wag
+        threading.Thread(target=self.startup_wag, daemon=True).start()
 
     def move_and_relax(self, angle, duration=0.4):
         """
@@ -67,29 +63,23 @@ class ServoCodaNode(Node):
         except Exception as e:
             self.get_logger().error(f"Errore servo: {e}")
 
-    def calibration_wag_loop(self):
-        """Scodinzolio lento durante la calibrazione"""
-        self.get_logger().info('🐕 Avvio scodinzolio calibrazione...')
+    def startup_wag(self):
+        """Scodinzolio iniziale di 5 secondi"""
+        self.get_logger().info('🐕 Avvio scodinzolio iniziale (5s)...')
         self.busy = True
         
-        while self.calibration_active and rclpy.ok():
-            # Movimento lento e ampio
-            self.move_and_relax(60, 0.6)
-            if not self.calibration_active:
-                break
-            self.move_and_relax(120, 0.6)
-            if not self.calibration_active:
-                break
+        start_time = time.time()
+        while time.time() - start_time < 5.0 and rclpy.ok():
+            self.move_and_relax(45, 0.4)
+            self.move_and_relax(135, 0.4)
         
-        # Quando il tracking inizia, scodinzola veloce per celebrare!
-        self.get_logger().info('✅ Tracking attivo! Scodinzolio felice!')
-        self.scodinzola_felice()
         self.move_and_relax(90, 0.5)  # Torna al centro
         self.busy = False
+        self.get_logger().info('✅ Scodinzolio iniziale terminato. In attesa di eventi.')
 
     def scodinzola(self):
         """Scodinzolio normale (reazione a eventi)"""
-        if self.busy or self.calibration_active:
+        if self.busy:
             return
         def anima():
             self.busy = True
@@ -99,22 +89,6 @@ class ServoCodaNode(Node):
             self.move_and_relax(90, 0.3)
             self.busy = False
         threading.Thread(target=anima, daemon=True).start()
-
-    def scodinzola_felice(self):
-        """Scodinzolio veloce per celebrare"""
-        for _ in range(5):
-            self.move_and_relax(40, 0.15)
-            self.move_and_relax(140, 0.15)
-
-    def startup_sequence(self):
-        """Sequenza di test all'avvio (se calibration_wag è disabilitato)"""
-        def run():
-            self.busy = True
-            self.move_and_relax(10, 0.8)
-            self.move_and_relax(170, 0.8)
-            self.move_and_relax(90, 0.5)
-            self.busy = False
-        threading.Thread(target=run, daemon=True).start()
 
     def tracking_cb(self, msg):
         """Chiamato quando arriva lo stato del tracking VO"""

@@ -3,5 +3,10 @@ core
 build/
 install/
 log/
-core
-*.core
+# Sensitive files - NEVER COMMIT THESE
+setup_keys.sh
+.env
+# Large files
+*.blob
+weights/
+models/

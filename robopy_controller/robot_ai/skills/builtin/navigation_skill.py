@@ -45,6 +45,9 @@ class NavigationSkill(BaseSkill):
         re.compile(r'\b(muoviti|spostati|vai)\s+(avanti|indietro|un po)\b', re.IGNORECASE),
         re.compile(r'\b(gira|ruota|girare)\s+(di\s+)?\d+', re.IGNORECASE),
     ]
+    EXPLORE_PATTERNS = [
+        re.compile(r'\b(esplora|esplorare|mappa|\bmappare\b|perlustra)\b', re.IGNORECASE),
+    ]
     
     # Semantic waypoints with aliases
     WAYPOINTS = {
@@ -99,7 +102,7 @@ class NavigationSkill(BaseSkill):
             version="1.0.0",
             keywords=[
                 "vai", "porta", "vieni", "muoviti", "segui", "fermati",
-                "cucina", "soggiorno", "camera", "bagno"
+                "cucina", "soggiorno", "camera", "bagno", "esplora", "mappa"
             ],
             priority=8,
             requires_nav=True
@@ -116,7 +119,8 @@ class NavigationSkill(BaseSkill):
             self.FOLLOW_PATTERNS +
             self.STOP_PATTERNS +
             self.RETURN_PATTERNS +
-            self.MOVE_RELATIVE_PATTERNS
+            self.MOVE_RELATIVE_PATTERNS +
+            self.EXPLORE_PATTERNS
         )
         
         if any(p.search(text) for p in all_patterns):
@@ -140,6 +144,10 @@ class NavigationSkill(BaseSkill):
         # "Fermati" special case
         if any(p.search(text) for p in self.STOP_PATTERNS):
             score = 0.95
+            
+        # "Esplora" special case
+        if any(p.search(text) for p in self.EXPLORE_PATTERNS):
+            score = 0.95
         
         # Relative movement ("vai avanti", "gira a destra") 
         if any(p.search(text) for p in self.MOVE_RELATIVE_PATTERNS):
@@ -162,6 +170,9 @@ class NavigationSkill(BaseSkill):
         
         if intent["action"] == "follow":
             return await self._handle_follow()
+            
+        if intent["action"] == "explore":
+            return await self._handle_explore()
         
         if intent["action"] == "move_relative":
             return self._handle_move_relative(intent)
@@ -220,6 +231,8 @@ class NavigationSkill(BaseSkill):
             intent["action"] = "come"
         elif any(p.search(text) for p in self.GOTO_PATTERNS):
             intent["action"] = "goto"
+        elif any(p.search(text) for p in self.EXPLORE_PATTERNS):
+            intent["action"] = "explore"
         
         # Check for relative movement (before waypoint check)
         has_waypoint = False
@@ -341,6 +354,7 @@ class NavigationSkill(BaseSkill):
         
         if self.nav_client:
             try:
+                await self.nav_client.stop_exploration()
                 await self.nav_client.cancel_navigation()
             except Exception:
                 pass
@@ -365,6 +379,42 @@ class NavigationSkill(BaseSkill):
             success=True,
             message="Ti sto seguendo",
             speak="Ok, ti seguo!",
+            actions=[action]
+        )
+        
+    async def _handle_explore(self) -> SkillResult:
+        """Handle explore command."""
+        action = {
+            "action_type": "nav_explore"
+        }
+        
+        if self.nav_client:
+            try:
+                success = await self.nav_client.start_exploration(radius=2.0, max_points=15)
+                if success:
+                    return SkillResult(
+                        success=True,
+                        message="Esplorazione avviata",
+                        speak="Ok, cancello la mappa e comincio a esplorare la stanza.",
+                        actions=[action]
+                    )
+                else:
+                    return SkillResult.failure_result(
+                        "Esplorazione già in corso",
+                        SkillErrorCode.INVALID_PARAMETERS,
+                        speak="Sto già esplorando!"
+                    )
+            except Exception as e:
+                return SkillResult.failure_result(
+                    f"Errore avvio esplorazione: {str(e)}",
+                    SkillErrorCode.EXTERNAL_SERVICE_ERROR,
+                    speak="Ho avuto un problema ad avviare l'esplorazione"
+                )
+                
+        return SkillResult(
+            success=True,
+            message="Esplorazione simulata avviata",
+            speak="Ok, comincio a esplorare.",
             actions=[action]
         )
     
@@ -419,7 +469,7 @@ class NavigationSkill(BaseSkill):
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["goto", "come", "follow", "stop", "return", "move_relative"],
+                    "enum": ["goto", "come", "follow", "stop", "return", "move_relative", "explore"],
                     "description": "Navigation action. Use 'move_relative' for directional commands like 'vai avanti', 'gira a sinistra'"
                 },
                 "destination": {

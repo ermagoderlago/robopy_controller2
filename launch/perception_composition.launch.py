@@ -46,17 +46,17 @@ def generate_launch_description():
             'range_max': 5.0,   # portata massima 5 metri
 
             # scan_height: numero di righe centrali dell'immagine depth
-            # da analizzare. 6 righe su 200 = solo 3% dell'immagine,
-            # sufficiente per rilevare ostacoli a livello del pavimento.
-            'scan_height': 6,
-
-            # scan_time: periodo nominale di pubblicazione (~10Hz).
-            # La frequenza effettiva è limitata dal framerate del depth (5Hz).
+            # da analizzare. Le righe sono shiftate tramite camera_info_scan.
+            # L'offset Y (-80) è applicato in fast_flow_vo.
+            'scan_height': 50,  # Aumentato per intercettare muri bianchi
+            
+            # Non processare le righe più basse (pavimento)
+            # Centriamo la "fetta" leggermente più in alto (es. a riga 120 su 200)
             'scan_time': 0.1,
         }],
         remappings=[
             ('depth', '/camera/depth/image_raw'),
-            ('depth_camera_info', '/camera/camera_info'),
+            ('depth_camera_info', '/camera/camera_info_scan'),
             ('scan', '/scan'),
         ]
     )

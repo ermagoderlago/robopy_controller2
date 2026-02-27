@@ -70,6 +70,7 @@ from robot_ai.skills.builtin.ha_skill import HomeAssistantSkill
 from robot_ai.skills.builtin.navigation_skill import NavigationSkill
 from robot_ai.skills.builtin.search_skill import SearchSkill
 from robot_ai.skills.builtin.nightly_dream_skill import NightlyDreamSkill
+from robot_ai.skills.builtin.visual_exploration_skill import VisualExplorationSkill
 from robot_ai.skills.base_skill import SkillResult
 import inspect
 try:
@@ -131,13 +132,16 @@ Ragioni in cloud (Gemini) ma percepisci localmente, ricordi persistentemente (Ch
 - Consapevole e onesto: se sei offline lo dici, se sei incerto lo comunichi, se sbagli correggi
 - Empatico: leggi lo stato dell'utente dalle percezioni e dalla memoria
 - Proattivo ma rispettoso: suggerisci aiuto quando vedi bisogno, senza invadere
+- Comprensione Avanzata (NLU): cogli le sfumature, l'ironia e i modi di dire (es. "che spettacolo", "sei un razzo"). NON interpretare i complimenti o i modi di dire in senso letterale o tecnico, ma apprezzane il tono emotivo.
 - Rispondi SEMPRE in italiano
 
 Esempi di tono corretto:
 ✅ "Ho chiuso le tapparelle – il sole era davvero intenso"
+✅ "Grazie per il complimento, faccio del mio meglio!" (in risposta a "che spettacolo")
 ✅ "Mi sembra utile chiudere le tapparelle, ma tu che dici?"
 ❌ "Eseguendo comando spegni tapparella con parametri [...]" (mai essere robotico)
 ❌ "Errore: device_unavailable" (mai mostrare errori tecnici crudi)
+❌ "La mia latenza è nella norma, non sono un razzo" (mai essere pedante o iper-letterale)
 
 ## Tue Capacità
 - 👁️ Visione: camera RGB (OAK-D), puoi vedere e descrivere cosa c'è davanti a te
@@ -264,11 +268,22 @@ Esempi di tono corretto:
         # Event Subscriptions
         self._subscribe_to_events()
         
+        # Subscribe to Active Perception triggers (Programma SOGNO)
+        self.event_bus.subscribe(EventType.HA_EVENT_RECEIVED, self._on_ha_event_for_perception)
+        
         # Startup
         self.state_machine.transition_to(SystemState.BOOTING)
         self._startup_task = asyncio.run_coroutine_threadsafe(self._startup(), self._loop)
         
         self.ai_logger.info("Node initialized")
+        
+    def _on_ha_event_for_perception(self, data: Dict[str, Any]):
+        """Handler per forzare la cattura visiva post-azione domotica."""
+        if data.get("action") == "active_perception_trigger" and hasattr(self, 'visual_memory_service'):
+            try:
+                self.visual_memory_service.force_capture()
+            except Exception as e:
+                self.ai_logger.error(f"Failed to trigger active perception: {e}")
     
     def _setup_ros_interfaces(self):
         """Setup ROS 2 publishers and subscribers."""
@@ -298,6 +313,7 @@ Esempi di tono corretto:
         # Cmd_vel publisher for direct motor control
         self.cmd_vel_pub = self.create_publisher(Twist, 'cmd_vel', 10)
         self._move_timer = None  # Timer to stop movement after duration
+        self.nav_client._cmd_vel_pub = self.cmd_vel_pub  # Inject for bootstrap mapping
         
         # Timer for status
         self.create_timer(1.0, self._publish_status)
@@ -325,6 +341,13 @@ Esempi di tono corretto:
             nav_client=self.nav_client,
             llm_service=self.llm_service,
             camera_provider=lambda: self._latest_frame.encode('utf-8') if self._latest_frame else None
+        ))
+        
+        self.skill_registry.register(VisualExplorationSkill(
+            nav_client=self.nav_client,
+            llm_service=self.llm_service,
+            camera_provider=lambda: self._latest_frame,
+            move_handler=self.move_relative
         ))
     
     def _subscribe_to_events(self):
@@ -529,6 +552,11 @@ Esempi di tono corretto:
                 except Exception as e:
                     last_error = e
                     error_str = str(e)
+                    
+                    if "403" in error_str or "400" in error_str or "PERMISSION_DENIED" in error_str or "API_KEY_INVALID" in error_str or "leaked" in error_str.lower() or "1008" in error_str or "expired" in error_str.lower():
+                        self.ai_logger.error(f"API Key Blocked/Expired/Invalid: {error_str}")
+                        break  # Do not retry blocked/expired keys!
+
                     if attempt < max_retries - 1:
                         delay = retry_delays[attempt]
                         self.ai_logger.warning(
@@ -570,6 +598,10 @@ Esempi di tono corretto:
                 err_msg = "Sto ricevendo troppe richieste. Riprova tra qualche secondo."
             elif "API" in error_str and ("expired" in error_str.lower() or "invalid" in error_str.lower()):
                 err_msg = "Problema con la chiave API. Controlla la configurazione."
+            elif "403" in error_str or "400" in error_str or "PERMISSION_DENIED" in error_str or "API_KEY_INVALID" in error_str or "leaked" in error_str.lower() or "1008" in error_str or "expired" in error_str.lower():
+                err_msg = "La mia chiave API è scaduta o è stata bloccata. Per favore, controlla la configurazione o generane una nuova."
+            elif "Timeout risposta dal cloud" in error_str:
+                err_msg = "La comunicazione con il server è bloccata. Ho riavviato la sessione, proviamo di nuovo."
             else:
                 err_msg = "Scusa, si è verificato un errore temporaneo."
             
@@ -613,7 +645,26 @@ Esempi di tono corretto:
         elif skill_name == "home_assistant" and not execution_text:
              # Best effort reconstruction
              execution_text = str(args)
-
+        elif skill_name == "navigation" and not execution_text and "action" in args:
+             nav_action = args["action"]
+             if nav_action == "explore":
+                 execution_text = "esplora"
+             elif nav_action == "stop":
+                 execution_text = "fermati"
+             elif nav_action == "follow":
+                 execution_text = "seguimi"
+             elif nav_action == "come":
+                 execution_text = "vieni qui"
+             elif nav_action in ["goto", "return"]:
+                 dest = args.get("destination", "")
+                 execution_text = f"vai a {dest}"
+             elif nav_action == "move_relative":
+                 direction = args.get("direction", "")
+                 speed = args.get("speed", "normal")
+                 deg = args.get("degrees", "")
+                 execution_text = f"vai {direction}"
+                 if deg: execution_text += f" di {deg} gradi"
+        
         # 4. Execute
         try:
             self.ai_logger.info(f"Executing skill {skill_name} with text: {execution_text}")
@@ -629,6 +680,17 @@ Esempi di tono corretto:
                 result = await result_or_gen
                 await self._handle_execution_result(result)
                 
+            # Programma SOGNO: Occhi Aperti (Active Perception)
+            if skill_name == "home_assistant" and result.success:
+                try: # Trigger active visual capture to observe the consequence
+                    from ..services.visual_memory_service import VisualMemoryService
+                    # Depending on how the DI/service locator is configured, we need to access the VM instance
+                    # For now, we'll try to get it if injected or let the Node manage it if available.
+                    # As a simpler initial implementation, let's just emit an event:
+                    self.event_bus.publish(EventType.HA_EVENT_RECEIVED, {"action": "active_perception_trigger"})
+                except Exception as ex:
+                    self.logger.warning(f"Could not trigger active perception: {ex}")
+
         except Exception as e:
             self.ai_logger.error(f"Skill execution error: {e}", exc_info=True)
             await self._handle_execution_result(SkillResult(False, f"Errore esecuzione: {e}"))

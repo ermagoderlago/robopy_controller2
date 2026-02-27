@@ -6,9 +6,9 @@
        ============================== -->
   <link name="base_link">
     <visual>
-      <origin xyz="0 0 0.10" rpy="0 0 0"/>
+      <origin xyz="0 0 0.10" rpy="1.5708 0 0"/>
       <geometry>
-        <box size="0.20 0.20 0.15"/>
+        <mesh filename="package://robopy_controller/urdf/Marcus.stl" scale="0.001 0.001 0.001"/>
       </geometry>
       <material name="gray">
         <color rgba="0.5 0.5 0.5 1"/>

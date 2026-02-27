@@ -17,7 +17,8 @@ using namespace std::chrono_literals;
 FastFlowVONode::FastFlowVONode(const rclcpp::NodeOptions& options)
     : Node("fast_flow_vo", options),
       last_diag_time_(this->now()),
-      last_good_tracking_time_(this->now())
+      last_good_tracking_time_(this->now()),
+      start_time_(this->now())
 {
     // Load parameters
     config_.odom_frame = declare_parameter<std::string>("odom_frame", "odom");
@@ -49,6 +50,10 @@ FastFlowVONode::FastFlowVONode(const rclcpp::NodeOptions& options)
     config_.depth_fps = declare_parameter<double>("depth_fps", 30.0);
     config_.camera_fps = declare_parameter<double>("camera_fps", 30.0);  // Stereo camera FPS
     config_.enable_depth_filter = declare_parameter<bool>("enable_depth_filter", true);
+    
+    // LaserScan Offset
+    config_.scan_height = declare_parameter<int>("scan_height", 3);
+    config_.scan_y_offset = declare_parameter<int>("scan_y_offset", 0);
     
     // Floor Reflection Filter (with camera pitch compensation)
     config_.enable_floor_filter = declare_parameter<bool>("enable_floor_filter", true);
@@ -119,6 +124,7 @@ FastFlowVONode::FastFlowVONode(const rclcpp::NodeOptions& options)
     rgb_pub_ = create_publisher<sensor_msgs::msg::Image>("/rgb/image", 10);
     depth_pub_ = create_publisher<sensor_msgs::msg::Image>("/camera/depth/image_raw", 10);
     camera_info_pub_ = create_publisher<sensor_msgs::msg::CameraInfo>("/camera/camera_info", 10);
+    camera_info_scan_pub_ = create_publisher<sensor_msgs::msg::CameraInfo>("/camera/camera_info_scan", 10);
     
     // Compressed publishers for Foxglove
     rgb_compressed_pub_ = create_publisher<sensor_msgs::msg::CompressedImage>("/rgb/image/compressed", 10);
@@ -422,6 +428,13 @@ void FastFlowVONode::processLoop() {
                 cv::Mat gray = rectFrame->getCvFrame();
                 cv::Mat depth = depthFrame->getCvFrame();
                 auto stamp = this->now();
+                
+                // Guarantee strictly monotonic timestamps for visual odometry
+                static int64_t last_stamp_ns = 0;
+                if (stamp.nanoseconds() <= last_stamp_ns) {
+                    stamp = rclcpp::Time(last_stamp_ns + 1000000, this->get_clock()->get_clock_type()); // Add 1ms
+                }
+                last_stamp_ns = stamp.nanoseconds();
                 
                 publishImages(gray, depth, stamp);
                 processFrame(gray, depth, stamp);
@@ -1185,6 +1198,18 @@ void FastFlowVONode::publishDiagnostics(const rclcpp::Time& stamp) {
     oss << std::fixed << std::setprecision(4) << motion_stats_.getAvgTranslation() << "m";
     kv.value = oss.str();
     status.values.push_back(kv);
+
+    kv.key = "Processed_Frames";
+    kv.value = std::to_string(processed_frames_.load(std::memory_order_relaxed));
+    status.values.push_back(kv);
+
+    kv.key = "FPS";
+    oss.str("");
+    double elapsed = (stamp - start_time_).seconds();
+    double fps = (elapsed > 0) ? (processed_frames_.load(std::memory_order_relaxed) / elapsed) : 0.0;
+    oss << std::fixed << std::setprecision(1) << fps;
+    kv.value = oss.str();
+    status.values.push_back(kv);
     
     diag_msg.status.push_back(status);
     diag_pub_->publish(diag_msg);
@@ -1249,6 +1274,13 @@ void FastFlowVONode::publishImages(const cv::Mat& gray, const cv::Mat& depth,
     camera_info_msg.d = {0.0, 0.0, 0.0, 0.0, 0.0};
     
     camera_info_pub_->publish(camera_info_msg);
+    
+    // Publish a shifted camera info for depthimage_to_laserscan
+    sensor_msgs::msg::CameraInfo camera_info_scan_msg = camera_info_msg;
+    double cy_scan = (camera_info_msg.height / 2.0) + config_.scan_y_offset;
+    camera_info_scan_msg.k[5] = cy_scan;   // Shift principal point Y
+    camera_info_scan_msg.p[6] = cy_scan;   // Shift projection matrix Y principal point
+    camera_info_scan_pub_->publish(camera_info_scan_msg);
     
     // RGB -> JPG (Conditional: Only if subscribers exist to save CPU)
     if (rgb_compressed_pub_->get_subscription_count() > 0) {
@@ -1320,6 +1352,18 @@ void FastFlowVONode::publishDebugView(const cv::Mat& gray,
     cv::putText(debug_img, status_text, cv::Point(10, 30), 
                 cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 255, 255), 2);
                 
+    // Disegna la fascia di scan utilizzata da depthimage_to_laserscan
+    // La Y centrale target è il centro dell'immagine + scan_y_offset.
+    int cy = debug_img.rows / 2 + config_.scan_y_offset;
+    int scan_height = config_.scan_height;
+    int y_min = std::max(0, cy - (scan_height / 2));
+    int y_max = std::min(debug_img.rows - 1, cy + (scan_height / 2));
+    
+    cv::line(debug_img, cv::Point(0, y_min), cv::Point(debug_img.cols, y_min), cv::Scalar(0, 0, 0), 2); // Linea Nera Spessa
+    cv::line(debug_img, cv::Point(0, y_max), cv::Point(debug_img.cols, y_max), cv::Scalar(0, 0, 0), 2); // Linea Nera Spessa
+    
+    cv::putText(debug_img, "Nav2 Scan Band", cv::Point(10, cy - 10), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0), 2);
+    
     // Compress and Publish
     std::vector<uchar> buf;
     cv::imencode(".jpg", debug_img, buf, {cv::IMWRITE_JPEG_QUALITY, 60});
@@ -1334,30 +1378,10 @@ void FastFlowVONode::publishDebugView(const cv::Mat& gray,
 }
 
 void FastFlowVONode::publishDepthPreview(const cv::Mat& depth, const rclcpp::Time& stamp) {
-    // Convert 16UC1 to 8UC1 with Jet Colormap
-    cv::Mat adjMap;
-    
-    // Normalize: 0.3m (300mm) -> 255, 5.0m (5000mm) -> 0
-    // We clip at 5m for better contrast in near range
-    double min_val = config_.min_depth * 1000.0;
-    double max_val = 5000.0; // Fixed visual range for consistency
-    
-    depth.convertTo(adjMap, CV_8UC1, 255.0 / (max_val - min_val), -min_val * 255.0 / (max_val - min_val));
-    
-    cv::Mat color_depth;
-    cv::applyColorMap(adjMap, color_depth, cv::COLORMAP_JET);
-    
-    // Compress
-    std::vector<uchar> buf;
-    cv::imencode(".jpg", color_depth, buf, {cv::IMWRITE_JPEG_QUALITY, 60});
-    
-    sensor_msgs::msg::CompressedImage msg;
-    msg.header.stamp = stamp;
-    msg.header.frame_id = config_.camera_frame;
-    msg.format = "jpeg";
-    msg.data = buf;
-    
-    depth_preview_pub_->publish(msg);
+    // Deprecated: user wants scan lines on the main debug view to save bandwidth.
+    // Preserving function signature to avoid header changes, but doing nothing.
+    (void)depth;
+    (void)stamp;
 }
 
 // ===================== Motion Gate Functions =====================

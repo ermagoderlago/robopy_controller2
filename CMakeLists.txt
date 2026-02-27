@@ -135,6 +135,7 @@ install(PROGRAMS
   scripts/robot_ai_node
   scripts/servo_coda_node
   scripts/homeassistant_node
+  scripts/smart_buildhat_driver
   DESTINATION lib/${PROJECT_NAME}
 )
 
