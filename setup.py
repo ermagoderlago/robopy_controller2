@@ -161,6 +161,7 @@ setup(
             "oak_superpoint_odometry_node = robopy_controller.nodes.oak_superpoint_odometry_node:main",
             "robot_ai_node = robopy_controller.nodes.robot_ai_node:main",
             "smart_buildhat_driver = robopy_controller.nodes.smart_buildhat_driver:main",
+            "foxglove_nav2_bridge = robopy_controller.nodes.foxglove_nav2_bridge:main",
             "ai_chat = scripts.ai_chat:main",
         ],
     },

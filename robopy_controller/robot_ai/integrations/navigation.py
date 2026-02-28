@@ -15,8 +15,10 @@ try:
     import rclpy
     from rclpy.action import ActionClient
     from rclpy.node import Node
+    from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
     from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Twist
     from nav2_msgs.action import NavigateToPose
+    from sensor_msgs.msg import LaserScan
     from action_msgs.msg import GoalStatus
     HAS_ROS = True
 except ImportError:
@@ -98,7 +100,23 @@ class NavigationClient:
         # ROS node
         self._node = node
         self._action_client = None
-        self._cmd_vel_pub = cmd_vel_pub  # For bootstrap mapping
+        self._cmd_vel_pub = cmd_vel_pub
+        self._latest_scan: Optional[LaserScan] = None
+        self._scan_sub = None
+        
+        if HAS_ROS and self._node:
+            self._scan_sub = self._node.create_subscription(
+                LaserScan,
+                '/scan',
+                self._scan_callback,
+                QoSProfile(
+                    reliability=ReliabilityPolicy.BEST_EFFORT,
+                    history=HistoryPolicy.KEEP_LAST,
+                    depth=1
+                )
+            )
+        
+        self.logger.info("Navigation Client initialized (Wall-Following Ready)")
         
         # State
         self._status = NavigationStatus.IDLE
@@ -390,77 +408,92 @@ class NavigationClient:
     
     async def start_exploration(self, radius: float = 2.0, max_points: int = 15) -> bool:
         """
-        Start autonomous random walk exploration.
-        
-        Args:
-            radius: Maximum meters away from starting point
-            max_points: Max points to visit
+        Start autonomous room mapping via wall-following.
         """
         if self._is_exploring:
             self.logger.warning("Exploration already active")
             return False
             
         self._is_exploring = True
-        
-        self.logger.info("Starting autonomous exploration...")
+        self.logger.info("Starting wall-following exploration...")
                 
         # Start background loop
-        self._exploration_task = asyncio.create_task(self._explore_loop(radius, max_points))
+        self._exploration_task = asyncio.create_task(self._wall_follow_loop())
         return True
-        
-    async def stop_exploration(self) -> None:
-        """Stop the autonomous exploration."""
-        if self._is_exploring:
-            self._is_exploring = False
-            if self._exploration_task:
-                self._exploration_task.cancel()
-                self._exploration_task = None
-            await self.cancel_navigation()
-            self.logger.info("Exploration stopped")
 
-    async def _explore_loop(self, radius: float, max_points: int) -> None:
-        """Background loop to generate random Nav2 goals for exploration."""
-        import random
+    async def _wall_follow_loop(self) -> None:
+        """
+        Reactive loop to follow walls at ~0.5m distance.
+        Uses proportional control on angular velocity.
+        """
+        import numpy as np
+        self.logger.info("Wall-following loop started.")
         
-        self.logger.info(f"Started Nav2 autonomous exploration (max {max_points} points)")
-        visited_points = 0
-        failure_count = 0
+        target_dist = 0.5   # Meters from wall
+        kp_side = 1.2      # Proportional gain for lateral correction
+        base_v = 0.12      # Forward speed (m/s)
         
-        while self._is_exploring and visited_points < max_points and failure_count < 10:
-            self.logger.info(f"Exploration Phase {visited_points + 1}/{max_points}")
+        while self._is_exploring:
+            if not self._latest_scan or not self._cmd_vel_pub:
+                await asyncio.sleep(0.1)
+                continue
+                
+            ranges = np.array(self._latest_scan.ranges)
+            # Filter out infinity/NaN
+            ranges = np.where(np.isfinite(ranges), ranges, 10.0)
             
-            # Generate random goal within radius (assuming start is near 0,0)
-            # Min radius 0.5 to avoid points too close
-            dist = random.uniform(0.5, radius)
-            angle = random.uniform(-math.pi, math.pi)
+            # Divide scan into 5 sectors: Front (center), Left, Right, FarLeft, FarRight
+            num_ranges = len(ranges)
+            # Front is centered around 180 degrees index (assuming typical scanner layout)
+            # We assume 0 is back, 360 is front? No, Lidar sensor often 0=front.
+            # Let's assume standard REP-117: 0 is center-front.
+            idx_front = 0
+            idx_right = num_ranges // 4        # 90 deg right
+            idx_back = num_ranges // 2         # 180 deg back
+            idx_left = (3 * num_ranges) // 4   # 270 deg left (90 deg left)
             
-            x = dist * math.cos(angle)
-            y = dist * math.sin(angle)
-            theta = random.uniform(-math.pi, math.pi)
+            # Window of ~30 degrees
+            window = num_ranges // 12
             
-            self.logger.info(f"-> Navigating to random pose: x={x:.2f}, y={y:.2f}, theta={theta:.2f}")
+            front_min = np.min(ranges[max(0, idx_front-window):idx_front+window])
+            # Left side (90 deg)
+            left_slice = ranges[idx_left-window:idx_left+window]
+            left_min = np.min(left_slice)
             
-            # Send the goal to Nav2
-            success = await self.navigate_to_pose(x, y, theta)
+            twist = Twist()
             
-            if success:
-                visited_points += 1
-                failure_count = 0  # Reset on success
-                self.logger.info("-> Reached exploration point successfully.")
+            # --- State Machine / Reaction Logic ---
+            if front_min < 0.4:
+                # Obstacle ahead: Turn right (negative Z) to avoid hitting
+                twist.linear.x = 0.0
+                twist.angular.z = -1.0 # Sharp turn
+                self.logger.debug(f"Wall-Follow: Wall Ahead ({front_min:.2f}m), Turning Right")
             else:
-                failure_count += 1
-                self.logger.warning(f"-> Failed to reach point. Failure {failure_count}/10")
+                # No obstacle ahead, follow the left wall
+                twist.linear.x = base_v
+                
+                # Proportional correction to maintain target_dist from left wall
+                error = left_min - target_dist
+                # If too far (>0.5), error is positive, turn left (positive angular Z)
+                # If too close (<0.5), error is negative, turn right (negative angular Z)
+                twist.angular.z = error * kp_side
+                
+                # Safety check: if wall disappears (e.g. corner), turn left more aggressively to find it
+                if left_min > 1.2:
+                    twist.angular.z = 0.6 # Seek wall
+                    
+            self._cmd_vel_pub.publish(twist)
+            await asyncio.sleep(0.1) # 10Hz control loop
             
-            if not self._is_exploring:
-                break
-                
-            # Wait for costmap/map to update
-            self.logger.info("-> Updating map...")
-            await asyncio.sleep(2.0)
-                
-        self._is_exploring = False
-        self.logger.info(f"Exploration task finished ({visited_points} phases completed)")
+        # Stop on exit
+        if self._cmd_vel_pub:
+            self._cmd_vel_pub.publish(Twist())
+        self.logger.info("Wall-following exploration finished.")
     
+    def _scan_callback(self, msg: LaserScan) -> None:
+        """Handle incoming laser scans."""
+        self._latest_scan = msg
+
     def _feedback_callback(self, feedback_msg) -> None:
         """Handle navigation feedback."""
         feedback = feedback_msg.feedback

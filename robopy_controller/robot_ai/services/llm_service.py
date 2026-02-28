@@ -150,12 +150,14 @@ class LLMService:
         # Live API session
         self._live_session = None
         self._live_ctx = None  # async context manager
-        self._live_model = "gemini-2.5-flash-native-audio-preview-12-2025"
+        self._live_model = "gemini-2.5-flash"
         self._live_lock = asyncio.Lock()
         
         # Session resumption tokens
         self._session_id: Optional[str] = None
         self._resumption_token: Optional[str] = None
+        self._last_live_tools = None
+        self._last_live_system_prompt = None
         
         # Circuit breaker
         self._breaker = CircuitBreakerRegistry().get_or_create(
@@ -167,6 +169,11 @@ class LLMService:
         # Statistics
         self._total_tokens = 0
         self._total_requests = 0
+        self._receive_task: Optional[asyncio.Task] = None
+        
+        # Live Response Tracking
+        self._live_response_future: Optional[asyncio.Future] = None
+        self._current_live_response: Dict[str, Any] = {"text": "", "actions": []}
         
         self.logger.info("LLM service initialized", model=self.ai_config.llm.model)
     
@@ -294,6 +301,21 @@ class LLMService:
         # Configure tools if provided
         live_tools = [types.Tool(function_declarations=tools)] if tools else None
 
+        # [RECONNECT LOGIC] Check if configuration changed
+        config_changed = (tools != self._last_live_tools) or (self._system_prompt != self._last_live_system_prompt)
+        
+        if self._live_session:
+            if config_changed:
+                self.logger.info("Live configuration changed, reconnecting session...")
+                await self._disconnect_live_unsafe()
+            else:
+                return  # Already connected and config matches
+
+        # If config changed, we cannot resume the previous session state safely with 1007 errors
+        if config_changed:
+            self._resumption_token = None
+            self.logger.debug("Clearing resumption token due to config change")
+
         # Build resumption config if we have a token
         resumption_config = None
         if self._resumption_token:
@@ -313,7 +335,9 @@ class LLMService:
         )
         
         if self._system_prompt:
-            config.system_instruction = types.Content(parts=[types.Part.from_text(text=self._system_prompt)])
+            # Explicitly enforce Italian in the system instruction for Live API
+            enforced_prompt = f"RISPONDI SEMPRE IN ITALIANO. NON USARE MAI L'INGLESE.\n\n{self._system_prompt}"
+            config.system_instruction = types.Content(parts=[types.Part.from_text(text=enforced_prompt)])
         
         try:
             # connect() returns async context manager — enter manually
@@ -322,6 +346,8 @@ class LLMService:
                 config=config
             )
             self._live_session = await self._live_ctx.__aenter__()
+            self._last_live_tools = tools
+            self._last_live_system_prompt = self._system_prompt
             self.logger.info("Live API session connected", model=self._live_model, tools=bool(live_tools))
         except Exception as e:
             error_str = str(e)
@@ -339,6 +365,14 @@ class LLMService:
 
     async def _disconnect_live_unsafe(self):
         """Internal disconnect without locking."""
+        if self._receive_task:
+            self._receive_task.cancel()
+            self._receive_task = None
+            
+        if self._live_response_future and not self._live_response_future.done():
+            self._live_response_future.set_exception(LLMError("Session disconnected"))
+            self._live_response_future = None
+
         if self._live_ctx:
             try:
                 await self._live_ctx.__aexit__(None, None, None)
@@ -347,6 +381,100 @@ class LLMService:
             self._live_session = None
             self._live_ctx = None
             self.logger.info("Live API session disconnected")
+
+    async def start_persistent_live(self, tools: List[types.FunctionDeclaration] = None):
+        """Start a persistent Live session with a background listener."""
+        async with self._live_lock:
+            if self._live_session:
+                return
+            
+            await self._connect_live_unsafe(tools=tools)
+            if self._live_session:
+                self._receive_task = asyncio.create_task(self._receive_loop())
+
+    async def _receive_loop(self):
+        """Background loop to receive transcripts and audio from Gemini Live."""
+        self.logger.info("Gemini Live background receiver started")
+        try:
+            async for msg in self._live_session.receive():
+                await self._handle_live_message(msg)
+                            
+        except asyncio.CancelledError:
+            self.logger.info("Gemini Live receiver cancelled")
+        except Exception as e:
+            self.logger.error(f"Gemini Live receiver error: {e}")
+            self._live_session = None
+            self._live_ctx = None
+            if self._live_response_future and not self._live_response_future.done():
+                self._live_response_future.set_exception(e)
+
+    async def _handle_live_message(self, msg):
+        """Process a single message from the Live API."""
+        if not msg.server_content:
+            return
+        
+        sc = msg.server_content
+        
+        # 0. Setup Complete (Capture resumption token)
+        if sc.setup_complete:
+            # In the latest SDK, the token might be in a different field or handled automatically,
+            # but we'll try to capture it if present in the message.
+            self.logger.debug("Live session setup complete")
+        
+        # Capture resumption token if sent in any server content
+        # Note: the actual field name depends on the proto version, usually 'resumption_token'
+        if hasattr(msg, 'resumption_token') and msg.resumption_token:
+            self._resumption_token = msg.resumption_token
+            self.logger.info("Captured Gemini Live resumption token")
+
+        # 1. Audio and Tool Calls (Model Turn)
+        if sc.model_turn:
+            for part in sc.model_turn.parts:
+                if hasattr(part, 'inline_data') and part.inline_data:
+                    # Play audio via TTS service or direct event
+                    self.event_bus.publish("llm_audio_chunk", {"data": part.inline_data.data})
+                
+                if hasattr(part, 'text') and part.text:
+                    self._current_live_response["text"] += part.text
+                
+                if hasattr(part, 'function_call') and part.function_call:
+                    fc = part.function_call
+                    action = {
+                        "action_type": fc.name,
+                        "args": dict(fc.args)
+                    }
+                    self._current_live_response["actions"].append(action)
+                    # For real-time, we might want to publish actions immediately
+                    # but here we also collect them for the blocking generate_live call
+        
+        # 2. Transcriptions (User or Model)
+        if hasattr(sc, 'output_transcription') and sc.output_transcription:
+            text = getattr(sc.output_transcription, 'text', '')
+            is_final = getattr(sc.output_transcription, 'is_final', False)
+            if text:
+                self.event_bus.publish("llm_transcript_chunk", {
+                    "text": text,
+                    "is_final": is_final
+                })
+                if is_final:
+                    self.logger.info(f"Gemini Live transcribed: {text}")
+                    # Trigger the orchestrator command processing ONLY if it's user speech
+                    # Actually, Gemini Live returns transcripts for BOTH. 
+                    # Usually user transcripts come first.
+                    self.event_bus.publish(EventType.VOICE_COMMAND_RECOGNIZED, {
+                        "text": text,
+                        "confidence": 1.0,
+                        "source": "gemini_live"
+                    })
+        
+        # 3. Turn Complete
+        if getattr(sc, 'turn_complete', False):
+            if self._live_response_future and not self._live_response_future.done():
+                self._live_response_future.set_result(self._current_live_response.copy())
+                # Reset for next call
+                self._current_live_response = {"text": "", "actions": []}
+
+
     
     @retry_with_backoff(max_retries=3, initial_delay=2.0)
     async def generate_live(
@@ -376,151 +504,88 @@ class LLMService:
     ) -> LLMResponse:
         start_time = time.perf_counter()
         
-        # Ensure session is connected (pass tools if connecting)
+        # Ensure session is connected
         if not self._live_session:
-            await self._connect_live_unsafe(tools=functions)
+            await self.start_persistent_live(tools=functions)
+        
+        # Setup the future and buffer to wait for response
+        self._live_response_future = asyncio.get_running_loop().create_future()
+        self._current_live_response = {"text": "", "actions": []}
         
         # Build message parts
         parts = []
-        
-        # Add context and prompt
         full_text = prompt
         if context:
             text_parts = []
-            for msg in context:
-                role = msg.get("role", "user")
-                content = msg.get("content", "")
+            for msg_item in context:
+                role = msg_item.get("role", "user")
+                content = msg_item.get("content", "")
                 text_parts.append(f"[{role.capitalize()}]: {content}")
-            text_parts.append(prompt)
+            text_parts.append(f"[User]: {prompt}")
             full_text = "\n".join(text_parts)
         
         parts.append(types.Part.from_text(text=full_text))
         
-        # Add images
         if images:
             for img_bytes in images:
+                # Assuming JPEG for now
                 parts.append(types.Part.from_bytes(data=img_bytes, mime_type="image/jpeg"))
 
         try:
             # Send content via Live session
             await self._live_session.send_client_content(
-                turns=types.Content(
+                turns=[types.Content(
                     role="user",
                     parts=parts
-                )
+                )]
             )
             
-            # Receive response: transcript + audio + tools
-            transcript = ""
-            audio_chunks = []
-            actions = []
-            
-            # Use an explicit iterator to wrap with timeout
-            receive_iterator = self._live_session.receive().__aiter__()
-            
-            while True:
-                try:
-                    # 15 seconds timeout for EACH chunk. If Google goes silent, we abort.
-                    # This prevents the async iterator from hanging indefinitely.
-                    msg = await asyncio.wait_for(receive_iterator.__anext__(), timeout=15.0)
-                except StopAsyncIteration:
-                    break
-                except asyncio.TimeoutError:
-                    self.logger.error("Live session timeout waiting for server response chunk.")
-                    # Force session close so the exception block catches it
-                    raise LLMError("Timeout risposta dal cloud. Sessione resettata.")
-                    
-                if not msg.server_content:
-                    continue
-                sc = msg.server_content
-                
-                # 1. Audio
-                if sc.model_turn:
-                    for part in sc.model_turn.parts:
-                        # Audio
-                        if hasattr(part, 'inline_data') and part.inline_data:
-                            if isinstance(part.inline_data.data, bytes):
-                                audio_chunks.append(part.inline_data.data)
-                        
-                        # Function Calls inside model_turn
-                        if hasattr(part, 'function_call') and part.function_call:
-                            fc = part.function_call
-                            actions.append({
-                                "action_type": fc.name,
-                                "args": dict(fc.args)
-                            })
-                
-                # 2. Transcription
-                if hasattr(sc, 'output_transcription') and sc.output_transcription:
-                    t = getattr(sc.output_transcription, 'text', '')
-                    if t:
-                        transcript += t
-                
-                # 3. Explicit Tool Call (if separate field)
-                if hasattr(sc, 'tool_call') and sc.tool_call:
-                     if hasattr(sc.tool_call, 'function_calls'):
-                         for fc in sc.tool_call.function_calls:
-                             actions.append({
-                                 "action_type": fc.name,
-                                 "args": dict(fc.args)
-                             })
-                
-                # 4. Session Resumption Update
-                if hasattr(msg, 'session_resumption_update') and msg.session_resumption_update:
-                    sru = msg.session_resumption_update
-                    self._session_id = getattr(sru, 'session_id', self._session_id)
-                    self._resumption_token = getattr(sru, 'resumption_token', None)
-                    if not self._resumption_token and hasattr(sru, 'new_handle'):
-                         self._resumption_token = sru.new_handle
-                    self.logger.debug("Received session resumption update", session_id=self._session_id)
-
-                # 5. GoAway handling
-                if hasattr(msg, 'goaway') and msg.goaway:
-                    time_left = getattr(msg.goaway, 'time_left', 'unknown')
-                    self.logger.warning(f"Server sent GoAway signal. Time left: {time_left}")
-
-                # Done
-                if sc.turn_complete:
-                    break
+            # Wait for background loop to collect the full response (turn_complete)
+            try:
+                # 30 seconds global timeout for the whole turn
+                result = await asyncio.wait_for(self._live_response_future, timeout=30.0)
+                text = result["text"]
+                actions = result["actions"]
+            except asyncio.TimeoutError:
+                self.logger.error("Live session timeout waiting for response completion.")
+                # Fallback: maybe we got SOME text
+                text = self._current_live_response["text"] or "Timeout dal cloud."
+                actions = self._current_live_response["actions"]
             
             latency_ms = (time.perf_counter() - start_time) * 1000
             self._total_requests += 1
             
-            # Merge audio chunks
-            audio_data = b"".join(audio_chunks) if audio_chunks else None
-            
-            self.logger.info(
-                "Live API generation completed",
-                latency_ms=round(latency_ms, 2),
-                transcript_len=len(transcript),
-                audio_bytes=len(audio_data) if audio_data else 0,
-                actions=len(actions)
-            )
-            
             return LLMResponse(
-                text=transcript.strip(),
+                text=text.strip(),
+                actions=actions,
                 latency_ms=latency_ms,
-                model=self._live_model,
-                actions=actions
+                model=self._live_model
             )
             
         except Exception as e:
-            error_str = str(e)
-            self.logger.error(f"Live API error: {error_str}")
+            self.logger.error(f"Live API generation error: {e}")
+            raise LLMError(f"Errore Live API: {e}")
+        finally:
+            self._live_response_future = None
+
+    async def send_audio_chunk(self, audio_data: bytes):
+        """Send raw audio chunk to the active Live session (Stream-to-Cloud)."""
+        if not self._live_session:
+            # Auto-start session if it's dead
+            asyncio.create_task(self.start_persistent_live())
+            return
             
-            # Session may have expired — force reconnect on next call
-            self._live_session = None
-            self._live_ctx = None
-            
-            if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
-                raise LLMError("rate_limit")
-            elif "400" in error_str or "expired" in error_str.lower() or "INVALID_ARGUMENT" in error_str:
-                raise LLMError("Chiave API Gemini scaduta o non valida. Rinnova la chiave API.")
-            elif "API_KEY_INVALID" in error_str:
-                raise LLMError("Chiave API Gemini non valida.")
-            else:
-                raise LLMError(f"Live API error: {error_str[:100]}")
-    
+        try:
+            await self._live_session.send_client_content(
+                turns=[types.Content(
+                    role="user",
+                    parts=[types.Part.from_bytes(data=audio_data, mime_type="audio/pcm;rate=16000")]
+                )]
+            )
+        except Exception as e:
+            self.logger.debug(f"Failed to send audio chunk: {e}")
+
+
     async def _generate_internal(
         self,
         content: Union[str, List],

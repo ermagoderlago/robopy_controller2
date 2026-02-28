@@ -45,6 +45,8 @@ def generate_launch_description():
         'planner_server',
         'behavior_server',
         'bt_navigator',
+        'global_costmap/global_costmap',
+        'local_costmap/local_costmap',
     ]
 
     # Map fully qualified names to relative ones so the node's namespace can be prepended.

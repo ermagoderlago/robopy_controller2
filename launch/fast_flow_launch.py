@@ -316,7 +316,7 @@ source /home/robopy/ros2_venv/bin/activate 2>/dev/null
 source /home/robopy/robopy/robopi_controller/robopy_controller_host/install/setup.bash 2>/dev/null
 export CYCLONEDDS_URI=/tmp/cyclonedds_robopy.xml
 
-for node in controller_server planner_server behavior_server bt_navigator; do
+for node in controller_server planner_server behavior_server bt_navigator global_costmap/global_costmap local_costmap/local_costmap; do
     state=$(ros2 lifecycle get /$node 2>/dev/null | grep -oP '^\w+')
     if [ "$state" = "unconfigured" ]; then
         echo "[NAV2-ENSURE] Configuring /$node..."
@@ -374,6 +374,13 @@ echo "[NAV2-ENSURE] Done."
         parameters=[{'servo_pin': 18}]
     )
 
+    foxglove_bridge = Node(
+        package='robopy_controller',
+        executable='foxglove_nav2_bridge',
+        name='foxglove_nav2_bridge',
+        output='screen'
+    )
+
     return LaunchDescription([
         *args,  # Include declared launch arguments
         robot_state_publisher,
@@ -392,6 +399,7 @@ echo "[NAV2-ENSURE] Done."
         
         motor_control,
         foxglove,
+        foxglove_bridge,
         robot_ai_node,
         homeassistant_node,
         servo_coda_node,

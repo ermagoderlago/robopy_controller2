@@ -21,18 +21,18 @@ class SmartBuildHatDriver(Node):
         self.declare_parameter('invert_right_motor', False) # Erano entrambi negativi, nessuna inversione relativa necessaria
         
         # --- Parametri Regolatore PID (Velocità Lineare) ---
-        self.declare_parameter('kp_linear', 50.0)
-        self.declare_parameter('ki_linear', 10.0)
-        self.declare_parameter('kd_linear', 1.0)
+        self.declare_parameter('kp_linear', 100.0)
+        self.declare_parameter('ki_linear', 20.0)
+        self.declare_parameter('kd_linear', 2.0)
         
         # --- Parametri Regolatore PID (Velocità Angolare) ---
-        self.declare_parameter('kp_angular', 30.0)
-        self.declare_parameter('ki_angular', 5.0)
-        self.declare_parameter('kd_angular', 0.5)
+        self.declare_parameter('kp_angular', 60.0)
+        self.declare_parameter('ki_angular', 10.0)
+        self.declare_parameter('kd_angular', 1.0)
         
         # --- Deadband Compensation e Limiti ---
         # Il PWM base necessario per far muovere il motore e vincere l'attrito statico del tappeto.
-        self.declare_parameter('deadband_pwm', 15.0) 
+        self.declare_parameter('deadband_pwm', 75.0) 
         self.declare_parameter('max_integral', 100.0) # Termine integratore max (Anti-Windup)
         self.declare_parameter('max_pwm', 100.0)
         
@@ -93,7 +93,7 @@ class SmartBuildHatDriver(Node):
         
         # ROS 2 Subscribers
         self.create_subscription(Twist, '/cmd_vel', self.cmd_vel_callback, 10) # Fallback / Teleop
-        self.create_subscription(TwistStamped, '/cmd_vel_nav', self.cmd_vel_stamped_callback, 10) # Nav2 Jazzy default
+        self.create_subscription(Twist, '/cmd_vel_nav', self.cmd_vel_callback, 10) # Nav2 Jazzy default (unstamped in this config)
         self.create_subscription(Float64MultiArray, '/bluedot_input', self.bluedot_callback, 10)
         # Riceviamo feedback reale tramite Odometria Visiva (high Hz)
         self.create_subscription(Odometry, '/odom', self.odom_callback, 10)
@@ -148,7 +148,7 @@ class SmartBuildHatDriver(Node):
         Converts the PID velocity demand into a proportional PWM (-100 to 100)
         applying a minimum deadband to overcome physical friction.
         """
-        if abs(velocity_demand) < 0.1:
+        if abs(velocity_demand) < 0.01:
             return 0.0
         
         sign = math.copysign(1.0, velocity_demand)

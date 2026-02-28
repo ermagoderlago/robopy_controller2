@@ -1239,6 +1239,9 @@ void FastFlowVONode::publishImages(const cv::Mat& gray, const cv::Mat& depth,
     rgb_msg->header.frame_id = config_.camera_frame;
     rgb_pub_->publish(*rgb_msg);
     
+    // STAGGER PUBLISHING (Fix for Pi 5 DDS UDP Buffer Overflow dropping massive frames)
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    
     // Publish depth as 16UC1 (millimeters)
     auto depth_msg = cv_bridge::CvImage(std_msgs::msg::Header(), 
                                         sensor_msgs::image_encodings::TYPE_16UC1, 

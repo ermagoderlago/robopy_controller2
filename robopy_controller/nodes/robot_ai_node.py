@@ -24,6 +24,7 @@ if os.path.exists(setup_keys_path):
                         print(f"✅ {key_name} auto-loaded from {setup_keys_path}")
     except Exception as e:
         print(f"⚠️ Could not load API keys: {e}")
+
 import time
 import asyncio
 import datetime
@@ -53,10 +54,14 @@ from robot_ai.core import (
     AIError, EventType,
 )
 from robot_ai.utils import AILogger, get_logger
-from robot_ai.services import (
-    LLMService, FunctionDeclaration, TTSService, ASRService, EmbeddingService,
-    VisualMemoryService, DeepSeekService
-)
+
+from robot_ai.services.llm_service import LLMService, FunctionDeclaration
+from robot_ai.services.tts_service import TTSService
+from robot_ai.services.asr_service import ASRService
+from robot_ai.services.embedding_service import EmbeddingService
+from robot_ai.services.visual_memory_service import VisualMemoryService
+from robot_ai.services.deepseek_service import DeepSeekService
+
 from robot_ai.services.face_recognition_service import FaceRecognitionService, FaceRecognitionResult
 from robot_ai.services.nightly_dream_service import NightlyDreamService
 from robot_ai.rag import MemoryStore, Memory, MemoryType, MetadataManager
@@ -102,21 +107,31 @@ class AIOrchestrator(Node):
         # 1. Core Infrastructure
         self.config_manager = ConfigManager()
         self.config = self.config_manager.load()
+        self.ai_logger.info("Config loaded")
         self.event_bus = EventBus()
         self.state_machine = StateMachine()
         self.circuit_breaker_registry = CircuitBreakerRegistry()
         self.sanitizer = InputSanitizer()
         
         # 2. RAG System
+        self.ai_logger.info("Initializing MemoryStore...")
         self.memory_store = MemoryStore(
             persist_dir=self.config.memory.persist_dir,
             collection_name=self.config.memory.collection_name,
             embedding_dimension=self.config.memory.embedding_dimension
         )
         self.metadata_manager = MetadataManager()
+        self.ai_logger.info("MemoryStore initialized")
         
         # 3. Services
         self.llm_service = LLMService(self.config_manager)
+        self.ai_logger.info("LLMService initialized")
+        
+        self.tts_service = TTSService(self.config_manager)
+        self.ai_logger.info("TTSService initialized")
+        
+        self.asr_service = ASRService(self.config_manager)
+        self.ai_logger.info("ASRService initialized")
         
         # Set system prompt with full MARCUS identity (from marcus_AI.md §1-2)
         robot_cfg = self.config.robot
@@ -360,6 +375,10 @@ Esempi di tono corretto:
         
         # Error Events
         self.event_bus.subscribe(EventType.ERROR_OCCURRED, self._on_error)
+        
+        # Audio Streaming (Gemini Live)
+        self.event_bus.subscribe("asr_audio_chunk", self._on_asr_audio_chunk)
+        self.event_bus.subscribe("llm_audio_chunk", self._on_llm_audio_chunk)
     
     def _run_async_loop(self):
         """Run asyncio loop in background thread."""
@@ -381,6 +400,9 @@ Esempi di tono corretto:
             # Start ASR if enabled
             if self.config.asr.enabled:
                 self.asr_service.start_listening()
+            
+            # Start Gemini Live session
+            await self.llm_service.start_persistent_live()
             
             # Load initial memories?
             
@@ -449,6 +471,23 @@ Esempi di tono corretto:
         text_lower = text.lower()
         return any(kw in text_lower for kw in vision_keywords)
     
+    def _on_asr_audio_chunk(self, event):
+        """Forward raw audio chunk to LLM for real-time processing."""
+        audio_data = event.data.get("data")
+        if audio_data and self._connectivity_state == "ONLINE":
+            asyncio.run_coroutine_threadsafe(
+                self.llm_service.send_audio_chunk(audio_data),
+                self._loop
+            )
+
+    def _on_llm_audio_chunk(self, event):
+        """Play raw audio chunk received from Gemini Live."""
+        audio_data = event.data.get("data")
+        if audio_data:
+            # TTS playback is synchronous for chunks to avoid thread context bloat
+            # and ensure sequential playback in the playback device
+            self.tts_service.play_raw_pcm(audio_data)
+
     async def process_input(self, text: str, source: str = "user"):
         """
         Main processing loop for user input.

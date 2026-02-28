@@ -52,3 +52,20 @@ per attivare la chiave IA devi usare:
 source /home/robopy/robopy/robopi_controller/robopy_controller_host/setup_keys.sh
 
 prima di lanciare og
+
+## ⚠️ IMPORTANTE: Aggiungere un nuovo Nodo Python a robopy_controller
+Poiché `robopy_controller` è un pacchetto misto C++/Python compilato con `ament_cmake`, aggiungere un nodo Python al `console_scripts` del `setup.py` **NON BASTA**. La macro `ament_python_install_package` non genererà automaticamente gli eseguibili nella cartella `libexec` durante una build `ament_cmake` in ROS 2 Jazzy.
+
+Quando crei un nuovo nodo Python, DEVI seguire esattamente questi 5 passaggi:
+1. Crea il tuo codice Python (es. `robopy_controller/nodes/mio_nuovo_nodo.py`).
+2. Aggiungilo a `console_scripts` in `setup.py` (male non fa).
+3. Crea uno script eseguibile "wrapper" nella cartella `scripts/` (es. `scripts/mio_nuovo_nodo` *senza* estensione `.py`) che importa ed esegue il tuo `main()`. Esempio:
+   ```python
+   #!/usr/bin/env python3
+   import sys
+   from robopy_controller.nodes.mio_nuovo_nodo import main
+   if __name__ == '__main__':
+       sys.exit(main())
+   ```
+4. Rendi lo script eseguibile: `chmod +x scripts/mio_nuovo_nodo`
+5. Registralo nel `CMakeLists.txt` aggiungendo la riga `scripts/mio_nuovo_nodo` nel blocco esistente `install(PROGRAMS ... DESTINATION lib/${PROJECT_NAME})`!

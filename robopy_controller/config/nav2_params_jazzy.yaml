@@ -16,11 +16,22 @@ bt_navigator:
     use_sim_time: false
     global_frame: map
     robot_base_frame: base_link
-    odom_topic: /odom_filtered
+    odom_topic: /rtabmap/odom
     transform_tolerance: 5.0
     bt_loop_duration: 10
-    default_server_timeout: 20
-    # Usa i behavior tree di default di Nav2
+    default_server_timeout: 40
+    wait_for_service_timeout: 1000
+    action_server_result_timeout: 900.0
+    # USE CUSTOM SURVIVAL BT
+    default_nav_to_pose_bt_xml: /home/robopy/robopy/robopi_controller/robopy_controller_host/robopy_controller/config/nav2_survival_bt.xml
+    navigators: ['navigate_to_pose', 'navigate_through_poses']
+    navigate_to_pose:
+      plugin: "nav2_bt_navigator::NavigateToPoseNavigator"
+    navigate_through_poses:
+      plugin: "nav2_bt_navigator::NavigateThroughPosesNavigator"
+    error_code_names:
+      - compute_path_error_code
+      - follow_path_error_code
 
 # ============================================================
 # CONTROLLER SERVER — Regulated Pure Pursuit (RPP)
@@ -150,10 +161,13 @@ global_costmap:
       robot_radius: 0.12
       resolution: 0.1
       track_unknown_space: true
-      rolling_window: true
+      rolling_window: false
       width: 10
       height: 10
-      plugins: ["inflation_layer"]
+      plugins: ["static_layer", "inflation_layer"]
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_subscribe_transient_local: true
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: false
@@ -227,3 +241,5 @@ waypoint_follower:
       plugin: "nav2_waypoint_follower::WaitAtWaypoint"
       enabled: true
       waypoint_pause_duration: 200
+
+# BT NAVIGATOR block moved to top

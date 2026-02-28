@@ -136,6 +136,7 @@ install(PROGRAMS
   scripts/servo_coda_node
   scripts/homeassistant_node
   scripts/smart_buildhat_driver
+  scripts/foxglove_nav2_bridge
   DESTINATION lib/${PROJECT_NAME}
 )
 

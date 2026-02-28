@@ -140,6 +140,8 @@ class ASRService:
         """Callback for pyaudio stream."""
         if self._is_listening:
             self._audio_queue.put(in_data)
+            # Publish raw audio chunk for ultra-low latency Live API
+            self.event_bus.publish("asr_audio_chunk", {"data": in_data})
         return (None, pyaudio.paContinue)
     
     def _process_audio(self):

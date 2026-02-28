@@ -23,6 +23,12 @@ try:
 except ImportError:
     HAS_PYGAME = False
 
+try:
+    import pyaudio
+    HAS_PYAUDIO = True
+except ImportError:
+    HAS_PYAUDIO = False
+
 from ..core.config_manager import ConfigManager
 from ..core.exceptions import TTSError
 from ..core.event_bus import EventBus, EventType
@@ -57,6 +63,22 @@ class TTSService:
                 pygame.mixer.init()
             except Exception as e:
                 self.logger.error(f"Failed to init pygame mixer: {e}")
+        
+        # PyAudio output for raw streams
+        self._pyaudio_interface = None
+        self._output_stream = None
+        if HAS_PYAUDIO:
+            try:
+                self._pyaudio_interface = pyaudio.PyAudio()
+                self._output_stream = self._pyaudio_interface.open(
+                    format=pyaudio.paInt16,
+                    channels=1,
+                    rate=16000,
+                    output=True
+                )
+            except Exception as e:
+                self.logger.error(f"Failed to init pyaudio output: {e}")
+
         
         # Google TTS Client
         self._client = None
@@ -210,6 +232,20 @@ class TTSService:
         except Exception as e:
             self.logger.error(f"Audio playback error: {e}")
             raise TTSError(f"Playback failed: {e}")
+
+    def play_raw_pcm(self, data: bytes) -> None:
+        """
+        Play raw PCM chunks (16kHz, mono, s16le).
+        Used for Gemini Live ultra-low latency audio.
+        """
+        if self._output_stream:
+            try:
+                self._output_stream.write(data)
+            except Exception as e:
+                self.logger.error(f"Failed to play raw PCM chunk: {e}")
+        else:
+            self.logger.debug("Raw PCM ignored: no audio output stream available")
+
     
     def stop(self) -> None:
         """Stop current playback."""
