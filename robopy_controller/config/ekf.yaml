@@ -20,14 +20,8 @@ ekf_localization:
     odom0_differential: false
     odom0_relative: false
 
-    # INPUT 2: POSE (from rgbd_odometry)
-    odom1: /rtabmap/odom
-    odom1_config: [true,  true,  false,
-                   false, false, false,
-                   false, false, false,
-                   false, false, false,
-                   false, false, false]
-    odom1_differential: false
+    # INPUT 2: POSE (from rgbd_odometry, REMOVED due to rubber-banding)
+    # odom1 disabled in favor of pure velocity integration
 
     # INPUT 3: IMU (from madgwick)
     imu0: /imu/data

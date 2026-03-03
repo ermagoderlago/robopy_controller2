@@ -105,6 +105,7 @@ install(TARGETS fast_flow_vo_cpp
 
 
 rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/AudioData.msg"
   "msg/KeypointsCompressed.msg"
   "msg/DescriptorsCompressed.msg"
   "msg/OAKSyncFrame.msg"
@@ -137,6 +138,7 @@ install(PROGRAMS
   scripts/homeassistant_node
   scripts/smart_buildhat_driver
   scripts/foxglove_nav2_bridge
+  scripts/wake_word_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

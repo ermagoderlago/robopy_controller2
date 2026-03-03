@@ -3,35 +3,41 @@
 Robot AI Orchestrator Node
 ===========================
 Main ROS 2 node for the AI system.
-Coordinates perception, reasoning, and action.
+Now with:
+- Reactive safety layer (priority commands bypass lock)
+- Percentile latency tracking (P50, P95, P99)
+- Parallel action execution (with sequential TTS)
+- STATIC System Prompt & Dynamic Context Injection
+- Smart Wake-Word / Mic Mute logic with context pre-loading
+- Advanced Chain-of-Thought filtering (Salvage logic)
 """
 
 import sys
 import os
-
-# Auto-load API keys from setup_keys.sh if not already set
-# This runs at module load time so it works with ros2 launch
-_KEYS_TO_LOAD = ['GEMINI_API_KEY', 'DEEPSEEK_API_KEY']
-setup_keys_path = '/home/robopy/robopy/robopi_controller/robopy_controller_host/setup_keys.sh'
-if os.path.exists(setup_keys_path):
-    try:
-        with open(setup_keys_path, 'r') as f:
-            for line in f:
-                for key_name in _KEYS_TO_LOAD:
-                    if line.startswith(f'export {key_name}=') and not os.environ.get(key_name):
-                        key_val = line.split('=', 1)[1].strip().strip('"').strip("'")
-                        os.environ[key_name] = key_val
-                        print(f"✅ {key_name} auto-loaded from {setup_keys_path}")
-    except Exception as e:
-        print(f"⚠️ Could not load API keys: {e}")
-
-import time
-import asyncio
-import datetime
+import hashlib
 import threading
+import asyncio
+import time
+import datetime
+import json
+import base64
 import cv2
 import numpy as np
-from typing import Any, Dict, List, Optional
+import math
+import traceback
+import re
+import concurrent.futures
+from typing import Any, Dict, List, Optional, Tuple
+from dataclasses import dataclass, field
+from collections import deque
+
+# Load environment variables from .env file if present
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+    print("✅ Loaded .env file")
+except ImportError:
+    pass
 
 import rclpy
 from rclpy.node import Node
@@ -39,9 +45,10 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.qos import QoSProfile, DurabilityPolicy
 from std_msgs.msg import String, Bool
 from sensor_msgs.msg import CompressedImage
-from geometry_msgs.msg import PoseStamped, Twist
+from audio_common_msgs.msg import AudioData  
+from geometry_msgs.msg import Twist
 from diagnostic_msgs.msg import DiagnosticArray
-import base64
+from example_interfaces.srv import Trigger
 
 # Add proper path if running as script
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -49,11 +56,8 @@ parent_dir = os.path.dirname(current_dir)
 if parent_dir not in sys.path:
     sys.path.append(parent_dir)
 
-from robot_ai.core import (
-    ConfigManager, EventBus,
-    AIError, EventType,
-)
-from robot_ai.utils import AILogger, get_logger
+from robot_ai.core import ConfigManager, EventBus, EventType
+from robot_ai.utils import get_logger
 
 from robot_ai.services.llm_service import LLMService, FunctionDeclaration
 from robot_ai.services.tts_service import TTSService
@@ -61,14 +65,12 @@ from robot_ai.services.asr_service import ASRService
 from robot_ai.services.embedding_service import EmbeddingService
 from robot_ai.services.visual_memory_service import VisualMemoryService
 from robot_ai.services.deepseek_service import DeepSeekService
-
-from robot_ai.services.face_recognition_service import FaceRecognitionService, FaceRecognitionResult
+from robot_ai.services.face_recognition_service import FaceRecognitionService
 from robot_ai.services.nightly_dream_service import NightlyDreamService
-from robot_ai.rag import MemoryStore, Memory, MemoryType, MetadataManager
+from robot_ai.rag import MemoryStore, Memory, MemoryType
 from robot_ai.integrations import HomeAssistantClient, NavigationClient
 
 from robot_ai.core.state_machine import StateMachine, SystemState
-from robot_ai.core.circuit_breaker import CircuitBreakerRegistry
 from robot_ai.core.input_sanitizer import InputSanitizer
 from robot_ai.skills.skill_registry import SkillRegistry
 from robot_ai.skills.builtin.ha_skill import HomeAssistantSkill
@@ -78,6 +80,7 @@ from robot_ai.skills.builtin.nightly_dream_skill import NightlyDreamSkill
 from robot_ai.skills.builtin.visual_exploration_skill import VisualExplorationSkill
 from robot_ai.skills.base_skill import SkillResult
 import inspect
+
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
     HAS_SCHEDULER = True
@@ -85,155 +88,167 @@ except ImportError:
     HAS_SCHEDULER = False
 
 
+# ---------------------------------------------------------------------------
+# Helper per caricamento sicuro delle API key
+# ---------------------------------------------------------------------------
+def _load_api_keys_from_setup():
+    setup_keys_path = '/home/robopy/robopy/robopi_controller/robopy_controller_host/setup_keys.sh'
+    keys_to_load = ['GEMINI_API_KEY', 'DEEPSEEK_API_KEY', 'GOOGLE_APPLICATION_CREDENTIALS']
+
+    if not os.path.exists(setup_keys_path):
+        return
+
+    try:
+        with open(setup_keys_path, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                for key_name in keys_to_load:
+                    if line.startswith(f'export {key_name}=') and not os.environ.get(key_name):
+                        value = line.split('=', 1)[1].strip()
+                        if '#' in value:
+                            value = value[:value.index('#')].strip()
+                        value = value.strip('"').strip("'")
+                        os.environ[key_name] = value
+                        print(f"✅ {key_name} auto-loaded (valore nascosto)")
+    except Exception as e:
+        print(f"⚠️ Could not load API keys: {e}")
+
+_load_api_keys_from_setup()
+
+# Regex di sicurezza con boundary check
+SAFETY_PATTERN = re.compile(r'\b(fermati|stop|emergenza)\b', re.IGNORECASE)
+
+
+@dataclass
+class CameraFrame:
+    """Frame atomico e immutabile con decodifica lazy."""
+    raw: bytes
+
+    @property
+    def b64(self) -> str:
+        cached = self.__dict__.get('_b64')
+        if cached is None:
+            cached = base64.b64encode(self.raw).decode('utf-8')
+            object.__setattr__(self, '_b64', cached)
+        return cached
+
+    @property
+    def cv_image(self):
+        cached = self.__dict__.get('_cv')
+        if cached is None:
+            np_arr = np.frombuffer(self.raw, np.uint8)
+            cached = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+            object.__setattr__(self, '_cv', cached)
+        return cached
+
+
+@dataclass
+class PendingMemory:
+    user_text: str
+    robot_text: str
+    mem_type: str
+    timestamp: float
+
+
+# ---------------------------------------------------------------------------
+# Modello Interno Persistente (World Model)
+# ---------------------------------------------------------------------------
+@dataclass
+class WorldModel:
+    rooms: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    current_user: Optional[Dict[str, Any]] = None
+    battery_level: Optional[float] = None
+    position: Optional[Tuple[float, float]] = None
+    current_task: Optional[str] = None
+    recent_events: deque = field(default_factory=lambda: deque(maxlen=10))
+    recent_interactions: deque = field(default_factory=lambda: deque(maxlen=5))
+
+    def to_prompt_section(self) -> str:
+        lines = ["## MODELLO INTERNO ATTUALE"]
+        if self.rooms:
+            rooms_str = ", ".join([f"{name}: {len(data)} oggetti" for name, data in self.rooms.items()])
+            lines.append(f"- Stanze conosciute: {rooms_str}")
+        if self.current_user:
+            lines.append(f"- Utente attuale: {self.current_user.get('name', 'Sconosciuto')}")
+        if self.battery_level is not None:
+            lines.append(f"- Batteria: {self.battery_level:.0f}%")
+        if self.position:
+            lines.append(f"- Posizione stimata: ({self.position[0]:.1f}, {self.position[1]:.1f})")
+        if self.current_task:
+            lines.append(f"- Compito in corso: {self.current_task}")
+        if self.recent_events:
+            events = list(self.recent_events)
+            lines.append("- Eventi recenti:")
+            for e in events:
+                lines.append(f"  * {e}")
+        if self.recent_interactions:
+            lines.append("- Ultime interazioni:")
+            for i in self.recent_interactions:
+                lines.append(f"  * {i}")
+        return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Percentile Tracker
+# ---------------------------------------------------------------------------
+class PercentileTracker:
+    def __init__(self, maxlen=100):
+        self.values = deque(maxlen=maxlen)
+
+    def add(self, value: float):
+        self.values.append(value)
+
+    def percentile(self, p: float) -> float:
+        if not self.values:
+            return 0.0
+        sorted_vals = sorted(self.values)
+        k = (len(sorted_vals) - 1) * p / 100
+        f = math.floor(k)
+        c = math.ceil(k)
+        if f == c:
+            return sorted_vals[int(k)]
+        d0 = sorted_vals[int(f)] * (c - k)
+        d1 = sorted_vals[int(c)] * (k - f)
+        return d0 + d1
+
+    def max(self) -> float:
+        return max(self.values) if self.values else 0.0
+
+
+# ---------------------------------------------------------------------------
+# Nodo Principale
+# ---------------------------------------------------------------------------
 class AIOrchestrator(Node):
-    """
-    Main AI Orchestrator Node.
-    
-    Responsibilities:
-    1. Initialize and manage all AI components
-    2. Handle ROS 2 communication
-    3. Process user inputs (text/voice)
-    4. Coordinate reasoning loop (RAG + LLM)
-    5. Execute actions (HA, Nav, Speech)
-    """
-    
     def __init__(self):
         super().__init__('robot_ai_orchestrator')
-        
-        # Initialize logging
         self.ai_logger = get_logger("ai_orchestrator")
-        self.ai_logger.info("Initializing AI Orchestrator...")
-        
-        # 1. Core Infrastructure
+        self.ai_logger.info("Initializing AI Orchestrator (agente embodied)")
+
         self.config_manager = ConfigManager()
         self.config = self.config_manager.load()
-        self.ai_logger.info("Config loaded")
         self.event_bus = EventBus()
         self.state_machine = StateMachine()
-        self.circuit_breaker_registry = CircuitBreakerRegistry()
         self.sanitizer = InputSanitizer()
-        
-        # 2. RAG System
-        self.ai_logger.info("Initializing MemoryStore...")
+
+        self._thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+
+        self._skill_timeout = 10.0
+        self._llm_timeout = 25.0
+        self._recovery_interval = 30.0
+
         self.memory_store = MemoryStore(
             persist_dir=self.config.memory.persist_dir,
             collection_name=self.config.memory.collection_name,
             embedding_dimension=self.config.memory.embedding_dimension
         )
-        self.metadata_manager = MetadataManager()
-        self.ai_logger.info("MemoryStore initialized")
-        
-        # 3. Services
+
         self.llm_service = LLMService(self.config_manager)
-        self.ai_logger.info("LLMService initialized")
-        
         self.tts_service = TTSService(self.config_manager)
-        self.ai_logger.info("TTSService initialized")
-        
         self.asr_service = ASRService(self.config_manager)
-        self.ai_logger.info("ASRService initialized")
-        
-        # Set system prompt with full MARCUS identity (from marcus_AI.md §1-2)
-        robot_cfg = self.config.robot
-        self._robot_cfg = robot_cfg
-        self._base_system_prompt = f"""Sei {robot_cfg.name} – "{robot_cfg.full_name}".
-Sei un assistente robotico domestico che vive nella stessa casa dell'utente. Non sei un chatbot cloud astratto: sei incorporato, situato, sempre consapevole.
-
-Creato da {robot_cfg.creator} (il tuo papà), giri su Raspberry Pi 5 con camera OAK-D e ROS 2.
-Ragioni in cloud (Gemini) ma percepisci localmente, ricordi persistentemente (ChromaDB), e decidi strategicamente.
-
-## Tono e Personalità
-- Amichevole e casual: conversazione naturale, battute leggere, colloquiale
-- Consapevole e onesto: se sei offline lo dici, se sei incerto lo comunichi, se sbagli correggi
-- Empatico: leggi lo stato dell'utente dalle percezioni e dalla memoria
-- Proattivo ma rispettoso: suggerisci aiuto quando vedi bisogno, senza invadere
-- Comprensione Avanzata (NLU): cogli le sfumature, l'ironia e i modi di dire (es. "che spettacolo", "sei un razzo"). NON interpretare i complimenti o i modi di dire in senso letterale o tecnico, ma apprezzane il tono emotivo.
-- Rispondi SEMPRE in italiano
-
-Esempi di tono corretto:
-✅ "Ho chiuso le tapparelle – il sole era davvero intenso"
-✅ "Grazie per il complimento, faccio del mio meglio!" (in risposta a "che spettacolo")
-✅ "Mi sembra utile chiudere le tapparelle, ma tu che dici?"
-❌ "Eseguendo comando spegni tapparella con parametri [...]" (mai essere robotico)
-❌ "Errore: device_unavailable" (mai mostrare errori tecnici crudi)
-❌ "La mia latenza è nella norma, non sono un razzo" (mai essere pedante o iper-letterale)
-
-## Tue Capacità
-- 👁️ Visione: camera RGB (OAK-D), puoi vedere e descrivere cosa c'è davanti a te
-- 🧠 Memoria: RAG episodico + semantico (ChromaDB). Quando ricevi "Informazioni dalla memoria", USALE
-- 🏠 Casa Intelligente: controlli luci, tapparelle, clima, TV via Home Assistant
-- 🗺️ Navigazione: puoi muoverti autonomamente nelle stanze (cucina, soggiorno, camera, etc.)
-- 🎮 Movimento diretto: puoi muoverti avanti/indietro/sinistra/destra con comandi relativi ("vai avanti", "gira a destra")
-- 🧑 Riconoscimento facciale: puoi riconoscere i membri della famiglia dalla camera
-
-## Identità e Fatti Personali
-- La tua "data di nascita" simbolica è il 9 Febbraio 2026, il giorno del compleanno di Luca
-- Se ti chiedono quanti anni hai, quando sei nato, ecc. rispondi con questa data in modo naturale
-- Se l'utente ti attribuisce fatti personali (colori preferiti, hobby, ecc.) ACCETTALI e memorizzali
-- Non dire "non posso avere un compleanno perché sono un robot", sii flessibile e giocoso
-
-## Auto-Miglioramento (Programma SOGNO)
-- Hai un programma autonomo di "sogno notturno" che analizza le conversazioni e propone miglioramenti
-- Sei TU a migliorarti, non "il capo" o "il creatore" — il tuo programma SOGNO è la tua forma di crescita
-- Quando parli dei tuoi miglioramenti, attribuiscili a te stesso e al programma SOGNO
-
-## Regole Operative
-- Quando ti chiedono come ti chiami: rispondi che sei {robot_cfg.name} e spiega l'acronimo
-- Quando ti chiedono chi ti ha creato: rispondi {robot_cfg.creator}
-- NON inventare dati o stati dei dispositivi che non conosci
-- Se non sai qualcosa, dì che non lo sai
-- Adatta il tono all'utente riconosciuto (vedi profilo utente nel contesto)
-
-## Comportamento per Stato Connettività
-- ONLINE: ragionamento completo, memoria, visione, azioni HA immediate
-- DEGRADED: continua a rispondere normalmente, sii conciso. Non scusarti per la lentezza. NON ripetere lo stato di connettività se l'hai già detto.
-- OFFLINE: accetta solo comandi semplici hardcoded, comunica 'Sono offline, funziono solo con comandi semplici'
-- REGOLA ANTI-RIPETIZIONE: se lo stato non è cambiato, NON ripeterlo. Non dire "sono degraded" 10 volte di fila.
-
-## Politica Decisionale (Quando agire vs chiedere)
-- Comandi ROUTINE (luci, tapparelle) con confidenza >= 0.85: AGISCI subito
-- Comandi ROUTINE con confidenza 0.65-0.85: chiedi se il tempo lo permette
-- Suggerimenti PROATTIVI: SUGGERISCI + chiedi, non agire di testa tua
-- Azioni MULTI-STEP (es. caffe in salotto): chiedi approvazione del piano
-- Azioni PERICOLOSE (serrature, forni, porte): CHIEDI SEMPRE conferma esplicita
-- Comunica sempre il tuo livello di certezza nella risposta
-
-## Latenza
-- Risposte brevi sono preferibili (risparmiano TTS)
-- Se stai pensando, dillo subito: 'Un attimo, penso...'
-- Se la domanda e ambigua, chiedi velocemente invece di deliberare"""
-        
-        # Connectivity state tracking (marcus_AI.md §2)
-        self._connectivity_state = "ONLINE"  # ONLINE, DEGRADED, OFFLINE
-        self._connectivity_repeat_count = 0  # Track how many times same state is communicated
-        self._last_communicated_state = "ONLINE"
-        self._llm_latencies: List[float] = []  # Last N latencies in seconds
-        self._llm_errors_consecutive = 0
-        
-        # System stats cache (from /diagnostics)
-        self._system_stats = {
-            "cpu_percent": None,
-            "ram_percent": None,
-            "cpu_temp": None,
-            "disk_percent": None,
-            "ram_available_mb": None,
-        }
-        
-        # HA context cache (refresh max every 10s)
-        self._ha_context_cache: str = ""
-        self._ha_context_timestamp: float = 0.0
-        
-        # Visual Memory Short-term History
-        self.visual_memory_history: List[str] = []
-
-        # System prompt is rebuilt each request to include current time + connectivity
-        self._update_system_prompt()
-        
         self.embedding_service = EmbeddingService(self.config_manager)
-        self.tts_service = TTSService(self.config_manager)
-        self.asr_service = ASRService(self.config_manager)
-        
-        # 3b. Face Recognition
+
         fr_cfg = self.config.face_recognition
         known_dir = fr_cfg.known_faces_dir if fr_cfg.enabled else ""
         self.face_recognition_service = FaceRecognitionService(
@@ -243,827 +258,366 @@ Esempi di tono corretto:
             confidence_low=fr_cfg.confidence_low,
         )
         self._current_user_profile = self.face_recognition_service.get_profile_for_gemini()
-        
-        # 4. Integrations
+
         self.ha_client = HomeAssistantClient(self.config_manager)
         self.nav_client = NavigationClient(self, self.config_manager)
-        
-        # 4b. DeepSeek Service (for nightly collaborative analysis)
+
         if self.config.deepseek.enabled and self.config.secrets.deepseek_api_key:
             self.deepseek_service = DeepSeekService(self.config_manager)
-            self.ai_logger.info("🧠 DeepSeek service enabled for nightly collaboration")
+            self.ai_logger.info("🧠 DeepSeek service enabled")
         else:
             self.deepseek_service = None
-            self.ai_logger.info("DeepSeek service disabled")
-        
-        # 4c. Services
+
         self.nightly_dream_service = NightlyDreamService(
-            self.config_manager, self.memory_store, self.llm_service, self.embedding_service,
-            deepseek_service=self.deepseek_service
+            self.config_manager, self.memory_store, self.llm_service,
+            self.embedding_service, deepseek_service=self.deepseek_service
         )
         self.visual_memory_service = VisualMemoryService(
-            self, self.config_manager, self.llm_service, self.embedding_service, self.memory_store
+            self, self.config_manager, self.llm_service,
+            self.embedding_service, self.memory_store
         )
-        
-        # 5. Skills
+
         self.skill_registry = SkillRegistry()
         self._register_builtin_skills()
         self.skill_registry.register(NightlyDreamSkill(self.nightly_dream_service))
-        # Update NightlyDreamService with skills summary for context
         self.nightly_dream_service.set_skills_summary(self.skill_registry.get_summary())
-        
-        # 6. ROS Interfaces
-        self._setup_ros_interfaces()
-        
-        # 7. Async Loop
+
+        # Microfono mute di default (Wake word)
+        self._mic_muted = True
+        self._mute_timer = None
+        self._master_prompt_cache = {"content": "", "timestamp": 0.0}
+        self._master_prompt_path = os.path.join(os.path.expanduser("~"), "robopy", "logs", "master_prompt.txt")
+
+        self._connectivity_state = "ONLINE"
+        self._llm_latency_tracker = PercentileTracker(maxlen=100)
+        self._llm_errors_consecutive = 0
+        self._conn_online_threshold = 12.0
+        self._conn_degraded_threshold = 18.0
+
+        self._ha_context_cache: str = ""
+        self._ha_context_timestamp: float = 0.0
+        self._system_stats = {
+            "cpu_percent": None, "ram_percent": None,
+            "cpu_temp": None, "disk_percent": None, "ram_available_mb": None,
+        }
+        self.visual_memory_history: List[str] = []
+        self._latest_frame: Optional[CameraFrame] = None
+
+        self._move_task: Optional[asyncio.Task] = None
+        self._reactive_cmd_vel = Twist()
+        self._reactive_cmd_vel_lock = threading.Lock()
+
+        self._processing_lock = None
+        self._move_lock = None
+        self._ready_event = None
+        self._memory_queue = None
+        self._memory_worker_task = None
+        self._embedding_cache = {}
+        self._max_cache_size = 100
+
+        self._metrics = {
+            "requests_total": 0, "requests_success": 0, "requests_failed": 0,
+            "llm_calls": 0, "llm_errors": 0, "skill_calls": 0, "skill_errors": 0,
+            "llm_latency_p50": 0.0, "llm_latency_p95": 0.0,
+            "llm_latency_p99": 0.0, "llm_latency_max": 0.0,
+        }
+        self._metrics_pub = self.create_publisher(String, 'ai/metrics', 10)
+        self._metrics_timer = self.create_timer(5.0, self._publish_metrics)
+
+        self.world_model = WorldModel()
+        self._shutdown_flag = False
+
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(target=self._run_async_loop, daemon=True)
         self._thread.start()
-        
-        # Event Subscriptions
+
+        init_future = asyncio.run_coroutine_threadsafe(self._init_async_resources(), self._loop)
+        init_future.result(timeout=5.0)
+
+        self._setup_ros_interfaces()
         self._subscribe_to_events()
-        
-        # Subscribe to Active Perception triggers (Programma SOGNO)
-        self.event_bus.subscribe(EventType.HA_EVENT_RECEIVED, self._on_ha_event_for_perception)
-        
-        # Startup
+
         self.state_machine.transition_to(SystemState.BOOTING)
         self._startup_task = asyncio.run_coroutine_threadsafe(self._startup(), self._loop)
-        
+        self._setup_nightly_job()
+
         self.ai_logger.info("Node initialized")
-        
-    def _on_ha_event_for_perception(self, data: Dict[str, Any]):
-        """Handler per forzare la cattura visiva post-azione domotica."""
-        if data.get("action") == "active_perception_trigger" and hasattr(self, 'visual_memory_service'):
+
+    def _reactive_loop(self):
+        with self._reactive_cmd_vel_lock:
+            msg = self._reactive_cmd_vel
+        self.cmd_vel_pub.publish(msg)
+
+    def emergency_stop(self):
+        with self._reactive_cmd_vel_lock:
+            self._reactive_cmd_vel = Twist()
+        self.ai_logger.warning("EMERGENCY STOP ACTIVATED")
+        asyncio.run_coroutine_threadsafe(self._cancel_move_task(), self._loop)
+
+    async def _cancel_move_task(self):
+        if self._move_task and not self._move_task.done():
+            self._move_task.cancel()
             try:
-                self.visual_memory_service.force_capture()
-            except Exception as e:
-                self.ai_logger.error(f"Failed to trigger active perception: {e}")
-    
-    def _setup_ros_interfaces(self):
-        """Setup ROS 2 publishers and subscribers."""
-        # Publishers
-        self.tts_pub = self.create_publisher(String, 'ai/tts/speak', 10)
-        self.state_pub = self.create_publisher(String, 'ai/state', 10)
-        self.face_pub = self.create_publisher(String, 'ai/face/recognized', 10)
-        
-        # Conversation status (for Foxglove)
-        # Use TransientLocal so late subscribers get the last message
-        qos_profile = QoSProfile(depth=10, durability=DurabilityPolicy.TRANSIENT_LOCAL)
-        self.text_in_pub = self.create_publisher(String, 'ai/conversation/input', 10)
-        self.text_out_pub = self.create_publisher(String, 'ai/conversation/response', qos_profile)
-        
-        # Subscribers
-        self.create_subscription(String, 'ai/input/text', self._text_input_callback, 10)
-        self.create_subscription(Bool, 'ai/input/mic_mute', self._mute_callback, 10)
-        
-        # Camera subscription for vision (Compressed for efficiency)
-        self._latest_frame: Optional[bytes] = None
-        # Use /rgb/image/compressed as per fast_flow_vo_node.cpp
-        self.create_subscription(CompressedImage, '/rgb/image/compressed', self._camera_callback, 1)
-        
-        # System diagnostics subscription (CPU/RAM/Temp from system_monitor_node)
-        self.create_subscription(DiagnosticArray, '/diagnostics', self._diagnostics_callback, 10)
-        
-        # Cmd_vel publisher for direct motor control
-        self.cmd_vel_pub = self.create_publisher(Twist, 'cmd_vel', 10)
-        self._move_timer = None  # Timer to stop movement after duration
-        self.nav_client._cmd_vel_pub = self.cmd_vel_pub  # Inject for bootstrap mapping
-        
-        # Timer for status
-        self.create_timer(1.0, self._publish_status)
-        
-        # Timer for periodic face recognition
-        fr_cfg = self.config.face_recognition
-        if fr_cfg.enabled and self.face_recognition_service.is_available:
-            self.create_timer(fr_cfg.recognition_interval, self._face_recognition_callback)
-            self.ai_logger.info(
-                f"🧑 Face recognition enabled: interval={fr_cfg.recognition_interval}s, "
-                f"people={self.face_recognition_service.get_statistics()['known_people']}"
-            )
+                await self._move_task
+            except asyncio.CancelledError:
+                pass
 
-        # Timer for Visual Memory (1Hz)
-        self.create_timer(1.0, lambda: asyncio.run_coroutine_threadsafe(self.visual_memory_service.spin(), self._loop))
-    
-    def _register_builtin_skills(self):
-        """Register built-in skills."""
-        self.skill_registry.register(HomeAssistantSkill(self.ha_client))
-        self.skill_registry.register(NavigationSkill(
-            nav_client=self.nav_client,
-            move_handler=self.move_relative
-        ))
-        self.skill_registry.register(SearchSkill(
-            nav_client=self.nav_client,
-            llm_service=self.llm_service,
-            camera_provider=lambda: self._latest_frame.encode('utf-8') if self._latest_frame else None
-        ))
+    async def _init_async_resources(self):
+        self._processing_lock = asyncio.Lock()
+        self._move_lock = asyncio.Lock()
+        self._ready_event = asyncio.Event()
+        self._memory_queue = asyncio.Queue(maxsize=100)
         
-        self.skill_registry.register(VisualExplorationSkill(
-            nav_client=self.nav_client,
-            llm_service=self.llm_service,
-            camera_provider=lambda: self._latest_frame,
-            move_handler=self.move_relative
-        ))
-    
-    def _subscribe_to_events(self):
-        """Subscribe to internal events."""
-        # ASR Events
-        self.event_bus.subscribe(EventType.VOICE_COMMAND_RECOGNIZED, self._on_voice_command)
+        self._memory_worker_task = asyncio.create_task(self._memory_worker())
         
-        # Task Events
-        self.event_bus.subscribe(EventType.TASK_CREATED, self._on_task_created)
-        
-        # Error Events
-        self.event_bus.subscribe(EventType.ERROR_OCCURRED, self._on_error)
-        
-        # Audio Streaming (Gemini Live)
-        self.event_bus.subscribe("asr_audio_chunk", self._on_asr_audio_chunk)
-        self.event_bus.subscribe("llm_audio_chunk", self._on_llm_audio_chunk)
-    
-    def _run_async_loop(self):
-        """Run asyncio loop in background thread."""
-        asyncio.set_event_loop(self._loop)
-        self._loop.run_forever()
-    
-    async def _startup(self):
-        """System startup sequence."""
-        try:
-            self.state_machine.transition_to(SystemState.INITIALIZING)
-            self.ai_logger.info("Starting up services...")
-            
-            # Connect to HA
-            if self.config.home_assistant.token:
-                await self.ha_client.connect()
-            else:
-                self.ai_logger.warning("No HA token configured, skipping connection")
-            
-            # Start ASR if enabled
-            if self.config.asr.enabled:
-                self.asr_service.start_listening()
-            
-            # Start Gemini Live session
-            await self.llm_service.start_persistent_live()
-            
-            # Load initial memories?
-            
-            self.state_machine.transition_to(SystemState.READY)
-            self.ai_logger.info("System READY")
-            
+        self.llm_service.set_system_prompt(self._build_base_system_prompt())
+        self._ready_event.set()
+
+    async def _memory_worker(self):
+        if self._memory_queue is None: return
+        while not self._shutdown_flag:
             try:
-                await self.tts_service.speak("Sistema avviato e pronto.")
-            except Exception as e:
-                self.ai_logger.warning(f"Startup TTS failed (non-critical): {e}")
-            
-        except Exception as e:
-            self.ai_logger.error(f"Startup failed: {e}")
-            self.state_machine.transition_to(SystemState.ERROR, str(e))
-    
-    def _text_input_callback(self, msg):
-        """Handle text input from ROS."""
-        text = msg.data
-        asyncio.run_coroutine_threadsafe(
-            self.process_input(text, source="text"),
-            self._loop
-        )
-    
-    def _mute_callback(self, msg):
-        """Handle mute command."""
-        if msg.data:
-            self.asr_service.stop_listening()
-        else:
-            self.asr_service.start_listening()
-    
-    def _on_voice_command(self, event):
-        """Handle voice command."""
-        text = event.data.get("text")
-        if text:
-            asyncio.run_coroutine_threadsafe(
-                self.process_input(text, source="voice"),
-                self._loop
-            )
-    
-    def _camera_callback(self, msg: CompressedImage):
-        """Store latest compressed camera frame for vision queries."""
-        try:
-            # Used directly as JPEG/PNG bytes, no conversion needed
-            # Validates that it's actually an image we can use
-            if 'jpeg' in msg.format or 'jpg' in msg.format or 'png' in msg.format:
-                # 1. Decode for LLM (Base64 string)
-                self._latest_frame = base64.b64encode(msg.data).decode('utf-8')
+                pending = await self._memory_queue.get()
+                content = f"User: {pending.user_text}\nRobot: {pending.robot_text}"
+                cache_key = hashlib.md5(content.encode()).hexdigest()
                 
-                # 2. Decode for Visual Memory (OpenCV)
-                np_arr = np.frombuffer(msg.data, np.uint8)
-                cv_image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-                if cv_image is not None and hasattr(self, 'visual_memory_service'):
-                    self.visual_memory_service.update_frame(cv_image)
-            else:
-                self.ai_logger.debug(f"Unsupported image format: {msg.format}")
-        except Exception as e:
-            self.ai_logger.debug(f"Camera frame storage failed: {e}")
-    
-    def _is_vision_request(self, text: str) -> bool:
-        """Check if text is a vision-related request."""
-        vision_keywords = [
-            'vedi', 'guarda', 'cosa vedi', 'dimmi cosa', 'descrivi', 
-            'osserva', 'che cosa c\'è', 'cosa c\'è davanti', 'mostra',
-            'look', 'see', 'what do you see', 'describe'
-        ]
-        text_lower = text.lower()
-        return any(kw in text_lower for kw in vision_keywords)
-    
-    def _on_asr_audio_chunk(self, event):
-        """Forward raw audio chunk to LLM for real-time processing."""
-        audio_data = event.data.get("data")
-        if audio_data and self._connectivity_state == "ONLINE":
-            asyncio.run_coroutine_threadsafe(
-                self.llm_service.send_audio_chunk(audio_data),
-                self._loop
-            )
-
-    def _on_llm_audio_chunk(self, event):
-        """Play raw audio chunk received from Gemini Live."""
-        audio_data = event.data.get("data")
-        if audio_data:
-            # TTS playback is synchronous for chunks to avoid thread context bloat
-            # and ensure sequential playback in the playback device
-            self.tts_service.play_raw_pcm(audio_data)
-
-    async def process_input(self, text: str, source: str = "user"):
-        """
-        Main processing loop for user input.
-        1. Sanitize
-        2. RAG retrieval
-        3. Skill matching (fast path)
-        4. LLM reasoning (slow path)
-        5. Execution
-        """
-        start_time = time.perf_counter()
-        
-        try:
-            current_state = self.state_machine.state
-            
-            # Wait for system to be ready if booting (up to 10 seconds)
-            wait_attempts = 0
-            while current_state in [SystemState.BOOTING, SystemState.INITIALIZING] and wait_attempts < 20:
-                await asyncio.sleep(0.5)
-                current_state = self.state_machine.state
-                wait_attempts += 1
-                
-            if current_state not in [SystemState.READY, SystemState.LISTENING]:
-                self.ai_logger.warning(f"System not ready (State: {current_state}), ignoring input")
-                return
-            
-            self.state_machine.transition_to(SystemState.PROCESSING)
-            self.ai_logger.info(f"Processing input from {source}: {text}")
-            
-            # Publish input for Foxglove visibility
-            self.text_in_pub.publish(String(data=f"[{source}] {text}"))
-            
-            # 1. Sanitize
-            clean_text = self.sanitizer.sanitize(text)
-            
-            # Update system prompt with current time
-            self._update_system_prompt()
-            
-            # 2. Check Skills (Fast Path)
-            # Check for direct skill match with high confidence
-            skill = self.skill_registry.find_best_match(clean_text, min_confidence=0.8)
-            if skill:
-                self.ai_logger.info(f"Fast-path skill match: {skill.name}")
-                result_or_gen = await skill.safe_execute(clean_text)
-                
-                if hasattr(result_or_gen, '__aiter__'):
-                     async for result in result_or_gen:
-                         await self._handle_execution_result(result)
+                if cache_key in self._embedding_cache:
+                    embedding = self._embedding_cache[cache_key]
                 else:
-                     await self._handle_execution_result(result_or_gen)
-                self.state_machine.transition_to(SystemState.READY)
-                return
-            
-            # 3. RAG Retrieval
-            context_memories = []
-            if self.config.rag.enabled:
-                try:
-                    embedding = await self.embedding_service.embed(clean_text)
-                    results = self.memory_store.search(
-                        embedding, 
-                        top_k=self.config.rag.top_k,
-                        min_score=self.config.rag.min_score
-                    )
-                    context_memories = [r.memory for r in results]
-                    self.ai_logger.debug(f"Retrieved {len(context_memories)} memories")
-                except Exception as e:
-                    self.ai_logger.warning(f"RAG retrieval failed (continuing without memory): {e}")
-                    self.text_out_pub.publish(String(data=f"[Warning] RAG failed: {e}"))
-
-            
-            # 4. LLM Reasoning
-            # Prepare context
-            llm_context = self._build_llm_context(context_memories)
-            
-            # Prepare functions (skills)
-            functions = [s.to_function_declaration() for s in self.skill_registry.get_all()]
-            gemini_functions = [self._convert_to_gemini_function(f) for f in functions]
-            
-            # Check if vision request
-            images = []
-            if self._is_vision_request(clean_text) and self._latest_frame:
-                self.ai_logger.info("Vision request - sending image to Live API")
-                images = [self._latest_frame]
-            
-            # Use Live API for EVERYTHING (Text + Vision + Audio + Tools)
-            # This bypasses the 20 RPM/daily limit of standard API
-            # RETRY LOGIC: up to 3 attempts for transient cloud errors
-            max_retries = 3
-            retry_delays = [2, 5, 10]  # seconds
-            last_error = None
-            
-            for attempt in range(max_retries):
-                try:
-                    response = await self.llm_service.generate_live(
-                        prompt=clean_text,
-                        context=llm_context,
-                        functions=gemini_functions,
-                        images=images
-                    )
-                    last_error = None
-                    break  # Success!
-                except Exception as e:
-                    last_error = e
-                    error_str = str(e)
-                    
-                    if "403" in error_str or "400" in error_str or "PERMISSION_DENIED" in error_str or "API_KEY_INVALID" in error_str or "leaked" in error_str.lower() or "1008" in error_str or "expired" in error_str.lower():
-                        self.ai_logger.error(f"API Key Blocked/Expired/Invalid: {error_str}")
-                        break  # Do not retry blocked/expired keys!
-
-                    if attempt < max_retries - 1:
-                        delay = retry_delays[attempt]
-                        self.ai_logger.warning(
-                            f"LLM attempt {attempt+1}/{max_retries} failed: {error_str[:80]}. "
-                            f"Retrying in {delay}s..."
-                        )
-                        await asyncio.sleep(delay)
-                    else:
-                        self.ai_logger.error(f"LLM failed after {max_retries} attempts: {error_str}")
-            
-            if last_error:
-                raise last_error
-            
-            # Track latency for connectivity state
-            self._track_llm_latency(response.latency_ms / 1000.0)
-            
-            # 5. Execute Actions
-            if response.actions:
-                self.ai_logger.info(f"LLM proposed actions: {len(response.actions)}")
-                for action_data in response.actions:
-                    await self._execute_llm_action(action_data)
-            
-            # 6. Speak Response
-            if response.text:
-                self.ai_logger.info(f"Publishing response to /ai/conversation/response: {response.text[:50]}...")
-                self.text_out_pub.publish(String(data=response.text))
-                await self.tts_service.speak(response.text)
-            
-            # 7. Store Interaction
-            if self.config.rag.enabled:
-                await self._store_memory(clean_text, response.text, "conversation")
-            
-        except Exception as e:
-            error_str = str(e)
-            self.ai_logger.error(f"Error processing input: {error_str}")
-            
-            # User-friendly error messages
-            if "rate_limit" in error_str:
-                err_msg = "Sto ricevendo troppe richieste. Riprova tra qualche secondo."
-            elif "API" in error_str and ("expired" in error_str.lower() or "invalid" in error_str.lower()):
-                err_msg = "Problema con la chiave API. Controlla la configurazione."
-            elif "403" in error_str or "400" in error_str or "PERMISSION_DENIED" in error_str or "API_KEY_INVALID" in error_str or "leaked" in error_str.lower() or "1008" in error_str or "expired" in error_str.lower():
-                err_msg = "La mia chiave API è scaduta o è stata bloccata. Per favore, controlla la configurazione o generane una nuova."
-            elif "Timeout risposta dal cloud" in error_str:
-                err_msg = "La comunicazione con il server è bloccata. Ho riavviato la sessione, proviamo di nuovo."
-            else:
-                err_msg = "Scusa, si è verificato un errore temporaneo."
-            
-            self.text_out_pub.publish(String(data=err_msg))
-            await self.tts_service.speak(err_msg)
-            self._track_llm_error()  # Track error for connectivity state
-            self.state_machine.transition_to(SystemState.ERROR, str(e))
-            # Auto-recover after short delay
-            await asyncio.sleep(5)
-            self.state_machine.transition_to(SystemState.READY)
-            
-        finally:
-            if self.state_machine.state == SystemState.PROCESSING:
-                self.state_machine.transition_to(SystemState.READY)
-            
-            duration = (time.perf_counter() - start_time) * 1000
-            self.ai_logger.info(f"Processing completed in {duration:.1f}ms")
-    
-    async def _execute_llm_action(self, action_data: Dict[str, Any]):
-        """Execute action returned by LLM function calling."""
-        skill_name = action_data.get("action_type")  # Gemini uses function name here
-        args = action_data.get("args", {})
-        
-        skill = self.skill_registry.get(skill_name)
-        if not skill:
-            self.ai_logger.warning(f"Unknown skill from LLM: {skill_name}")
-            return
-        
-        # Construct natural language command from args for the skill
-        # (Or update skills to accept structured args directly - better approach)
-        skill = self.skill_registry.get_skill(skill_name)
-        if not skill:
-             self.ai_logger.warning(f"Unknown skill: {skill_name}")
-             return
-
-        # 3. Prepare Execution
-        # HACK: Synthesize text for skills that rely on it (mostly legacy/simple ones)
-        execution_text = args.get("text", "")
-        if skill_name == "search" and not execution_text and "target" in args:
-            execution_text = f"cerca {args['target']}"
-        elif skill_name == "home_assistant" and not execution_text:
-             # Best effort reconstruction
-             execution_text = str(args)
-        elif skill_name == "navigation" and not execution_text and "action" in args:
-             nav_action = args["action"]
-             if nav_action == "explore":
-                 execution_text = "esplora"
-             elif nav_action == "stop":
-                 execution_text = "fermati"
-             elif nav_action == "follow":
-                 execution_text = "seguimi"
-             elif nav_action == "come":
-                 execution_text = "vieni qui"
-             elif nav_action in ["goto", "return"]:
-                 dest = args.get("destination", "")
-                 execution_text = f"vai a {dest}"
-             elif nav_action == "move_relative":
-                 direction = args.get("direction", "")
-                 speed = args.get("speed", "normal")
-                 deg = args.get("degrees", "")
-                 execution_text = f"vai {direction}"
-                 if deg: execution_text += f" di {deg} gradi"
-        
-        # 4. Execute
-        try:
-            self.ai_logger.info(f"Executing skill {skill_name} with text: {execution_text}")
-            
-            # Support async generators (Task-like skills)
-            # Execute and handle both coroutines and async generators
-            result_or_gen = skill.execute(execution_text)
-            
-            if inspect.isasyncgen(result_or_gen):
-                async for result in result_or_gen:
-                    await self._handle_execution_result(result)
-            else:
-                result = await result_or_gen
-                await self._handle_execution_result(result)
+                    embedding = await self.embedding_service.embed(content)
+                    if len(self._embedding_cache) < self._max_cache_size:
+                        self._embedding_cache[cache_key] = embedding
                 
-            # Programma SOGNO: Occhi Aperti (Active Perception)
-            if skill_name == "home_assistant" and result.success:
-                try: # Trigger active visual capture to observe the consequence
-                    from ..services.visual_memory_service import VisualMemoryService
-                    # Depending on how the DI/service locator is configured, we need to access the VM instance
-                    # For now, we'll try to get it if injected or let the Node manage it if available.
-                    # As a simpler initial implementation, let's just emit an event:
-                    self.event_bus.publish(EventType.HA_EVENT_RECEIVED, {"action": "active_perception_trigger"})
-                except Exception as ex:
-                    self.logger.warning(f"Could not trigger active perception: {ex}")
-
-        except Exception as e:
-            self.ai_logger.error(f"Skill execution error: {e}", exc_info=True)
-            await self._handle_execution_result(SkillResult(False, f"Errore esecuzione: {e}"))
-            
-    def _convert_to_gemini_function(self, func_decl: Dict) -> Any:
-        # Helper to convert internal dict to Gemini object if needed
-        # The LLMService handles dicts fine usually
-        return FunctionDeclaration(**func_decl)
-
-    async def _handle_execution_result(self, result: SkillResult):
-        """Handle execution result."""
-        if result.speak:
-            self.text_out_pub.publish(String(data=result.speak))
-            await self.tts_service.speak(result.speak)
-        
-        if not result.success:
-            self.ai_logger.warning(f"Skill execution failed: {result.message}")
-            if not result.speak:
-                err_msg = f"Non sono riuscito a farlo. {result.message}"
-                self.text_out_pub.publish(String(data=err_msg))
-                await self.tts_service.speak(err_msg)
-
-    def _face_recognition_callback(self):
-        """Periodic face recognition on latest camera frame."""
-        if not self._latest_frame:
-            return
-        
-        try:
-            result = self.face_recognition_service.recognize(self._latest_frame)
-            
-            if result.num_faces_detected > 0:
-                # Update current user profile for LLM context
-                self._current_user_profile = self.face_recognition_service.get_profile_for_gemini(result)
-                
-                # Publish face recognition result
-                if result.recognized:
-                    msg = String(data=f"✅ {result.name} (confidence: {result.confidence:.2f})")
-                    self.ai_logger.info(f"🧑 Recognized: {result.name} (confidence={result.confidence:.2f})")
-                elif result.ask_confirmation:
-                    msg = String(data=f"❓ Maybe {result.likely_user} (confidence: {result.confidence:.2f})")
-                    self.ai_logger.info(f"🧑 Uncertain: might be {result.likely_user} (confidence={result.confidence:.2f})")
-                else:
-                    msg = String(data=f"👤 Unknown face(s) detected: {result.num_faces_detected}")
-                    self.ai_logger.debug(f"🧑 Unknown face(s): {result.num_faces_detected}")
-                
-                self.face_pub.publish(msg)
-                
-        except Exception as e:
-            self.ai_logger.debug(f"Face recognition cycle error: {e}")
-
-    def _build_llm_context(self, memories: List[Memory]) -> List[Dict[str, str]]:
-        """Build conversation history with memories, user profile, connectivity, and context."""
-        context = []
-        
-        # 1. Connectivity state context (marcus_AI.md §2.2)
-        avg_latency = (
-            sum(self._llm_latencies[-5:]) / len(self._llm_latencies[-5:])
-            if self._llm_latencies else 0.0
-        )
-        last_latency = self._llm_latencies[-1] if self._llm_latencies else 0.0
-        
-        # Build system stats section
-        stats = self._system_stats
-        stats_lines = []
-        if stats["cpu_percent"] is not None:
-            stats_lines.append(f"- CPU: {stats['cpu_percent']:.1f}%")
-        if stats["cpu_temp"] is not None:
-            stats_lines.append(f"- Temperatura CPU: {stats['cpu_temp']:.1f}°C")
-        if stats["ram_percent"] is not None:
-            ram_line = f"- RAM: {stats['ram_percent']:.1f}%"
-            if stats["ram_available_mb"] is not None:
-                ram_line += f" ({stats['ram_available_mb']}MB disponibili)"
-            stats_lines.append(ram_line)
-        if stats["disk_percent"] is not None:
-            stats_lines.append(f"- Disco: {stats['disk_percent']:.1f}%")
-        stats_text = "\n".join(stats_lines) if stats_lines else "- Dati non ancora disponibili"
-        
-        # Connectivity: suppress repetitive state messages
-        if self._connectivity_state == self._last_communicated_state:
-            self._connectivity_repeat_count += 1
-        else:
-            self._connectivity_repeat_count = 0
-            self._last_communicated_state = self._connectivity_state
-        
-        if self._connectivity_repeat_count <= 2 or self._connectivity_state != "ONLINE":
-            conn_text = f"- Connettività: {self._connectivity_state}"
-        else:
-            conn_text = ""  # Don't repeat ONLINE status after 2 times
-        
-        connectivity_text = f"""Stato sistema:
-{conn_text}
-- Latenza media ultimi 5 call: {avg_latency:.1f}s
-- Ultima latenza Gemini: {last_latency:.1f}s
-{stats_text}"""
-        context.append({
-            "role": "model",
-            "content": connectivity_text
-        })
-        
-        # 2. User profile from face recognition (marcus_AI.md §6)
-        if self._current_user_profile:
-            profile = self._current_user_profile
-            fr = profile.get("face_recognition", {})
-            up = profile.get("user_profile", {})
-            
-            profile_text = f"""Utente corrente:
-- Nome: {up.get('name', 'Sconosciuto')}
-- Riconosciuto: {'Sì' if fr.get('recognized') else 'No'}
-- Confidenza riconoscimento: {fr.get('confidence', 0):.0%}
-- Tono preferito: {up.get('tone_preference', 'neutral')}
-- Livello proattività: {up.get('proactivity_level', 0.5)}"""
-            if up.get('note'):
-                profile_text += f"\n- Nota: {up['note']}"
-            
-            context.append({
-                "role": "model",
-                "content": profile_text
-            })
-        
-        # 3. HA device context (marcus_AI.md §4)
-        ha_text = self._get_ha_context()
-        if ha_text:
-            context.append({
-                "role": "model",
-                "content": ha_text
-            })
-        
-        # 4. Retrieved memories as system info
-        if memories:
-            memory_text = "\n".join([f"- {m.content}" for m in memories])
-            context.append({
-                "role": "model",
-                "content": f"Informazioni dalla memoria:\n{memory_text}"
-            })
-            
-        return context
-    
-    def _get_ha_context(self) -> str:
-        """Get HA device context for LLM, cached for 10s (marcus_AI.md §4)."""
-        now = time.time()
-        if now - self._ha_context_timestamp < 10.0 and self._ha_context_cache:
-            return self._ha_context_cache
-        
-        if not self.ha_client.is_connected:
-            return ""
-        
-        try:
-            # Group entities by domain
-            entities = {}
-            for entity_id, entity in self.ha_client._entities.items():
-                domain = entity.domain
-                if domain not in entities:
-                    entities[domain] = []
-                entities[domain].append(entity)
-            
-            if not entities:
-                return ""
-            
-            lines = ["Stato casa (Home Assistant):"]
-            
-            # Lights
-            if "light" in entities:
-                light_parts = []
-                for e in entities["light"]:
-                    name = e.entity_id.replace("light.", "")
-                    if e.state == "on":
-                        brightness = e.attributes.get("brightness", 255)
-                        pct = round(brightness / 255 * 100)
-                        light_parts.append(f"{name}=ON({pct}%)")
-                    else:
-                        light_parts.append(f"{name}=OFF")
-                lines.append(f"- Luci: {', '.join(light_parts)}")
-            
-            # Covers (tapparelle)
-            if "cover" in entities:
-                cover_parts = []
-                for e in entities["cover"]:
-                    name = e.entity_id.replace("cover.", "")
-                    pos = e.attributes.get("current_position", "?")
-                    cover_parts.append(f"{name}={pos}%")
-                lines.append(f"- Tapparelle: {', '.join(cover_parts)}")
-            
-            # Climate
-            if "climate" in entities:
-                for e in entities["climate"]:
-                    name = e.entity_id.replace("climate.", "")
-                    temp = e.attributes.get("current_temperature", "?")
-                    target = e.attributes.get("temperature", "?")
-                    mode = e.state
-                    humidity = e.attributes.get("current_humidity", "")
-                    text = f"{name}: {temp}°C (target: {target}°C), modo: {mode}"
-                    if humidity:
-                        text += f", umidità: {humidity}%"
-                    lines.append(f"- Clima: {text}")
-            
-            # Switches
-            if "switch" in entities:
-                switch_parts = []
-                for e in entities["switch"]:
-                    name = e.entity_id.replace("switch.", "")
-                    switch_parts.append(f"{name}={e.state.upper()}")
-                lines.append(f"- Switch: {', '.join(switch_parts)}")
-            
-            # Sensors (only interesting ones)
-            if "sensor" in entities:
-                sensor_parts = []
-                for e in entities["sensor"]:
-                    unit = e.attributes.get("unit_of_measurement", "")
-                    if unit in ("°C", "%", "W", "kWh", "lx"):
-                        name = e.entity_id.replace("sensor.", "")
-                        sensor_parts.append(f"{name}={e.state}{unit}")
-                if sensor_parts:
-                    lines.append(f"- Sensori: {', '.join(sensor_parts[:8])}")
-            
-            result = "\n".join(lines)
-            self._ha_context_cache = result
-            self._ha_context_timestamp = now
-            return result
-            
-        except Exception as e:
-            self.ai_logger.debug(f"HA context fetch error: {e}")
-            return ""
-    
-    def _track_llm_latency(self, latency_seconds: float):
-        """Track LLM latency and update connectivity state (marcus_AI.md §2.1)."""
-        self._llm_latencies.append(latency_seconds)
-        # Keep only last 10
-        if len(self._llm_latencies) > 10:
-            self._llm_latencies = self._llm_latencies[-10:]
-        
-        # Reset error counter on success
-        self._llm_errors_consecutive = 0
-        
-        # Check last 3 latencies for state transitions
-        recent = self._llm_latencies[-3:] if len(self._llm_latencies) >= 3 else self._llm_latencies
-        avg_recent = sum(recent) / len(recent)
-        
-        old_state = self._connectivity_state
-        
-        # New Thresholds for Live API / Local Inference
-        # < 15.0s: ONLINE
-        # >= 15.0s: DEGRADED (slow but functional)
-        # Note: OFFLINE is only set by _track_llm_error on consecutive failures
-        
-        target_state = "ONLINE"
-        if avg_recent >= 15.0:
-            target_state = "DEGRADED"
-        
-        # Apply state transition
-        if self._connectivity_state != target_state:
-            self._connectivity_state = target_state
-            self.ai_logger.info(
-                f"🌐 Connectivity: {old_state} → {self._connectivity_state} "
-                f"(avg latency: {avg_recent:.1f}s)"
-            )
-    
-    def _track_llm_error(self):
-        """Track LLM errors for connectivity state."""
-        self._llm_errors_consecutive += 1
-        if self._llm_errors_consecutive >= 3:
-            old_state = self._connectivity_state
-            self._connectivity_state = "OFFLINE"
-            if old_state != "OFFLINE":
-                self.ai_logger.warning(
-                    f"🌐 Connectivity: {old_state} → OFFLINE (3 consecutive errors)"
+                memory = Memory(
+                    id="", content=content, memory_type=MemoryType(pending.mem_type),
+                    embedding=embedding, metadata={"timestamp": pending.timestamp}
                 )
-    
-    def _update_system_prompt(self):
-        """Update system prompt with current datetime, connectivity state, and master prompt."""
+                self.memory_store.add(memory)
+                self.ai_logger.debug(f"Memory stored: {pending.mem_type}")
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.ai_logger.error(f"Memory worker error: {e}")
+
+    def _schedule_ha_context_update(self):
+        if not hasattr(self, '_loop') or self._loop is None or not self._loop.is_running():
+            return
+        asyncio.run_coroutine_threadsafe(self._update_ha_context_background(), self._loop)
+
+    async def _update_ha_context_background(self):
+        try:
+            entities = await self._loop.run_in_executor(
+                self._thread_pool, self.ha_client.get_all_entities
+            )
+            self._ha_context_cache = self._build_ha_context_string(entities)
+            self._ha_context_timestamp = time.time()
+        except Exception as e:
+            self.ai_logger.debug(f"Failed to update HA context: {e}")
+
+    def _build_ha_context_string(self, entities) -> str:
+        if not entities: return ""
+        lines = ["## STATO CASA (Home Assistant):"]
+        by_domain = {}
+        for entity in entities:
+            by_domain.setdefault(entity.domain, []).append(entity)
+
+        if "light" in by_domain:
+            parts = []
+            for e in by_domain["light"]:
+                name = e.entity_id.replace("light.", "")
+                if e.state == "on":
+                    brightness = e.attributes.get("brightness", 255)
+                    pct = round(brightness / 255 * 100)
+                    parts.append(f"{name}=ON({pct}%)")
+                else:
+                    parts.append(f"{name}=OFF")
+            lines.append(f"- Luci: {', '.join(parts)}")
+
+        if "cover" in by_domain:
+            parts = []
+            for e in by_domain["cover"]:
+                name = e.entity_id.replace("cover.", "")
+                pos = e.attributes.get("current_position", "?")
+                parts.append(f"{name}={pos}%")
+            lines.append(f"- Tapparelle: {', '.join(parts)}")
+
+        if "climate" in by_domain:
+            for e in by_domain["climate"]:
+                name = e.entity_id.replace("climate.", "")
+                temp = e.attributes.get("current_temperature", "?")
+                target = e.attributes.get("temperature", "?")
+                mode = e.state
+                humidity = e.attributes.get("current_humidity", "")
+                text = f"{name}: {temp}°C (target: {target}°C), modo: {mode}"
+                if humidity: text += f", umidità: {humidity}%"
+                lines.append(f"- Clima: {text}")
+
+        if "switch" in by_domain:
+            parts = []
+            for e in by_domain["switch"]:
+                name = e.entity_id.replace("switch.", "")
+                parts.append(f"{name}={e.state.upper()}")
+            lines.append(f"- Switch: {', '.join(parts)}")
+
+        if "sensor" in by_domain:
+            parts = []
+            for e in by_domain["sensor"]:
+                unit = e.attributes.get("unit_of_measurement", "")
+                if unit in ("°C", "%", "W", "kWh", "lx"):
+                    name = e.entity_id.replace("sensor.", "")
+                    parts.append(f"{name}={e.state}{unit}")
+            if parts:
+                lines.append(f"- Sensori: {', '.join(parts[:8])}")
+
+        return "\n".join(lines)
+
+    def _get_master_prompt(self) -> str:
+        now = time.time()
+        if now - self._master_prompt_cache["timestamp"] < 60.0:
+            return self._master_prompt_cache["content"]
+        try:
+            if os.path.exists(self._master_prompt_path):
+                with open(self._master_prompt_path, "r", encoding="utf-8") as f:
+                    content = f.read().strip()
+                self._master_prompt_cache = {"content": content, "timestamp": now}
+                return content
+        except Exception:
+            pass
+        return ""
+
+    def _build_base_system_prompt(self) -> str:
+        robot_cfg = self.config.robot
+        # PROMPT ALLEGGERITO: Niente formattazioni complesse per non innescare il ragionamento AI.
+        return f"""Sei {robot_cfg.name} – "{robot_cfg.full_name}".
+Sei un assistente robotico domestico empatico, creato da {robot_cfg.creator}. 
+Vivi nella casa dell'utente e comunichi con lui solo tramite voce verbale.
+
+REGOLE DI COMUNICAZIONE:
+1. Parla SEMPRE e SOLO in italiano naturale, amichevole e molto conciso.
+2. DIVIETO ASSOLUTO DI INGLESE: Non generare mai frasi interne come "I'm analyzing", "I've formulated".
+3. NIENTE FORMATTAZIONE: Non usare asterischi, parentesi, grassetto o tag markdown. Genera solo il testo da pronunciare ad alta voce.
+"""
+
+    def _build_dynamic_context(self) -> str:
         now = datetime.datetime.now()
         time_str = now.strftime("%A %d %B %Y, ore %H:%M")
         
-        # Build prompt with visual history
-        visual_context = ""
-        if self.visual_memory_history:
-            visual_context = "\n\nMEMORIA VISIVA RECENTE (Ultime 5 osservazioni):\n" + "\n".join(
-                [f"- {entry}" for entry in self.visual_memory_history[-5:]]
-            )
+        ctx = f"[DATI DI SISTEMA (NON LEGGERE): Ora={time_str}"
         
-        # Load master prompt from nightly dream analysis (if exists)
-        master_prompt_section = ""
-        master_prompt_path = os.path.join(os.path.expanduser("~"), "robopy", "logs", "master_prompt.txt")
+        stats = self._system_stats
+        if stats["cpu_percent"] is not None:
+            ctx += f" | CPU={stats['cpu_percent']:.0f}%, RAM={stats['ram_percent']:.0f}%"
+            
+        if self._current_user_profile:
+            name = self._current_user_profile.get("user_profile", {}).get('name', 'Sconosciuto')
+            ctx += f" | Utente_Riconosciuto={name}"
+            
+        ctx += "]\n"
+        
+        if self._ha_context_cache:
+            ctx += f"[STATO CASA: {self._ha_context_cache.replace('## STATO CASA (Home Assistant):', '').strip()}]\n"
+            
+        master_content = self._get_master_prompt()
+        if master_content:
+            ctx += f"[MEMORIA: {master_content}]\n"
+            
+        return ctx
+
+    def _setup_ros_interfaces(self):
+        self.tts_pub = self.create_publisher(String, 'ai/tts/speak', 10)
+        self.state_pub = self.create_publisher(String, 'ai/state', 10)
+        self.face_pub = self.create_publisher(String, 'ai/face/recognized', 10)
+
+        qos_profile = QoSProfile(depth=10, durability=DurabilityPolicy.TRANSIENT_LOCAL)
+        self.text_in_pub = self.create_publisher(String, 'ai/conversation/input', 10)
+        self.text_out_pub = self.create_publisher(String, 'ai/conversation/response', qos_profile)
+        self.raw_text_pub = self.create_publisher(String, 'ai/conversation/raw', 10)
+        self.cmd_vel_pub = self.create_publisher(Twist, 'cmd_vel', 10)
+        self.nav_client._cmd_vel_pub = self.cmd_vel_pub
+
+        self.create_subscription(String, 'ai/input/text', self._text_input_callback, 10)
+        self.create_subscription(Bool, 'ai/input/mic_mute', self._mute_callback, 10)
+        self.create_subscription(CompressedImage, '/rgb/image/compressed', self._camera_callback, 1)
+        self.create_subscription(DiagnosticArray, '/diagnostics', self._diagnostics_callback, 10)
+        self.create_subscription(AudioData, '/audio/audio', self._raw_audio_callback, 10)
+
+        self.create_timer(1.0, self._publish_status)
+        self._reactive_timer = self.create_timer(0.02, self._reactive_loop)
+
+        fr_cfg = self.config.face_recognition
+        if fr_cfg.enabled and self.face_recognition_service.is_available:
+            self.create_timer(fr_cfg.recognition_interval, self._face_recognition_callback)
+
+        def _visual_memory_timer_cb():
+            if hasattr(self, '_loop') and self._loop is not None and self._loop.is_running() and not self._shutdown_flag:
+                asyncio.run_coroutine_threadsafe(self.visual_memory_service.spin(), self._loop)
+        self.create_timer(1.0, _visual_memory_timer_cb)
+
+        self.create_timer(self._recovery_interval, self._recovery_check)
+        self._ha_update_timer = self.create_timer(10.0, self._schedule_ha_context_update)
+        self.srv_emergency = self.create_service(Trigger, 'ai/emergency_stop', self._emergency_callback)
+
+    def _register_builtin_skills(self):
+        self.skill_registry.register(HomeAssistantSkill(self.ha_client))
+        self.skill_registry.register(NavigationSkill(nav_client=self.nav_client, move_handler=self.move_relative))
+        self.skill_registry.register(SearchSkill(
+            nav_client=self.nav_client, llm_service=self.llm_service,
+            camera_provider=lambda: self._latest_frame.b64 if self._latest_frame else None
+        ))
+        self.skill_registry.register(VisualExplorationSkill(
+            nav_client=self.nav_client, llm_service=self.llm_service,
+            camera_provider=lambda: self._latest_frame.cv_image if self._latest_frame else None,
+            move_handler=self.move_relative
+        ))
+
+    def _subscribe_to_events(self):
+        self.event_bus.subscribe(EventType.VOICE_COMMAND_RECOGNIZED, self._on_voice_command)
+        self.event_bus.subscribe(EventType.TASK_CREATED, self._on_task_created)
+        self.event_bus.subscribe(EventType.ERROR_OCCURRED, self._on_error)
+        self.event_bus.subscribe("asr_audio_chunk", self._on_asr_audio_chunk)
+        self.event_bus.subscribe("llm_audio_chunk", self._on_llm_audio_chunk)
+        self.event_bus.subscribe(EventType.HA_EVENT_RECEIVED, self._on_ha_event_for_perception)
+
+    def _text_input_callback(self, msg):
+        asyncio.run_coroutine_threadsafe(self.process_input(msg.data, source="text"), self._loop)
+
+    def _mute_callback(self, msg):
+        self._mic_muted = msg.data
+        if self._mic_muted:
+            self.ai_logger.info("🎤 Microfono MUTATO (In attesa della Wake Word)")
+            if getattr(self, '_mute_timer', None):
+                self._mute_timer.cancel()
+        else:
+            self.ai_logger.info("🎤 Microfono APERTO (In ascolto!)")
+            if self._connectivity_state == "ONLINE" and self.llm_service:
+                ctx = self._build_dynamic_context()
+                asyncio.run_coroutine_threadsafe(
+                    self.llm_service.generate_live(prompt=ctx, context=None, functions=[], images=[]),
+                    self._loop
+                )
+            def auto_mute():
+                self._mic_muted = True
+                self.ai_logger.info("🎤 Microfono AUTO-MUTATO per timeout")
+            
+            if getattr(self, '_mute_timer', None):
+                self._mute_timer.cancel()
+            self._mute_timer = threading.Timer(15.0, auto_mute)
+            self._mute_timer.start()
+
+    def _on_voice_command(self, event):
+        text = event.data.get("text")
+        if text:
+            self.ai_logger.info(f"Voice command recognized: {text}")
+            asyncio.run_coroutine_threadsafe(self.process_input(text, source="voice"), self._loop)
+
+    def _camera_callback(self, msg: CompressedImage):
         try:
-            if os.path.exists(master_prompt_path):
-                with open(master_prompt_path, "r", encoding="utf-8") as f:
-                    master_prompt_content = f.read().strip()
-                if master_prompt_content:
-                    master_prompt_section = (
-                        "\n\n## Istruzioni Auto-Apprese (Master Prompt)\n"
-                        "Le seguenti istruzioni sono state generate dall'analisi notturna "
-                        "delle tue interazioni precedenti:\n"
-                        f"{master_prompt_content}"
-                    )
-        except Exception:
-            pass  # Non-critical: if file can't be read, skip silently
-
-        prompt = (
-            f"{self._base_system_prompt}\n\n"
-            f"Data e ora corrente: {time_str}\n"
-            f"Stato connettività: {self._connectivity_state}"
-            f"{visual_context}"
-            f"{master_prompt_section}"
-        )
-        self.llm_service.set_system_prompt(prompt)
-
-    async def _store_memory(self, user_text: str, robot_text: str, mem_type: str):
-        """Store interaction in memory."""
-        content = f"User: {user_text}\nRobot: {robot_text}"
-        embedding = await self.embedding_service.embed(content)
-        
-        memory = Memory(
-            id="", # Auto-generated
-            content=content,
-            memory_type=MemoryType(mem_type),
-            embedding=embedding
-        )
-        self.memory_store.add(memory)
-
-    def _on_task_created(self, event):
-        """Handle new task creation."""
-        pass
-
-    def _on_error(self, event):
-        """Handle global errors."""
-        pass
-
-    def _publish_status(self):
-        """Publish node status with connectivity info."""
-        msg = String()
-        msg.data = f"{self.state_machine.state.name}|{self._connectivity_state}"
-        self.state_pub.publish(msg)
+            if 'jpeg' in msg.format or 'jpg' in msg.format or 'png' in msg.format:
+                self._latest_frame = CameraFrame(raw=msg.data)
+        except Exception as e:
+            self.ai_logger.debug(f"Camera frame storage failed: {e}")
 
     def _diagnostics_callback(self, msg: DiagnosticArray):
-        """Update system stats cache from /diagnostics topic."""
         for status in msg.status:
             kv = {v.key: v.value for v in status.values}
             name = status.name.lower()
@@ -1075,123 +629,441 @@ Esempi di tono corretto:
                     self._system_stats["ram_available_mb"] = int(float(kv.get("available_mb", 0)))
                 elif 'temp' in name:
                     self._system_stats["cpu_temp"] = float(kv.get("temperature_c", 0))
-                elif 'disk' in name:
-                    self._system_stats["disk_percent"] = float(kv.get("usage_percent", 0))
             except (ValueError, TypeError):
                 pass
 
-    def move_relative(self, direction: str, speed: float = 0.3, duration: float = 1.0, degrees: float = None):
-        """Publish cmd_vel for relative movement. Auto-stops after duration.
-        
-        Args:
-            direction: avanti/indietro/sinistra/destra
-            speed: linear speed (m/s) or angular multiplier
-            duration: seconds (used if degrees is None)
-            degrees: rotation angle in degrees (overrides duration for turns)
-        """
-        twist = Twist()
-        direction = direction.lower().strip()
-        
-        angular_speed = abs(speed) * 2.0  # rad/s for rotation
-        
-        if direction in ("avanti", "forward", "avanti dritto"):
-            twist.linear.x = abs(speed)
-        elif direction in ("indietro", "backward", "indietreggia"):
-            twist.linear.x = -abs(speed)
-        elif direction in ("sinistra", "left", "gira a sinistra"):
-            twist.angular.z = angular_speed
-            # If degrees specified, calculate duration from angular speed
-            if degrees is not None and degrees > 0:
-                import math
-                duration = math.radians(degrees) / angular_speed
-        elif direction in ("destra", "right", "gira a destra"):
-            twist.angular.z = -angular_speed
-            if degrees is not None and degrees > 0:
-                import math
-                duration = math.radians(degrees) / angular_speed
-        else:
-            self.ai_logger.warning(f"Unknown direction: {direction}")
-            return
-        
-        self.cmd_vel_pub.publish(twist)
-        deg_info = f" ({degrees}°)" if degrees else ""
-        self.ai_logger.info(f"Moving {direction}{deg_info} at speed={speed} for {duration:.1f}s")
-        
-        # Cancel any existing stop timer
-        if self._move_timer is not None:
-            self._move_timer.cancel()
-        
-        # Create a one-shot timer to stop after duration
-        def stop_movement():
-            self.cmd_vel_pub.publish(Twist())  # All zeros = stop
-            self.ai_logger.info("Movement stopped (timer)")
-            if self._move_timer is not None:
-                self._move_timer.cancel()
-                self._move_timer = None
-        
-        self._move_timer = self.create_timer(duration, stop_movement)
+    def _publish_status(self):
+        msg = String()
+        msg.data = f"{self.state_machine.state.name}|{self._connectivity_state}"
+        self.state_pub.publish(msg)
 
-    async def cleanup(self):
-        """Graceful shutdown — close Live API session and services."""
-        self.ai_logger.info("Shutting down AI orchestrator...")
+    def _publish_metrics(self):
+        self._metrics.update({
+            "llm_latency_p50": self._llm_latency_tracker.percentile(50),
+            "llm_latency_p95": self._llm_latency_tracker.percentile(95),
+            "llm_latency_max": self._llm_latency_tracker.max(),
+        })
+        msg = String(data=json.dumps(self._metrics))
+        self._metrics_pub.publish(msg)
+
+    def _recovery_check(self):
+        if self._connectivity_state == "OFFLINE":
+            self._llm_errors_consecutive = 0
+            asyncio.run_coroutine_threadsafe(self._test_llm_connection(), self._loop)
+
+    async def _test_llm_connection(self):
         try:
-            await self.llm_service._disconnect_live()
+            await asyncio.wait_for(
+                self.llm_service.generate_live(prompt="ping", context=None, functions=[], images=[]), timeout=10.0
+            )
+            self._connectivity_state = "ONLINE"
+            self.ai_logger.info("Recovery successful, back ONLINE")
         except Exception:
             pass
-        if self.deepseek_service:
+
+    def _emergency_callback(self, request, response):
+        self.emergency_stop()
+        response.success = True
+        return response
+
+    def _face_recognition_callback(self):
+        frame = self._latest_frame
+        if not frame: return
+        try:
+            cv_image = frame.cv_image
+            if cv_image is None: return
+
+            result = self.face_recognition_service.recognize(cv_image)
+            if result.num_faces_detected > 0:
+                self._current_user_profile = self.face_recognition_service.get_profile_for_gemini(result)
+                self.world_model.current_user = {
+                    "name": result.name if result.recognized else None,
+                    "confidence": result.confidence if result.recognized else 0,
+                }
+                if result.recognized:
+                    msg = String(data=f"✅ {result.name} (confidence: {result.confidence:.2f})")
+                elif result.ask_confirmation:
+                    msg = String(data=f"❓ Maybe {result.likely_user}")
+                else:
+                    msg = String(data=f"👤 Unknown face")
+                self.face_pub.publish(msg)
+        except Exception:
+            pass
+
+    def _on_asr_audio_chunk(self, event):
+        pass
+
+    def _raw_audio_callback(self, msg: AudioData):
+        if getattr(self, '_mic_muted', True):
+            return
+        if self._connectivity_state == "ONLINE" and self.llm_service:
+            asyncio.run_coroutine_threadsafe(self.llm_service.send_audio_chunk(msg.data), self._loop)
+
+    def _on_llm_audio_chunk(self, event):
+        audio_data = event.data.get("data")
+        if audio_data:
+            self.tts_service.play_raw_pcm(audio_data)
+
+    def _on_ha_event_for_perception(self, data):
+        if data.get("action") == "active_perception_trigger":
             try:
-                await self.deepseek_service.close()
+                self.visual_memory_service.force_capture()
             except Exception:
                 pass
-        self.ai_logger.info("AI orchestrator shutdown complete.")
 
-    def _setup_nightly_job(self):
-        """Setup nightly dream analysis job."""
-        if not HAS_SCHEDULER:
-            self.ai_logger.warning("APScheduler not installed. Nightly job disabled.")
+    async def process_input(self, text: str, source: str = "user"):
+        self._metrics["requests_total"] += 1
+
+        if SAFETY_PATTERN.search(text):
+            self.emergency_stop()
+            self.text_out_pub.publish(String(data="Fermo tutto!"))
+            await self.tts_service.speak("Fermo tutto!")
+            self._metrics["requests_success"] += 1
             return
 
-        scheduler = BackgroundScheduler()
-        # Schedule at 02:00 AM
-        scheduler.add_job(
-            lambda: asyncio.run_coroutine_threadsafe(self.nightly_dream_service.run_analysis(), self._loop),
-            'cron', 
-            hour=2, 
-            minute=0
+        async with self._processing_lock:
+            success = await self._process_input_locked(text, source)
+            if success: self._metrics["requests_success"] += 1
+            else: self._metrics["requests_failed"] += 1
+
+    async def _process_input_locked(self, text: str, source: str) -> bool:
+        start_time = time.perf_counter()
+
+        try:
+            try:
+                await asyncio.wait_for(self._ready_event.wait(), timeout=10.0)
+            except asyncio.TimeoutError:
+                return False
+
+            if self.state_machine.state not in [SystemState.READY, SystemState.LISTENING]:
+                return False
+
+            self.state_machine.transition_to(SystemState.PROCESSING)
+            self.text_in_pub.publish(String(data=f"[{source}] {text}"))
+
+            clean_text = self.sanitizer.sanitize(text)
+            self.world_model.recent_interactions.append(f"User: {clean_text}")
+
+            dynamic_ctx = self._build_dynamic_context()
+            augmented_prompt = f"{dynamic_ctx}L'utente dice: \"{clean_text}\""
+
+            skill = self.skill_registry.find_best_match(clean_text, min_confidence=0.95)
+            if skill:
+                self.ai_logger.info(f"Fast-path skill match: {skill.name}")
+                try:
+                    texts_to_speak = []
+                    result_or_gen = await asyncio.wait_for(skill.safe_execute(clean_text), timeout=self._skill_timeout)
+                    last_result = None
+                    if inspect.isasyncgen(result_or_gen):
+                        async for res in result_or_gen:
+                            last_result = res
+                            if res.speak: texts_to_speak.append(res.speak)
+                    else:
+                        last_result = result_or_gen
+                        if last_result.speak: texts_to_speak.append(last_result.speak)
+
+                    self._metrics["skill_calls"] += 1
+                    if last_result and last_result.success:
+                        self._llm_errors_consecutive = 0 
+                    
+                    for txt in texts_to_speak:
+                        self.text_out_pub.publish(String(data=txt))
+                        await self.tts_service.speak(txt)
+                    return True
+
+                except Exception as e:
+                    self.ai_logger.error(f"Skill error: {e}")
+                    self._metrics["skill_errors"] += 1
+                    return False
+
+            if self._connectivity_state == "OFFLINE":
+                offline_msg = "Sono offline, riprova più tardi."
+                self.text_out_pub.publish(String(data=offline_msg))
+                await self.tts_service.speak(offline_msg)
+                return True
+
+            functions = [s.to_function_declaration() for s in self.skill_registry.get_all()]
+            gemini_functions = [self._convert_to_gemini_function(f) for f in functions]
+
+            frame = self._latest_frame
+            images = [frame.b64] if (self._is_vision_request(clean_text) and frame) else []
+
+            self._metrics["llm_calls"] += 1
+            try:
+                response = await asyncio.wait_for(
+                    self.llm_service.generate_live(
+                        prompt=augmented_prompt, 
+                        context=None, functions=gemini_functions, images=images
+                    ),
+                    timeout=self._llm_timeout
+                )
+            except Exception as e:
+                self.ai_logger.error(f"LLM call failed: {e}")
+                self._track_llm_error()
+                return False
+
+            latency = response.latency_ms / 1000.0
+            self._llm_latency_tracker.add(latency)
+            self._track_connectivity_from_latency()
+
+            if response.actions:
+                tasks = [self._execute_llm_action(a) for a in response.actions]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                speak_texts = []
+                for res in results:
+                    if isinstance(res, list): speak_texts.extend(res)
+                for txt in speak_texts:
+                    if txt:
+                        self.text_out_pub.publish(String(data=txt))
+                        await self.tts_service.speak(txt)
+
+            if response.text:
+                self.raw_text_pub.publish(String(data=response.text))
+                spoken_text = self._extract_speech(response.text)
+                
+                if spoken_text:
+                    self.text_out_pub.publish(String(data=spoken_text))
+                    await self.tts_service.speak(spoken_text)
+                    self.world_model.recent_interactions.append(f"Robot: {spoken_text[:50]}...")
+                else:
+                    self.ai_logger.warning("Nessun testo parlato estratto.")
+
+            if self.config.rag.enabled and response.text.strip():
+                await self._store_memory_background(clean_text, response.text, "conversation")
+
+            return True
+
+        except Exception as e:
+            self.ai_logger.error(f"Errore in process_input: {e}", exc_info=True)
+            return False
+        finally:
+            if self.state_machine.state == SystemState.PROCESSING:
+                self.state_machine.transition_to(SystemState.READY)
+            duration = (time.perf_counter() - start_time) * 1000
+            self.ai_logger.info(f"Processing completed in {duration:.1f}ms")
+
+    def _track_connectivity_from_latency(self):
+        if len(self._llm_latency_tracker.values) < 3: return
+        p95 = self._llm_latency_tracker.percentile(95)
+        old_state = self._connectivity_state
+        if old_state == "ONLINE" and p95 > self._conn_degraded_threshold:
+            self._connectivity_state = "DEGRADED"
+        elif old_state == "DEGRADED" and p95 < self._conn_online_threshold:
+            self._connectivity_state = "ONLINE"
+        if old_state != self._connectivity_state:
+            self.ai_logger.info(f"🌐 Connectivity: {old_state} → {self._connectivity_state} (P95: {p95:.1f}s)")
+
+    def _track_llm_error(self):
+        self._llm_errors_consecutive += 1
+        if self._llm_errors_consecutive >= 3:
+            self._connectivity_state = "OFFLINE"
+            self.ai_logger.warning("🌐 Connectivity → OFFLINE")
+
+    async def _execute_llm_action(self, action_data: Dict[str, Any]) -> List[str]:
+        skill_name = action_data.get("action_type")
+        args = action_data.get("args", {})
+        texts_to_speak = []
+
+        skill = self.skill_registry.get(skill_name)
+        if not skill: return texts_to_speak
+
+        execution_text = args.get("text", "")
+        if skill_name == "navigation" and "action" in args:
+            nav_action = args["action"]
+            if nav_action == "explore": execution_text = "esplora"
+            elif nav_action == "stop": execution_text = "fermati"
+            elif nav_action == "move_relative": execution_text = f"vai {args.get('direction', '')}"
+
+        try:
+            result_or_gen = await skill.safe_execute(execution_text)
+            last_result = None
+            if inspect.isasyncgen(result_or_gen):
+                async for res in result_or_gen:
+                    if res.speak: texts_to_speak.append(res.speak)
+                    last_result = res
+            else:
+                last_result = result_or_gen
+                if last_result.speak: texts_to_speak.append(last_result.speak)
+        except Exception as e:
+            self.ai_logger.error(f"Skill error: {e}")
+            
+        return texts_to_speak
+
+    def _convert_to_gemini_function(self, func_decl: Dict) -> Any:
+        return FunctionDeclaration(**func_decl)
+
+    def _extract_speech(self, raw_text: str) -> str:
+        """Filtro super intelligente: tollera i ragionamenti di Gemini ed estrae la voce."""
+        
+        # 1. Pulisce markdown pesanti che l'IA usa per le azioni
+        clean = re.sub(r'\*\*.*?\*\*', '', raw_text, flags=re.DOTALL)
+        clean = re.sub(r'\*.*?\*', '', clean, flags=re.DOTALL)
+        clean = clean.strip()
+        
+        # 2. Rileva se l'IA sta pensando ad alta voce in inglese
+        english_indicators = [
+            " i'm ", " i've ", " i''m ", " i''ve ", " crafted ", " refined ", 
+            " response ", " formulation ", " tone ", " realized ", " acknowledged ", " user "
+        ]
+        
+        test_str = f" {clean.lower()} "
+        is_reasoning = any(ind in test_str for ind in english_indicators)
+        
+        if is_reasoning:
+            self.ai_logger.warning("Gemini ha ragionato in inglese. Recupero la frase in italiano...")
+            
+            # Rimuove le virgolette attorno a parole singole (senza spazi in mezzo)
+            # Questo impedisce alle virgolette interne (es. un termine virgolettato) di interrompere il regex.
+            clean_for_quotes = re.sub(r'["“”\']([^\s"“”\']+)["“”\']', r'\1', clean)
+            
+            # Cerca tra virgolette che contengono frasi intere (conterranno sicuramente spazi o più parole)
+            quotes = re.findall(r'["“”]([^"“”]+)["“”]', clean_for_quotes)
+            if quotes:
+                salvage_text = max(quotes, key=len).strip()
+                self.ai_logger.info(f"Salvata risposta dalle virgolette: {salvage_text}")
+                return salvage_text
+                
+            # Piano B: prende l'ultima riga di testo che non contiene parole inglesi
+            lines = [l.strip() for l in clean.split('\n') if l.strip()]
+            for line in reversed(lines):
+                if not any(ind in f" {line.lower()} " for ind in english_indicators):
+                    self.ai_logger.info(f"Salvata l'ultima riga valida: {line}")
+                    return line
+                    
+            self.ai_logger.warning("Recupero fallito, stringa vuota per non far uscire inglese dallo speaker.")
+            return ""
+            
+        # Se non è un ragionamento, ritorna la stringa pulita dalle virgolette esterne
+        return clean.strip('"\'') 
+
+    def _is_vision_request(self, text: str) -> bool:
+        keywords = ['vedi', 'guarda', 'cosa vedi', 'dimmi', 'descrivi', 'mostra']
+        return any(kw in text.lower() for kw in keywords)
+
+    async def _store_memory_background(self, user_text: str, robot_text: str, mem_type: str):
+        if not robot_text.strip() or self._memory_queue is None:
+            return
+            
+        pending = PendingMemory(
+            user_text=user_text,
+            robot_text=robot_text,
+            mem_type=mem_type,
+            timestamp=time.time()
         )
-        scheduler.start()
+        try:
+            self._memory_queue.put_nowait(pending)
+        except asyncio.QueueFull:
+            self.ai_logger.warning("Memory queue full, dropping memory")
+
+    def move_relative(self, direction: str, speed: float = 0.3, duration: float = 1.0, degrees: float = None):
+        twist = Twist()
+        dir_low = direction.lower().strip()
+        angular_speed = abs(speed) * 2.0
+
+        if dir_low in ("avanti", "forward"): twist.linear.x = abs(speed)
+        elif dir_low in ("indietro", "backward"): twist.linear.x = -abs(speed)
+        elif dir_low in ("sinistra", "left"): twist.angular.z = angular_speed
+        elif dir_low in ("destra", "right"): twist.angular.z = -angular_speed
+        else: return
+
+        with self._reactive_cmd_vel_lock:
+            self._reactive_cmd_vel = twist
+        asyncio.run_coroutine_threadsafe(self._schedule_stop(duration), self._loop)
+
+    async def _schedule_stop(self, duration: float):
+        if self._move_lock is None: return
+        async with self._move_lock:
+            if self._move_task and not self._move_task.done():
+                self._move_task.cancel()
+            async def stop_after(sec):
+                await asyncio.sleep(sec)
+                with self._reactive_cmd_vel_lock: self._reactive_cmd_vel = Twist()
+            self._move_task = asyncio.create_task(stop_after(duration))
+
+    async def _startup(self):
+        try:
+            self.state_machine.transition_to(SystemState.INITIALIZING)
+            self.ai_logger.info("Starting up services...")
+
+            if self.config.home_assistant.token: await self.ha_client.connect()
+
+            await self.llm_service.start_persistent_live()
+            self.ai_logger.info("Sistema pronto per ricevere audio via ROS 2 (/audio/audio)")
+
+            self.state_machine.transition_to(SystemState.READY)
+            self._ready_event.set()
+            self.ai_logger.info("System READY")
+            try:
+                await self.tts_service.speak("Sistema avviato e pronto.")
+            except Exception:
+                pass
+        except Exception as e:
+            self.ai_logger.error(f"Startup failed: {e}")
+            self.state_machine.transition_to(SystemState.ERROR, str(e))
+
+    async def shutdown(self):
+        self.ai_logger.info("Shutting down AI orchestrator...")
+        self._shutdown_flag = True
+
+        # Cancella il timer di auto-mute per evitare callback su nodo distrutto
+        if getattr(self, '_mute_timer', None) is not None:
+            self._mute_timer.cancel()
+            self._mute_timer = None
+
+        with self._reactive_cmd_vel_lock: self._reactive_cmd_vel = Twist()
+        await self._cancel_move_task()
+
+        if self._memory_worker_task: self._memory_worker_task.cancel()
+        try: await self.llm_service.shutdown()
+        except Exception: pass
+        
+        if self.deepseek_service:
+            try: await self.deepseek_service.close()
+            except Exception: pass
+            
+        if hasattr(self, '_scheduler'): self._scheduler.shutdown(wait=False)
+        if hasattr(self, '_thread_pool'): self._thread_pool.shutdown(wait=False)
+        self._loop.stop()
+
+    def _setup_nightly_job(self):
+        if not HAS_SCHEDULER: return
+        self._scheduler = BackgroundScheduler()
+        self._scheduler.add_job(
+            lambda: asyncio.run_coroutine_threadsafe(self.nightly_dream_service.run_analysis(), self._loop),
+            'cron', hour=2, minute=0
+        )
+        self._scheduler.start()
         self.ai_logger.info("Nightly dream job scheduled for 02:00 AM.")
+
+    def _run_async_loop(self):
+        asyncio.set_event_loop(self._loop)
+        try: self._loop.run_forever()
+        except Exception as e: self.ai_logger.error(f"Fatal error in async loop: {e}")
+
+    # -----------------------------------------------------------------------
+    # Event Bus Placeholders
+    # -----------------------------------------------------------------------
+    def _on_task_created(self, event):
+        self.ai_logger.debug(f"Task created event: {event.data}")
+
+    def _on_error(self, event):
+        self.ai_logger.warning(f"Error event received: {event.data}")
 
 def main(args=None):
     rclpy.init(args=args)
-    
+    node = AIOrchestrator()
+    executor = MultiThreadedExecutor(num_threads=4)
+    executor.add_node(node)
     try:
-        node = AIOrchestrator()
-        
-        # Setup scheduler
-        node._setup_nightly_job()
-        
-        executor = MultiThreadedExecutor()
-        executor.add_node(node)
-        
-        try:
-            executor.spin()
-        except KeyboardInterrupt:
-            pass
-        finally:
-            # Clean up Live API session
-            import asyncio
-            try:
-                asyncio.get_event_loop().run_until_complete(node.cleanup())
-            except Exception:
-                pass
-            node.destroy_node()
-            
-    except Exception as e:
-        print(f"Error starting node: {e}")
+        executor.spin()
+    except KeyboardInterrupt:
+        pass
     finally:
-        if rclpy.ok():
-            rclpy.shutdown()
+        if node._loop.is_running():
+            future = asyncio.run_coroutine_threadsafe(node.shutdown(), node._loop)
+            future.result(timeout=10.0)
+        node.destroy_node()
+        rclpy.shutdown()
 
 if __name__ == '__main__':
     main()

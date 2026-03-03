@@ -1,7 +1,6 @@
 #include "fast_flow_vo_node.hpp"
 
 #include <cv_bridge/cv_bridge.hpp>
-#include <cv_bridge/cv_bridge.hpp>
 #include <sensor_msgs/image_encodings.hpp>
 #include <sensor_msgs/msg/compressed_image.hpp>
 #include <opencv2/calib3d.hpp>
@@ -59,7 +58,7 @@ FastFlowVONode::FastFlowVONode(const rclcpp::NodeOptions& options)
     config_.enable_floor_filter = declare_parameter<bool>("enable_floor_filter", true);
     config_.camera_height = declare_parameter<double>("camera_height", 0.08);
     config_.camera_pitch = declare_parameter<double>("camera_pitch", 0.0);  // radians, positive = tilted up
-    config_.floor_z_threshold = declare_parameter<double>("floor_z_threshold", -0.02);  // Z below this in base_link = rejected
+    config_.floor_z_threshold = declare_parameter<double>("floor_z_threshold", 0.03);  // Z < 3cm in base_link = scartato
     
     // PnP
     config_.min_points = declare_parameter<int>("min_points", 20);
@@ -99,8 +98,17 @@ FastFlowVONode::FastFlowVONode(const rclcpp::NodeOptions& options)
     config_.imu_accel_threshold = declare_parameter<double>("imu_accel_threshold", 0.15);
     config_.cmd_vel_timeout = declare_parameter<double>("cmd_vel_timeout", 0.5);
     
+    // [CORREZIONE 4] Parametro filtro parallasse
+    config_.min_parallax_px = declare_parameter<float>("min_parallax_px", 0.5f);
+    
+    // [OPT 1] Parametro sincronizzazione frame
+    config_.max_frame_dt_ms = declare_parameter<double>("max_frame_dt_ms", 33.0);
+    
     // Initialize motion gate time
     last_cmd_vel_time_ = this->now();
+    
+    // [OPT 4] Tempo avvio calibrazione IMU
+    calibration_start_time_ = this->now();
     
     // Initialize FAST detector
     fast_detector_ = cv::FastFeatureDetector::create(config_.fast_threshold, true);
@@ -385,10 +393,18 @@ void FastFlowVONode::processLoop() {
                     imu_msg.orientation_covariance[0] = -1;
                     
                     if (!pitch_calibrated_.load(std::memory_order_acquire)) {
-                        accel_sum_x_ += ax_ros;
-                        accel_sum_y_ += ay_ros;
-                        accel_sum_z_ += az_ros;
-                        calibration_sample_count_++;
+                        // [OPT 4] Quality gate: accetta campioni solo se robot praticamente fermo
+                        double gyro_norm_cal = std::sqrt(gx_ros*gx_ros + gy_ros*gy_ros + gz_ros*gz_ros);
+                        double accel_mag_cal = std::sqrt(ax_ros*ax_ros + ay_ros*ay_ros + az_ros*az_ros);
+                        bool sample_quality_ok = (gyro_norm_cal < 0.05) &&
+                                                 (std::abs(accel_mag_cal - 9.81) < 0.3);
+                        
+                        if (sample_quality_ok) {
+                            accel_sum_x_ += ax_ros;
+                            accel_sum_y_ += ay_ros;
+                            accel_sum_z_ += az_ros;
+                            calibration_sample_count_++;
+                        }
                         
                         if (calibration_sample_count_ >= CALIBRATION_SAMPLES) {
                             double avg_x = accel_sum_x_ / CALIBRATION_SAMPLES;
@@ -402,6 +418,16 @@ void FastFlowVONode::processLoop() {
                             RCLCPP_INFO(get_logger(), 
                                 "📐 Camera pitch calibrated: %.1f° (ROS Accel: x=%.2f, z=%.2f)",
                                 pitch * 180.0 / M_PI, avg_x, avg_z);
+                        }
+                        
+                        // [OPT 4] Timeout 30s: usa pitch=0 come fallback
+                        double elapsed = (this->now() - calibration_start_time_).seconds();
+                        if (elapsed > 30.0 && calibration_sample_count_ < CALIBRATION_SAMPLES) {
+                            calibrated_pitch_.store(0.0, std::memory_order_release);
+                            pitch_calibrated_.store(true, std::memory_order_release);
+                            RCLCPP_WARN(get_logger(),
+                                "⚠️ IMU calibration timeout (30s, %d/%d campioni). Fallback pitch=0°",
+                                calibration_sample_count_, CALIBRATION_SAMPLES);
                         }
                     }
                     
@@ -427,6 +453,10 @@ void FastFlowVONode::processLoop() {
             if (config_.skip_frames <= 1 || frame_counter % config_.skip_frames == 0) {
                 cv::Mat gray = rectFrame->getCvFrame();
                 cv::Mat depth = depthFrame->getCvFrame();
+                
+                // [OPT 1] Timestamp: this->now() per i messaggi ROS (epoch Unix).
+                // I timestamp HW DepthAI usano il clock monotono del dispositivo
+                // (secondi dal boot del sensore), NON epoch Unix — non vanno pubblicati.
                 auto stamp = this->now();
                 
                 // Guarantee strictly monotonic timestamps for visual odometry
@@ -435,6 +465,17 @@ void FastFlowVONode::processLoop() {
                     stamp = rclcpp::Time(last_stamp_ns + 1000000, this->get_clock()->get_clock_type()); // Add 1ms
                 }
                 last_stamp_ns = stamp.nanoseconds();
+                
+                // [OPT 1] Guard sincronizzazione rect/depth via timestamp HW (solo per check)
+                auto hw_ts = rectFrame->getTimestamp();
+                auto depth_ts = depthFrame->getTimestamp();
+                auto frame_dt = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    hw_ts > depth_ts ? hw_ts - depth_ts : depth_ts - hw_ts).count();
+                if (frame_dt > config_.max_frame_dt_ms) {
+                    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
+                        "Frame dt mismatch: rect/depth = %ldms > %.0fms. Performance may degrade.",
+                        frame_dt, config_.max_frame_dt_ms);
+                }
                 
                 publishImages(gray, depth, stamp);
                 processFrame(gray, depth, stamp);
@@ -448,13 +489,13 @@ void FastFlowVONode::processLoop() {
             std::string err_msg = e.what();
             if (err_msg.find("XLink") != std::string::npos || 
                 err_msg.find("Device") != std::string::npos) {
-                RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 1000,
-                    "DepthAI error: %s", e.what());
+                RCLCPP_FATAL(get_logger(), "DepthAI USB connection lost! Error: %s. Shutting down node to allow respawn.", e.what());
+                rclcpp::shutdown();
+                exit(1);
             } else {
                 RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 1000,
                     "Runtime error: %s", e.what());
             }
-            // Don't crash, try to recover on next iteration
         } catch (const cv::Exception& e) {
             RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 1000,
                 "OpenCV error [%s:%d]: %s", e.file.c_str(), e.line, e.what());
@@ -472,17 +513,28 @@ void FastFlowVONode::processFrame(const cv::Mat& gray, const cv::Mat& depth,
     bool tracking_ok = false;
     
     if (has_prev_frame_) {
+        // [OPT 3] Pre-calcola piramidi KLT una sola volta
+        cv::Size win_size(config_.klt_win_size, config_.klt_win_size);
+        std::vector<cv::Mat> curr_pyramid;
+        cv::buildOpticalFlowPyramid(gray, curr_pyramid, win_size, config_.klt_max_level);
+        
+        // Se non abbiamo la piramide precedente, costruiscila dal frame salvato
+        if (prev_pyramid_.empty()) {
+            cv::buildOpticalFlowPyramid(prev_frame_.gray, prev_pyramid_, win_size, config_.klt_max_level);
+        }
+        
         // 1. Track previous points with KLT
         std::vector<cv::Point2f> curr_pts;
         std::vector<cv::Point2f> prev_pts = prev_frame_.points;
         
-        if (!prev_pts.empty() && trackKLT(prev_frame_.gray, gray, prev_pts, curr_pts)) {
+        if (!prev_pts.empty() && trackKLT(prev_pyramid_, curr_pyramid, prev_pts, curr_pts)) {
             
             // 2. Associate with depth
             std::vector<cv::Point3f> obj_pts;
             std::vector<cv::Point2f> img_pts;
+            std::vector<cv::Point2f> valid_prev_pts;
             
-            if (associateDepth(prev_frame_.depth, prev_pts, curr_pts, obj_pts, img_pts)) {
+            if (associateDepth(prev_frame_.depth, prev_pts, curr_pts, obj_pts, img_pts, valid_prev_pts)) {
                 
                 // 3. Estimate motion with PnP
                 result = estimatePnP(obj_pts, img_pts);
@@ -493,21 +545,37 @@ void FastFlowVONode::processFrame(const cv::Mat& gray, const cv::Mat& depth,
                     publishOdometry(stamp);
                     publishGuess(stamp);  // Provide motion hint to RTAB-Map
                     tracking_ok = true;
-                    consecutive_failures_ = 0;
                 }
             }
+            
+            // Publish Debug View if enabled
+            if (config_.publish_debug) {
+                // Use the filtered points (img_pts) if they exist, otherwise fallback to curr_pts
+                const auto& debug_prev = valid_prev_pts.empty() ? prev_pts : valid_prev_pts;
+                const auto& debug_curr = img_pts.empty() ? curr_pts : img_pts;
+                publishDebugView(gray, debug_prev, debug_curr, result.inlier_indices, stamp);
+            }
+        } else if (config_.publish_debug) {
+            // If KLT failed completely, just draw the original points with empty inliers
+            publishDebugView(gray, prev_pts, curr_pts, {}, stamp);
         }
         
-        // Publish Debug View if enabled
-        if (config_.publish_debug) {
-            publishDebugView(gray, prev_pts, curr_pts, result.inlier_indices, stamp);
+        // [CORREZIONE] Se il robot è fermo + tracking fallito → NON penalizzare lo stato.
+        // Con il filtro parallasse attivo, se il robot è fermo non c'è optical flow →
+        // nessun punto per PnP → result.success=false → consecutive_failures++ → TRACKING_LOST.
+        // Questo è un falso negativo: il nodo funziona correttamente.
+        bool robot_stationary = config_.enable_motion_gate && !isRobotMoving();
+        if (!result.success && robot_stationary) {
+            // Fermo + tracking fallito = normale, conserva lo stato attuale
+            RCLCPP_DEBUG_THROTTLE(get_logger(), *get_clock(), 5000,
+                "Robot fermo: tracking non calcolabile, stato conservato");
+        } else {
+            // In movimento, o tracking riuscito anche da fermo → aggiorna stato normally
+            updateState(result);
         }
         
-        if (!tracking_ok) {
-            consecutive_failures_++;
-        }
-        
-        updateState(result);
+        // [OPT 3] Salva la piramide corrente per il prossimo frame
+        prev_pyramid_ = std::move(curr_pyramid);
     }
     
     // Update previous frame
@@ -643,7 +711,9 @@ void FastFlowVONode::detectFAST(const cv::Mat& gray, std::vector<cv::Point2f>& p
 
 // ===================== 2. KLT Tracking =====================
 
-bool FastFlowVONode::trackKLT(const cv::Mat& prev_gray, const cv::Mat& curr_gray,
+// [OPT 3] trackKLT ora accetta piramidi pre-calcolate
+bool FastFlowVONode::trackKLT(const std::vector<cv::Mat>& prev_pyr,
+                               const std::vector<cv::Mat>& curr_pyr,
                                std::vector<cv::Point2f>& prev_pts, 
                                std::vector<cv::Point2f>& curr_pts) {
     
@@ -657,20 +727,24 @@ bool FastFlowVONode::trackKLT(const cv::Mat& prev_gray, const cv::Mat& curr_gray
     cv::Size win_size(config_.klt_win_size, config_.klt_win_size);
     cv::TermCriteria criteria(cv::TermCriteria::COUNT | cv::TermCriteria::EPS, 30, 0.01);
     
-    // Forward tracking
-    cv::calcOpticalFlowPyrLK(prev_gray, curr_gray, prev_pts, curr_pts,
+    // Forward tracking (usa piramidi pre-calcolate)
+    cv::calcOpticalFlowPyrLK(prev_pyr, curr_pyr, prev_pts, curr_pts,
                              status, error, win_size, config_.klt_max_level, criteria);
     
-    // Forward-backward consistency check
+    // Forward-backward consistency check (usa piramidi pre-calcolate)
     std::vector<cv::Point2f> back_pts;
     std::vector<uchar> back_status;
     std::vector<float> back_error;
     
-    cv::calcOpticalFlowPyrLK(curr_gray, prev_gray, curr_pts, back_pts,
+    cv::calcOpticalFlowPyrLK(curr_pyr, prev_pyr, curr_pts, back_pts,
                              back_status, back_error, win_size, config_.klt_max_level, criteria);
     
     // Filter points
     std::vector<cv::Point2f> good_prev, good_curr;
+    
+    // Estrai dimensione immagine dalla piramide livello 0
+    int img_cols = curr_pyr.empty() ? 0 : curr_pyr[0].cols;
+    int img_rows = curr_pyr.empty() ? 0 : curr_pyr[0].rows;
     
     for (size_t i = 0; i < prev_pts.size(); i++) {
         if (status[i] == 0 || back_status[i] == 0) continue;
@@ -681,8 +755,8 @@ bool FastFlowVONode::trackKLT(const cv::Mat& prev_gray, const cv::Mat& curr_gray
         if (fb_dist > config_.fb_threshold) continue;
         
         // Bounds check
-        if (curr_pts[i].x < 0 || curr_pts[i].x >= curr_gray.cols) continue;
-        if (curr_pts[i].y < 0 || curr_pts[i].y >= curr_gray.rows) continue;
+        if (curr_pts[i].x < 0 || curr_pts[i].x >= img_cols) continue;
+        if (curr_pts[i].y < 0 || curr_pts[i].y >= img_rows) continue;
         
         good_prev.push_back(prev_pts[i]);
         good_curr.push_back(curr_pts[i]);
@@ -703,10 +777,12 @@ bool FastFlowVONode::associateDepth(const cv::Mat& depth,
                                      const std::vector<cv::Point2f>& prev_pts,
                                      const std::vector<cv::Point2f>& curr_pts,
                                      std::vector<cv::Point3f>& obj_pts,
-                                     std::vector<cv::Point2f>& img_pts) {
+                                     std::vector<cv::Point2f>& img_pts,
+                                     std::vector<cv::Point2f>& valid_prev_pts) {
     
     obj_pts.clear();
     img_pts.clear();
+    valid_prev_pts.clear();
     
     int valid_count = 0;
     
@@ -728,30 +804,29 @@ bool FastFlowVONode::associateDepth(const cv::Mat& depth,
         float Y_cam = (prev_pts[i].y - cy_) * z / fy_;
         float Z_cam = z;
         
-        // Floor reflection filter: transform to base_link and check Z height
-        // Camera optical frame: Z forward, X right, Y down
-        // Base link frame: X forward, Y left, Z up
-        // Uses calibrated pitch from IMU gravity vector
+        // [CORREZIONE 2] Filtro pavimento: usa T_base_camera_ (trasformazione corretta)
+        // invece del calcolo manuale cos/sin(pitch)
         if (config_.enable_floor_filter && pitch_calibrated_.load(std::memory_order_acquire)) {
+            // Include camera pitch in transformation
             double pitch = calibrated_pitch_.load(std::memory_order_acquire);
-            double cos_pitch = std::cos(pitch);
-            double sin_pitch = std::sin(pitch);
+            Eigen::Matrix3d R_pitch;
+            R_pitch = Eigen::AngleAxisd(pitch, Eigen::Vector3d::UnitY()); // Pitch is around Y axis in camera frame
             
-            // Transform from camera optical to base_link (simplified for pitch only):
-            // X_base = Z_cam * cos(pitch) + Y_cam * sin(pitch) (forward)
-            // Y_base = -X_cam (left)
-            // Z_base = -Y_cam * cos(pitch) + Z_cam * sin(pitch) + camera_height (up)
-            double Z_base = -Y_cam * cos_pitch + Z_cam * sin_pitch + config_.camera_height;
-            
-            // Reject points below floor (Z_base < floor_z_threshold)
-            if (Z_base < config_.floor_z_threshold) {
-                // This point is below floor level - likely a reflection or underground object
+            Eigen::Vector3d p_cam(X_cam, Y_cam, Z_cam);
+            Eigen::Vector3d p_base = T_base_camera_ * (R_pitch * p_cam);
+            if (p_base.z() < config_.floor_z_threshold) {
                 continue;
             }
         }
         
+        // [CORREZIONE 4] RIMOSSO: Il filtro parallasse in associateDepth distruggeva i punti
+        // fermi! PnP ha BISOGNO dei punti fermi per capire che il robot è... fermo.
+        // float flow = cv::norm(curr_pts[i] - prev_pts[i]);
+        // if (flow < config_.min_parallax_px) continue;
+        
         obj_pts.emplace_back(X_cam, Y_cam, Z_cam);
         img_pts.push_back(curr_pts[i]);
+        valid_prev_pts.push_back(prev_pts[i]);
         valid_count++;
     }
     
@@ -777,16 +852,36 @@ FastFlowVONode::TrackingResult FastFlowVONode::estimatePnP(
     cv::Mat rvec, tvec;
     std::vector<int> inliers;
     
+    // [CORREZIONE 5] Usa EPNP (più robusto) invece di ITERATIVE
     bool success = cv::solvePnPRansac(
         obj_pts, img_pts, camera_matrix_, cv::Mat(),
         rvec, tvec, false, 100, config_.reproj_error, 0.99, inliers,
-        cv::SOLVEPNP_ITERATIVE
+        cv::SOLVEPNP_EPNP
     );
     
     if (!success || inliers.size() < (size_t)config_.min_inliers) {
         RCLCPP_DEBUG(get_logger(), "PnP failed: success=%d, inliers=%zu",
                     success, inliers.size());
         return result;
+    }
+    
+    // [CORREZIONE 5] Raffinamento Levenberg-Marquardt sugli inlier
+    // Solo se abbiamo abbastanza inlier per evitare overfitting
+    if ((int)inliers.size() >= config_.min_inliers * 2) {
+        try {
+            std::vector<cv::Point3f> inlier_obj;
+            std::vector<cv::Point2f> inlier_img;
+            inlier_obj.reserve(inliers.size());
+            inlier_img.reserve(inliers.size());
+            for (int idx : inliers) {
+                inlier_obj.push_back(obj_pts[idx]);
+                inlier_img.push_back(img_pts[idx]);
+            }
+            cv::solvePnPRefineLM(inlier_obj, inlier_img, camera_matrix_,
+                                cv::Mat(), rvec, tvec);
+        } catch (const cv::Exception& e) {
+            RCLCPP_DEBUG(get_logger(), "PnP LM refinement failed: %s", e.what());
+        }
     }
     
     result.success = true;
@@ -840,10 +935,9 @@ bool FastFlowVONode::validateMotion(const TrackingResult& result) {
     }
     
     // Check for noise floor - Zero Velocity Update (ZUPT)
-    // If motion is below thresholds, robot is stationary - skip pose update
+    // Se sia traslazione che rotazione sono sotto il noise floor → robot fermo
     if (result.translation_norm < config_.min_translation && 
-        result.rotation_norm < 0.01) {  // ~0.6 degrees
-        // Robot is stationary, still valid but skip update to prevent drift
+        result.rotation_norm < 0.005) {  // ~0.3° (era 0.6°) — più aggressivo anti-drift
         return false;
     }
     
@@ -954,8 +1048,16 @@ void FastFlowVONode::updatePose(const TrackingResult& result) {
     // Transform to base frame
     if (transform_initialized_) {
         Eigen::Matrix3d R_base_cam = T_base_camera_.linear();
-        R = R_base_cam * R * R_base_cam.transpose();
-        t = R_base_cam * t;
+        Eigen::Vector3d t_c_in_b = T_base_camera_.translation();
+        
+        // Compute base rotation
+        Eigen::Matrix3d R_base_motion = R_base_cam * R * R_base_cam.transpose();
+        
+        // Compute base translation with lever arm compensation
+        // t_base = R_b_c * t_cam + (I - R_base_motion) * t_c_in_b
+        t = R_base_cam * t + (Eigen::Matrix3d::Identity() - R_base_motion) * t_c_in_b;
+        
+        R = R_base_motion;
     }
     
     // Apply EMA filter to translation (rotation stays raw)
@@ -972,25 +1074,40 @@ void FastFlowVONode::updatePose(const TrackingResult& result) {
         return;
     }
     
-    // Motion Gate: Block pose updates if robot is stationary
-    // This prevents drift in front of white walls when the robot is not moving
+    // [CORREZIONE 3] Motion Gate: permetti aggiornamenti ad alta confidenza
+    // anche quando il robot è fermo (es. correzione di drift, forze esterne)
     if (config_.enable_motion_gate && !isRobotMoving()) {
-        // Robot is stationary - don't update pose to prevent phantom drift
-        RCLCPP_DEBUG_THROTTLE(get_logger(), *get_clock(), 2000,
-            "Motion Gate: Blocking VO update (motors_active=%d, imu_motion=%d)",
-            motors_active_.load(), imu_motion_detected_.load());
-        return;
+        if (result.inliers < config_.good_inlier_threshold) {
+            // Fermo + bassa confidenza = salta aggiornamento
+            RCLCPP_DEBUG_THROTTLE(get_logger(), *get_clock(), 2000,
+                "Motion Gate: Blocking VO update (inliers=%d < %d, motors=%d, imu=%d)",
+                result.inliers, config_.good_inlier_threshold,
+                motors_active_.load(), imu_motion_detected_.load());
+            return;
+        }
+        // Fermo + alta confidenza = permetti correzione
     }
 
-    // Update global pose
-    std::lock_guard<std::mutex> lock(state_mutex_);
-    pose_ = pose_ * delta;
-    
     // Save delta for velocity calculation
     last_delta_translation_ = t_filtered;
     // Extract yaw from rotation matrix
     double yaw = atan2(R(1, 0), R(0, 0));
+    
+    // Deadband yaw: micro-rotazioni sotto 0.003rad (0.17°) = noise PnP
+    if (std::abs(yaw) < 0.003) {
+        yaw = 0.0;
+    }
     last_delta_yaw_ = yaw;
+
+    // Enforce strictly 2D planar motion (z=0, roll=0, pitch=0)
+    // This is vital because we fully bypassed the EKF's 'two_d_mode'.
+    Eigen::Isometry3d delta_2d = Eigen::Isometry3d::Identity();
+    delta_2d.linear() = Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ()).toRotationMatrix();
+    delta_2d.translation() = Eigen::Vector3d(t_filtered.x(), t_filtered.y(), 0.0);
+
+    // Update global pose
+    std::lock_guard<std::mutex> lock(state_mutex_);
+    pose_ = pose_ * delta_2d;
 }
 
 // ===================== Publishing =====================
@@ -1038,23 +1155,55 @@ void FastFlowVONode::publishOdometry(const rclcpp::Time& stamp) {
         vyaw = delta_yaw / dt;
     }
     
-    // ===================== POSE: SET TO ZERO =====================
-    // NON vogliamo che l'EKF usi la nostra pose!
-    // Pose è a zero con covariance infinita = "non usarmi"
-    odom_msg.pose.pose.position.x = 0.0;
-    odom_msg.pose.pose.position.y = 0.0;
-    odom_msg.pose.pose.position.z = 0.0;
-    
-    odom_msg.pose.pose.orientation.x = 0.0;
-    odom_msg.pose.pose.orientation.y = 0.0;
-    odom_msg.pose.pose.orientation.z = 0.0;
-    odom_msg.pose.pose.orientation.w = 1.0;  // Identity quaternion
-    
-    // ===================== POSE COVARIANCE: INFINITE =====================
-    // Tell EKF: "Don't trust my position at all!"
-    std::fill(odom_msg.pose.covariance.begin(), odom_msg.pose.covariance.end(), 0.0);
-    for (int i = 0; i < 6; ++i) {
-        odom_msg.pose.covariance[i * 6 + i] = 9999.0;  // Diagonal = inf
+    // ===================== POSE & TF =====================
+    if (config_.publish_tf) {
+        odom_msg.pose.pose.position.x = position.x();
+        odom_msg.pose.pose.position.y = position.y();
+        odom_msg.pose.pose.position.z = position.z();
+        
+        odom_msg.pose.pose.orientation.x = orientation.x();
+        odom_msg.pose.pose.orientation.y = orientation.y();
+        odom_msg.pose.pose.orientation.z = orientation.z();
+        odom_msg.pose.pose.orientation.w = orientation.w();
+        
+        // Populate valid covariance
+        std::fill(odom_msg.pose.covariance.begin(), odom_msg.pose.covariance.end(), 0.0);
+        odom_msg.pose.covariance[0]  = 0.05;
+        odom_msg.pose.covariance[7]  = 0.05;
+        odom_msg.pose.covariance[14] = 0.05;
+        odom_msg.pose.covariance[21] = 0.1;
+        odom_msg.pose.covariance[28] = 0.1;
+        odom_msg.pose.covariance[35] = 0.1;
+
+        // Broadcast TF
+        if (tf_broadcaster_) {
+            geometry_msgs::msg::TransformStamped t;
+            t.header.stamp = stamp;
+            t.header.frame_id = config_.odom_frame;
+            t.child_frame_id = config_.base_frame;
+            t.transform.translation.x = position.x();
+            t.transform.translation.y = position.y();
+            t.transform.translation.z = position.z();
+            t.transform.rotation.x = orientation.x();
+            t.transform.rotation.y = orientation.y();
+            t.transform.rotation.z = orientation.z();
+            t.transform.rotation.w = orientation.w();
+            tf_broadcaster_->sendTransform(t);
+        }
+    } else {
+        // We act purely as a velocity sensor for EKF
+        odom_msg.pose.pose.position.x = 0.0;
+        odom_msg.pose.pose.position.y = 0.0;
+        odom_msg.pose.pose.position.z = 0.0;
+        odom_msg.pose.pose.orientation.x = 0.0;
+        odom_msg.pose.pose.orientation.y = 0.0;
+        odom_msg.pose.pose.orientation.z = 0.0;
+        odom_msg.pose.pose.orientation.w = 1.0;
+        
+        std::fill(odom_msg.pose.covariance.begin(), odom_msg.pose.covariance.end(), 0.0);
+        for (int i = 0; i < 6; ++i) {
+            odom_msg.pose.covariance[i * 6 + i] = 9999.0;
+        }
     }
     
     // ===================== TWIST (VELOCITY) =====================
@@ -1229,60 +1378,77 @@ std::string FastFlowVONode::stateToString(TrackingState state) const {
 
 void FastFlowVONode::publishImages(const cv::Mat& gray, const cv::Mat& depth, 
                                     const rclcpp::Time& stamp) {
-    // Publish grayscale as RGB (RTAB-Map expects /rgb/image)
-    // Convert mono8 to bgr8 for compatibility
-    cv::Mat rgb;
-    cv::cvtColor(gray, rgb, cv::COLOR_GRAY2BGR);
+    // [OPT 2] Pubblica RGB/depth solo se c'è almeno un subscriber RTAB-Map attivo
+    bool has_rtabmap_sub =
+        rgb_pub_->get_subscription_count() > 0 ||
+        depth_pub_->get_subscription_count() > 0;
     
-    auto rgb_msg = cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", rgb).toImageMsg();
-    rgb_msg->header.stamp = stamp;
-    rgb_msg->header.frame_id = config_.camera_frame;
-    rgb_pub_->publish(*rgb_msg);
+    if (has_rtabmap_sub) {
+        // Publish grayscale as RGB (RTAB-Map expects /rgb/image)
+        cv::Mat rgb;
+        cv::cvtColor(gray, rgb, cv::COLOR_GRAY2BGR);
+        
+        auto rgb_msg = cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", rgb).toImageMsg();
+        rgb_msg->header.stamp = stamp;
+        rgb_msg->header.frame_id = config_.camera_frame;
+        rgb_pub_->publish(*rgb_msg);
+        
+        // STAGGER PUBLISHING (Fix for Pi 5 DDS UDP Buffer Overflow dropping massive frames)
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        
+        // Publish depth as 16UC1 (millimeters)
+        auto depth_msg = cv_bridge::CvImage(std_msgs::msg::Header(), 
+                                            sensor_msgs::image_encodings::TYPE_16UC1, 
+                                            depth).toImageMsg();
+        depth_msg->header.stamp = stamp;
+        depth_msg->header.frame_id = config_.camera_frame;
+        depth_pub_->publish(*depth_msg);
+        
+        // Publish camera info
+        sensor_msgs::msg::CameraInfo camera_info_msg;
+        camera_info_msg.header.stamp = stamp;
+        camera_info_msg.header.frame_id = config_.camera_frame;
+        camera_info_msg.width = gray.cols;
+        camera_info_msg.height = gray.rows;
+        camera_info_msg.distortion_model = "plumb_bob";
+        
+        camera_info_msg.k = {fx_, 0.0, cx_, 
+                            0.0, fy_, cy_, 
+                            0.0, 0.0, 1.0};
+        
+        camera_info_msg.p = {fx_, 0.0, cx_, 0.0,
+                            0.0, fy_, cy_, 0.0,
+                            0.0, 0.0, 1.0, 0.0};
+        
+        camera_info_msg.r = {1.0, 0.0, 0.0,
+                            0.0, 1.0, 0.0,
+                            0.0, 0.0, 1.0};
+        
+        camera_info_msg.d = {0.0, 0.0, 0.0, 0.0, 0.0};
+        
+        camera_info_pub_->publish(camera_info_msg);
+    }
     
-    // STAGGER PUBLISHING (Fix for Pi 5 DDS UDP Buffer Overflow dropping massive frames)
-    std::this_thread::sleep_for(std::chrono::milliseconds(2));
-    
-    // Publish depth as 16UC1 (millimeters)
-    auto depth_msg = cv_bridge::CvImage(std_msgs::msg::Header(), 
-                                        sensor_msgs::image_encodings::TYPE_16UC1, 
-                                        depth).toImageMsg();
-    depth_msg->header.stamp = stamp;
-    depth_msg->header.frame_id = config_.camera_frame;
-    depth_pub_->publish(*depth_msg);
-    
-    // Publish camera info
-    sensor_msgs::msg::CameraInfo camera_info_msg;
-    camera_info_msg.header.stamp = stamp;
-    camera_info_msg.header.frame_id = config_.camera_frame;
-    camera_info_msg.width = gray.cols;
-    camera_info_msg.height = gray.rows;
-    camera_info_msg.distortion_model = "plumb_bob";
-    
-    // K matrix (3x3 intrinsics)
-    camera_info_msg.k = {fx_, 0.0, cx_, 
-                        0.0, fy_, cy_, 
-                        0.0, 0.0, 1.0};
-    
-    // P matrix (3x4 projection) - for rectified images, same as K with column of zeros
-    camera_info_msg.p = {fx_, 0.0, cx_, 0.0,
-                        0.0, fy_, cy_, 0.0,
-                        0.0, 0.0, 1.0, 0.0};
-    
-    // R matrix (3x3 rectification) - identity for rectified
-    camera_info_msg.r = {1.0, 0.0, 0.0,
-                        0.0, 1.0, 0.0,
-                        0.0, 0.0, 1.0};
-    
-    // D vector (distortion coefficients) - empty for rectified
-    camera_info_msg.d = {0.0, 0.0, 0.0, 0.0, 0.0};
-    
-    camera_info_pub_->publish(camera_info_msg);
-    
-    // Publish a shifted camera info for depthimage_to_laserscan
-    sensor_msgs::msg::CameraInfo camera_info_scan_msg = camera_info_msg;
-    double cy_scan = (camera_info_msg.height / 2.0) + config_.scan_y_offset;
-    camera_info_scan_msg.k[5] = cy_scan;   // Shift principal point Y
-    camera_info_scan_msg.p[6] = cy_scan;   // Shift projection matrix Y principal point
+    // camera_info_scan_pub_ pubblica SEMPRE (depthimage_to_laserscan ne ha bisogno)
+    sensor_msgs::msg::CameraInfo camera_info_scan_msg;
+    camera_info_scan_msg.header.stamp = stamp;
+    camera_info_scan_msg.header.frame_id = config_.camera_frame;
+    camera_info_scan_msg.width = gray.cols;
+    camera_info_scan_msg.height = gray.rows;
+    camera_info_scan_msg.distortion_model = "plumb_bob";
+    camera_info_scan_msg.k = {fx_, 0.0, cx_, 
+                              0.0, fy_, cy_, 
+                              0.0, 0.0, 1.0};
+    camera_info_scan_msg.p = {fx_, 0.0, cx_, 0.0,
+                              0.0, fy_, cy_, 0.0,
+                              0.0, 0.0, 1.0, 0.0};
+    camera_info_scan_msg.r = {1.0, 0.0, 0.0,
+                              0.0, 1.0, 0.0,
+                              0.0, 0.0, 1.0};
+    camera_info_scan_msg.d = {0.0, 0.0, 0.0, 0.0, 0.0};
+    double cy_scan = (gray.rows / 2.0) + config_.scan_y_offset;
+    camera_info_scan_msg.k[5] = cy_scan;
+    camera_info_scan_msg.p[6] = cy_scan;
     camera_info_scan_pub_->publish(camera_info_scan_msg);
     
     // RGB -> JPG (Conditional: Only if subscribers exist to save CPU)
@@ -1290,12 +1456,13 @@ void FastFlowVONode::publishImages(const cv::Mat& gray, const cv::Mat& depth,
         if (!config_.enable_yolo || config_.yolo_blob_path.empty()) {
             std::vector<uchar> buf_rgb;
             try {
-                // Resize if needed? No, AI needs full res or close to it.
-                // Compress with lower quality to save CPU/Bandwidth
-                cv::imencode(".jpg", rgb, buf_rgb, {cv::IMWRITE_JPEG_QUALITY, 50}); 
+                cv::Mat rgb_comp_frame;
+                cv::cvtColor(gray, rgb_comp_frame, cv::COLOR_GRAY2BGR);
+                cv::imencode(".jpg", rgb_comp_frame, buf_rgb, {cv::IMWRITE_JPEG_QUALITY, 50}); 
                 
                 sensor_msgs::msg::CompressedImage rgb_comp;
-                rgb_comp.header = rgb_msg->header;
+                rgb_comp.header.stamp = stamp;
+                rgb_comp.header.frame_id = config_.camera_frame;
                 rgb_comp.format = "jpeg";
                 rgb_comp.data = buf_rgb;
                 rgb_compressed_pub_->publish(rgb_comp);

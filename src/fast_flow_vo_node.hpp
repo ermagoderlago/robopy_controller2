@@ -111,12 +111,16 @@ private:
         bool enable_floor_filter = true;     // Enable/disable underground point rejection
         double camera_height = 0.08;         // Camera height from floor (meters)
         double camera_pitch = 0.0;           // Camera pitch angle (radians, positive = tilted up)
-        double floor_z_threshold = -0.02;    // Points below this Z in base_link frame are rejected (meters)
+        double floor_z_threshold = 0.03;     // Punti sotto 3cm in base_link = scartati (era -0.02)
         
         // PnP
         int min_points = 20;
         int min_inliers = 15;
         double reproj_error = 3.0;
+        
+        // [CORREZIONE 4] Filtro parallasse minima (pixel)
+        // 0.5px = elimina noise sub-pixel, ma mantiene abbastanza punti per PnP stabile
+        float min_parallax_px = 0.5f;
         
         // Motion Validation
         double max_translation_per_frame = 0.5;  // meters
@@ -126,11 +130,11 @@ private:
         // EMA Filter
         double ema_alpha = 0.3;
         
-        // State
+        // State (Lowered thresholds after introducing min_parallax_px=0.5)
         int lost_threshold = 5;  // consecutive failures
-        int weak_inlier_threshold = 25;
-        int good_inlier_threshold = 40;
-        int critical_inlier_threshold = 10;
+        int weak_inlier_threshold = 15;
+        int good_inlier_threshold = 25;
+        int critical_inlier_threshold = 8;
         
         // Performance
         int skip_frames = 1;
@@ -148,6 +152,9 @@ private:
         double imu_gyro_threshold = 0.02;    // rad/s - below this = no rotation
         double imu_accel_threshold = 0.15;   // m/s^2 - deviation from gravity
         double cmd_vel_timeout = 0.5;        // seconds - cmd_vel considered stale after this
+        
+        // [OPT 1] Max dt tra rect e depth frame (ms) — skip se desincronizzati
+        double max_frame_dt_ms = 33.0;
     };
     
     // TF Broadcaster (optional)
@@ -158,16 +165,19 @@ private:
     // 1. FAST Detection with grid distribution
     void detectFAST(const cv::Mat& gray, std::vector<cv::Point2f>& points);
     
-    // 2. KLT Optical Flow tracking
-    bool trackKLT(const cv::Mat& prev_gray, const cv::Mat& curr_gray,
+    // 2. KLT Optical Flow tracking (with pre-built pyramids)
+    // [OPT 3] Accetta piramidi pre-calcolate per evitare doppia computazione
+    bool trackKLT(const std::vector<cv::Mat>& prev_pyr,
+                  const std::vector<cv::Mat>& curr_pyr,
                   std::vector<cv::Point2f>& prev_pts, std::vector<cv::Point2f>& curr_pts);
     
     // 3. Depth association - backproject to 3D
     bool associateDepth(const cv::Mat& depth,
-                       const std::vector<cv::Point2f>& prev_pts,
-                       const std::vector<cv::Point2f>& curr_pts,
-                       std::vector<cv::Point3f>& obj_pts,
-                       std::vector<cv::Point2f>& img_pts);
+                        const std::vector<cv::Point2f>& prev_pts,
+                        const std::vector<cv::Point2f>& curr_pts,
+                        std::vector<cv::Point3f>& obj_pts,
+                        std::vector<cv::Point2f>& img_pts,
+                        std::vector<cv::Point2f>& valid_prev_pts);
     
     // 4. PnP motion estimation
     TrackingResult estimatePnP(const std::vector<cv::Point3f>& obj_pts,
@@ -185,6 +195,7 @@ private:
     void processFrame(const cv::Mat& gray, const cv::Mat& depth, const rclcpp::Time& stamp);
     
     void updateState(const TrackingResult& result);
+    // [CORREZIONE 3] updatePose riceve result per il check inlier nel motion gate
     void updatePose(const TrackingResult& result);
     void publishOdometry(const rclcpp::Time& stamp);
     void publishGuess(const rclcpp::Time& stamp);  // Guess for RTAB-Map
@@ -289,6 +300,11 @@ private:
     double accel_sum_y_ = 0.0;                       // Accumulated accelerometer Y  
     double accel_sum_z_ = 0.0;                       // Accumulated accelerometer Z
     static const int CALIBRATION_SAMPLES = 50;       // Samples needed for calibration
+    // [OPT 4] Tempo di inizio calibrazione per timeout 30s
+    rclcpp::Time calibration_start_time_;
+    
+    // [OPT 3] Piramide KLT del frame precedente per riuso
+    std::vector<cv::Mat> prev_pyramid_;
     
     // Camera intrinsics
     cv::Mat camera_matrix_;

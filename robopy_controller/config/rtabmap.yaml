@@ -27,7 +27,7 @@ rtabmap:
     map_frame_id: "map"
     subscribe_rgb: true
     subscribe_depth: true
-    subscribe_odom_info: true
+    subscribe_odom_info: false
     approx_sync: true
     queue_size: 5
     publish_tf: true
@@ -41,7 +41,7 @@ rtabmap:
     Optimizer/Strategy: "1"
     Optimizer/Iterations: "30"
     Grid/RangeMax: "3.5"
-    Grid/MaxGroundHeight: "0.10"
+    Grid/MaxGroundHeight: "0.03"
     Grid/MinGroundHeight: "-0.50"
     Grid/MinClusterSize: "20"
     Grid/NormalsSegmentation: "false"

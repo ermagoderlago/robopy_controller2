@@ -21,14 +21,15 @@ class SmartBuildHatDriver(Node):
         self.declare_parameter('invert_right_motor', False) # Erano entrambi negativi, nessuna inversione relativa necessaria
         
         # --- Parametri Regolatore PID (Velocità Lineare) ---
-        self.declare_parameter('kp_linear', 100.0)
-        self.declare_parameter('ki_linear', 20.0)
-        self.declare_parameter('kd_linear', 2.0)
+        # ECO00014-FIX: Guadagni abbassati — kp=100 con ki=20 saturava l'integratore.
+        self.declare_parameter('kp_linear', 25.0)
+        self.declare_parameter('ki_linear', 5.0)
+        self.declare_parameter('kd_linear', 1.0)
         
         # --- Parametri Regolatore PID (Velocità Angolare) ---
-        self.declare_parameter('kp_angular', 60.0)
-        self.declare_parameter('ki_angular', 10.0)
-        self.declare_parameter('kd_angular', 1.0)
+        self.declare_parameter('kp_angular', 20.0)
+        self.declare_parameter('ki_angular', 3.0)
+        self.declare_parameter('kd_angular', 0.5)
         
         # --- Deadband Compensation e Limiti ---
         # Il PWM base necessario per far muovere il motore e vincere l'attrito statico del tappeto.
@@ -92,11 +93,11 @@ class SmartBuildHatDriver(Node):
             raise
         
         # ROS 2 Subscribers
-        self.create_subscription(Twist, '/cmd_vel', self.cmd_vel_callback, 10) # Fallback / Teleop
-        self.create_subscription(Twist, '/cmd_vel_nav', self.cmd_vel_callback, 10) # Nav2 Jazzy default (unstamped in this config)
+        self.create_subscription(Twist, '/cmd_vel', self.cmd_vel_callback, 10) # Teleop / Nav2
+        self.create_subscription(Twist, '/cmd_vel_nav', self.cmd_vel_callback, 10) # Nav2 alternative
         self.create_subscription(Float64MultiArray, '/bluedot_input', self.bluedot_callback, 10)
-        # Riceviamo feedback reale tramite Odometria Visiva (high Hz)
-        self.create_subscription(Odometry, '/odom', self.odom_callback, 10)
+        # ECO00014-FIX: Feedback PID da /odom_filtered (EKF), NON da /odom che non esiste!
+        self.create_subscription(Odometry, '/odom_filtered', self.odom_callback, 10)
         
         # Timer Control Loop Chiuso (20Hz)
         self.control_rate = 20.0 
@@ -168,13 +169,10 @@ class SmartBuildHatDriver(Node):
             self.target_v = 0.0
             self.target_w = 0.0
         
-        # --- 1. Calcolo Errore Feedback ---
-        err_v = self.target_v - self.actual_v
-        err_w = self.target_w - self.actual_w
-        
-        # Ferma in sicurezza se target è nullo 
-        if abs(self.target_v) < 1e-3 and abs(self.target_w) < 1e-3:
-            # Pulisco gli integratori per non far accumulare wind-up da fermo
+        # --- 1. Deadband input: target sotto soglia = fermo pulito ---
+        # ECO00014-FIX: soglia più ampia (5mm/s, 0.02rad/s) per evitare micro-movimenti
+        # da rumore dell'odometria.
+        if abs(self.target_v) < 0.005 and abs(self.target_w) < 0.02:
             self.err_v_int = 0.0
             self.err_w_int = 0.0
             self.err_v_prev = 0.0
@@ -183,6 +181,10 @@ class SmartBuildHatDriver(Node):
             self.motor_right.stop()
             self.stall_start_time = None
             return
+        
+        # --- 2. Calcolo Errore Feedback ---
+        err_v = self.target_v - self.actual_v
+        err_w = self.target_w - self.actual_w
 
         # --- 2. Integrale & Anti-Windup ---
         self.err_v_int += err_v * dt

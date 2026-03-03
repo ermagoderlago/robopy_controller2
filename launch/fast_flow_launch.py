@@ -2,10 +2,12 @@
 #fast_flow_launch.py
 
 """
-RTAB-Map System with CORRECTED TF and data flow
-- FAST+KLT VO → velocity only
-- RTAB-Map rgbd_odom → pose + TF
-- IMU → orientation
+RTAB-Map System — Scenario A (Mapping)
+TF Ownership:
+  - EKF  → odom → base_link (50Hz, unica autorità)
+  - RTAB-Map SLAM → map → odom
+  - rgbd_odometry → NO TF (sensore per EKF)
+  - fast_flow_vo → NO TF (velocity sensor per EKF)
 """
 
 import os
@@ -104,13 +106,15 @@ def generate_launch_description():
         executable='fast_flow_vo_cpp',
         name='fast_flow_vo',
         output='screen',
+        respawn=True,
+        respawn_delay=2.0,
         parameters=[{
             'camera_frame': 'oak_left_camera_optical_frame',
             'odom_frame': 'odom',
             'base_frame': 'base_link',
             
-            # CRITICO: NO TF publishing! RTAB-Map lo fa
-            'publish_tf': False,
+            # Odom TF is explicitly broadcasted internally by FastFlowVO
+            'publish_tf': True,
             
             # Camera settings
             'camera_fps': 15.0, # Alzato a 15Hz (fondamentale per inseguire i punti in ottico KLT senza perderli nei movimenti)
@@ -122,17 +126,17 @@ def generate_launch_description():
             
             # KLT Tracking
             'klt_win_size': 31,
-            'enable_floor_filter': False,
+            'enable_floor_filter': True,  # ECO00013: filtro pavimento attivo
             'camera_height': 0.08,
             'camera_pitch': 0.0,
-            'floor_z_threshold': -0.02,
+            # floor_z_threshold: usa il default del codice (0.03m) — non override
             'klt_max_level': 4,
             'klt_max_error': 15.0,
             'fb_threshold': 1.5,
             
             # Depth
-            'enable_depth_filter': False,
-            'enable_floor_filter': False,
+            # ECO00014: rimossi override 'enable_depth_filter: False' e 'enable_floor_filter: False'
+            # I default del codice (ECO00013) sono corretti: floor_z_threshold=0.03, floor_filter=True
             
             # LaserScan Region (Tuning ECO00006)
             'scan_height': 50,
@@ -179,48 +183,16 @@ def generate_launch_description():
     )
     
     # ================================================
-    # RTAB-Map RGBD ODOMETRY
-    # Pubblica: /rtabmap/odom (POSE con basso drift)
-    #           TF: odom → base_link (SOLO LUI!)
+    # ECO00018: RTAB-Map RGBD ODOMETRY rimosso
+    # fast_flow_vo + emu forniscono velocità all'EKF
+    # rgbd_odometry andava in conflitto causing "rubber banding"
     # ================================================
-    rgbd_odom = TimerAction(
-        period=1.5,
-        actions=[Node(
-            package='rtabmap_odom',
-            executable='rgbd_odometry',
-            name='rgbd_odometry',
-            output='screen',
-            arguments=['--ros-args', '--log-level', 'WARN'],
-            parameters=[os.path.join(pkg_share, 'config', 'rtabmap.yaml')],
-            remappings=[
-                ('rgb/image', '/rgb/image'),
-                ('rgb/camera_info', '/camera/camera_info'),
-                ('depth/image', '/camera/depth/image_raw'),
-                ('odom', '/rtabmap/odom'),
-            ]
-        )]
-    )
     
     # ================================================
-    # EKF FUSION (TRIADE SENSORI)
-    # Input 1: /fast_flow/velocity (30Hz, velocity)
-    # Input 2: /rtabmap/odom (15Hz, pose)
-    # Input 3: /imu/data (50Hz, orientation)
-    # Output: /odom_filtered (50Hz)
+    # ECO00020: EKF rimosso. fast_flow_vo pubblica direttamente 
+    # TF odom -> base_link. Motivo: l'EKF introduceva ritardi e 
+    # falsi movimenti laterali basati su incongruenze dei sensori.
     # ================================================
-    ekf_node = TimerAction(
-        period=2.0,
-        actions=[Node(
-            package='robot_localization',
-            executable='ekf_node',
-            name='ekf_localization',
-            output='screen',
-            parameters=[os.path.join(pkg_share, 'config', 'ekf.yaml')],
-            remappings=[
-                ('odometry/filtered', '/odom_filtered'),
-            ]
-        )]
-    )
     
     # ================================================
     # RTAB-MAP SLAM (loop closure)
@@ -245,7 +217,6 @@ def generate_launch_description():
                     ('rgb/image', '/rgb/image'),
                     ('rgb/camera_info', '/camera/camera_info'),
                     ('depth/image', '/camera/depth/image_raw'),
-                    ('odom', '/rtabmap/odom'),
                 ]
             )
         ])]
@@ -346,6 +317,21 @@ echo "[NAV2-ENSURE] Done."
         )
     )
     
+    audio_capture_node = Node(
+        package='audio_capture',
+        executable='audio_capture_node',
+        name='audio_capture',
+        output='screen',
+        parameters=[{
+            'sample_rate': 16000,
+            'channels': 1,
+            'format': 'wave',  # 'wave' o 'mp3' — '16' non è un formato valido
+        }],
+        remappings=[
+            ('audio', '/audio/audio')
+        ]
+    )
+
     robot_ai_node = Node(
         package='robopy_controller',
         executable='robot_ai_node',
@@ -381,6 +367,13 @@ echo "[NAV2-ENSURE] Done."
         output='screen'
     )
 
+    wake_word_node = Node(
+        package='robopy_controller',
+        executable='wake_word_node',
+        name='wake_word_sentinel',
+        output='screen'
+    )
+
     return LaunchDescription([
         *args,  # Include declared launch arguments
         robot_state_publisher,
@@ -391,8 +384,6 @@ echo "[NAV2-ENSURE] Done."
         oak_camera,         # 1. Camera + velocity (30Hz)
         perception_launch,  # 1b. depth→LaserScan per costmap Nav2
         madgwick,           # 2. IMU filter (50Hz)
-        rgbd_odom,          # 3. RTAB-Map Odometry (15Hz, TF odom→base_link)
-        ekf_node,           # 4. EKF fusion (50Hz, NO TF)
         rtabmap,            # 5. SLAM (TF map→odom)
         nav2_stack,         # 6. Navigation (RPP + NavfnPlanner)
         nav2_ensure_active, # 6b. Ensure Nav2 nodes reach active on Pi5
@@ -400,6 +391,8 @@ echo "[NAV2-ENSURE] Done."
         motor_control,
         foxglove,
         foxglove_bridge,
+        audio_capture_node,
+        wake_word_node,
         robot_ai_node,
         homeassistant_node,
         servo_coda_node,

@@ -62,7 +62,10 @@ class ASRService:
         
         # Google ASR Client
         self._client = None
-        self._setup_google_client()
+        if self.ai_config.asr.enabled:
+            self._setup_google_client()
+        else:
+            self.logger.info("Legacy Google ASR disabled in config")
         
         # Circuit breaker
         self._breaker = CircuitBreakerRegistry().get_or_create(
@@ -146,10 +149,13 @@ class ASRService:
     
     def _process_audio(self):
         """Process audio stream (background thread)."""
-        if self._client:
+        if self._client and self.ai_config.asr.enabled:
             self._process_google_stream()
         else:
-            self.logger.warning("No ASR engine available, audio ignored")
+            if not self.ai_config.asr.enabled:
+                self.logger.info("Old ASR engine disabled, only publishing raw chunks for Live API")
+            else:
+                self.logger.warning("No ASR engine available, audio ignored")
             # Drain queue
             while not self._stop_event.is_set():
                 try:
