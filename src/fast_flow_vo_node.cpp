@@ -542,7 +542,6 @@ void FastFlowVONode::processFrame(const cv::Mat& gray, const cv::Mat& depth,
                 // 4. Validate motion
                 if (result.success && validateMotion(result)) {
                     updatePose(result);
-                    publishOdometry(stamp);
                     publishGuess(stamp);  // Provide motion hint to RTAB-Map
                     tracking_ok = true;
                 }
@@ -577,6 +576,11 @@ void FastFlowVONode::processFrame(const cv::Mat& gray, const cv::Mat& depth,
         // [OPT 3] Salva la piramide corrente per il prossimo frame
         prev_pyramid_ = std::move(curr_pyramid);
     }
+    
+    // [FIX ECO00021] ALWAYS publish odom + TF, even when tracking fails.
+    // Without this, odom->base_link TF dies when robot is stationary,
+    // starving RTAB-Map and Nav2. Last known pose is re-broadcast.
+    publishOdometry(stamp);
     
     // Update previous frame
     // Always detect new features for next frame

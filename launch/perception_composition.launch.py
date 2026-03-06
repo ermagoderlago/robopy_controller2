@@ -48,11 +48,15 @@ def generate_launch_description():
             # scan_height: numero di righe centrali dell'immagine depth
             # da analizzare. Le righe sono shiftate tramite camera_info_scan.
             # L'offset Y (-80) è applicato in fast_flow_vo.
-            'scan_height': 50,  # Aumentato per intercettare muri bianchi
+            'scan_height': 30,  # Ridotto per evitare riflessioni pavimento
             
             # Non processare le righe più basse (pavimento)
             # Centriamo la "fetta" leggermente più in alto (es. a riga 120 su 200)
             'scan_time': 0.1,
+            
+            # inf_is_valid: raggi senza ritorno → infinito (non scartati)
+            # Permette a RTAB-Map ray tracing di marcare spazio libero
+            'inf_is_valid': True,
         }],
         remappings=[
             ('depth', '/camera/depth/image_raw'),

@@ -27,24 +27,33 @@ rtabmap:
     map_frame_id: "map"
     subscribe_rgb: true
     subscribe_depth: true
+    subscribe_scan: true
     subscribe_odom_info: false
     approx_sync: true
     queue_size: 5
     publish_tf: true
     Rtabmap/CreateIntermediateNodes: "false"
-    Mem/NotLinkedNodesKept: "false"
-    Rtabmap/TimeThr: "500"
+    Mem/NotLinkedNodesKept: "true"
+    Rtabmap/TimeThr: "0"
+    Rtabmap/MemoryThr: "300"
     RGBD/ProximityBySpace: "true"
     RGBD/AngularUpdate: "0.1"
     RGBD/LinearUpdate: "0.2"
     RGBD/OptimizeMaxError: "3.0"
     Optimizer/Strategy: "1"
     Optimizer/Iterations: "30"
-    Grid/RangeMax: "3.5"
-    Grid/MaxGroundHeight: "0.03"
+    Grid/RangeMin: "0.25"
+    Grid/RangeMax: "5.0"
+    Grid/Sensor: "2"
+    Grid/RayTracing: "true"
+    Grid/MaxObstacleHeight: "1.5"
+    Grid/MaxGroundHeight: "0.05"
     Grid/MinGroundHeight: "-0.50"
-    Grid/MinClusterSize: "20"
+    Grid/MinClusterSize: "10"
     Grid/NormalsSegmentation: "false"
+    Grid/FootprintLength: "0.22"
+    Grid/FootprintWidth: "0.18"
+    Grid/FootprintHeight: "0.10"
     Kp/MaxFeatures: "1000"
     Vis/FeatureType: "6"
     Rtabmap/LoopThr: "0.08"

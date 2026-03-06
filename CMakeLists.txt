@@ -133,6 +133,7 @@ install(PROGRAMS
   scripts/image_compressor_node
   scripts/oak_superpoint_odometry_node
   scripts/teleop_node
+  scripts/teleop_bridge_node
   scripts/robot_ai_node
   scripts/servo_coda_node
   scripts/homeassistant_node

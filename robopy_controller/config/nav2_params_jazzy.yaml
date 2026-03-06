@@ -71,10 +71,10 @@ controller_server:
       batch_size: 1000 # Ridotto per CPU/RAM Pi 5 (default 2000)
       vx_std: 0.2
       vy_std: 0.0
-      wz_std: 0.8      # Aumentato per favorire campionamento curve strette/rotazioni
-      vx_max: 0.4      # Limite max vel.
+      wz_std: 1.2      # Campionamento più ampio per rotazioni
+      vx_max: 0.5      # Aumentato per dare margine al PID
       vx_min: 0.0      # Zero: NESSUNA RETROMARCIA AMMESSA cieca
-      wz_max: 0.8
+      wz_max: 2.0      # Raddoppiato per curve e rotazioni sul posto
       kinematics:
         base_min_turning_radius: 0.0  # Permetti rotazione sul posto (skid steer) per curve taglienti
       critics: ["ConstraintCritic", "GoalCritic", "GoalAngleCritic", "ObstaclesCritic", "PathAlignCritic", "PathFollowCritic", "PathAngleCritic", "PreferForwardCritic"]
@@ -222,10 +222,10 @@ behavior_server:
       plugin: "nav2_behaviors::BackUp"
     wait:
       plugin: "nav2_behaviors::Wait"
-    # Parametri non aggressivi
+    # Parametri per cingolato ad alto attrito
     simulate_ahead_time: 2.0
-    max_rotational_vel: 1.0
-    min_rotational_vel: 0.4
+    max_rotational_vel: 2.0
+    min_rotational_vel: 0.8
     rotational_acc_lim: 3.2
 
 # ============================================================

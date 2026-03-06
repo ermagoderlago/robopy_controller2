@@ -22,6 +22,7 @@ import datetime
 import json
 import base64
 import cv2
+from cv_bridge import CvBridge
 import numpy as np
 import math
 import traceback
@@ -44,7 +45,7 @@ from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.qos import QoSProfile, DurabilityPolicy
 from std_msgs.msg import String, Bool
-from sensor_msgs.msg import CompressedImage
+from sensor_msgs.msg import CompressedImage, Image
 from audio_common_msgs.msg import AudioData  
 from geometry_msgs.msg import Twist
 from diagnostic_msgs.msg import DiagnosticArray
@@ -150,6 +151,7 @@ class PendingMemory:
     robot_text: str
     mem_type: str
     timestamp: float
+    iso_timestamp: str
 
 
 # ---------------------------------------------------------------------------
@@ -274,7 +276,8 @@ class AIOrchestrator(Node):
         )
         self.visual_memory_service = VisualMemoryService(
             self, self.config_manager, self.llm_service,
-            self.embedding_service, self.memory_store
+            self.embedding_service, self.memory_store,
+            on_visual_memory=self._on_visual_memory_entry
         )
 
         self.skill_registry = SkillRegistry()
@@ -302,6 +305,8 @@ class AIOrchestrator(Node):
         }
         self.visual_memory_history: List[str] = []
         self._latest_frame: Optional[CameraFrame] = None
+        self._cv_bridge = CvBridge()
+        self._last_raw_frame_ts = 0.0
 
         self._move_task: Optional[asyncio.Task] = None
         self._reactive_cmd_vel = Twist()
@@ -314,6 +319,10 @@ class AIOrchestrator(Node):
         self._memory_worker_task = None
         self._embedding_cache = {}
         self._max_cache_size = 100
+        self._conversation_window_size = 6
+        self._memory_retrieval_top_k = 3
+        self._visual_memory_retrieval_top_k = 2
+        self._summary_trigger_turns = 6
 
         self._metrics = {
             "requests_total": 0, "requests_success": 0, "requests_failed": 0,
@@ -378,7 +387,11 @@ class AIOrchestrator(Node):
         while not self._shutdown_flag:
             try:
                 pending = await self._memory_queue.get()
-                content = f"User: {pending.user_text}\nRobot: {pending.robot_text}"
+                content = (
+                    f"[DataOra: {pending.iso_timestamp}]\n"
+                    f"User: {pending.user_text}\n"
+                    f"Robot: {pending.robot_text}"
+                )
                 cache_key = hashlib.md5(content.encode()).hexdigest()
                 
                 if cache_key in self._embedding_cache:
@@ -390,7 +403,11 @@ class AIOrchestrator(Node):
                 
                 memory = Memory(
                     id="", content=content, memory_type=MemoryType(pending.mem_type),
-                    embedding=embedding, metadata={"timestamp": pending.timestamp}
+                    embedding=embedding,
+                    metadata={
+                        "timestamp": pending.timestamp,
+                        "iso_timestamp": pending.iso_timestamp,
+                    }
                 )
                 self.memory_store.add(memory)
                 self.ai_logger.debug(f"Memory stored: {pending.mem_type}")
@@ -523,6 +540,99 @@ REGOLE DI COMUNICAZIONE:
             
         return ctx
 
+    def _build_recent_dialogue_context(self) -> str:
+        if not self.world_model.recent_interactions:
+            return ""
+
+        recent_turns = list(self.world_model.recent_interactions)[-self._conversation_window_size:]
+        lines = ["[CONTESTO CONVERSAZIONALE RECENTE (NON LEGGERE):"]
+        lines.extend([f"- {turn}" for turn in recent_turns])
+        lines.append("]")
+        return "\n".join(lines) + "\n"
+
+    def _is_visual_semantic_query(self, text: str) -> bool:
+        visual_keywords = [
+            'cosa vedi', 'che vedi', 'descrivi', 'immagine', 'scena',
+            'dove', 'posizione', 'oggetto', 'sedia', 'tavolo', 'mappa'
+        ]
+        lowered = text.lower()
+        return any(kw in lowered for kw in visual_keywords)
+
+    async def _retrieve_relevant_memories_context(self, text: str) -> str:
+        if not self.config.rag.enabled:
+            return ""
+
+        if not text.strip():
+            return ""
+
+        try:
+            query_embedding = await asyncio.wait_for(self.embedding_service.embed(text), timeout=2.5)
+            conv_results = self.memory_store.search(
+                query_embedding=query_embedding,
+                top_k=self._memory_retrieval_top_k,
+                memory_type=MemoryType.CONVERSATION,
+                min_score=0.25,
+                time_weighted=True,
+            )
+            summary_results = self.memory_store.search(
+                query_embedding=query_embedding,
+                top_k=2,
+                memory_type=MemoryType.SUMMARY,
+                min_score=0.20,
+                time_weighted=True,
+            )
+            visual_results = []
+            if self._is_visual_semantic_query(text):
+                visual_results = self.memory_store.search(
+                    query_embedding=query_embedding,
+                    top_k=self._visual_memory_retrieval_top_k,
+                    memory_type=MemoryType.VISUAL_OBSERVATION,
+                    min_score=0.18,
+                    time_weighted=True,
+                )
+
+            merged = conv_results + summary_results + visual_results
+            if not merged:
+                return ""
+
+            merged.sort(key=lambda x: x.score, reverse=True)
+            lines = ["[RICORDI RILEVANTI (NON LEGGERE):"]
+            for idx, result in enumerate(merged[: self._memory_retrieval_top_k + 2], start=1):
+                compact = " ".join(result.memory.content.split())
+                iso_ts = result.memory.metadata.get("iso_timestamp", "") or result.memory.metadata.get("timestamp", "")
+                ts_prefix = f"[{iso_ts}] " if iso_ts else ""
+                lines.append(
+                    f"- Memoria {idx} ({result.memory.memory_type.value}, score {result.score:.2f}): {ts_prefix}{compact[:220]}"
+                )
+            lines.append("]")
+            return "\n".join(lines) + "\n"
+        except Exception as e:
+            self.ai_logger.debug(f"Memory retrieval skipped: {e}")
+            return ""
+
+    async def _maybe_store_conversation_summary(self):
+        if len(self.world_model.recent_interactions) < self._summary_trigger_turns:
+            return
+
+        recent = list(self.world_model.recent_interactions)[-self._summary_trigger_turns:]
+        user_lines = [x.replace("User:", "", 1).strip() for x in recent if x.startswith("User:")]
+        robot_lines = [x.replace("Robot:", "", 1).strip() for x in recent if x.startswith("Robot:")]
+        if not user_lines or not robot_lines:
+            return
+
+        user_summary = "; ".join(user_lines[-3:])[:240]
+        robot_summary = "; ".join(robot_lines[-3:])[:240]
+        await self._store_memory_background(
+            user_text=f"Sintesi utente: {user_summary}",
+            robot_text=f"Sintesi robot: {robot_summary}",
+            mem_type="summary"
+        )
+
+    def _on_visual_memory_entry(self, entry: str):
+        self.visual_memory_history.append(entry)
+        if len(self.visual_memory_history) > 5:
+            self.visual_memory_history.pop(0)
+
     def _setup_ros_interfaces(self):
         self.tts_pub = self.create_publisher(String, 'ai/tts/speak', 10)
         self.state_pub = self.create_publisher(String, 'ai/state', 10)
@@ -538,6 +648,7 @@ REGOLE DI COMUNICAZIONE:
         self.create_subscription(String, 'ai/input/text', self._text_input_callback, 10)
         self.create_subscription(Bool, 'ai/input/mic_mute', self._mute_callback, 10)
         self.create_subscription(CompressedImage, '/rgb/image/compressed', self._camera_callback, 1)
+        self.create_subscription(Image, '/oak/rgb/image_raw', self._camera_raw_callback, 1)
         self.create_subscription(DiagnosticArray, '/diagnostics', self._diagnostics_callback, 10)
         self.create_subscription(AudioData, '/audio/audio', self._raw_audio_callback, 10)
 
@@ -612,10 +723,32 @@ REGOLE DI COMUNICAZIONE:
 
     def _camera_callback(self, msg: CompressedImage):
         try:
+            # Prefer raw topic when available: keep compressed as bandwidth-friendly fallback.
+            if (time.time() - self._last_raw_frame_ts) < 0.7:
+                return
             if 'jpeg' in msg.format or 'jpg' in msg.format or 'png' in msg.format:
-                self._latest_frame = CameraFrame(raw=msg.data)
+                frame = CameraFrame(raw=msg.data)
+                self._latest_frame = frame
+                if frame.cv_image is not None:
+                    self.visual_memory_service.update_frame(rgb_frame=frame.cv_image, depth_frame=None, rgb_timestamp=time.time())
         except Exception as e:
             self.ai_logger.debug(f"Camera frame storage failed: {e}")
+
+    def _camera_raw_callback(self, msg: Image):
+        try:
+            cv_image = self._cv_bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+            ok, encoded_jpg = cv2.imencode('.jpg', cv_image, [cv2.IMWRITE_JPEG_QUALITY, 92])
+            if not ok:
+                return
+            self._latest_frame = CameraFrame(raw=encoded_jpg.tobytes())
+            self.visual_memory_service.update_frame(
+                rgb_frame=cv_image,
+                depth_frame=None,
+                rgb_timestamp=float(msg.header.stamp.sec) + float(msg.header.stamp.nanosec) / 1e9
+            )
+            self._last_raw_frame_ts = time.time()
+        except Exception as e:
+            self.ai_logger.debug(f"Raw camera conversion failed: {e}")
 
     def _diagnostics_callback(self, msg: DiagnosticArray):
         for status in msg.status:
@@ -625,6 +758,7 @@ REGOLE DI COMUNICAZIONE:
                 if 'cpu' in name and 'temp' not in name:
                     self._system_stats["cpu_percent"] = float(kv.get("usage_percent", 0))
                 elif 'memory' in name:
+
                     self._system_stats["ram_percent"] = float(kv.get("usage_percent", 0))
                     self._system_stats["ram_available_mb"] = int(float(kv.get("available_mb", 0)))
                 elif 'temp' in name:
@@ -745,7 +879,14 @@ REGOLE DI COMUNICAZIONE:
             self.world_model.recent_interactions.append(f"User: {clean_text}")
 
             dynamic_ctx = self._build_dynamic_context()
-            augmented_prompt = f"{dynamic_ctx}L'utente dice: \"{clean_text}\""
+            recent_dialogue_ctx = self._build_recent_dialogue_context()
+            memories_ctx = await self._retrieve_relevant_memories_context(clean_text)
+            augmented_prompt = (
+                f"{dynamic_ctx}"
+                f"{recent_dialogue_ctx}"
+                f"{memories_ctx}"
+                f"L'utente dice: \"{clean_text}\""
+            )
 
             skill = self.skill_registry.find_best_match(clean_text, min_confidence=0.95)
             if skill:
@@ -769,6 +910,10 @@ REGOLE DI COMUNICAZIONE:
                     for txt in texts_to_speak:
                         self.text_out_pub.publish(String(data=txt))
                         await self.tts_service.speak(txt)
+                        self.world_model.recent_interactions.append(f"Robot: {txt[:120]}")
+                        if self.config.rag.enabled and txt.strip():
+                            await self._store_memory_background(clean_text, txt, "conversation")
+                    await self._maybe_store_conversation_summary()
                     return True
 
                 except Exception as e:
@@ -780,6 +925,10 @@ REGOLE DI COMUNICAZIONE:
                 offline_msg = "Sono offline, riprova più tardi."
                 self.text_out_pub.publish(String(data=offline_msg))
                 await self.tts_service.speak(offline_msg)
+                self.world_model.recent_interactions.append(f"Robot: {offline_msg}")
+                if self.config.rag.enabled:
+                    await self._store_memory_background(clean_text, offline_msg, "conversation")
+                await self._maybe_store_conversation_summary()
                 return True
 
             functions = [s.to_function_declaration() for s in self.skill_registry.get_all()]
@@ -790,13 +939,36 @@ REGOLE DI COMUNICAZIONE:
 
             self._metrics["llm_calls"] += 1
             try:
-                response = await asyncio.wait_for(
-                    self.llm_service.generate_live(
-                        prompt=augmented_prompt, 
-                        context=None, functions=gemini_functions, images=images
-                    ),
-                    timeout=self._llm_timeout
-                )
+                if images:
+                    response = await asyncio.wait_for(
+                        self.llm_service.generate(
+                            prompt=augmented_prompt,
+                            images=[frame.raw],
+                            max_tokens=900,
+                        ),
+                        timeout=self._llm_timeout
+                    )
+                else:
+                    try:
+                        response = await asyncio.wait_for(
+                            self.llm_service.generate_live(
+                                prompt=augmented_prompt,
+                                context=None, functions=gemini_functions, images=images
+                            ),
+                            timeout=self._llm_timeout
+                        )
+                    except (TimeoutError, RuntimeError) as live_err:
+                        # Live API non disponibile → fallback alla API standard
+                        self.ai_logger.warning(
+                            f"Live API non disponibile ({live_err}), fallback a generate standard"
+                        )
+                        response = await asyncio.wait_for(
+                            self.llm_service.generate(
+                                prompt=augmented_prompt,
+                                max_tokens=900,
+                            ),
+                            timeout=self._llm_timeout
+                        )
             except Exception as e:
                 self.ai_logger.error(f"LLM call failed: {e}")
                 self._track_llm_error()
@@ -824,7 +996,8 @@ REGOLE DI COMUNICAZIONE:
                 if spoken_text:
                     self.text_out_pub.publish(String(data=spoken_text))
                     await self.tts_service.speak(spoken_text)
-                    self.world_model.recent_interactions.append(f"Robot: {spoken_text[:50]}...")
+                    self.world_model.recent_interactions.append(f"Robot: {spoken_text[:120]}")
+                    await self._maybe_store_conversation_summary()
                 else:
                     self.ai_logger.warning("Nessun testo parlato estratto.")
 
@@ -879,6 +1052,7 @@ REGOLE DI COMUNICAZIONE:
             last_result = None
             if inspect.isasyncgen(result_or_gen):
                 async for res in result_or_gen:
+				
                     if res.speak: texts_to_speak.append(res.speak)
                     last_result = res
             else:
@@ -948,7 +1122,8 @@ REGOLE DI COMUNICAZIONE:
             user_text=user_text,
             robot_text=robot_text,
             mem_type=mem_type,
-            timestamp=time.time()
+            timestamp=time.time(),
+            iso_timestamp=datetime.datetime.now().isoformat(timespec="seconds")
         )
         try:
             self._memory_queue.put_nowait(pending)

@@ -217,6 +217,7 @@ def generate_launch_description():
                     ('rgb/image', '/rgb/image'),
                     ('rgb/camera_info', '/camera/camera_info'),
                     ('depth/image', '/camera/depth/image_raw'),
+                    ('scan', '/scan'),
                 ]
             )
         ])]
@@ -233,8 +234,11 @@ def generate_launch_description():
             name='smart_buildhat_driver',
             output='screen',
             parameters=[{
-                'kp_linear': 50.0,
-                'ki_linear': 10.0
+                'kp_linear': 60.0,
+                'ki_linear': 15.0,
+                'kp_angular': 40.0,
+                'ki_angular': 8.0,
+                'deadband_pwm': 65.0,
             }]
         )]
     )
@@ -247,6 +251,24 @@ def generate_launch_description():
             name='foxglove_bridge',
             output='log',
             parameters=[{'port': 8765}]
+        )]
+    )
+    
+    # Bridge per Teleoperazione da Foxglove (Twist -> BlueDot)
+    # Permette di usare il pannello Teleop standard su topic /teleop/cmd_vel
+    teleop_bridge = TimerAction(
+        period=2.0,
+        actions=[Node(
+            package='robopy_controller',
+            executable='teleop_bridge_node',
+            name='teleop_bridge',
+            output='screen',
+            parameters=[{
+                'teleop_topic': '/teleop/cmd_vel',
+                'output_topic': '/bluedot_input',
+                'scale_linear': 1.0,
+                'scale_angular': 1.0
+            }]
         )]
     )
     
@@ -317,11 +339,17 @@ echo "[NAV2-ENSURE] Done."
         )
     )
     
+    # Prepara l'ambiente per GStreamer esportando GST_PLUGIN_PATH
+    if 'GST_PLUGIN_PATH' not in os.environ:
+        os.environ['GST_PLUGIN_PATH'] = '/usr/local/lib/gstreamer-1.0:/usr/local/lib/aarch64-linux-gnu/gstreamer-1.0:'
+
     audio_capture_node = Node(
         package='audio_capture',
         executable='audio_capture_node',
         name='audio_capture',
         output='screen',
+        respawn=True,
+        respawn_delay=3.0,
         parameters=[{
             'sample_rate': 16000,
             'channels': 1,
@@ -389,6 +417,7 @@ echo "[NAV2-ENSURE] Done."
         nav2_ensure_active, # 6b. Ensure Nav2 nodes reach active on Pi5
         
         motor_control,
+        teleop_bridge,
         foxglove,
         foxglove_bridge,
         audio_capture_node,

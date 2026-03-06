@@ -370,12 +370,11 @@ class LLMServiceNode(Node):
                 self._live_connection_manager(), self._loop)
 
     # -----------------------------------------------------------------------
-    # Guard: verifica che _live_lock sia stato inizializzato
+    # Guard: verifica che _live_lock sia disponibile
     # -----------------------------------------------------------------------
     def _assert_live_lock(self):
         """
-        Solleva RuntimeError se _live_lock è None.
-        Converte un errore criptico (TypeError su NoneType async context manager)
+        Trasforma un errore criptico (TypeError su NoneType async context manager)
         in un messaggio diagnostico chiaro e azionabile.
         """
         if self._live_lock is None:
@@ -626,7 +625,11 @@ class LLMServiceNode(Node):
                 for m in request.context
             ]
 
-        contents       = self._build_contents(request.prompt, context, images=None)
+        contents       = self._build_contents(
+            request.prompt,
+            context,
+            images=getattr(request, 'images', None),
+        )
         req_max_tokens = getattr(request, 'max_tokens', None)
 
         raw = await self._breaker.call_async(
@@ -676,88 +679,75 @@ class LLMServiceNode(Node):
         return await self._loop.run_in_executor(self._thread_pool, _blocking)
 
     # -----------------------------------------------------------------------
-    # Logica asincrona: Live API (WebSocket)
+    # Logica asincrona: Live API
     # -----------------------------------------------------------------------
     async def _live_connection_manager(self):
-        """Loop supervisore: riavvia la connessione dopo ogni interruzione."""
-        while rclpy.ok():
-            try:
-                await self._live_connection_loop()
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                self.get_logger().error(f"Live API interrotta: {e}")
-            await asyncio.sleep(5.0)
-
-    async def _live_connection_loop(self):
         """
-        Apre la sessione WebSocket con Gemini Live.
-
-        TOCTOU fix: _live_connecting viene impostato atomicamente dentro il lock
-        prima di rilasciarlo, impedendo a coroutine concorrenti di aprire sessioni
-        duplicate pur trovando _live_session == None.
+        Mantiene una connessione Live persistente con reconnessione automatica.
+        Usa backoff esponenziale per evitare log-spam in caso di errori persistenti.
         """
         self._assert_live_lock()
+        backoff = 2.0
+        max_backoff = 60.0
+        fail_count = 0
 
-        # -- Sezione critica: lettura config + set flag atomici --
-        async with self._live_lock:
-            if self._live_session is not None or self._live_connecting:
-                return
-            self._live_connecting = True
-
-            with self._cfg_lock:
-                live_model_used = self._live_model
-                sys_prompt      = self._system_prompt
-
-            resumption = (
-                types.SessionResumptionConfig(handle=self._resumption_token)
-                if self._resumption_token
-                else types.SessionResumptionConfig()
-            )
-            config = types.LiveConnectConfig(
-                response_modalities=["AUDIO"],
-                output_audio_transcription=types.AudioTranscriptionConfig(),
-                session_resumption=resumption,
-            )
-            if sys_prompt:
-                config.system_instruction = types.Content(
-                    parts=[types.Part.from_text(
-                        text=f"RISPONDI IN ITALIANO.\n\n{sys_prompt}"
-                    )]
-                )
-        # -- Fine sezione critica --
-
-        try:
-            self.get_logger().info("Avvio connessione Live WebSocket...")
-            async with self._client.aio.live.connect(
-                model=live_model_used, config=config
-            ) as session:
-                self.get_logger().info("Sessione Live WebSocket CONNESSA.")
-
+        while rclpy.ok():
+            try:
                 async with self._live_lock:
-                    self._live_session    = session
-                    self._live_connecting = False   # connessione riuscita
+                    if self._live_session or self._live_connecting:
+                        await asyncio.sleep(0.5)
+                        continue
+                    self._live_connecting = True
 
-                async for msg in session.receive():
-                    await self._handle_live_message(msg)
+                with self._cfg_lock:
+                    model_used = self._live_model
+                    sys_prompt = self._system_prompt
 
-        except gemini_errors.APIError as e:
-            if "1000" in str(e):
-                self.get_logger().info("Connessione Live chiusa normalmente (codice 1000).")
-            else:
-                self.get_logger().error(f"Errore API Gemini Live: {e}")
-        finally:
-            async with self._live_lock:
-                self._live_session    = None
-                self._live_connecting = False   # reset in ogni caso
-
-            if (
-                self._live_response_future
-                and not self._live_response_future.done()
-            ):
-                self._live_response_future.set_exception(
-                    Exception("Sessione Live disconnessa improvvisamente")
+                ws_config = types.LiveConnectConfig(
+                    response_modalities=["AUDIO"],
+                    system_instruction=sys_prompt,
                 )
+                if self._resumption_token:
+                    ws_config.session_resumption = types.SessionResumptionConfig(
+                        handle=self._resumption_token,
+                    )
+
+                async with self._client.aio.live.connect(
+                    model=model_used,
+                    config=ws_config,
+                ) as session:
+                    async with self._live_lock:
+                        self._live_session = session
+                        self._live_connecting = False
+
+                    self.get_logger().info("Live API connessa con successo.")
+                    backoff = 2.0      # reset backoff on success
+                    fail_count = 0
+
+                    async for msg in session.receive():
+                        await self._handle_live_message(msg)
+
+            except Exception as e:
+                err_str = str(e)
+                # 1000 = chiusura pulita (normale per native-audio dopo ogni turn)
+                is_clean_close = '1000' in err_str
+                async with self._live_lock:
+                    self._live_session = None
+                    self._live_connecting = False
+                if is_clean_close:
+                    # Riconnessione immediata senza backoff
+                    self.get_logger().debug(
+                        "Sessione Live chiusa normalmente, riconnessione..."
+                    )
+                    await asyncio.sleep(0.2)
+                else:
+                    fail_count += 1
+                    if fail_count == 1 or fail_count % 5 == 0:
+                        self.get_logger().warning(
+                            f"Errore connessione Live API (tentativo {fail_count}): {e}"
+                        )
+                    await asyncio.sleep(backoff)
+                    backoff = min(backoff * 1.5, max_backoff)
 
     async def _async_audio_handler(self, msg: AudioData):
         """Invia un chunk audio PCM alla sessione Live attiva."""
@@ -787,12 +777,14 @@ class LLMServiceNode(Node):
         Gestisce un messaggio in arrivo dalla Live API.
         Pubblica chunk audio, accumula testo/actions, segnala turn_complete.
         """
+        # Handle session resumption update (top-level, outside server_content)
+        sru = getattr(msg, 'session_resumption_update', None)
+        if sru and getattr(sru, 'new_handle', None):
+            self._resumption_token = sru.new_handle
+
         if not msg.server_content:
             return
         sc = msg.server_content
-
-        if hasattr(msg, 'resumption_token') and msg.resumption_token:
-            self._resumption_token = msg.resumption_token
 
         if sc.model_turn:
             for part in sc.model_turn.parts:
@@ -827,66 +819,87 @@ class LLMServiceNode(Node):
         """
         Invia un prompt testuale alla Live API e attende la risposta completa.
 
-        RACE FIX: il check 'Live API occupata' + la creazione del future sono
-        ora atomici sotto _live_lock. Due richieste concorrenti non possono più
-        passare entrambe il check e sovrascriversi il future a vicenda.
+        Il modello native-audio chiude la sessione dopo ogni turn (1000 OK).
+        Quando il send fallisce con 1000, aspettiamo la riconnessione del
+        _live_connection_manager (polling) e riproviamo.
         """
         self._assert_live_lock()
 
-        start = time.perf_counter()
+        max_attempts = 3
+        last_error = None
 
-        # -- Sezione critica atomica: verifica stato + crea future --
-        async with self._live_lock:
-            session = self._live_session
+        for attempt in range(max_attempts):
+            start = time.perf_counter()
+
+            # -- Attendi sessione disponibile (polling) --
+            session = None
+            for _ in range(25):  # max 5s (25 x 0.2s)
+                async with self._live_lock:
+                    session = self._live_session
+                    if session:
+                        if (
+                            self._live_response_future
+                            and not self._live_response_future.done()
+                        ):
+                            raise RuntimeError(
+                                "Live API è occupata con un'altra richiesta. Riprova tra poco."
+                            )
+                        # Creazione atomica del future
+                        self._live_response_future  = self._loop.create_future()
+                        self._current_live_response = {"text": "", "actions": []}
+                        break
+                await asyncio.sleep(0.2)
 
             if not session:
                 raise TimeoutError("Connessione Live WebSocket non attiva.")
 
-            if (
-                self._live_response_future
-                and not self._live_response_future.done()
-            ):
-                raise RuntimeError(
-                    "Live API è occupata con un'altra richiesta. Riprova tra poco."
+            try:
+                await session.send_client_content(
+                    turns=[types.Content(
+                        role="user",
+                        parts=[types.Part.from_text(text=request.prompt)],
+                    )]
                 )
 
-            # Creazione atomica: nessun'altra coroutine può inserirsi qui
-            self._live_response_future  = self._loop.create_future()
-            self._current_live_response = {"text": "", "actions": []}
-        # -- Fine sezione critica --
+                with self._cfg_lock:
+                    timeout_val     = self._timeout_live
+                    live_model_used = self._live_model
 
-        await session.send_client_content(
-            turns=[types.Content(
-                role="user",
-                parts=[types.Part.from_text(text=request.prompt)],
-            )]
-        )
+                try:
+                    result = await asyncio.wait_for(
+                        self._live_response_future,
+                        timeout=timeout_val,
+                    )
+                except asyncio.TimeoutError:
+                    if self._live_response_future and not self._live_response_future.done():
+                        self._live_response_future.cancel()
+                    raise
+                finally:
+                    self._live_response_future = None
 
-        with self._cfg_lock:
-            timeout_val     = self._timeout_live
-            live_model_used = self._live_model
+                return LLMResponse(
+                    text=result["text"].strip(),
+                    actions=result["actions"],
+                    latency_ms=(time.perf_counter() - start) * 1000,
+                    model=live_model_used,
+                )
 
-        try:
-            result = await asyncio.wait_for(
-                self._live_response_future,
-                timeout=timeout_val,
-            )
-        except asyncio.TimeoutError:
-            # Cancella il future interno per non lasciare oggetti sospesi.
-            # Il warning in _handle_live_message ci avviserà se la risposta
-            # arriva comunque in ritardo.
-            if self._live_response_future and not self._live_response_future.done():
-                self._live_response_future.cancel()
-            raise
-        finally:
-            self._live_response_future = None
+            except Exception as e:
+                self._live_response_future = None
+                last_error = e
+                err_str = str(e)
+                if '1000' in err_str and attempt < max_attempts - 1:
+                    self.get_logger().info(
+                        f"Sessione Live chiusa (turn {attempt+1}), "
+                        "attendo riconnessione..."
+                    )
+                    # Invalida la sessione locale: il connection manager riconnetterà
+                    async with self._live_lock:
+                        self._live_session = None
+                    continue
+                raise
 
-        return LLMResponse(
-            text=result["text"].strip(),
-            actions=result["actions"],
-            latency_ms=(time.perf_counter() - start) * 1000,
-            model=live_model_used,
-        )
+        raise last_error or TimeoutError("Connessione Live WebSocket non attiva.")
 
     async def _reconnect_live(self):
         """
@@ -953,7 +966,7 @@ class LLMServiceNode(Node):
         parts = []
         if images:
             for img in images:
-                data = base64.b64decode(img) if isinstance(img, str) else img
+                data = base64.b64decode(img) if isinstance(img, str) else bytes(img)
                 parts.append(types.Part.from_bytes(data=data, mime_type="image/jpeg"))
         parts.append(types.Part.from_text(text=prompt))
 
