@@ -140,6 +140,7 @@ install(PROGRAMS
   scripts/smart_buildhat_driver
   scripts/foxglove_nav2_bridge
   scripts/wake_word_node
+  scripts/ultrasonic_sensor
   DESTINATION lib/${PROJECT_NAME}
 )
 

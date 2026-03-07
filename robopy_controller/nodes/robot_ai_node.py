@@ -79,6 +79,7 @@ from robot_ai.skills.builtin.navigation_skill import NavigationSkill
 from robot_ai.skills.builtin.search_skill import SearchSkill
 from robot_ai.skills.builtin.nightly_dream_skill import NightlyDreamSkill
 from robot_ai.skills.builtin.visual_exploration_skill import VisualExplorationSkill
+from robot_ai.skills.builtin.calibration_skill import CalibrationSkill
 from robot_ai.skills.base_skill import SkillResult
 import inspect
 
@@ -355,13 +356,28 @@ class AIOrchestrator(Node):
     def _reactive_loop(self):
         with self._reactive_cmd_vel_lock:
             msg = self._reactive_cmd_vel
-        self.cmd_vel_pub.publish(msg)
+        
+        is_zero = (msg.linear.x == 0.0 and msg.linear.y == 0.0 and msg.linear.z == 0.0 and
+                   msg.angular.x == 0.0 and msg.angular.y == 0.0 and msg.angular.z == 0.0)
+                   
+        if is_zero:
+            # Pubblica 0 solo per qualche frame dopo essersi fermato,
+            # per non inondare il motor driver e bloccare Nav2/Teleop
+            count = getattr(self, '_published_zero_count', 0)
+            if count < 5:
+                self.cmd_vel_pub.publish(msg)
+                self._published_zero_count = count + 1
+        else:
+            self.cmd_vel_pub.publish(msg)
+            self._published_zero_count = 0
 
     def emergency_stop(self):
         with self._reactive_cmd_vel_lock:
             self._reactive_cmd_vel = Twist()
         self.ai_logger.warning("EMERGENCY STOP ACTIVATED")
         asyncio.run_coroutine_threadsafe(self._cancel_move_task(), self._loop)
+        if self.nav_client:
+            asyncio.run_coroutine_threadsafe(self.nav_client.cancel_navigation(), self._loop)
 
     async def _cancel_move_task(self):
         if self._move_task and not self._move_task.done():
@@ -680,6 +696,7 @@ REGOLE DI COMUNICAZIONE:
             camera_provider=lambda: self._latest_frame.cv_image if self._latest_frame else None,
             move_handler=self.move_relative
         ))
+        self.skill_registry.register(CalibrationSkill(node=self))
 
     def _subscribe_to_events(self):
         self.event_bus.subscribe(EventType.VOICE_COMMAND_RECOGNIZED, self._on_voice_command)

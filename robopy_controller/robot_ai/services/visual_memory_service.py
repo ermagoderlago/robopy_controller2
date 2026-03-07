@@ -594,7 +594,7 @@ class VisualMemoryService:
             cube_marker.color.g = 0.7
             cube_marker.color.b = 0.9
             cube_marker.color.a = 0.5
-            cube_marker.lifetime.sec = 8
+            cube_marker.lifetime.sec = 0
             marker_array.markers.append(cube_marker)
 
             # text marker
@@ -609,13 +609,15 @@ class VisualMemoryService:
             text_marker.pose.position.y = pos_y
             text_marker.pose.position.z = pos_z + (float(height_3d) / 2.0) + 0.15
             text_marker.pose.orientation.w = 1.0
+            text_marker.scale.x = 0.0
+            text_marker.scale.y = 0.0
             text_marker.scale.z = 0.15
             text_marker.color.r = 1.0
             text_marker.color.g = 1.0
             text_marker.color.b = 1.0
             text_marker.color.a = 1.0
             text_marker.text = f"{label} [{state}]"
-            text_marker.lifetime.sec = 8
+            text_marker.lifetime.sec = 0
             marker_array.markers.append(text_marker)
 
         if marker_array.markers:

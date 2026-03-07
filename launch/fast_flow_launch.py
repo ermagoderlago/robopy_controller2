@@ -94,6 +94,19 @@ def generate_launch_description():
         output='log'
     )
     
+    ultrasonic_tf = Node(
+        package='tf2_ros',
+        executable='static_transform_publisher',
+        name='base_to_ultrasonic_tf',
+        arguments=[
+            '0.12', '0.0', '0.05',
+            '0.0', '0.0', '0.0',
+            'base_link',
+            'ultrasonic_sensor'
+        ],
+        output='log'
+    )
+    
     # ================================================
     # FAST+KLT VO (VELOCITY SENSOR ONLY!)
     # Pubblica: /fast_flow/velocity (TWIST ONLY!)
@@ -218,7 +231,9 @@ def generate_launch_description():
                     ('rgb/camera_info', '/camera/camera_info'),
                     ('depth/image', '/camera/depth/image_raw'),
                     ('scan', '/scan'),
-                ]
+                ],
+                sigterm_timeout='60.0',
+                sigkill_timeout='60.0'
             )
         ])]
     )
@@ -234,11 +249,10 @@ def generate_launch_description():
             name='smart_buildhat_driver',
             output='screen',
             parameters=[{
-                'kp_linear': 60.0,
-                'ki_linear': 15.0,
-                'kp_angular': 40.0,
-                'ki_angular': 8.0,
-                'deadband_pwm': 65.0,
+                # ECO00023: Open-loop bang-bang (no PID, no encoder feedback)
+                'min_pwm': 70.0,       # Minimo per vincere l'attrito
+                'max_pwm': 100.0,      # Massimo — motori piccoli usano tutto
+                'angular_mix_factor': 0.5,  # Mix rotazione/lineare
             }]
         )]
     )
@@ -254,24 +268,7 @@ def generate_launch_description():
         )]
     )
     
-    # Bridge per Teleoperazione da Foxglove (Twist -> BlueDot)
-    # Permette di usare il pannello Teleop standard su topic /teleop/cmd_vel
-    teleop_bridge = TimerAction(
-        period=2.0,
-        actions=[Node(
-            package='robopy_controller',
-            executable='teleop_bridge_node',
-            name='teleop_bridge',
-            output='screen',
-            parameters=[{
-                'teleop_topic': '/teleop/cmd_vel',
-                'output_topic': '/bluedot_input',
-                'scale_linear': 1.0,
-                'scale_angular': 1.0
-            }]
-        )]
-    )
-    
+
     # ================================================
     # NAV2 STACK (Navigation) - ENABLE ON DEMAND
     # ================================================
@@ -402,6 +399,13 @@ echo "[NAV2-ENSURE] Done."
         output='screen'
     )
 
+    ultrasonic_node = Node(
+        package='robopy_controller',
+        executable='ultrasonic_sensor',
+        name='ultrasonic_sensor',
+        output='screen'
+    )
+
     return LaunchDescription([
         *args,  # Include declared launch arguments
         robot_state_publisher,
@@ -417,7 +421,6 @@ echo "[NAV2-ENSURE] Done."
         nav2_ensure_active, # 6b. Ensure Nav2 nodes reach active on Pi5
         
         motor_control,
-        teleop_bridge,
         foxglove,
         foxglove_bridge,
         audio_capture_node,
@@ -425,4 +428,6 @@ echo "[NAV2-ENSURE] Done."
         robot_ai_node,
         homeassistant_node,
         servo_coda_node,
+        ultrasonic_tf,
+        ultrasonic_node,
     ])
