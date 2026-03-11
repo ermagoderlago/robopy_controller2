@@ -4,7 +4,11 @@ description: Build the robopy_controller ROS 2 package
 
 // turbo-all
 
-1. Activate the ROS 2 virtual environment:
+7. **IMPORTANTE: Gestione Ambienti**
+   - **Compilazione ROS 2 Core (`~/ros2_jazzy`):** Deve avvenire SEMPRE in ambiente di sistema base. **NON** attivare `ros2env` per compilare il core.
+   - **Esecuzione/Lancio Robot (`robopy_controller`):** Deve avvenire in ambiente virtuale `ros2env`.
+
+8. Per eseguire il robot (DOPO la compilazione):
 ```bash
 source ~/ros2env/bin/activate
 ```
@@ -32,7 +36,8 @@ source install/setup.bash
 cd ~/ros2_jazzy
 '''
 
-e per compilarli uso:
+e per compilarli uso (DA AMBIENTE DI SISTEMA BASE - NO VENV!!):
+
 '''bash
 
 colcon build \
@@ -69,3 +74,6 @@ Quando crei un nuovo nodo Python, DEVI seguire esattamente questi 5 passaggi:
    ```
 4. Rendi lo script eseguibile: `chmod +x scripts/mio_nuovo_nodo`
 5. Registralo nel `CMakeLists.txt` aggiungendo la riga `scripts/mio_nuovo_nodo` nel blocco esistente `install(PROGRAMS ... DESTINATION lib/${PROJECT_NAME})`!
+
+
+ATTENZIONE MAI CANCELLARE I FILE COMPILATI DI ROS2 NELLA CARTELLA  ~/ros2_jazzy!!!!   MAI!!! ATTENZIONE

@@ -109,6 +109,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/KeypointsCompressed.msg"
   "msg/DescriptorsCompressed.msg"
   "msg/OAKSyncFrame.msg"
+  "srv/AskVisualQuestion.srv"
   DEPENDENCIES std_msgs geometry_msgs sensor_msgs vision_msgs
 )
 

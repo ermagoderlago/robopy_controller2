@@ -270,8 +270,9 @@ class LLMServiceNode(Node):
         # 1. Parametri ROS 2
         # ------------------------------------------------------------------
         self.declare_parameter('gemini_api_key',           '')
-        self.declare_parameter('model_name',               'gemini-2.5-flash')
+        self.declare_parameter('model_name',               'gemini-3.1-flash-lite-preview')
         self.declare_parameter('live_model_name',          'gemini-2.5-flash-native-audio-latest')
+
         self.declare_parameter('temperature',              0.7)
         self.declare_parameter('max_tokens',               2048)
         self.declare_parameter('circuit_breaker_failures', 5)
@@ -305,13 +306,21 @@ class LLMServiceNode(Node):
         # ------------------------------------------------------------------
         # 4. Client Gemini
         # ------------------------------------------------------------------
-        api_key = self.get_parameter('gemini_api_key').value or os.environ.get('GEMINI_API_KEY')
+        api_key = ''
+        if self.config_manager:
+             api_key = self.config_manager.get_config().secrets.gemini_api_key
+
+        if not api_key:
+             api_key = self.get_parameter('gemini_api_key').value or os.environ.get('GEMINI_API_KEY')
+             
         if not api_key or not HAS_GENAI:
             self.get_logger().error(
                 'Gemini API key mancante o libreria genai non installata. Nodo inattivo.')
             self._client = None
         else:
             self._client = genai.Client(api_key=api_key)
+
+
 
         # ------------------------------------------------------------------
         # 5. Circuit Breaker
@@ -462,13 +471,11 @@ class LLMServiceNode(Node):
         """
         Bridge verso _async_generate_live con supporto cross-loop.
         """
-        class TempRequest:
-            def __init__(self, p):
-                self.prompt = p
-        
-        coro = self._async_generate_live(TempRequest(prompt))
+        coro = self._async_generate_live(prompt, context, functions, images)
+
         future = asyncio.run_coroutine_threadsafe(coro, self._loop)
         return await asyncio.wrap_future(future)
+
 
     async def send_audio_chunk(self, audio_data: bytes):
         """
@@ -515,7 +522,7 @@ class LLMServiceNode(Node):
 
     def _create_subscriptions(self):
         self.sub_audio = self.create_subscription(
-            AudioData, '~/audio_input', self.audio_callback_ros, 10)
+            AudioData, '/audio/audio', self.audio_callback_ros, 10)
 
     # -----------------------------------------------------------------------
     # Callback ROS 2 sincrone
@@ -632,10 +639,29 @@ class LLMServiceNode(Node):
         )
         req_max_tokens = getattr(request, 'max_tokens', None)
 
-        raw = await self._breaker.call_async(
-            self._generate_internal,
-            contents, req_max_tokens, model_used, sys_prompt,
-        )
+        try:
+            # Tentativo primario con soglia latenza 20s (come indicato in lesson_learned.md)
+            raw = await asyncio.wait_for(
+                self._breaker.call_async(
+                    self._generate_internal,
+                    contents, req_max_tokens, model_used, sys_prompt,
+                ),
+                timeout=20.0
+            )
+        except (asyncio.TimeoutError, Exception) as e:
+            fallback_model = "gemini-1.5-flash-latest"
+            if model_used != fallback_model:
+                self.get_logger().warning(
+                    f"Criticità rilevata su {model_used} (latenza >20s o errore: {e}). "
+                    f"Eseguo fallback su {fallback_model}..."
+                )
+                model_used = fallback_model
+                raw = await self._breaker.call_async(
+                    self._generate_internal,
+                    contents, req_max_tokens, model_used, sys_prompt,
+                )
+            else:
+                raise e
 
         latency_ms   = (time.perf_counter() - start) * 1000
         llm_response = self._parse_response(raw, latency_ms, model_used)
@@ -703,14 +729,27 @@ class LLMServiceNode(Node):
                     model_used = self._live_model
                     sys_prompt = self._system_prompt
 
-                ws_config = types.LiveConnectConfig(
-                    response_modalities=["AUDIO"],
-                    system_instruction=sys_prompt,
+                modalities = ["AUDIO"] if "native-audio" in model_used else ["TEXT", "AUDIO"]
+                
+                # Google SDK v0.3 compatibility check:
+                # If sys_prompt is empty or None, omit the field, otherwise 1007 can happen
+                ws_kwargs = {"response_modalities": modalities}
+                if sys_prompt:
+                    ws_kwargs["system_instruction"] = sys_prompt
+                
+                # Attivazione compressione per permettere sessioni audio/testuali prolungate all'infinito
+                ws_kwargs["context_window_compression"] = types.ContextWindowCompressionConfig(
+                    sliding_window=types.SlidingWindow()
                 )
+                    
+                ws_config = types.LiveConnectConfig(**ws_kwargs)
+
                 if self._resumption_token:
                     ws_config.session_resumption = types.SessionResumptionConfig(
                         handle=self._resumption_token,
                     )
+                    
+                self.get_logger().info(f"Connecting to {model_used} with modalities {modalities} ...")
 
                 async with self._client.aio.live.connect(
                     model=model_used,
@@ -760,14 +799,11 @@ class LLMServiceNode(Node):
             return
 
         try:
-            await session.send_client_content(
-                turns=[types.Content(
-                    role="user",
-                    parts=[types.Part.from_bytes(
-                        data=msg.data,
-                        mime_type="audio/pcm;rate=16000",
-                    )],
-                )]
+            await session.send_realtime_input(
+                media=types.Blob(
+                    data=msg.data,
+                    mime_type="audio/pcm;rate=16000"
+                )
             )
         except Exception as e:
             self.get_logger().debug(f"Errore invio audio stream: {e}")
@@ -779,8 +815,9 @@ class LLMServiceNode(Node):
         """
         # Handle session resumption update (top-level, outside server_content)
         sru = getattr(msg, 'session_resumption_update', None)
-        if sru and getattr(sru, 'new_handle', None):
+        if sru and getattr(sru, 'resumable', False) and getattr(sru, 'new_handle', None):
             self._resumption_token = sru.new_handle
+            self.get_logger().info("Ricevuto nuovo token di ripresa sessione The handle will be retained.")
 
         if not msg.server_content:
             return
@@ -815,14 +852,12 @@ class LLMServiceNode(Node):
                 )
             self._current_live_response = {"text": "", "actions": []}
 
-    async def _async_generate_live(self, request) -> LLMResponse:
+    async def _async_generate_live(self, prompt: str, context=None, functions=None, images=None) -> LLMResponse:
         """
         Invia un prompt testuale alla Live API e attende la risposta completa.
-
-        Il modello native-audio chiude la sessione dopo ogni turn (1000 OK).
-        Quando il send fallisce con 1000, aspettiamo la riconnessione del
-        _live_connection_manager (polling) e riproviamo.
+        Supporta anche immagini e funzioni.
         """
+
         self._assert_live_lock()
 
         max_attempts = 3
@@ -854,12 +889,21 @@ class LLMServiceNode(Node):
                 raise TimeoutError("Connessione Live WebSocket non attiva.")
 
             try:
-                await session.send_client_content(
-                    turns=[types.Content(
-                        role="user",
-                        parts=[types.Part.from_text(text=request.prompt)],
-                    )]
-                )
+                content_parts = [types.Part.from_text(text=prompt)]
+                if images:
+                    for img in images:
+                        data = base64.b64decode(img) if isinstance(img, str) else bytes(img)
+                        content_parts.append(types.Part.from_bytes(data=data, mime_type="image/jpeg"))
+
+                    await session.send(
+                        input=types.LiveClientContent(
+                            turns=[types.Content(role="user", parts=content_parts)],
+                            turn_complete=True
+                        )
+                    )
+                else:
+                    await session.send(input=prompt, end_of_turn=True)
+
 
                 with self._cfg_lock:
                     timeout_val     = self._timeout_live

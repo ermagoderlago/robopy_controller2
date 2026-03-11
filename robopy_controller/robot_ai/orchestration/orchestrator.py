@@ -1,0 +1,332 @@
+import asyncio
+import threading
+from typing import Optional, List, Dict, Callable
+from rclpy.node import Node
+from sensor_msgs.msg import CompressedImage
+from std_msgs.msg import String, Bool
+from diagnostic_msgs.msg import DiagnosticArray
+from geometry_msgs.msg import Twist
+from robopy_controller.msg import AudioData
+
+from robot_ai.core import ConfigManager, EventBus, EventType
+from robot_ai.utils import get_logger
+
+from robot_ai.services.llm_service import LLMService
+from robot_ai.services.tts_service import TTSService
+from robot_ai.services.asr_service import ASRService
+from robot_ai.services.embedding_service import EmbeddingService
+from robot_ai.services.deepseek_service import DeepSeekService
+from robot_ai.services.face_recognition_service import FaceRecognitionService
+from robot_ai.services.nightly_dream_service import NightlyDreamService
+from robot_ai.services.visual_memory_service import VisualMemoryService
+
+from robot_ai.rag.memory_store import MemoryStore, Memory, MemoryType
+from robot_ai.rag.llama_index_store import LlamaIndexMemoryStore
+from robot_ai.integrations import HomeAssistantClient, NavigationClient
+from robot_ai.core.state_machine import StateMachine, SystemState
+
+# Skills
+from robot_ai.skills.skill_registry import SkillRegistry
+from robot_ai.skills.builtin.ha_skill import HomeAssistantSkill
+from robot_ai.skills.builtin.navigation_skill import NavigationSkill
+from robot_ai.skills.builtin.search_skill import SearchSkill
+from robot_ai.skills.builtin.nightly_dream_skill import NightlyDreamSkill
+from robot_ai.skills.builtin.visual_exploration_skill import VisualExplorationSkill
+from robot_ai.skills.builtin.calibration_skill import CalibrationSkill
+
+from robot_ai.core.camera_frame import CameraFrame
+
+# Moduli Orchestration
+from .world_model import WorldModel, WorldModelUpdater
+from .memory_manager import MemoryManager
+from .metrics import MetricsCollector
+from .reactive_safety import ReactiveSafety
+from .ha_context import HAContextUpdater
+from .skill_executor import SkillExecutor
+from .conversation import ConversationManager
+
+class AIOrchestrator(Node):
+    def __init__(self):
+        super().__init__('robot_ai_orchestrator')
+        self.ai_logger = get_logger("ai_orchestrator")
+        self.config_manager = ConfigManager()
+        self.config_manager.load()
+        self.config = self.config_manager.get_config()
+        self.event_bus = EventBus()
+        self.state_machine = StateMachine()
+        self._shutdown_flag = False
+        self.timer_list = []
+        self._latest_frame_bytes = None
+
+        # Instanziamo i ROS Publisher base
+        self.cmd_vel_pub = self.create_publisher(Twist, '/bluedot_input', 10)
+        self.response_pub = self.create_publisher(String, '/ai/conversation/response', 10)
+        self.status_pub = self.create_publisher(String, '/ai/conversation/status', 10)
+
+        # Manager
+        self.world_model = WorldModel()
+        self.world_updater = WorldModelUpdater(self.world_model, self.event_bus)
+        self.metrics_collector = MetricsCollector(self)
+        self.reactive_safety = ReactiveSafety(self.cmd_vel_pub)
+
+        # Servizi Core
+        self.llm_service = LLMService(self.config_manager)
+        self.tts_service = TTSService(self.config_manager)
+        self.asr_service = ASRService(self.config_manager)
+        self.embedding_service = EmbeddingService(self.config_manager)
+        self.nav_client = NavigationClient(self, self.config_manager)
+        self.ha_client = HomeAssistantClient(self.config_manager)
+        
+        db_path = "/home/robopy/ChromaDB_Llama"
+        if self.config and hasattr(self.config, "memory"):
+             db_path = getattr(self.config.memory, 'persist_dir_llama', "/home/robopy/ChromaDB_Llama")
+        
+        # Sostituiamo il MemoryStore base con LlamaIndex per l'architettura State of the Art
+        self.memory_store = LlamaIndexMemoryStore(
+            persist_dir=db_path,
+            embedding_service=self.embedding_service
+        )
+
+        self.deepseek_service = DeepSeekService(self.config_manager)
+        self.nightly_dream_service = NightlyDreamService(
+            self.config_manager, self.memory_store, self.llm_service, self.embedding_service, self.deepseek_service
+        )
+        self.visual_memory_service = VisualMemoryService(
+            self, self.config_manager, self.llm_service, self.embedding_service, self.memory_store
+        )
+        self.face_recognition_service = FaceRecognitionService(
+            known_faces_dir=self.config.face_recognition.known_faces_dir,
+            tolerance=self.config.face_recognition.tolerance,
+            confidence_high=self.config.face_recognition.confidence_high,
+            confidence_low=self.config.face_recognition.confidence_low
+        )
+
+        self.memory_manager = MemoryManager(self.memory_store, self.embedding_service)
+        self.ha_context_updater = HAContextUpdater(self.ha_client, self.event_bus)
+
+        # Configurazione Skill
+        self.skill_registry = SkillRegistry()
+        self.skill_registry.register(HomeAssistantSkill(self.event_bus))
+        if self.nav_client:
+             self.skill_registry.register(NavigationSkill(self.nav_client, self._skill_move_handler))
+        self.skill_registry.register(SearchSkill(self.nav_client, self.llm_service, self._provide_camera_frame))
+        self.skill_registry.register(NightlyDreamSkill(self.nightly_dream_service))
+        self.skill_registry.register(VisualExplorationSkill(
+            nav_client=self.nav_client, 
+            llm_service=self.llm_service, 
+            camera_provider=self._provide_camera_frame, 
+            move_handler=self._skill_move_handler
+        ))
+        self.skill_registry.register(CalibrationSkill(self))
+
+        self.skill_executor = SkillExecutor(self.skill_registry, self.nav_client, self.reactive_safety)
+        self.conversation_manager = ConversationManager(
+            llm=self.llm_service,
+            tts=self.tts_service,
+            skill_executor=self.skill_executor,
+            memory_manager=self.memory_manager,
+            world_model=self.world_model,
+            ha_context_provider=self.ha_context_updater.get_context_string,
+            metrics=self.metrics_collector,
+            config=self.config_manager,
+            reactive_safety=self.reactive_safety,
+            response_callback=self._on_ai_response,
+            node=self
+        )
+
+        self._loop = asyncio.new_event_loop()
+        
+        # Attiva servizi async thread e ROS callbacks
+        self._setup_ros_interfaces()
+
+        self._thread = threading.Thread(target=self._run_async_loop, daemon=True)
+        self._thread.start()
+
+        # Inizializzazione asincrona con retry
+        asyncio.run_coroutine_threadsafe(self._async_init(), self._loop)
+
+    def _setup_ros_interfaces(self):
+        self.create_subscription(CompressedImage, '/rgb/image/compressed', self._camera_callback, 1)
+        self.create_subscription(DiagnosticArray, '/diagnostics', self._diagnostics_callback, 10)
+        self.create_subscription(String, 'ai/input/text', self._text_input_callback, 10)
+        self.create_subscription(String, 'ai/input/voice_test', self._voice_test_callback, 10)
+        self.create_subscription(Bool, 'ai/input/mic_mute', self._mute_callback, 10)
+        self.create_subscription(AudioData, '/llm_service_node/audio_chunk', self._audio_chunk_callback, 10)
+
+        # Timer reattivi
+        t1 = self.create_timer(0.02, self._reactive_loop_callback)
+        t2 = self.create_timer(10.0, self._ha_update_callback)
+        t3 = self.create_timer(5.0, self._metrics_callback)
+        self.timer_list.extend([t1, t2, t3])
+
+        # Se deepseek c'è
+        from datetime import time as dtime
+        try:
+             from apscheduler.schedulers.asyncio import AsyncIOScheduler
+             self.scheduler = AsyncIOScheduler(event_loop=self._loop)
+             self.scheduler.add_job(self._run_nightly_dream, 'cron', hour=3, minute=0)
+             self.scheduler.start()
+        except ImportError:
+             self.ai_logger.warning("APScheduler missing, nightly dream not scheduled.")
+
+    def _reactive_loop_callback(self):
+        if self._shutdown_flag:
+            return
+        twist = self.reactive_safety.get_twist()
+        
+        # Publish only if not fully zero to avoid loop spam, or publish one zero
+        self.cmd_vel_pub.publish(twist)
+
+    def _ha_update_callback(self):
+        if self._shutdown_flag:
+            return
+        asyncio.run_coroutine_threadsafe(self.ha_context_updater.update(), self._loop)
+        
+    def _metrics_callback(self):
+        if self._shutdown_flag:
+            return
+        # Qui potremmo pubblicare metrics
+        pass
+
+    def _audio_chunk_callback(self, msg: AudioData):
+        if self._shutdown_flag:
+            return
+        if self.tts_service:
+            self.tts_service.play_raw_pcm(msg.data)
+
+    def _camera_callback(self, msg):
+        if self._shutdown_flag:
+            return
+        try:
+            self._latest_frame_bytes = msg.data
+            frame = CameraFrame(raw=msg.data)
+            self.conversation_manager.set_latest_frame(frame)
+            # Passa a FA
+            asyncio.run_coroutine_threadsafe(self.face_recognition_service.process_image_async(msg.data), self._loop)
+        except Exception:
+            pass
+
+    def _provide_camera_frame(self) -> Optional[bytes]:
+        return self._latest_frame_bytes
+
+    def _skill_move_handler(self, direction: str, speed: float, duration: float, degrees: float = None):
+        if self.nav_client:
+            asyncio.run_coroutine_threadsafe(
+                self.nav_client.move_relative(direction, speed, duration, degrees),
+                self._loop
+            )
+
+    def _text_input_callback(self, msg):
+        if self._shutdown_flag:
+            return
+        asyncio.run_coroutine_threadsafe(
+            self.conversation_manager.process_input(msg.data, source="text"), self._loop
+        )
+
+    def _voice_test_callback(self, msg):
+        if self._shutdown_flag:
+            return
+        self.get_logger().info(f"Simulating voice input: {msg.data}")
+        asyncio.run_coroutine_threadsafe(
+            self.conversation_manager.process_input(msg.data, source="audio"), self._loop
+        )
+
+    def _mute_callback(self, msg):
+        if self._shutdown_flag:
+            return
+        self.conversation_manager.set_mic_muted(msg.data)
+
+    def _diagnostics_callback(self, msg):
+        for status in msg.status:
+            if status.name == "battery":
+                try:
+                     level = float(status.message)
+                     self.event_bus.publish(EventType.DIAGNOSTIC_UPDATE, {"battery": level})
+                except ValueError:
+                     pass
+
+    def _run_nightly_dream(self):
+        if self._loop.is_running() and not self._shutdown_flag:
+            asyncio.run_coroutine_threadsafe(self.nightly_dream_service.run_analysis(), self._loop)
+
+    async def _on_ha_event(self, event_data: dict):
+        # Evento da HA (es. cambio luce) arrivato
+        pass
+
+    def _on_ai_response(self, text: str):
+        # Callback da ConversationManager per mandare la risposta su ROS
+        msg = String()
+        msg.data = text
+        self.response_pub.publish(msg)
+        
+        status_msg = String()
+        status_msg.data = "READY"
+        self.status_pub.publish(status_msg)
+
+    async def _async_init(self):
+        try:
+            await asyncio.wait_for(self._init_resources(), timeout=15.0)
+            self.state_machine.transition_to(SystemState.READY)
+            self.ai_logger.info("System READY")
+        except Exception as e:
+            self.ai_logger.error(f"Init failed: {e}")
+            self.state_machine.transition_to(SystemState.ERROR, str(e))
+            self.timer_list.append(self.create_timer(30.0, self._retry_init_callback))
+
+    def _retry_init_callback(self):
+        if self.state_machine.state == SystemState.ERROR:
+
+             self.ai_logger.info("Retrying initialization...")
+             asyncio.run_coroutine_threadsafe(self._async_init(), self._loop)
+
+    async def _init_resources(self):
+        # 1. LLM Live (Essenziale per la conversazione)
+        try:
+            await self.llm_service.start_persistent_live()
+        except Exception as e:
+            self.ai_logger.warning(f"LLM Live session failed to start: {e}")
+
+        # 2. Home Assistant (Opzionale all'avvio)
+        try:
+            # Non-blocking connection
+            asyncio.create_task(self._init_ha())
+        except Exception as e:
+            self.ai_logger.warning(f"Home Assistant async init failed: {e}")
+
+        # 3. Memory & Background workers
+        self.memory_manager.start()
+
+    async def _init_ha(self):
+        """Inizializzazione Home Assistant in background per non bloccare il node ready."""
+        try:
+            connected = await self.ha_client.connect()
+            if connected:
+                await self.ha_context_updater.update()
+        except Exception as e:
+            self.ai_logger.error(f"Home Assistant background init failed: {e}")
+
+
+    async def shutdown(self):
+        self._shutdown_flag = True
+        self.ai_logger.info("Shutting down AI Orchestrator...")
+        for t in self.timer_list:
+            if t:
+                self.destroy_timer(t)
+                
+        self.reactive_safety.emergency_stop()
+        
+        await self.memory_manager.shutdown()
+        await self.llm_service.shutdown()
+        
+        if hasattr(self, "scheduler") and self.scheduler.running:
+             self.scheduler.shutdown()
+
+        self._loop.call_soon_threadsafe(self._loop.stop)
+        self._thread.join(timeout=5.0)
+
+    def _run_async_loop(self):
+        asyncio.set_event_loop(self._loop)
+        try:
+            self._loop.run_forever()
+        except Exception as e:
+            self.ai_logger.error(f"Async loop error: {e}")

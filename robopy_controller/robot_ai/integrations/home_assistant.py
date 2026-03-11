@@ -309,8 +309,9 @@ class HomeAssistantClient:
         try:
             await self._websocket.send(json.dumps(data))
             
-            timeout = timeout or self.ai_config.home_assistant.request_timeout
+            timeout = timeout or getattr(self.ai_config.home_assistant, 'request_timeout', 15.0)
             return await asyncio.wait_for(future, timeout=timeout)
+
             
         except asyncio.TimeoutError:
             self._pending_requests.pop(msg_id, None)
@@ -434,6 +435,7 @@ class HomeAssistantClient:
             return None
     
     async def get_entities(self, domain: str = None) -> List[HAEntity]:
+
         """
         Get all entities, optionally filtered by domain.
         
@@ -452,6 +454,8 @@ class HomeAssistantClient:
             entities = [e for e in entities if e.domain == domain]
         
         return entities
+
+    get_states = get_entities
     
     async def subscribe_events(self, event_type: str = "state_changed") -> None:
         """Subscribe to Home Assistant events."""

@@ -15,6 +15,7 @@ import math
 import numpy as np
 import cv2
 import re
+import uuid
 from typing import Dict, Any, List, Optional, Callable
 from datetime import datetime
 from collections import deque
@@ -24,11 +25,16 @@ from rclpy.node import Node
 from rclpy.time import Time
 from rclpy.duration import Duration
 from cv_bridge import CvBridge
-from sensor_msgs.msg import Image, CameraInfo
+from sensor_msgs.msg import Image, CameraInfo, PointCloud2, PointField
+import sensor_msgs_py.point_cloud2 as pc2
+from std_msgs.msg import Header
 from visualization_msgs.msg import Marker, MarkerArray
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Point, PoseStamped, PointStamped
 from tf2_ros import Buffer, TransformListener
+
+# New: VQA Service from robopy_controller
+from robopy_controller.srv import AskVisualQuestion
 
 # Safe transforms: prefer pose, fallback to point if needed
 try:
@@ -71,6 +77,16 @@ class VisualMemoryService:
         self.bridge = CvBridge()
         self.tf_buffer = Buffer(cache_time=Duration(seconds=30.0))
         self.tf_listener = TransformListener(self.tf_buffer, self.node)
+        
+        # New: PointCloud2 publisher for Nav2 Semantic Costmap
+        self.pc_pub = self.node.create_publisher(PointCloud2, "/visual_objects_pc", 10)
+
+        # New: VQA ROS Service
+        self.vqa_service = self.node.create_service(
+            AskVisualQuestion,
+            'ask_visual_question',
+            self._handle_ask_vqa
+        )
 
         # State
         self._last_analysis_time = 0.0
@@ -96,10 +112,10 @@ class VisualMemoryService:
 
         self._marker_id_counter = 0
 
-        # O(1) spatial hash: key=(label, frame, gx, gy, gz)
+        # O(1) spatial hash: key=(label, frame, gx, gy, gz) -> dict with 'uuid', 'state', etc.
         self._spatial_hash_cache: Dict[tuple, Dict[str, Any]] = {}
         self._spatial_grid_size = 0.5  # 50cm cells for rough bucketing
-        self._spatial_cache_ttl_s = 300.0
+        self._spatial_cache_ttl_s = 600.0  # Increased TTL for better persistence
         self._spatial_cache_max_items = 2000
 
         # Subscriptions
@@ -318,7 +334,7 @@ class VisualMemoryService:
                     for k, _ in oldest[:remove_count]:
                         self._spatial_hash_cache.pop(k, None)
 
-                # O(1) hash + dynamic neighbor check
+                # O(1) hash + dynamic neighbor check for object permanence
                 for obj in found_objects_3d:
                     label, state, frame = obj['label'], obj['state'], obj['frame']
                     x, y, z, depth_m = obj['x'], obj['y'], obj['z'], obj['depth_m']
@@ -344,19 +360,29 @@ class VisualMemoryService:
 
                     if matched_key is not None:
                         cache_obj = self._spatial_hash_cache[matched_key]
+                        obj['uuid'] = cache_obj['uuid']  # Propagate existing UUID
+                        
                         if cache_obj['state'] != state:
+                            self.logger.info(f"🔄 State change for {label} [{cache_obj['uuid']}]: {cache_obj['state']} -> {state}")
                             should_save_to_db = True
                             cache_obj['state'] = state
 
-                        # smooth centroid update
+                        # Smooth centroid update
                         cache_obj['x'] = (cache_obj['x'] + x) / 2.0
                         cache_obj['y'] = (cache_obj['y'] + y) / 2.0
                         cache_obj['z'] = (cache_obj['z'] + z) / 2.0
                         cache_obj['last_seen'] = now
                     else:
+                        # New object detected! Generate UUID
+                        new_uuid = str(uuid.uuid4())[:8]
+                        obj['uuid'] = new_uuid
                         should_save_to_db = True
+                        
+                        self.logger.info(f"✨ New object found: {label} [UUID: {new_uuid}] at ({x:.2f}, {y:.2f}, {z:.2f})")
+                        
                         key = (label, frame, gx, gy, gz)
                         self._spatial_hash_cache[key] = {
+                            'uuid': new_uuid,
                             'state': state,
                             'x': x,
                             'y': y,
@@ -379,20 +405,43 @@ class VisualMemoryService:
                 except Exception as e:
                     self.logger.error(f"Embedding failed: {e}")
 
+                # Prepare comprehensive spatial metadata
+                primary_obj = found_objects_3d[0] if found_objects_3d else {}
+                obj_metadata = [
+                    {
+                        "label": o['label'], 
+                        "state": o.get('state', 'unknown'), 
+                        "uuid": o.get('uuid', ''),
+                        "x": o.get('x', 0.0),
+                        "y": o.get('y', 0.0), 
+                        "z": o.get('z', 0.0),
+                        "frame": o.get('frame', 'map')
+                    } 
+                    for o in found_objects_3d
+                ]
+
                 mem = Memory(
-                    id="",
-                    content=f"Visual Memory: {description}",
+                    id=primary_obj.get('uuid', ""),
+                    content=f"Visual Observation: {description}",
                     memory_type=MemoryType.VISUAL_OBSERVATION,
                     embedding=embedding,
                     metadata={
                         "source": "visual_memory",
-                        "objects": json.dumps([f"{o['label']} ({o.get('state', 'unknown')})" for o in objects]),
+                        "objects": json.dumps(obj_metadata),
                         "timestamp": datetime.now().isoformat(),
                         "rgb_ts": image_capture_time,
+                        "primary_uuid": primary_obj.get('uuid', ""),
+                        "location": f"({primary_obj.get('x', 0):.2f}, {primary_obj.get('y', 0):.2f}, {primary_obj.get('z', 0):.2f}) in {primary_obj.get('frame', 'map')}"
                     },
                 )
-                self.memory_store.add(mem)
-                self.logger.debug("New memory saved to Vector DB.")
+                
+                # Use UUID-based upsert logic
+                if mem.id and self.memory_store.get(mem.id):
+                    self.memory_store.update(mem)
+                    self.logger.info(f"📍 Memory UPDATED for {primary_obj.get('label')} [UUID: {mem.id}]")
+                else:
+                    self.memory_store.add(mem)
+                    self.logger.info(f"🆕 Memory SAVED for {primary_obj.get('label')} [UUID: {mem.id or 'N/A'}]")
             else:
                 self.logger.info("♻️ Spatial deduplication: skipped Vector DB save.")
 
@@ -560,6 +609,8 @@ class VisualMemoryService:
                 "y": round(pos_y, 3),
                 "z": round(pos_z, 3),
                 "frame": frame_for_marker,
+                "width_3d": round(width_3d, 3),
+                "height_3d": round(height_3d, 3),
             })
 
             current_id = self._marker_id_counter
@@ -623,6 +674,41 @@ class VisualMemoryService:
         if marker_array.markers:
             self.markers_pub.publish(marker_array)
 
+        # Publish semantic PointCloud2 for Nav2
+        if found_objects:
+            pc_points = []
+            for obj in found_objects:
+                px, py, pz = obj['x'], obj['y'], obj['z']
+                # Add center point
+                pc_points.append([px, py, pz])
+                
+                # Add 8 corner points based on 3D dimensions (simplified)
+                # Note: This assumes axis-aligned for costmap projection
+                # which is usually sufficient for 2D avoidance.
+                dw = obj.get('width_3d', 0.2) / 2.0
+                dh = obj.get('height_3d', 0.2) / 2.0
+                dd = obj.get('depth_3d', 0.2) / 2.0
+                
+                for dx in [-dd, dd]:
+                    for dy in [-dw, dw]:
+                        for dz in [-dh, dh]:
+                            pc_points.append([px + dx, py + dy, pz + dz])
+
+            if pc_points:
+                header = Header()
+                header.stamp = ros_time_msg
+                header.frame_id = frame_for_marker
+                
+                fields = [
+                    PointField(name='x', offset=0, datatype=PointField.FLOAT32, count=1),
+                    PointField(name='y', offset=4, datatype=PointField.FLOAT32, count=1),
+                    PointField(name='z', offset=8, datatype=PointField.FLOAT32, count=1),
+                ]
+                
+                pc_msg = pc2.create_cloud_xyz32(header, pc_points)
+                self.pc_pub.publish(pc_msg)
+                self.logger.debug(f"Published PointCloud2 with {len(pc_points)} points for Nav2")
+
         if found_objects and self._has_rtabmap_msgs:
             from rtabmap_msgs.msg import UserData
             user_data_msg = UserData()
@@ -638,3 +724,45 @@ class VisualMemoryService:
             self.userdata_pub.publish(user_data_msg)
 
         return found_objects
+    async def _handle_ask_vqa(self, request, response):
+        """Handle synchronous VQA request for active search."""
+        self.logger.info(f"🔍 Active Search Triggered: {request.question}")
+
+        if self._latest_rgb is None:
+            response.success = False
+            response.answer = "Errore: Camera non disponibile."
+            return response
+
+        # Compress to JPEG
+        encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 80]
+        success, encoded_jpg = cv2.imencode('.jpg', self._latest_rgb, encode_param)
+        if not success:
+            response.success = False
+            response.answer = "Errore: Compressione immagine fallita."
+            return response
+
+        jpg_bytes = encoded_jpg.tobytes()
+
+        # Build Focused Prompt
+        prompt = (
+            f"FOCUSED ANALYSIS: {request.question}\n"
+            "Analyze the image specifically for the question above. "
+            "Be direct, concise, and provide structural details if requested. "
+            "Avoid general descriptions unless needed."
+        )
+
+        try:
+            # Synchronous-like wait for async LLM service
+            llm_response = await asyncio.wait_for(
+                self.llm_service.generate(prompt, images=[jpg_bytes], max_tokens=1000),
+                timeout=30.0
+            )
+            response.answer = llm_response.text
+            response.success = True
+            self.logger.info(f"✅ VQA Result: {response.answer[:50]}...")
+        except Exception as e:
+            self.logger.error(f"❌ VQA Failed: {e}")
+            response.success = False
+            response.answer = f"Errore API/Timeout: {e}"
+
+        return response

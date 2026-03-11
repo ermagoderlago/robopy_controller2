@@ -141,7 +141,8 @@ class FaceRecognitionService:
         
         # Load known faces
         if known_faces_dir and os.path.isdir(known_faces_dir):
-            self._load_known_faces(known_faces_dir)
+            self.logger.info("⏩ Bypassing face loading for rapid Live API testing...")
+            # self._load_known_faces(known_faces_dir)
         else:
             self.logger.warning(f"⚠️ known_faces_dir not found or empty: {known_faces_dir}")
     

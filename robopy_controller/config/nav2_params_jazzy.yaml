@@ -128,7 +128,7 @@ local_costmap:
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: true
-        observation_sources: scan
+        observation_sources: scan semantic_objects
         scan:
           topic: /scan
           max_obstacle_height: 2.0
@@ -139,6 +139,12 @@ local_costmap:
           raytrace_min_range: 0.0
           obstacle_max_range: 4.5
           obstacle_min_range: 0.0
+        semantic_objects:
+          topic: /visual_objects_pc
+          max_obstacle_height: 2.0
+          clearing: true
+          marking: true
+          data_type: "PointCloud2"
       range_layer:
         plugin: "nav2_costmap_2d::RangeSensorLayer"
         enabled: true
@@ -178,8 +184,8 @@ global_costmap:
         map_subscribe_transient_local: true
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
-        enabled: false
-        observation_sources: scan
+        enabled: true
+        observation_sources: scan semantic_objects
         scan:
           topic: /scan
           max_obstacle_height: 2.0
@@ -190,6 +196,12 @@ global_costmap:
           raytrace_min_range: 0.0
           obstacle_max_range: 4.5
           obstacle_min_range: 0.0
+        semantic_objects:
+          topic: /visual_objects_pc
+          max_obstacle_height: 2.0
+          clearing: true
+          marking: true
+          data_type: "PointCloud2"
       range_layer:
         plugin: "nav2_costmap_2d::RangeSensorLayer"
         enabled: true

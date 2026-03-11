@@ -388,6 +388,52 @@ class NavigationClient:
         self.logger.info("🗺️ Bootstrap mapping complete! Waiting 3s for costmaps...")
         await asyncio.sleep(3.0)
     
+    async def move_relative(self, direction: str, speed: float = 0.3, duration: float = 1.0, degrees: float = None) -> None:
+        """
+        Move the robot relatively using direct cmd_vel commands.
+        
+        Args:
+            direction: 'avanti', 'indietro', 'sinistra', 'destra'
+            speed: Linear speed (m/s) or angular speed (rad/s)
+            duration: Movement duration in seconds
+            degrees: Optional specific rotation in degrees
+        """
+        linear_x = 0.0
+        angular_z = 0.0
+        
+        if direction == "avanti":
+            linear_x = abs(speed)
+        elif direction == "indietro":
+            linear_x = -abs(speed)
+        elif direction == "sinistra":
+            if degrees:
+                angular_z = math.radians(degrees) / duration
+            else:
+                angular_z = abs(speed)
+        elif direction == "destra":
+            if degrees:
+                angular_z = -math.radians(degrees) / duration
+            else:
+                angular_z = -abs(speed)
+        
+        self.logger.info(f"Moving relative: {direction} (v={linear_x}, w={angular_z}) for {duration}s")
+        
+        if not HAS_ROS or not self._cmd_vel_pub:
+            await asyncio.sleep(duration)
+            return
+            
+        twist = Twist()
+        twist.linear.x = linear_x
+        twist.angular.z = angular_z
+        
+        t_end = time.monotonic() + duration
+        while time.monotonic() < t_end:
+            self._cmd_vel_pub.publish(twist)
+            await asyncio.sleep(0.1)  # 10Hz
+            
+        # Stop
+        self._cmd_vel_pub.publish(Twist())
+
     async def _cmd_vel_send(self, linear_x: float, angular_z: float, duration: float) -> None:
         """Publish cmd_vel at 10Hz for the given duration."""
         if not HAS_ROS or not self._cmd_vel_pub:
@@ -399,7 +445,7 @@ class NavigationClient:
         twist.angular.z = angular_z
         
         t_end = time.monotonic() + duration
-        while time.monotonic() < t_end and self._is_exploring:
+        while time.monotonic() < t_end:
             self._cmd_vel_pub.publish(twist)
             await asyncio.sleep(0.1)  # 10Hz
         
