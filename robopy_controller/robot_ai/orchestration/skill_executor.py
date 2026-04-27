@@ -18,6 +18,9 @@ class SkillExecutor:
     def get_all(self):
         return self.registry.get_all()
 
+    def get_summary(self):
+        return self.registry.get_summary()
+
     async def execute_skill(self, skill_name: str, args: dict) -> List[str]:
         skill = self.registry.get(skill_name)
         if not skill:
@@ -25,7 +28,37 @@ class SkillExecutor:
             return []
 
         execution_text = args.get("text", "")
-        if skill_name == "navigation" and "action" in args:
+        context = {}
+
+        # --- Routing specifico per skill ---
+
+        if skill_name == "check_home_assistant":
+            # L'LLM passa entity_id/domain via function call args, non via text.
+            # Forwarda tutti gli args come context alla skill.
+            context = {
+                "entity_id": args.get("entity_id", ""),
+                "domain": args.get("domain", ""),
+            }
+            self._logger.info(
+                f"🏠 Routing check_home_assistant: entity_id={context['entity_id']}, "
+                f"domain={context['domain']}"
+            )
+
+        elif skill_name == "check_emails":
+            # Gemini manda: {intent, text, account, limit} via function_call.
+            # Forwarda tutto come context e garantisce un execution_text sensato.
+            context = {
+                "intent":  args.get("intent",  "read"),
+                "account": args.get("account", "default"),
+                "limit":   int(args.get("limit", 5)),
+            }
+            execution_text = args.get("text", "leggi le mie email")
+            self._logger.info(
+                f"📧 Routing check_emails: intent={context['intent']}, "
+                f"limit={context['limit']}, text='{execution_text}'"
+            )
+
+        elif skill_name == "navigation" and "action" in args:
              # Backward compatibility mappings for older prompts
              action = args.get("action")
              if action == "move_to_room":
@@ -38,7 +71,7 @@ class SkillExecutor:
                  execution_text = "torna alla base"
 
         try:
-            result = await skill.safe_execute(execution_text)
+            result = await skill.safe_execute(execution_text, context)
             return await self._collect_speak_texts(result)
         except Exception as e:
             self._logger.error(f"Error executing skill {skill_name}: {e}", exc_info=True)

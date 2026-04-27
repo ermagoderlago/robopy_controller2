@@ -1,0 +1,34 @@
+﻿
+  remote_logs.txt:7:[robot_ai_node-6] Ô£à Loaded .env file via absolute path (override system env)
+  remote_logs.txt:8:[robot_ai_node-6] Ô£à GEMINI_API_KEY auto-loaded dalle configs
+  remote_logs.txt:9:[robot_ai_node-6] Ô£à HA_TOKEN auto-loaded dalle configs
+  remote_logs.txt:10:[robot_ai_node-6] Ô£à DEEPSEEK_API_KEY auto-loaded dalle configs
+  remote_logs.txt:11:[robot_ai_node-6] Ô£à PICOVOICE_API_KEY auto-loaded dalle configs
+> remote_logs.txt:12:[robot_ai_node-6] Ô£à EMAIL_ADDRESS auto-loaded dalle configs
+> remote_logs.txt:13:[robot_ai_node-6] Ô£à EMAIL_PASSWORD auto-loaded dalle configs
+  remote_logs.txt:14:[robot_ai_node-6] Ô£à IMAP_SERVER auto-loaded dalle configs
+  remote_logs.txt:15:[robot_ai_node-6] Ô£à SMTP_SERVER auto-loaded dalle configs
+  remote_logs.txt:16:[servo_coda_node-8] [WARN] [1775510998.422746197] [rcl]: ROS_LOCALHOST_ONLY is deprecated but 
+still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_RANGE and ROS_STATIC_PEERS instead.
+  remote_logs.txt:17:[servo_coda_node-8] [WARN] [1775510998.422768178] [rcl]: 'localhost_only' is disabled, 
+'automatic_discovery_range' and 'static_peers' will be used.
+  remote_logs.txt:18:[foxglove_bridge-3] [INFO] [1775510998.755320201] [foxglove_bridge]: received connection graph 
+subscribe request
+  remote_logs.txt:243:[robot_ai_node-6] 23:30:35 INFO     [skill_registry] Registered skill: navigation
+  remote_logs.txt:244:[robot_ai_node-6] 23:30:35 INFO     [skill_registry] Registered skill: search
+  remote_logs.txt:245:[robot_ai_node-6] 23:30:35 INFO     [skill_registry] Registered skill: nightly_dream
+  remote_logs.txt:246:[robot_ai_node-6] 23:30:35 INFO     [skill_registry] Registered skill: visual_exploration
+  remote_logs.txt:247:[robot_ai_node-6] 23:30:35 INFO     [skill_registry] Registered skill: calibration
+> remote_logs.txt:248:[robot_ai_node-6] 23:30:35 INFO     [skill_registry] Registered skill: check_emails
+  remote_logs.txt:249:[robot_ai_node-6] [INFO] [1775511035.851516623] [robot_ai_orchestrator]: Aggiornamento tools LLM 
+(8 funzioni caricate)
+  remote_logs.txt:250:[robot_ai_node-6] 23:30:35 INFO     [conversation] ROS 2 Publishers attached to 
+ConversationManager.
+  remote_logs.txt:251:[robot_ai_node-6] 23:30:35 INFO     [conversation] Aggiornamento regole globali 
+Anti-Allucinazione nel LLM Service.
+  remote_logs.txt:252:[robot_ai_node-6] [INFO] [1775511035.857450137] [robot_ai_orchestrator]: System prompt 
+aggiornato (nuova lunghezza: 613)
+  remote_logs.txt:253:[robot_ai_node-6] [INFO] [1775511035.859234322] [robot_ai_orchestrator]: System prompt cambiato, 
+riconnessione Live immediata per applicare le regole.
+
+

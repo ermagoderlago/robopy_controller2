@@ -1,0 +1,8 @@
+#!/bin/bash
+# Wrapper robusto per respeaker_vui_node
+source /opt/ros/jazzy/setup.bash
+source /home/robopy/severus/venv/bin/activate
+source /home/robopy/severus/install/setup.bash
+# Forza PYTHONPATH per includere i pacchetti di sistema se il venv è isolato
+export PYTHONPATH=$PYTHONPATH:/opt/ros/jazzy/lib/python3.12/site-packages
+exec /home/robopy/severus/venv/bin/python3 /home/robopy/severus/robopy_controller/nodes/respeaker_vui_node.py "$@"

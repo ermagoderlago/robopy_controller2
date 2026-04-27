@@ -59,11 +59,12 @@ class SkillRegistry:
         self._skills: Dict[str, BaseSkill] = {}
         self._skill_paths: Dict[str, Path] = {}  # skill_name -> file path
         self._skill_mtimes: Dict[str, float] = {}  # path -> mtime
-        
+        self._di_required: Dict[str, type] = {}  # class_name -> class (needs DI)
+
         self._watch_thread: Optional[threading.Thread] = None
         self._watching = False
         self._watch_interval = 5.0
-        
+
         self._initialized = True
     
     def register(self, skill: BaseSkill) -> bool:
@@ -95,23 +96,64 @@ class SkillRegistry:
     def unregister(self, name: str) -> bool:
         """
         Unregister a skill by name.
-        
+
         Args:
             name: Skill name
-            
+
         Returns:
             True if unregistered successfully
         """
         with self._lock:
             if name not in self._skills:
                 return False
-            
+
             del self._skills[name]
             self._skill_paths.pop(name, None)
-            
+
             self.event_bus.publish(EventType.SKILL_UNREGISTERED, {"name": name})
             self.logger.info(f"Unregistered skill: {name}")
             return True
+
+    def register_with_deps(self, skill_class: type, **kwargs) -> bool:
+        """
+        Register a skill class that requires constructor arguments (dependency injection).
+
+        Use this for skill classes like CreaSkill that need llm_service, node, etc.
+
+        Args:
+            skill_class: The skill class to instantiate
+            **kwargs: Constructor arguments to pass to the skill class
+
+        Returns:
+            True if registered successfully
+
+        Example:
+            registry.register_with_deps(CreaSkill, llm_service=llm_svc, node=ros_node)
+        """
+        try:
+            skill = skill_class(**kwargs)
+            return self.register(skill)
+        except Exception as e:
+            self.logger.error(
+                f"Failed to instantiate skill '{skill_class.__name__}' with deps: {e}"
+            )
+            return False
+
+    def reload_active(self, active_dir: str = None) -> int:
+        """
+        Hot-reload: rilegge il manifest e carica le skill abilitate.
+
+        Usato da crea_skill dopo auto-enable per rendere la nuova skill
+        immediatamente disponibile senza riavviare il robot.
+
+        Args:
+            active_dir: Path alla directory active/ (default: auto)
+
+        Returns:
+            Numero di skill caricate/aggiornate
+        """
+        self.logger.info("Hot-reload delle skill attive in corso...")
+        return self.discover_active(active_dir)
     
     def get(self, name: str) -> Optional[BaseSkill]:
         """Get a skill by name."""
@@ -166,41 +208,58 @@ class SkillRegistry:
     def _load_skill_file(self, file_path: Path) -> int:
         """
         Load skills from a Python file.
-        
+
+        Skills that require constructor arguments (dependency injection) cannot
+        be auto-instantiated. They are tracked in _di_required and must be
+        registered manually via register_with_deps().
+
         Returns:
             Number of skills loaded
         """
         module_name = f"robot_ai_skill_{file_path.stem}"
-        
+
         try:
             spec = importlib.util.spec_from_file_location(module_name, file_path)
             if spec is None or spec.loader is None:
                 return 0
-            
+
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
-            
+
             # Find skill classes
             count = 0
             for name in dir(module):
                 obj = getattr(module, name)
-                
-                if (isinstance(obj, type) and 
-                    issubclass(obj, BaseSkill) and 
-                    obj is not BaseSkill):
-                    
-                    # Instantiate and register
+
+                if (isinstance(obj, type) and
+                        issubclass(obj, BaseSkill) and
+                        obj is not BaseSkill):
+
+                    # Try to instantiate without args first (most skills)
                     try:
                         skill = obj()
                         self.register(skill)
                         self._skill_paths[skill.name] = file_path
                         self._skill_mtimes[str(file_path)] = file_path.stat().st_mtime
                         count += 1
+                    except TypeError as te:
+                        # Skill requires constructor arguments (dependency injection).
+                        # Log clearly and track it for manual registration.
+                        self.logger.warning(
+                            f"Skill class '{name}' in {file_path.name} requires "
+                            f"constructor arguments (DI) and cannot be auto-instantiated. "
+                            f"Use register_with_deps() to register it manually. "
+                            f"Details: {te}"
+                        )
+                        # Track in DI-required map so callers can find the class
+                        with self._lock:
+                            self._di_required[name] = obj
+                        self._skill_mtimes[str(file_path)] = file_path.stat().st_mtime
                     except Exception as e:
                         self.logger.error(f"Failed to instantiate {name}: {e}")
-            
+
             return count
-            
+
         except Exception as e:
             self.logger.error(f"Failed to load module {file_path}: {e}")
             return 0
@@ -388,3 +447,61 @@ class SkillRegistry:
             md = skill.get_metadata()
             summary += f"- **{md.name}**: {md.description} (Keywords: {', '.join(md.keywords)})\n"
         return summary
+
+    def discover_active(self, active_dir: str = None) -> int:
+        """
+        Carica le skill generate dalla directory active/ basandosi sul manifest.
+
+        Legge skills_manifest.json e carica solo le skill con enabled=true.
+
+        Args:
+            active_dir: Path alla directory active/ (default: calcolo automatico)
+
+        Returns:
+            Numero di skill caricate
+        """
+        if active_dir is None:
+            active_dir = str(Path(__file__).parent / "active")
+
+        active_path = Path(active_dir)
+        manifest_path = active_path / "skills_manifest.json"
+
+        if not manifest_path.exists():
+            self.logger.info("Nessun manifest trovato, nessuna skill attiva da caricare.")
+            return 0
+
+        try:
+            import json
+            with open(manifest_path, 'r', encoding='utf-8') as f:
+                manifest = json.load(f)
+        except (json.JSONDecodeError, FileNotFoundError) as e:
+            self.logger.warning(f"Errore lettura manifest: {e}")
+            return 0
+
+        count = 0
+        for skill_name, entry in manifest.items():
+            if not entry.get("enabled", False):
+                self.logger.debug(f"Skill '{skill_name}' non abilitata, skip.")
+                continue
+
+            skill_file = active_path / entry.get("file", "")
+            if not skill_file.exists():
+                self.logger.warning(
+                    f"Skill '{skill_name}' abilitata ma file {skill_file} non trovato."
+                )
+                continue
+
+            try:
+                loaded = self._load_skill_file(skill_file)
+                count += loaded
+                if loaded > 0:
+                    self.logger.info(
+                        f"Skill attiva caricata: {skill_name} da {skill_file.name}"
+                    )
+            except Exception as e:
+                self.logger.error(
+                    f"Errore caricamento skill attiva '{skill_name}': {e}"
+                )
+
+        self.logger.info(f"Caricate {count} skill attive dal manifest.")
+        return count

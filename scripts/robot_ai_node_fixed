@@ -1,0 +1,25 @@
+﻿#!/home/robopy/ros2_venv/bin/python3
+import os
+import sys
+import importlib.util
+
+# Configurazione credenziali Google
+os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = '/home/robopy/.google_creds.json'
+
+# Percorso del modulo reale (preferenza per i sorgenti per modifiche live)
+MODULE_PATH = "/mnt/ssd/robopy_controller_host/robopy_controller/nodes/robot_ai_node.py"
+
+if not os.path.exists(MODULE_PATH):
+    # Fallback se non trovato nei sorgenti
+    MODULE_PATH = "/mnt/ssd/robopy_controller_host/install/robopy_controller/lib/python3.11/site-packages/robopy_controller/nodes/robot_ai_node.py"
+
+try:
+    spec = importlib.util.spec_from_file_location("module", MODULE_PATH)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+except Exception as e:
+    print(f"Error loading robot_ai_node: {e}")
+    sys.exit(1)
+
+if __name__ == '__main__':
+    module.main()

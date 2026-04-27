@@ -1,0 +1,5 @@
+string query
+int32 limit
+---
+bool success
+string answer

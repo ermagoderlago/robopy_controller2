@@ -1,0 +1,165 @@
+################################################################################
+#  ReSpeaker Lite — "Safe Rev 2.4" (CONTROL MODE)
+#  Hardware: Seeed XIAO ESP32S3 + ReSpeaker 2-Mic Lite
+#
+#  Obiettivo:
+#    - Ripristinare i comandi seriali (115200 baud).
+#    - Ripristinare il controllo DSP (AEC, AGC, NS) e Volume via I2C.
+#    - EVITARE lo scanning I2C e qualsiasi inizializzazione I2S.
+################################################################################
+
+esphome:
+  name: respeaker-lite
+  on_boot:
+    - priority: 900
+      then:
+        - delay: 4000ms  # Aspetta che la XMOS sia pronta
+        - lambda: |-
+            // Setup UART0 (USB-Serial) a 115200 baud
+            uart_config_t uart_cfg = {
+              .baud_rate = 115200,
+              .data_bits = UART_DATA_8_BITS,
+              .parity    = UART_PARITY_DISABLE,
+              .stop_bits = UART_STOP_BITS_1,
+              .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+            };
+            uart_param_config(UART_NUM_0, &uart_cfg);
+            uart_driver_install(UART_NUM_0, 1024, 1024, 0, NULL, 0);
+            id(serial_ready) = true;
+            uart_write_bytes(UART_NUM_0, "READY\n", 6);
+        - light.turn_on:
+            id: onboard_led
+            red: 0.0
+            green: 1.0
+            blue: 0.2
+            brightness: 0.5
+
+esp32:
+  board: seeed_xiao_esp32s3
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_ESP_CONSOLE_UART_DEFAULT: n
+      CONFIG_ESP_CONSOLE_NONE: y
+
+# Logger disabilitato sulla seriale per lasciare spazio al parser custom
+logger:
+  level: INFO
+  baud_rate: 0 
+
+# I2C per controllo DSP
+i2c:
+  sda: GPIO5
+  scl: GPIO6
+  scan: false # FONDAMENTALE per non mandare in loop la XMOS
+  id: dsp_bus
+
+# LED WS2812
+light:
+  - platform: esp32_rmt_led_strip
+    id: onboard_led
+    pin: GPIO1
+    num_leds: 1
+    chipset: WS2812
+    rgb_order: GRB
+    rmt_symbols: 192
+    effects:
+      - pulse:
+          name: "Listening"
+          transition_length: 1000ms
+          update_interval: 1000ms
+      - pulse:
+          name: "Thinking"
+          transition_length: 500ms
+          update_interval: 500ms
+
+# Variabili per il Parser
+globals:
+  - id: serial_ready
+    type: bool
+    initial_value: 'false'
+  - id: rx_buf
+    type: std::string
+    initial_value: '""'
+
+# Loop di elaborazione comandi (20ms)
+interval:
+  - interval: 20ms
+    then:
+      - lambda: |-
+          if (!id(serial_ready)) return;
+
+          uint8_t byte;
+          size_t available = 0;
+          uart_get_buffered_data_len(UART_NUM_0, &available);
+
+          for (size_t i = 0; i < available && i < 128; i++) {
+            if (uart_read_bytes(UART_NUM_0, &byte, 1, 0) <= 0) break;
+
+            if (byte == '\n' || byte == '\r') {
+              std::string cmd = id(rx_buf);
+              id(rx_buf) = "";
+              if (cmd.empty()) continue;
+
+              auto serial_ok = []() { uart_write_bytes(UART_NUM_0, "OK\n", 3); };
+              auto serial_err = []() { uart_write_bytes(UART_NUM_0, "ERR\n", 4); };
+
+              if (cmd == "PING") {
+                uart_write_bytes(UART_NUM_0, "PONG\n", 5);
+              }
+              else if (cmd.rfind("LED_EFFECT:", 0) == 0) {
+                std::string eff = cmd.substr(11);
+                auto c = id(onboard_led).turn_on();
+                if (eff == "IDLE") { id(onboard_led).turn_off().perform(); }
+                else if (eff == "LISTENING") { c.set_effect("Listening"); c.set_rgb(0, 1, 0.2); c.perform(); }
+                else if (eff == "THINKING")  { c.set_effect("Thinking");  c.set_rgb(0, 0.4, 1); c.perform(); }
+                else if (eff == "OFF")       { id(onboard_led).turn_off().perform(); }
+                serial_ok();
+              }
+              else if (cmd.rfind("LED_RGB:", 0) == 0) {
+                int r, g, b;
+                if (sscanf(cmd.c_str()+8, "%d,%d,%d", &r, &g, &b) == 3) {
+                  auto c = id(onboard_led).turn_on();
+                  c.set_rgb(r/255.0f, g/255.0f, b/255.0f);
+                  c.set_effect("None");
+                  c.perform();
+                  serial_ok();
+                } else serial_err();
+              }
+              else if (cmd.rfind("VOL:", 0) == 0) {
+                int vol_pct = atoi(cmd.c_str()+4);
+                if (vol_pct >= 0 && vol_pct <= 100) {
+                  uint8_t vol = (uint8_t)((1.0f - (vol_pct / 100.0f)) * 127.0f);
+                  uint8_t p0[] = {0x00, 0x00};
+                  id(dsp_bus).write(0x18, p0, 2);
+                  uint8_t l[] = {0x41, vol};
+                  uint8_t r[] = {0x42, vol};
+                  id(dsp_bus).write(0x18, l, 2);
+                  id(dsp_bus).write(0x18, r, 2);
+                  serial_ok();
+                } else serial_err();
+              }
+              else if (cmd.rfind("DSP_AEC:", 0) == 0) {
+                uint8_t v = (cmd[8] == '1') ? 0x01 : 0x00;
+                uint8_t b[] = {0xF1, 0x11, 0x01, v};
+                id(dsp_bus).write(0x42, b, 4);
+                serial_ok();
+              }
+              else if (cmd.rfind("DSP_AGC:", 0) == 0) {
+                uint8_t v = (cmd[8] == '1') ? 0x01 : 0x00;
+                uint8_t b[] = {0xF1, 0x12, 0x01, v};
+                id(dsp_bus).write(0x42, b, 4);
+                serial_ok();
+              }
+              else if (cmd.rfind("DSP_NS:", 0) == 0) {
+                uint8_t v = (cmd[7] == '1') ? 0x01 : 0x00;
+                uint8_t b[] = {0xF1, 0x13, 0x01, v};
+                id(dsp_bus).write(0x42, b, 4);
+                serial_ok();
+              }
+              else serial_err();
+
+            } else if (byte >= 32 && byte < 128) {
+              id(rx_buf) += (char)byte;
+            }
+          }

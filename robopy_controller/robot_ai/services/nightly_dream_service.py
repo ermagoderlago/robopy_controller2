@@ -12,7 +12,8 @@ import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 
-from ..rag.memory_store import MemoryStore, Memory, MemoryType
+from ..rag.memory_store import Memory, MemoryType
+from ..rag.base_memory_store import BaseMemoryStore, SearchResult
 from ..services.embedding_service import EmbeddingService
 from ..services.llm_service import LLMService
 from ..core.config_manager import ConfigManager
@@ -35,7 +36,7 @@ class NightlyDreamService:
     def __init__(
         self,
         config_manager: ConfigManager,
-        memory_store: MemoryStore,
+        memory_store,
         llm_service: LLMService,
         embedding_service: EmbeddingService,
         deepseek_service=None,
@@ -48,10 +49,14 @@ class NightlyDreamService:
         self.deepseek_service = deepseek_service
         self.skills_summary = ""
         
-        # Paths
-        home = os.path.expanduser("~")
-        self.log_path = os.path.join(home, "robopy", "logs", "continuous_improvements.md")
-        self.master_prompt_path = os.path.join(home, "robopy", "logs", "master_prompt.txt")
+        # Paths - Moved to SSD source directory for persistence and easy sync
+        base_path = "/mnt/ssd/robopy_controller_host/robopy_controller"
+        if not os.path.exists(base_path):
+            # Fallback if SSD is not mounted or path is different
+            base_path = os.path.join(os.path.expanduser("~"), "robopy")
+            
+        self.log_path = os.path.join(base_path, "logs", "continuous_improvements.md")
+        self.master_prompt_path = os.path.join(base_path, "logs", "master_prompt.txt")
         
         # Ensure log dir exists
         os.makedirs(os.path.dirname(self.log_path), exist_ok=True)
@@ -98,25 +103,25 @@ Versione: {robot.version}.
         self.logger.info("Starting Nightly Dream Analysis...")
         
         # 1. Retrieve Memories (last 24h)
-        raw_memories = self.memory_store.get_recent(limit=300, memory_type=MemoryType.CONVERSATION)
+        raw_results = await self.memory_store.get_recent(limit=300)
         
         cutoff_time = time.time() - (24 * 3600)
-        day_memories = [m for m in raw_memories if m.created_at > cutoff_time]
+        day_results = [r for r in raw_results if r.timestamp > cutoff_time]
         
-        if not day_memories:
+        if not day_results:
             self.logger.info("No memories found for the last 24h. Skipping analysis.")
             return {"status": "skipped", "reason": "no_memories"}
             
         # Sort chronologically
-        day_memories.sort(key=lambda m: m.created_at)
+        day_results.sort(key=lambda r: r.timestamp)
         
         # Format for LLM
         context_text = ""
-        for m in day_memories:
-            dt = datetime.fromtimestamp(m.created_at).strftime("%H:%M:%S")
-            context_text += f"[{dt}] {m.content}\n"
+        for r in day_results:
+            dt = datetime.fromtimestamp(r.timestamp).strftime("%H:%M:%S")
+            context_text += f"[{dt}] {r.content}\n"
             
-        self.logger.info(f"Analyzing {len(day_memories)} memories...")
+        self.logger.info(f"Analyzing {len(day_results)} memories...")
         
         system_manifest = self._get_system_manifest()
         
@@ -144,16 +149,13 @@ Versione: {robot.version}.
         # 4. Save Summary to Semantic Memory
         summary_text = f"Analisi Notturna {datetime.now().strftime('%Y-%m-%d')}:\n{report_content}"
         try:
-            embedding = await self.embedding_service.embed(summary_text)
-            
-            summary_mem = Memory(
-                id="",
-                content=summary_text,
-                memory_type=MemoryType.SUMMARY,
-                embedding=embedding,
-                metadata={"source": "nightly_dream", "date": datetime.now().strftime('%Y-%m-%d')}
-            )
-            self.memory_store.add(summary_mem)
+            metadata = {
+                "memory_type": MemoryType.SUMMARY.value,
+                "source": "nightly_dream",
+                "date": datetime.now().strftime('%Y-%m-%d'),
+                "created_at": time.time(),
+            }
+            await self.memory_store.add(summary_text, metadata)
             self.logger.info("Saved analysis summary to Semantic Memory.")
             
         except Exception as e:
@@ -162,7 +164,7 @@ Versione: {robot.version}.
         self.logger.info("Nightly Dream Analysis completed successfully.")
         return {
             "status": "success",
-            "memories_analyzed": len(day_memories),
+            "memories_analyzed": len(day_results),
             "report_length": len(report_content),
             "collaborative": use_collaboration,
         }

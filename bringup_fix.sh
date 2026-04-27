@@ -1,4 +1,4 @@
-#!/bin/bash
+﻿#!/bin/bash
 pkill -9 -f "ros2|planner_server|controller_server|behavior_server|bt_navigator|robot_ai_node|fast_flow_vo_cpp|motor_control_node|homeassistant_node|servo_coda_node|madgwick_node|rtabmap|rgbd_odometry|ekf_node|static_transform_publisher|robot_state_publisher|depthimage_to_laserscan" || true
 sleep 2
 source ~/ros2_venv/bin/activate

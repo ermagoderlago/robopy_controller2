@@ -3200,6 +3200,7 @@ class OakSuperPointOdometry(Node):
         )
 
 
+
     def debug_depth_alignment(self, keypoints, depth_frame):
             """Verifica se i keypoints SuperPoint cadono su zone con profondità valida."""
             if keypoints is None or depth_frame is None or len(keypoints) == 0:
@@ -3391,14 +3392,18 @@ class OakSuperPointOdometry(Node):
                 self.get_logger().debug(f"Pochi keypoints: {num_extracted}, skip odometria")
                 return                                  
 
-            # Call shared logic
             self.process_odometry(tracked_kpts, tracked_desc, mono_frame, depth_frame, msg_ts, do_superpoint, yolo_detections)
 
+        except Exception as e:
+            self.get_logger().error(f"Errore in main_callback: {e}")
+            import traceback
+            self.get_logger().error(traceback.format_exc())
 
     def driver_callback(self, msg):
         """Processa frame ricevuti dal driver esterno (OAKSyncFrame)"""
         try:
             # 1. Unpack Images
+            from rclpy.time import Time
             mono_frame = self.bridge.imgmsg_to_cv2(msg.mono, desired_encoding="mono8")
             depth_frame = self.bridge.imgmsg_to_cv2(msg.depth, desired_encoding="16UC1")
             
@@ -3410,25 +3415,15 @@ class OakSuperPointOdometry(Node):
             if hasattr(self, 'pub_depth'): self.publish_depth_frame(depth_frame, ts_msg)
             
             # 2. Unpack Features
-            # Kpts
             kpts_raw = []
             if msg.keypoints.data:
                  kpts_raw = np.array(msg.keypoints.data, dtype=np.float32).reshape(-1, 2)
             
-            # Desc
-            # TODO: Handle compressed descriptors (delta). 
-            # For now assume driver sends raw or empty.
-            # If empty, Flann will fail if used.
-            # Assuming KLT fallback for now if desc missing.
             desc_raw = np.array([]) 
-            
-            # Detections
-            yolo_detections = [] # Decode from msg.detections if needed
+            yolo_detections = [] 
             
             # 3. Logic Injection
             self.frame_count += 1
-            
-            # Logic expects tracked_kpts to be defined
             tracked_kpts = kpts_raw
             tracked_desc = desc_raw
             
@@ -3438,8 +3433,8 @@ class OakSuperPointOdometry(Node):
         except Exception as e:
             self.get_logger().error(f"Driver callback error: {e}")
 
-
     def process_odometry(self, tracked_kpts, tracked_desc, mono_frame, depth_frame, msg_ts, do_superpoint, yolo_detections=None):
+        try:
             matches = []
 
             # 9. Matching & Odometry
@@ -3448,19 +3443,12 @@ class OakSuperPointOdometry(Node):
                 inlier_ratio = 0.0
                 
                 # A. Matching
-                # Se siamo in modalità KLT, i match sono IMPLICITI (stesso indice)
                 if not do_superpoint and self.enable_hybrid:
                      matches = []
-                     # Implict match for KLT
-                     # Assumption: tracked_kpts indices align with prev_keypoints
                      min_len = min(len(self.prev_keypoints), len(tracked_kpts))
                      for i in range(min_len):
                          matches.append(cv2.DMatch(i, i, 0.0))
                 else:
-                    # Caso SuperPoint classico o Driver Mode (Global Match)
-                    # Se non abbiamo descrittori (es. driver non li manda), questo fallirà per FLANN.
-                    # Ma se stiamo usando KLT su feature SP, dovremmo gestirlo.
-                    # Per ora assumiamo che il driver mandi feature complete o che si usi logica ibrida.
                     if tracked_desc is not None and len(tracked_desc) > 0:
                         matches = self.odometry_system.match_features_hybrid(
                             self.prev_descriptors, tracked_desc,
@@ -3472,19 +3460,15 @@ class OakSuperPointOdometry(Node):
                     current_pose, calculated_inlier_ratio = self.odometry_system.estimate_pose_robust(
                         self.prev_keypoints, tracked_kpts, depth_frame, matches
                     )
-                    
-                    # Usa inlier ratio calcolato
                     inlier_ratio = calculated_inlier_ratio
                     
-                    # C. Pubblica Odometria
                     if current_pose is not None:
                         self.publish_odometry(current_pose, msg_ts, inlier_ratio)
 
-                        
             # Aggiorna stato precedente
             self.prev_keypoints = tracked_kpts
             self.prev_descriptors = tracked_desc
-            self.last_good_keypoints = tracked_kpts # Per tracking frame-to-frame
+            self.last_good_keypoints = tracked_kpts 
 
             # 10. Pubblicazioni standard (Visualizzazione)
             self.publish_mono_frame(mono_frame, msg_ts)
@@ -3496,10 +3480,10 @@ class OakSuperPointOdometry(Node):
                 )
                 if debug_img is not None and hasattr(self, 'pub_debug_image'):
                     try:
-                        # Log di debug per confermare la pubblicazione
                         if self.frame_count % 30 == 0:
                             self.get_logger().info(f"📸 Pubblando debug image: {debug_img.shape}")
                         
+                        from sensor_msgs.msg import Image, CompressedImage
                         debug_rgb = cv2.cvtColor(debug_img, cv2.COLOR_BGR2RGB)
                         msg = Image()
                         msg.header.stamp = msg_ts.to_msg()
@@ -3510,23 +3494,19 @@ class OakSuperPointOdometry(Node):
                         msg.data = debug_rgb.tobytes()
                         self.pub_debug_image.publish(msg)
                         
-                        # Pubblica anche compresso per Foxglove remoto
                         if hasattr(self, 'pub_debug_compressed'):
                             msg_c = CompressedImage()
                             msg_c.header = msg.header
                             msg_c.format = "jpeg"
-                            # Compressione JPEG qualità 80
                             success, encoded_img = cv2.imencode('.jpg', debug_rgb, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
                             if success:
                                 msg_c.data = encoded_img.tobytes()
                                 self.pub_debug_compressed.publish(msg_c)
-                                
                     except Exception: pass
 
         except Exception as e:
-            self.get_logger().error(f"Errore in main_callback: {e}")
-            import traceback
-            self.get_logger().error(traceback.format_exc())
+            self.get_logger().error(f"Errore in process_odometry: {e}")
+
 
 
     def apply_motion_damping(self, T_delta, alpha_t=0.6, alpha_r=0.5):

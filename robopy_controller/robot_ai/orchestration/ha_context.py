@@ -15,7 +15,8 @@ class HAContextUpdater:
         # Iscrizione all'evento per invalidare e forzare un aggiornamento immediato della cache
         self.event_bus.subscribe(EventType.HA_EVENT_RECEIVED, self._on_ha_event)
 
-    async def _on_ha_event(self, event_data: dict):
+    async def _on_ha_event(self, event):
+        event_data = event.data
         self._logger.debug(f"HA Event received, invalidating cache. {event_data}")
         await self.update()
 

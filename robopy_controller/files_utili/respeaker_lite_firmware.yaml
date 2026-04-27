@@ -1,0 +1,315 @@
+################################################################################
+#  ReSpeaker Lite — Firmware ESPHome v10.0 (THE HARDWARE TRUTH)
+#  Hardware: Seeed XIAO ESP32S3 + ReSpeaker 2-Mic Lite
+#
+#  Fix applicati:
+#  - Inversione pin I2S (DIN: 44, DOUT: 43)
+#  - Modalità I2S: Secondary (XMOS è Master)
+#  - Pin I2C Board: SDA: 5, SCL: 6
+#  - Delay Power-On XMOS: 3000ms
+################################################################################
+
+esphome:
+  name: respeaker-lite
+  friendly_name: ReSpeaker Lite del Robot
+  includes:
+    - respeaker_helper.h
+  on_boot:
+    # ── Handler 1: Accensione XMOS + Setup USB (Priorità 800) ────────────
+    - priority: 800
+      then:
+        - logger.log: "Powering on XMOS XU316..."
+        - switch.turn_on: xu316_power
+        - delay: 3000ms # Cruciale per stabilità DMA XMOS
+        - lambda: |-
+            // Setup Driver USB Serial JTAG
+            id(usb_mutex) = xSemaphoreCreateMutex();
+            if (id(usb_mutex) != NULL) {
+              usb_serial_jtag_driver_config_t usb_cfg = {
+                .tx_buffer_size = 4096,
+                .rx_buffer_size = 1024,
+              };
+              if (usb_serial_jtag_driver_install(&usb_cfg) == ESP_OK) {
+                id(usb_ready) = true;
+                ESP_LOGI("usb", "USB JTAG driver installato");
+              }
+            }
+        - if:
+            condition: { lambda: 'return id(usb_ready);' }
+            then:
+              - light.turn_on: { id: respeaker_led, red: 0%, green: 100%, blue: 0%, brightness: 50% }
+            else:
+              - light.turn_on: { id: respeaker_led, red: 100%, green: 0%, blue: 0%, brightness: 100% }
+        - delay: 1s
+        - light.turn_off: respeaker_led
+        
+        - lambda: |-
+            if (id(usb_ready) && id(usb_mutex) != NULL) {
+              if (xSemaphoreTake(id(usb_mutex), pdMS_TO_TICKS(50)) == pdTRUE) {
+                usb_serial_jtag_write_bytes((const uint8_t*)"READY\n", 6, 10);
+                xSemaphoreGive(id(usb_mutex));
+              }
+            }
+
+    # ── Handler 2: Gestione Audio (Priorità 600) ─────────────────────────
+    - priority: 600
+      then:
+        - delay: 500ms
+        - lambda: |-
+            // Sequenza di reset I2S per evitare "Frozen Data"
+            id(respeaker_mic).start();
+            delay(500);
+            id(respeaker_mic).stop();
+            delay(1000);
+            id(respeaker_mic).start();
+            
+            // Playback Task (Core 0) per Jitter Buffer
+            xTaskCreatePinnedToCore([](void *p) {
+              uint8_t buf[512];
+              while(true) {
+                size_t n = spk_rb_read(buf, 512);
+                if (n > 0) {
+                  id(respeaker_spk).play(buf, n);
+                  vTaskDelay(pdMS_TO_TICKS(8)); // ~8ms @ 16kHz
+                } else {
+                  vTaskDelay(pdMS_TO_TICKS(10));
+                }
+              }
+            }, "spk_task", 4096, NULL, 5, NULL, 0);
+
+esp32:
+  board: seeed_xiao_esp32s3
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_ESP_CONSOLE_UART_DEFAULT: n
+      CONFIG_ESP_CONSOLE_NONE: y
+      COMPILER_OPTIMIZATION_SIZE: y
+      COMPILER_CXX_EXCEPTIONS: y
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  enable_on_boot: false
+
+api:
+  reboot_timeout: 0s
+
+ota:
+  platform: esphome
+
+logger:
+  level: INFO
+  baud_rate: 0
+
+# ── Hardware Bus ────────────────────────────────────────────────────────
+# SDA/SCL corretti per la board ReSpeaker Lite
+i2c:
+  - sda: GPIO5
+    scl: GPIO6
+    scan: true
+    id: i2c_bus
+
+i2s_audio:
+  i2s_lrclk_pin: GPIO7
+  i2s_bclk_pin: GPIO8
+  i2s_mclk_pin: GPIO9
+
+# ── Periferiche ─────────────────────────────────────────────────────────
+switch:
+  - platform: gpio
+    pin: GPIO2
+    id: xu316_power
+    restore_mode: ALWAYS_ON
+    internal: true
+
+output:
+  - platform: gpio
+    pin: GPIO3
+    id: xu316_dfu_pin
+
+button:
+  - platform: template
+    name: "DFU Mode"
+    on_press:
+      then:
+        - logger.log: "Entering DFU..."
+        - output.turn_on: xu316_dfu_pin
+        - switch.turn_off: xu316_power
+        - delay: 250ms
+        - switch.turn_on: xu316_power
+        - delay: 500ms
+        - output.turn_off: xu316_dfu_pin
+
+microphone:
+  - platform: i2s_audio
+    id: respeaker_mic
+    i2s_din_pin: GPIO44 # CORRETTO: DIN è 44
+    i2s_mode: secondary # XMOS è Master
+    adc_type: external
+    pdm: false
+    bits_per_sample: 32bit
+    sample_rate: 16000
+    on_data:
+      then:
+        - lambda: |-
+            if (!id(audio_streaming_enabled) || !id(usb_ready) || id(usb_mutex) == NULL) return;
+            const uint8_t* raw_ptr = reinterpret_cast<const uint8_t*>(x.data());
+            const size_t raw_len = x.size() * 2;
+            const uint64_t ts_us = esp_timer_get_time();
+            char hdr[64];
+            int hlen = snprintf(hdr, sizeof(hdr), "AUDIO_PCM:%zu:%llu\n", raw_len, ts_us);
+            static uint8_t fbuf[5000];
+            if (hlen > 0 && (hlen + raw_len) < 5000) {
+              memcpy(fbuf, hdr, hlen);
+              memcpy(fbuf + hlen, raw_ptr, raw_len);
+              if (xSemaphoreTake(id(usb_mutex), 0) == pdTRUE) {
+                usb_serial_jtag_write_bytes(fbuf, hlen + raw_len, 0);
+                xSemaphoreGive(id(usb_mutex));
+              }
+            }
+        - lambda: |-
+            if (!id(diag_active) || !id(usb_ready)) return;
+            uint32_t now = millis();
+            if (now - id(diag_last_print_ms) < 100) return;
+            id(diag_last_print_ms) = now;
+            int16_t peak = 0;
+            for(size_t i=0; i<x.size()/2; i++) {
+              int16_t val = (int16_t)x[i*2+1];
+              if (abs(val) > peak) peak = abs(val);
+            }
+            char b[32]; snprintf(b, sizeof(b), "AUDIO_LEVEL:%d\n", (int)peak);
+            if (xSemaphoreTake(id(usb_mutex), 0) == pdTRUE) {
+              usb_serial_jtag_write_bytes((const uint8_t*)b, strlen(b), 0);
+              xSemaphoreGive(id(usb_mutex));
+            }
+
+speaker:
+  - platform: i2s_audio
+    id: respeaker_spk
+    i2s_dout_pin: GPIO43 # CORRETTO: DOUT è 43
+    i2s_mode: secondary
+    dac_type: external
+    bits_per_sample: 32bit
+    sample_rate: 16000
+
+light:
+  - platform: esp32_rmt_led_strip
+    chipset: WS2812
+    rgb_order: GRB
+    pin: GPIO1
+    num_leds: 1
+    id: respeaker_led
+    name: "ReSpeaker LED"
+    rmt_channel: 0
+
+globals:
+  - id: usb_mutex
+    type: SemaphoreHandle_t
+    initial_value: 'NULL'
+  - id: usb_ready
+    type: bool
+    initial_value: 'false'
+  - id: audio_streaming_enabled
+    type: bool
+    initial_value: 'false'
+  - id: diag_active
+    type: bool
+    initial_value: 'false'
+  - id: diag_last_print_ms
+    type: uint32_t
+    initial_value: '0'
+  - id: uart_rx_buf
+    type: std::string
+  - id: cmd_queue
+    type: std::vector<std::string>
+  - id: audio_out_remaining
+    type: uint32_t
+    initial_value: '0'
+
+script:
+  - id: script_ack_blink
+    mode: restart
+    then:
+      - light.turn_on: { id: respeaker_led, red: 100%, green: 100%, blue: 0%, brightness: 60% }
+      - delay: 150ms
+      - light.turn_off: respeaker_led
+
+  - id: script_process_cmd
+    mode: queued
+    then:
+      - lambda: |-
+          if (id(cmd_queue).empty()) return;
+          std::string cmd = id(cmd_queue).front();
+          id(cmd_queue).erase(id(cmd_queue).begin());
+          auto usb_write = [](const char* s) {
+            if (id(usb_ready) && xSemaphoreTake(id(usb_mutex), pdMS_TO_TICKS(10)) == pdTRUE) {
+              usb_serial_jtag_write_bytes((const uint8_t*)s, strlen(s), 0);
+              xSemaphoreGive(id(usb_mutex));
+            }
+          };
+          if (cmd=="HEARTBEAT_REQ") usb_write("HEARTBEAT\n");
+          else if (cmd=="AUDIO_START") { id(audio_streaming_enabled)=true; usb_write("STREAM:ON\n"); id(script_ack_blink).execute(); }
+          else if (cmd=="AUDIO_STOP") { id(audio_streaming_enabled)=false; usb_write("STREAM:OFF\n"); id(script_ack_blink).execute(); }
+          else if (cmd=="DIAG_ON") { id(diag_active)=true; usb_write("DIAG:ON\n"); }
+          else if (cmd=="DIAG_OFF") { id(diag_active)=false; usb_write("DIAG:OFF\n"); }
+          else if (cmd=="SPEAKER_STOP") { spk_rb.count=0; spk_rb.head=0; spk_rb.tail=0; usb_write("SPEAKER:OFF\n"); }
+
+binary_sensor:
+  - platform: gpio
+    pin: { number: GPIO0, inverted: true, mode: { input: true, pullup: true } }
+    id: button_boot
+    on_click:
+      - min_length: 2s
+        max_length: 10s
+        then:
+          - output.turn_on: xu316_dfu_pin
+          - switch.turn_off: xu316_power
+          - delay: 300ms
+          - switch.turn_on: xu316_power
+          - delay: 500ms
+          - output.turn_off: xu316_dfu_pin
+
+interval:
+  - interval: 5s
+    then:
+      - lambda: |-
+          if (id(usb_ready) && xSemaphoreTake(id(usb_mutex), pdMS_TO_TICKS(10)) == pdTRUE) {
+            usb_serial_jtag_write_bytes((const uint8_t*)"HEARTBEAT\n", 10, 0);
+            xSemaphoreGive(id(usb_mutex));
+          }
+  - interval: 20ms
+    then:
+      - lambda: |-
+          if (!id(usb_ready)) return;
+          if (id(audio_out_remaining) > 0) {
+            static uint8_t spk_tmp[256];
+            size_t to_read = id(audio_out_remaining) < 256 ? id(audio_out_remaining) : 256;
+            int got = usb_serial_jtag_read_bytes(spk_tmp, to_read, 0);
+            if (got > 0) {
+              id(audio_out_remaining) -= got;
+              spk_rb_write(spk_tmp, got);
+              if (id(audio_out_remaining) == 0) {
+                if (xSemaphoreTake(id(usb_mutex), pdMS_TO_TICKS(10)) == pdTRUE) {
+                  usb_serial_jtag_write_bytes((const uint8_t*)"SPEAKER:CHUNK_DONE\n", 19, 0);
+                  xSemaphoreGive(id(usb_mutex));
+                }
+              }
+            }
+            return;
+          }
+          uint8_t byte;
+          for (int i=0; i<128; i++) {
+            if (usb_serial_jtag_read_bytes(&byte, 1, 0) <= 0) break;
+            if (byte == '\n' || byte == '\r') {
+              if (!id(uart_rx_buf).empty()) {
+                if (id(uart_rx_buf).rfind("AUDIO_OUT:", 0) == 0) {
+                  id(audio_out_remaining) = (uint32_t)strtoul(id(uart_rx_buf).c_str()+10, nullptr, 10);
+                } else {
+                  id(cmd_queue).push_back(id(uart_rx_buf));
+                  id(script_process_cmd).execute();
+                }
+                id(uart_rx_buf) = "";
+              }
+            } else if (byte >= 32 && byte < 128) id(uart_rx_buf) += (char)byte;
+          }

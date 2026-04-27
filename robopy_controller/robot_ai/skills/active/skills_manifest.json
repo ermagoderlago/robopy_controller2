@@ -1,0 +1,19 @@
+{
+  "WebSearchSkill": {
+    "file": "web_search_skill.py",
+    "version": "1.0",
+    "generated_at": "2026-03-30T21:38:29.331465Z",
+    "prompt_version": "MARCUS_PROMPT_v2.1",
+    "rak_hash": "",
+    "capabilities": [
+      "web.search"
+    ],
+    "topics_sub": [],
+    "topics_pub": [],
+    "enabled": true,
+    "notes": "In attesa di attivazione manuale",
+    "iterations_needed": 1,
+    "approved_by": "",
+    "approved_at": ""
+  }
+}

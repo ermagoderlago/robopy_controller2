@@ -11,6 +11,23 @@ from enum import Enum
 import time
 
 
+class Capability(str, Enum):
+    """
+    Permessi dichiarativi per le skill.
+    
+    Lo SkillRegistry inietta solo i client corrispondenti alle capability
+    dichiarate. Qualsiasi accesso a risorse non dichiarate restituisce None.
+    """
+    AUDIO_PLAY  = "audio.play"    # PUB /respeaker/speaker_audio
+    NAV_MOVE    = "nav.move"      # PUB /cmd_vel
+    HA_READ     = "ha.read"       # SUB ha/lights, ha/switches, ha/buttons
+    HA_WRITE    = "ha.write"      # PUB tramite homeassistant_node.py
+    CAMERA_READ = "camera.read"   # SUB /rgb/image/compressed, /oak/rgb/image_raw
+    MEMORY_RW   = "memory.rw"     # SRV memory_search, LlamaIndexMemoryStore
+    VISION_QA   = "vision.qa"     # SRV ask_visual_question
+    WEB_SEARCH  = "web.search"    # Internet access for external info
+
+
 class SkillErrorCode(Enum):
     """Codici errore standard per le skill (Sprint 0 hardening)."""
 
@@ -109,6 +126,7 @@ class SkillMetadata:
     requires_ha: bool = False
     requires_nav: bool = False
     requires_vision: bool = False
+    capabilities: List[Capability] = field(default_factory=list)
 
 
 class BaseSkill(ABC):

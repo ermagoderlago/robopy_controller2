@@ -2,8 +2,8 @@
 set -eo pipefail
 
 # Source workspace compilato su Pi 5
-source /home/robopy/ros2_jazzy/install/setup.bash
-source /home/robopy/robopy/robopi_controller/install/setup.bash
+source /opt/ros/jazzy/setup.bash
+source /mnt/ssd/robopy_controller_host/install/setup.bash
 
 # Pi 5: rendering software
 export LIBGL_ALWAYS_SOFTWARE=1

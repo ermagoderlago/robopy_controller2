@@ -1,0 +1,18 @@
+[Unit]
+Description=Marcus Robot AI Node
+After=network.target
+
+[Service]
+Type=simple
+User=robopy
+WorkingDirectory=/home/robopy/severus
+Environment=PYTHONUNBUFFERED=1
+Environment=GEMINI_API_KEY=YOUR_KEY_HERE
+ExecStart=/bin/bash -c "source /opt/ros/jazzy/setup.bash && source /home/robopy/severus/install/setup.bash && ros2 run robopy_controller robot_ai_node"
+Restart=always
+RestartSec=5
+StandardOutput=append:/home/robopy/severus/log/robot_ai_node.log
+StandardError=append:/home/robopy/severus/log/robot_ai_node.log
+
+[Install]
+WantedBy=multi-user.target

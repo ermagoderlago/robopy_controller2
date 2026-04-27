@@ -15,23 +15,37 @@ Fix rispetto alla versione precedente:
 
 import asyncio
 import base64
+import audioop
 import concurrent.futures
 import functools
 import json
 import os
 import threading
 import time
+import pickle
+import sys
+import numpy as np
+import warnings
+import collections
+import io
+import wave
+
+sys.modules['pickle5'] = pickle
+warnings.filterwarnings('ignore', module='llama_index.*')
+
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rcl_interfaces.msg import SetParametersResult
 from std_msgs.msg import String
 from robopy_controller.msg import AudioData
 from example_interfaces.srv import Trigger
+from robot_ai.core import EventBus, EventType
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +114,7 @@ class LLMResponse:
     cached:        bool                 = False
     model:         str                  = ""
     finish_reason: str                  = ""
+    audio_played:  bool                 = False
 
 
 @dataclass
@@ -146,7 +161,7 @@ def retry_with_backoff(
                     if "RESOURCE_EXHAUSTED" in str_e or "429" in str_e:
                         delay *= 3
 
-                    self.get_logger().warning(
+                    self.node.get_logger().warning(
                         f"Retry {attempt + 1}/{max_retries} fallito: {e}. "
                         f"Riprovo in {delay:.1f}s..."
                     )
@@ -255,46 +270,72 @@ class CircuitBreaker:
 # ---------------------------------------------------------------------------
 # Nodo ROS 2 Principale
 # ---------------------------------------------------------------------------
-class LLMServiceNode(Node):
+class LLMService: # Rimosso Node e rinominato in LLMService (alias ora diretto)
     """
-    Nodo ROS 2 per l'integrazione con Google Gemini API.
-    Gestisce sia il motore Asyncio per il Live API che il motore ROS 2 sincrono.
+    Classe di servizio per l'integrazione con Google Gemini API.
+    Utilizza un nodo ROS 2 esterno (delegazione) per parametri e logging.
     """
 
-    def __init__(self, config_manager=None):
-        super().__init__('llm_service_node')
+    def __init__(self, config_manager=None, node=None):
         self.config_manager = config_manager
-        self.get_logger().info('Inizializzazione LLM Service Node')
+        self.node = node # DEVE essere un nodo ROS 2 (es. l'orchestratore)
+        
+        if not self.node:
+             raise RuntimeError("LLMService richiede un nodo ROS 2 valido per funzionare.")
+
+        self.node.get_logger().info('Inizializzazione LLM Service (Delegated Context)')
 
         # ------------------------------------------------------------------
-        # 1. Parametri ROS 2
+        # 1. Parametri ROS 2 (vengono dichiarati sul nodo principale)
         # ------------------------------------------------------------------
-        self.declare_parameter('gemini_api_key',           '')
-        self.declare_parameter('model_name',               'gemini-3.1-flash-lite-preview')
-        self.declare_parameter('live_model_name',          'gemini-2.5-flash-native-audio-latest')
+        if not self.node.has_parameter('gemini_api_key'):
+            self.node.declare_parameter('gemini_api_key',           '')
+        if not self.node.has_parameter('model_name'):
+            self.node.declare_parameter('model_name',               'gemini-3.1-flash-lite-preview')
+        if not self.node.has_parameter('live_model_name'):
+            self.node.declare_parameter('live_model_name',          'gemini-2.5-flash-native-audio-latest')
+        if not self.node.has_parameter('audio_volume'):
+            self.node.declare_parameter('audio_volume',             0.05)
 
-        self.declare_parameter('temperature',              0.7)
-        self.declare_parameter('max_tokens',               2048)
-        self.declare_parameter('circuit_breaker_failures', 5)
-        self.declare_parameter('circuit_breaker_timeout',  60.0)
-        self.declare_parameter('timeout_standard',         60.0)
-        self.declare_parameter('timeout_live',             30.0)
-        self.declare_parameter('system_prompt',
-            'Sei un robot autonomo amichevole, conciso e preciso. Rispondi in italiano.')
+        if not self.node.has_parameter('temperature'):
+            self.node.declare_parameter('temperature',              0.7)
+        if not self.node.has_parameter('max_tokens'):
+            self.node.declare_parameter('max_tokens',               2048)
+        if not self.node.has_parameter('circuit_breaker_failures'):
+            self.node.declare_parameter('circuit_breaker_failures', 5)
+        if not self.node.has_parameter('circuit_breaker_timeout'):
+            self.node.declare_parameter('circuit_breaker_timeout',  60.0)
+        if not self.node.has_parameter('timeout_standard'):
+            self.node.declare_parameter('timeout_standard',         60.0)
+        if not self.node.has_parameter('timeout_live'):
+            self.node.declare_parameter('timeout_live',             30.0)
+        if not self.node.has_parameter('voice_name'):
+            self.node.declare_parameter('voice_name',               'Aoede')
+        if not self.node.has_parameter('system_prompt'):
+            self.node.declare_parameter('system_prompt',
+                'Sei Marcus, un assistente robotico avanzato. Parla SEMPRE e SOLO in lingua italiana. '
+                'La tua voce deve essere naturale, amichevole e professionale. '
+                'Sei un\'entità fisica dotata di empatia. Sii umano. '
+                'IMPORTANTE: Potresti sentire la tua stessa voce come eco dal microfono o captare frammenti di conversazioni di sottofondo non rivolte a te. '
+                'Ignora sistematicamente l\'eco del tuo parlato e non intervenire in discussioni tra altre persone che non ti stanno interpellando direttamente. '
+                'Concentrati sul mantenere un dialogo naturale con chi interagisce con te, basandoti sul contesto corrente.')
+
 
         # ------------------------------------------------------------------
         # 2. Cache thread-safe dei parametri
         # ------------------------------------------------------------------
         self._cfg_lock        = threading.Lock()
-        self._cfg_temperature = self.get_parameter('temperature').value
-        self._cfg_max_tokens  = self.get_parameter('max_tokens').value
-        self._model_name      = self.get_parameter('model_name').value
-        self._live_model      = self.get_parameter('live_model_name').value
-        self._timeout_std     = self.get_parameter('timeout_standard').value
-        self._timeout_live    = self.get_parameter('timeout_live').value
-        self._system_prompt   = self.get_parameter('system_prompt').value
+        self._cfg_temperature = self.node.get_parameter('temperature').value
+        self._cfg_max_tokens  = self.node.get_parameter('max_tokens').value
+        self._model_name      = self.node.get_parameter('model_name').value
+        self._live_model      = self.node.get_parameter('live_model_name').value
+        self._timeout_std     = self.node.get_parameter('timeout_standard').value
+        self._timeout_live    = self.node.get_parameter('timeout_live').value
+        self._system_prompt   = self.node.get_parameter('system_prompt').value
+        self._voice_name     = 'Charon'
+        self._audio_volume    = self.node.get_parameter('audio_volume').value if self.node.has_parameter('audio_volume') else 0.2
 
-        self.add_on_set_parameters_callback(self._parameter_callback)
+        self.node.add_on_set_parameters_callback(self._parameter_callback)
 
         # ------------------------------------------------------------------
         # 3. Statistiche thread-safe
@@ -311,14 +352,25 @@ class LLMServiceNode(Node):
              api_key = self.config_manager.get_config().secrets.gemini_api_key
 
         if not api_key:
-             api_key = self.get_parameter('gemini_api_key').value or os.environ.get('GEMINI_API_KEY')
+             api_key = self.node.get_parameter('gemini_api_key').value or os.environ.get('GEMINI_API_KEY')
              
         if not api_key or not HAS_GENAI:
-            self.get_logger().error(
+            self.node.get_logger().error(
                 'Gemini API key mancante o libreria genai non installata. Nodo inattivo.')
             self._client = None
+            self._live_client = None
         else:
+            # Client standard (v1beta) per generateContent
             self._client = genai.Client(api_key=api_key)
+            # Client Live separato con v1alpha (bidiGenerateContent richiede v1alpha in free tier)
+            self._live_client = genai.Client(
+                api_key=api_key,
+                http_options={'api_version': 'v1alpha'}
+            )
+            self.node.get_logger().info(
+                f" [DEBUG-AG] 🚀 MODELLI ATTIVI: Standard={self._model_name} (v1beta), "
+                f"Live={self._live_model} (v1alpha)"
+            )
 
 
 
@@ -327,9 +379,17 @@ class LLMServiceNode(Node):
         # ------------------------------------------------------------------
         self._breaker = CircuitBreaker(
             name="llm",
-            failure_threshold=self.get_parameter('circuit_breaker_failures').value,
-            recovery_timeout=self.get_parameter('circuit_breaker_timeout').value,
+            failure_threshold=self.node.get_parameter('circuit_breaker_failures').value,
+            recovery_timeout=self.node.get_parameter('circuit_breaker_timeout').value,
         )
+
+        self.event_bus = EventBus()
+
+        # ------------------------------------------------------------------
+        # 6. Tools (Functions)
+        # ------------------------------------------------------------------
+        self._current_tools: Optional[List[Dict[str, Any]]] = None
+
 
         # ------------------------------------------------------------------
         # 6. Stato Live API — i lock asyncio vengono creati in
@@ -340,7 +400,14 @@ class LLMServiceNode(Node):
         self._live_lock:             Optional[asyncio.Lock]   = None   # init lazy
         self._resumption_token:      Optional[str]            = None
         self._live_response_future:  Optional[asyncio.Future] = None
-        self._current_live_response: Dict[str, Any]           = {"text": "", "actions": []}
+        self._current_live_response: Dict[str, Any]           = {"text": "", "actions": [], "audio_chunks": 0}
+        self.audio_cb_group = MutuallyExclusiveCallbackGroup()
+        self._ratecv_state = None  # <--- Memoria per il resampler audio
+        
+        # [v10.0] Session Continuity & Auto-Refresh
+        self._session_start_time:    float                    = 0.0
+        self._session_ttl_sec:       float                    = 840.0 # 14 minuti (limite free tier ~15m)
+        self._live_context_provider: Optional[Callable]       = None
 
         # ------------------------------------------------------------------
         # 7. ThreadPool per le chiamate bloccanti all'API standard
@@ -353,8 +420,8 @@ class LLMServiceNode(Node):
         self._create_publishers()
         self._create_subscriptions()
         self._create_services()
-        self.pub_stats = self.create_publisher(String, '~/stats', 10)
-        self.create_timer(60.0, self._publish_stats)
+        self.pub_stats = self.node.create_publisher(String, '~/stats', 10)
+        self.node.create_timer(60.0, self._publish_stats)
 
         # ------------------------------------------------------------------
         # 9. Event loop asincrono dedicato
@@ -419,13 +486,23 @@ class LLMServiceNode(Node):
                 if   p.name == 'temperature':     self._cfg_temperature = p.value
                 elif p.name == 'max_tokens':       self._cfg_max_tokens  = p.value
                 elif p.name == 'model_name':       self._model_name      = p.value
+                elif p.name == 'live_model_name':
+                    self._live_model    = p.value
+                    needs_reconnect     = True
                 elif p.name == 'timeout_standard': self._timeout_std     = p.value
                 elif p.name == 'timeout_live':     self._timeout_live    = p.value
+                elif p.name == 'voice_name':
+                    self._voice_name    = p.value
+                    needs_reconnect     = True
                 elif p.name == 'system_prompt':
                     self._system_prompt = p.value
                     needs_reconnect     = True
+                elif p.name == 'audio_volume':
+                    self._audio_volume  = p.value
+                    self.node.get_logger().info(f"Volume audio aggiornato a: {p.value}")
 
         if needs_reconnect and self._loop and self._loop.is_running():
+            self.node.get_logger().info("Parametri Live cambiati: richiesta riconnessione...")
             asyncio.run_coroutine_threadsafe(self._reconnect_live(), self._loop)
 
         return SetParametersResult(successful=True)
@@ -442,20 +519,25 @@ class LLMServiceNode(Node):
                 reconnect_needed = True
         
         if reconnect_needed and self._loop and self._loop.is_running():
-            self.get_logger().info("System prompt cambiato, riconnessione Live scheduled.")
+            self.node.get_logger().info("System prompt cambiato, riconnessione Live scheduled.")
             asyncio.run_coroutine_threadsafe(self._reconnect_live(), self._loop)
 
-    async def generate(self, prompt: str, images=None, max_tokens=None):
+    def set_live_context_provider(self, provider: Callable):
+        """Assegna un callback che fornisce il riassunto del contesto per le riconnessioni."""
+        self._live_context_provider = provider
+
+    async def generate(self, prompt: str, images=None, max_tokens=None, functions=None):
         """
         Bridge verso _async_generate per compatibilità con VisualMemoryService.
         """
+        self.node.get_logger().info(f"generate() invoked (prompt_len={len(prompt)})")
         class TempRequest:
             def __init__(self, p, img, mt):
                 self.prompt = p
                 self.images = img or []
                 self.max_tokens = mt or 2048
 
-        coro = self._async_generate(TempRequest(prompt, images, max_tokens))
+        coro = self._async_generate(TempRequest(prompt, images, max_tokens), functions=functions)
         future = asyncio.run_coroutine_threadsafe(coro, self._loop)
         return await asyncio.wrap_future(future)
 
@@ -464,7 +546,7 @@ class LLMServiceNode(Node):
         Metodo richiesto dall'orchestratore per segnalare l'avvio della sessione.
         Il loop di connessione è già gestito internamente.
         """
-        self.get_logger().info("Persistent Live session enabled.")
+        self.node.get_logger().info("Persistent Live session enabled.")
         return True
 
     async def generate_live(self, prompt: str, context=None, functions=None, images=None):
@@ -497,7 +579,7 @@ class LLMServiceNode(Node):
         try:
             self._loop.run_forever()
         except Exception as e:
-            self.get_logger().error(f"Errore fatale nell'event loop asincrono: {e}")
+            self.node.get_logger().error(f"Errore fatale nell'event loop asincrono: {e}")
 
     # -----------------------------------------------------------------------
     # Interfacce ROS 2
@@ -512,17 +594,23 @@ class LLMServiceNode(Node):
         # self.srv_generate_live = self.create_service(
         #     GenerateLive, '~/generate_live',
         #     self.generate_live_callback_ros, callback_group=cbg())
-        self.srv_reconnect = self.create_service(
+        self.srv_reconnect = self.node.create_service(
             Trigger, '~/reconnect_live',
             self.reconnect_live_callback_ros, callback_group=cbg())
 
     def _create_publishers(self):
-        self.pub_text_response = self.create_publisher(String,    '~/text_response', 10)
-        self.pub_audio_chunk   = self.create_publisher(AudioData, '~/audio_chunk',   10)
+        self.pub_text_response = self.node.create_publisher(String,    '/ai/conversation/response', 10)
+        self.pub_audio_chunk   = self.node.create_publisher(AudioData, '/ai/conversation/audio_chunk',   10)
 
     def _create_subscriptions(self):
-        self.sub_audio = self.create_subscription(
-            AudioData, '/audio/audio', self.audio_callback_ros, 10)
+        qos_profile_audio = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=10
+        )
+        self.sub_audio = self.node.create_subscription(
+            AudioData, '/ai/input/audio_chunk', self.audio_callback_ros, qos_profile_audio,
+            callback_group=self.audio_cb_group)
 
     # -----------------------------------------------------------------------
     # Callback ROS 2 sincrone
@@ -530,6 +618,13 @@ class LLMServiceNode(Node):
     def audio_callback_ros(self, msg: AudioData):
         if not self._client:
             return
+            
+        # Heartbeat every 100 chunks (~3s)
+        if not hasattr(self, '_audio_input_count'): self._audio_input_count = 0
+        self._audio_input_count += 1
+        if self._audio_input_count % 100 == 0:
+            self.node.get_logger().info(f"🎤 [LLM] Receiving audio from /ai/input/audio_chunk (total: {self._audio_input_count})")
+
         asyncio.run_coroutine_threadsafe(
             self._async_audio_handler(msg), self._loop)
 
@@ -555,7 +650,7 @@ class LLMServiceNode(Node):
             response.success       = False
             response.error_message = f"Timeout ({timeout_val}s)"
         except Exception as e:
-            self.get_logger().error(f"Errore servizio generate: {e}")
+            self.node.get_logger().error(f"Errore servizio generate: {e}")
             response.success       = False
             response.error_message = str(e)
 
@@ -618,7 +713,9 @@ class LLMServiceNode(Node):
     # -----------------------------------------------------------------------
     # Logica asincrona: API Standard
     # -----------------------------------------------------------------------
-    async def _async_generate(self, request) -> LLMResponse:
+    async def _async_generate(self, request, functions=None) -> LLMResponse:
+        num_images = len(request.images)
+        self.node.get_logger().info(f"Ricevuta richiesta di generazione testo: {request.prompt[:50]}... (Immagini: {num_images})")
         start = time.perf_counter()
 
         with self._cfg_lock:
@@ -644,21 +741,27 @@ class LLMServiceNode(Node):
             raw = await asyncio.wait_for(
                 self._breaker.call_async(
                     self._generate_internal,
-                    contents, req_max_tokens, model_used, sys_prompt,
+                    contents, req_max_tokens, model_used, sys_prompt, functions
                 ),
                 timeout=20.0
             )
         except (asyncio.TimeoutError, Exception) as e:
-            fallback_model = "gemini-1.5-flash-latest"
+            str_e = str(e)
+            # Se è un errore di quota esaurita (Daily), inutile fare fallback su un altro modello Gemini
+            if "RESOURCE_EXHAUSTED" in str_e or "429" in str_e:
+                self.node.get_logger().error(f"❌ QUOTA GIORNALIERA ESAURITA per Gemini: {e}")
+                raise e
+
+            fallback_model = "gemini-flash-lite-latest"  # Fallback: alias stabile senza quota esaurita
             if model_used != fallback_model:
-                self.get_logger().warning(
+                self.node.get_logger().warning(
                     f"Criticità rilevata su {model_used} (latenza >20s o errore: {e}). "
                     f"Eseguo fallback su {fallback_model}..."
                 )
                 model_used = fallback_model
                 raw = await self._breaker.call_async(
                     self._generate_internal,
-                    contents, req_max_tokens, model_used, sys_prompt,
+                    contents, req_max_tokens, model_used, sys_prompt, functions
                 )
             else:
                 raise e
@@ -673,14 +776,61 @@ class LLMServiceNode(Node):
         self.pub_text_response.publish(String(data=llm_response.text))
         return llm_response
 
+    def set_tools(self, tools: List[Dict[str, Any]]):
+        """
+        Aggiorna la lista dei tool (functions) disponibili.
+        Se la sessione Live è attiva, triggera una riconnessione per applicarli.
+        """
+        self.node.get_logger().info(f"Aggiornamento tools LLM ({len(tools)} funzioni caricate)")
+        
+        # Semplice check per evitare loop di riconnessione se i tool sono identici
+        if self._current_tools == tools:
+            return
+
+        self._current_tools = tools
+        
+        # Se la sessione Live è già attiva, dobbiamo riavviarla per passare il nuovo LiveConnectConfig
+        if self._loop and self._loop.is_running():
+            asyncio.run_coroutine_threadsafe(self._reconnect_live(), self._loop)
+
+    def _format_tools_for_google(self, tools_list: Optional[List[Dict[str, Any]]]) -> Optional[List[Any]]:
+        """
+        Converte la lista dei tool Marcus in un formato compatibile con google.genai.
+        Formatta ogni tool in una types.FunctionDeclaration pulita (solo name, description, parameters).
+        """
+        if not tools_list:
+            return None
+        
+        decls = []
+        for t in tools_list:
+            try:
+                # Recupera solo i campi ammessi da FunctionDeclaration
+                # t['parameters'] deve essere già conforme allo schema JSON
+                decl = types.FunctionDeclaration(
+                    name=t.get('name', 'unknown'),
+                    description=t.get('description', ''),
+                    parameters=t.get('parameters', {"type": "object", "properties": {}})
+                )
+                decls.append(decl)
+            except Exception as e:
+                self.node.get_logger().error(f"Errore nella formattazione del tool {t.get('name')}: {e}")
+        
+        if not decls:
+            return None
+            
+        return [types.Tool(function_declarations=decls)]
+
     @retry_with_backoff(max_retries=3)
+
     async def _generate_internal(
         self,
         contents,
         max_tokens: Optional[int],
         model_used: str,
         sys_prompt: str,
+        tools:      Optional[List[Dict]] = None,
     ):
+        self.node.get_logger().info(f"Chiamata API Gemini ({model_used})...")
         with self._cfg_lock:
             temp   = self._cfg_temperature
             tokens = max_tokens if max_tokens and max_tokens > 0 else self._cfg_max_tokens
@@ -689,10 +839,15 @@ class LLMServiceNode(Node):
             types.Content(parts=[types.Part.from_text(text=sys_prompt)])
             if sys_prompt else None
         )
+        
+        # Formattazione tools per il nuovo SDK (v1.x)
+        google_tools = self._format_tools_for_google(tools)
+        
         config = types.GenerateContentConfig(
             temperature=temp,
             max_output_tokens=tokens,
             system_instruction=sys_content,
+            tools=google_tools
         )
 
         def _blocking():
@@ -735,36 +890,105 @@ class LLMServiceNode(Node):
                 # If sys_prompt is empty or None, omit the field, otherwise 1007 can happen
                 ws_kwargs = {"response_modalities": modalities}
                 if sys_prompt:
-                    ws_kwargs["system_instruction"] = sys_prompt
+                    ws_kwargs["system_instruction"] = types.Content(parts=[types.Part.from_text(text=sys_prompt)])
                 
                 # Attivazione compressione per permettere sessioni audio/testuali prolungate all'infinito
                 ws_kwargs["context_window_compression"] = types.ContextWindowCompressionConfig(
                     sliding_window=types.SlidingWindow()
                 )
                     
+                # [v3.0 #1] Expressive Voice Configuration (Puck/Charon/...)
+                speech_config = types.SpeechConfig(
+                    voice_config=types.VoiceConfig(
+                        prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                            voice_name=self._voice_name
+                        )
+                    )
+                )
+                ws_kwargs["speech_config"] = speech_config
+
                 ws_config = types.LiveConnectConfig(**ws_kwargs)
+                
+                # [v3.1] Tool Integration for Live API
+                if self._current_tools:
+                    self.node.get_logger().info(f"Adding {len(self._current_tools)} tools to Live session.")
+                    ws_config.tools = self._format_tools_for_google(self._current_tools)
 
                 if self._resumption_token:
                     ws_config.session_resumption = types.SessionResumptionConfig(
                         handle=self._resumption_token,
                     )
                     
-                self.get_logger().info(f"Connecting to {model_used} with modalities {modalities} ...")
+                self.node.get_logger().info(f"Connecting to {model_used} with modalities {modalities} ...")
 
-                async with self._client.aio.live.connect(
+                # Usa _live_client (v1alpha) per la Live API — bidiGenerateContent non è in v1beta
+                live_client = self._live_client if hasattr(self, '_live_client') and self._live_client else self._client
+                async with live_client.aio.live.connect(
                     model=model_used,
                     config=ws_config,
                 ) as session:
                     async with self._live_lock:
                         self._live_session = session
                         self._live_connecting = False
+                        self._session_start_time = time.time()
 
-                    self.get_logger().info("Live API connessa con successo.")
+                    self.node.get_logger().info("Live API connessa con successo. Sessione pronta.")
+                    
+                    # [v10.0] Context Injection on Reconnection
+                    if self._live_context_provider:
+                        try:
+                            context_summary = self._live_context_provider()
+                            if context_summary:
+                                self.node.get_logger().info("Iniettando contesto storico nella nuova sessione Live...")
+                                # Prepariamo un messaggio di "priming" per il modello
+                                priming_msg = (
+                                    "System: [RESTORE CONTEXT] Di seguito la sintesi della conversazione "
+                                    "avvenuta finora oggi. Usala come riferimento. NON RISPONDERE a questo messaggio.\n"
+                                    f"{context_summary}"
+                                )
+                                await session.send(input=priming_msg, end_of_turn=False)
+                        except Exception as e:
+                            self.node.get_logger().warning(f"Errore durante l'iniezione del contesto: {e}")
+
                     backoff = 2.0      # reset backoff on success
                     fail_count = 0
 
-                    async for msg in session.receive():
-                        await self._handle_live_message(msg)
+                    # [v10.0] Loop di ricezione con monitoraggio TTL per auto-refresh
+                    while rclpy.ok():
+                        try:
+                            # Controlla se la sessione sta per scadere (limite 15m free tier)
+                            elapsed = time.time() - self._session_start_time
+                            if elapsed > self._session_ttl_sec:
+                                self.node.get_logger().info(
+                                    f"Sessione Live aperta da {elapsed/60:.1f} minuti. "
+                                    "Eseguo refresh preventivo per evitare timeout free tier."
+                                )
+                                break # Uscita dal loop -> chiusura sessione -> riconnessione automatica
+                            
+                            # Attesa non bloccante per permettere il controllo del tempo
+                            msg_task = asyncio.create_task(session.receive().__anext__())
+                            done, _ = await asyncio.wait([msg_task], timeout=5.0)
+                            
+                            if msg_task in done:
+                                msg = msg_task.result()
+                                await self._handle_live_message(msg)
+                            else:
+                                # Timeout del wait, facciamo un altro giro di loop per controllare il TTL
+                                msg_task.cancel()
+                                continue
+
+                        except StopAsyncIteration:
+                            self.node.get_logger().info("Stream Live terminato dal server.")
+                            break
+                        except Exception as e:
+                            if '1000' not in str(e):
+                                self.node.get_logger().error(f"Errore nel loop di ricezione Live: {e}")
+                            break
+                    
+                    # Se arriviamo qui, la sessione è finita normalmente o per refresh
+                    async with self._live_lock:
+                        self._live_session = None
+                        self._live_connecting = False
 
             except Exception as e:
                 err_str = str(e)
@@ -775,14 +999,14 @@ class LLMServiceNode(Node):
                     self._live_connecting = False
                 if is_clean_close:
                     # Riconnessione immediata senza backoff
-                    self.get_logger().debug(
+                    self.node.get_logger().debug(
                         "Sessione Live chiusa normalmente, riconnessione..."
                     )
                     await asyncio.sleep(0.2)
                 else:
                     fail_count += 1
                     if fail_count == 1 or fail_count % 5 == 0:
-                        self.get_logger().warning(
+                        self.node.get_logger().warning(
                             f"Errore connessione Live API (tentativo {fail_count}): {e}"
                         )
                     await asyncio.sleep(backoff)
@@ -799,36 +1023,67 @@ class LLMServiceNode(Node):
             return
 
         try:
-            await session.send_realtime_input(
-                media=types.Blob(
-                    data=msg.data,
-                    mime_type="audio/pcm;rate=16000"
+            # Sblocca l'invio convertendo l'array ROS in bytes puri richiesti da Google
+            await session.send(
+                input=types.LiveClientRealtimeInput(
+                    media_chunks=[
+                        types.Blob(
+                            data=bytes(msg.data),
+                            mime_type="audio/pcm;rate=16000"
+                        )
+                    ]
                 )
             )
         except Exception as e:
-            self.get_logger().debug(f"Errore invio audio stream: {e}")
+            self.node.get_logger().warning(f"Errore invio audio stream: {e}")
 
     async def _handle_live_message(self, msg):
         """
         Gestisce un messaggio in arrivo dalla Live API.
         Pubblica chunk audio, accumula testo/actions, segnala turn_complete.
         """
+        # Diagnostic: Log raw message structure
+        self.node.get_logger().info(f"🎤 [LIVE API] Messaggio ricevuto: {type(msg)}")
+        
         # Handle session resumption update (top-level, outside server_content)
         sru = getattr(msg, 'session_resumption_update', None)
         if sru and getattr(sru, 'resumable', False) and getattr(sru, 'new_handle', None):
             self._resumption_token = sru.new_handle
-            self.get_logger().info("Ricevuto nuovo token di ripresa sessione The handle will be retained.")
+            self.node.get_logger().info("Ricevuto nuovo token di ripresa sessione The handle will be retained.")
 
         if not msg.server_content:
+            # Log control messages like 'interrupted' if present
+            if getattr(msg, 'interrupted', None):
+                self.node.get_logger().warning("⚠️ Gemini Live: Sessione INTERROTTA (possibile VAD o interruzione utente)")
             return
+            
         sc = msg.server_content
+        if getattr(sc, 'interrupted', False):
+            self.node.get_logger().warning("⚠️ Gemini Live: Turno del modello INTERROTTO")
+            self._ratecv_state = None # <--- Reset resampler on interruption to avoid glitches
 
         if sc.model_turn:
             for part in sc.model_turn.parts:
                 if hasattr(part, 'inline_data') and part.inline_data:
-                    audio_msg      = AudioData()
-                    audio_msg.data = part.inline_data.data
-                    self.pub_audio_chunk.publish(audio_msg)
+                    # Carica i dati grezzi a 24kHz
+                    raw_audio = np.frombuffer(part.inline_data.data, dtype=np.int16)
+
+                    # Applica volume e clip
+                    scaled_audio = np.clip(
+                        raw_audio.astype(np.float32) * self._audio_volume,
+                        -32768, 32767
+                    ).astype(np.int16)
+
+                    # Resampling 24kHz → 16kHz con stato persistente (evita glitch tra chunk)
+                    audio_16k, self._ratecv_state = audioop.ratecv(
+                        scaled_audio.tobytes(), 2, 1, 24000, 16000, self._ratecv_state
+                    )
+
+                    # [v5.9] SOLO EventBus — rimossa doppia pubblicazione ROS che causava ECO.
+                    # pub_audio_chunk è mantenuto per debug esterno ma NON usato per il relay.
+                    self.event_bus.publish(EventType.LIVE_AUDIO_CHUNK, {"audio_data": audio_16k})
+
+                    self._current_live_response["audio_chunks"] += 1
 
                 if hasattr(part, 'text') and part.text:
                     self._current_live_response["text"] += part.text
@@ -840,17 +1095,38 @@ class LLMServiceNode(Node):
                     })
 
         if getattr(sc, 'turn_complete', False):
+            self._ratecv_state = None  # Reset resampler per la prossima frase
+            response_snapshot = self._current_live_response.copy()
+            self._current_live_response = {"text": "", "actions": [], "audio_chunks": 0}
+
             fut = self._live_response_future
             if fut is not None and not fut.done():
-                fut.set_result(self._current_live_response.copy())
+                # Modalità testo-triggered: qualcuno sta aspettando la risposta
+                fut.set_result(response_snapshot)
             elif fut is not None and fut.cancelled():
-                # Risposta arrivata su future già cancellato (tipicamente dopo timeout ROS).
-                # Loggato a WARNING: indica un ritardo eccessivo o timeout troppo aggressivo.
-                self.get_logger().warning(
+                self.node.get_logger().warning(
                     "Risposta Live ricevuta su future già cancellato — scartata. "
                     "Possibile timeout lato ROS o richiesta abbandonata."
                 )
-            self._current_live_response = {"text": "", "actions": []}
+            else:
+                # [v5.9] Modalità audio-streaming autonoma (nessun future attivo):
+                # Gemini ha risposto all'audio del microfono senza che nessuno avesse
+                # chiamato generate_live(). Notifichiamo l'orchestratore affinché possa:
+                # 1. Pubblicare il testo sul topic /ai/conversation/response (chat)
+                # 2. Resettare lo stato TTS/speaking del VUI
+                self.node.get_logger().info(
+                    f"[LIVE-AUTONOMOUS] Risposta autonoma completata "
+                    f"({response_snapshot['audio_chunks']} chunk audio, "
+                    f"testo={len(response_snapshot['text'])} chars)"
+                )
+                if response_snapshot["text"]:
+                    self.pub_text_response.publish(
+                        String(data=response_snapshot["text"])
+                    )
+                self.event_bus.publish(
+                    EventType.LIVE_TURN_COMPLETE,
+                    {"response": response_snapshot, "autonomous": True}
+                )
 
     async def _async_generate_live(self, prompt: str, context=None, functions=None, images=None) -> LLMResponse:
         """
@@ -868,7 +1144,7 @@ class LLMServiceNode(Node):
 
             # -- Attendi sessione disponibile (polling) --
             session = None
-            for _ in range(25):  # max 5s (25 x 0.2s)
+            for _ in range(50):  # max 10s (50 x 0.2s)
                 async with self._live_lock:
                     session = self._live_session
                     if session:
@@ -881,7 +1157,7 @@ class LLMServiceNode(Node):
                             )
                         # Creazione atomica del future
                         self._live_response_future  = self._loop.create_future()
-                        self._current_live_response = {"text": "", "actions": []}
+                        self._current_live_response = {"text": "", "actions": [], "audio_chunks": 0}
                         break
                 await asyncio.sleep(0.2)
 
@@ -926,6 +1202,7 @@ class LLMServiceNode(Node):
                     actions=result["actions"],
                     latency_ms=(time.perf_counter() - start) * 1000,
                     model=live_model_used,
+                    audio_played=result.get("audio_chunks", 0) > 0 # Native audio actually received?
                 )
 
             except Exception as e:
@@ -933,7 +1210,7 @@ class LLMServiceNode(Node):
                 last_error = e
                 err_str = str(e)
                 if '1000' in err_str and attempt < max_attempts - 1:
-                    self.get_logger().info(
+                    self.node.get_logger().info(
                         f"Sessione Live chiusa (turn {attempt+1}), "
                         "attendo riconnessione..."
                     )
@@ -957,7 +1234,7 @@ class LLMServiceNode(Node):
                 try:
                     await self._live_session.close()
                 except Exception as e:
-                    self.get_logger().warning(f"Errore chiusura sessione Live: {e}")
+                    self.node.get_logger().warning(f"Errore chiusura sessione Live: {e}")
                 finally:
                     self._live_session    = None
                     self._live_connecting = False
@@ -991,7 +1268,7 @@ class LLMServiceNode(Node):
                 raw_role = msg.get('role', 'user').lower()
 
                 if raw_role == 'system':
-                    self.get_logger().warning(
+                    self.node.get_logger().warning(
                         "Messaggio con ruolo 'system' ricevuto nel context e ignorato. "
                         "Il system prompt va configurato via parametro ROS 'system_prompt', "
                         "non come turn di conversazione. "
@@ -1044,7 +1321,7 @@ class LLMServiceNode(Node):
                 tokens = getattr(response.usage_metadata, 'total_token_count', 0)
 
         except Exception as e:
-            self.get_logger().warning(f"Errore parsing risposta LLM: {e}")
+            self.node.get_logger().warning(f"Errore parsing risposta LLM: {e}")
 
         return LLMResponse(
             text=text,
@@ -1057,6 +1334,11 @@ class LLMServiceNode(Node):
     # -----------------------------------------------------------------------
     # Shutdown graceful
     # -----------------------------------------------------------------------
+    async def shutdown(self):
+        """Metodo di shutdown asincrono chiamato dall'orchestratore."""
+        self.node.get_logger().info("Richiesto shutdown asincrono della sessione Live...")
+        await self._shutdown_async()
+
     async def _shutdown_async(self):
         """
         Sequenza di shutdown ordinata:
@@ -1064,11 +1346,11 @@ class LLMServiceNode(Node):
           2. Cancella tutti i task rimanenti
           3. Ferma l'event loop
         """
-        self.get_logger().info("Shutdown asincrono: chiusura sessione Live...")
+        self.node.get_logger().info("Shutdown asincrono: chiusura sessione Live...")
         try:
             await self._reconnect_live()
         except Exception as e:
-            self.get_logger().warning(f"Errore chiusura Live durante shutdown: {e}")
+            self.node.get_logger().warning(f"Errore chiusura Live durante shutdown: {e}")
 
         tasks = [
             t for t in asyncio.all_tasks(self._loop)
@@ -1079,8 +1361,8 @@ class LLMServiceNode(Node):
         await asyncio.gather(*tasks, return_exceptions=True)
         self._loop.stop()
 
-    def destroy_node(self):
-        self.get_logger().info("Inizio shutdown grazioso del nodo LLM...")
+    def shutdown(self): # Rimosso destroy_node override
+        self.node.get_logger().info("Inizio shutdown grazioso del servizio LLM...")
 
         if self._loop and self._loop.is_running():
             try:
@@ -1089,7 +1371,7 @@ class LLMServiceNode(Node):
                 future.result(timeout=10.0)
                 self._async_thread.join(timeout=5.0)
             except Exception as e:
-                self.get_logger().error(f"Errore durante lo shutdown asincrono: {e}")
+                self.node.get_logger().error(f"Errore durante lo shutdown asincrono: {e}")
 
         if self._loop and not self._loop.is_closed():
             self._loop.close()
@@ -1100,25 +1382,24 @@ class LLMServiceNode(Node):
         super().destroy_node()
 
 
-# Alias per compatibilità con altri nodi che si aspettano LLMService
-LLMService = LLMServiceNode
-
-
 # ---------------------------------------------------------------------------
-# Entry point ROS 2
+# Entry point ROS 2 (Per esecuzione standalone se necessario)
 # ---------------------------------------------------------------------------
 def main(args=None):
     rclpy.init(args=args)
-    node = LLMServiceNode()
+    # Per compatibilità standalone creiamo un nodo fittizio
+    wrapper_node = rclpy.create_node('llm_service_standalone')
+    service = LLMService(node=wrapper_node)
+    
     executor = MultiThreadedExecutor(num_threads=4)
-    executor.add_node(node)
+    executor.add_node(wrapper_node)
 
     try:
         executor.spin()
     except KeyboardInterrupt:
         pass
     finally:
-        node.destroy_node()
+        wrapper_node.destroy_node()
         rclpy.shutdown()
 
 

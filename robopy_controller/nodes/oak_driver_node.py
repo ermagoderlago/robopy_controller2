@@ -144,7 +144,7 @@ class OAKDriverNode(Node):
         # --- SUPERPOINT (Mono Left High Res) ---
         sp_nn = pipeline.create(dai.node.NeuralNetwork)
         # Using available model 'superpoint_480x360_raw.blob'
-        sp_nn.setBlobPath("/home/robopy/robopy/robopi_controller/robopy_controller_host/robopy_controller/models/superpoint_480x360_raw.blob") 
+        sp_nn.setBlobPath("/mnt/ssd/robopy_controller_host/robopy_controller/models/superpoint_480x360_raw.blob") 
         sp_nn.setNumInferenceThreads(2)
         sp_nn.input.setBlocking(False)
         
@@ -162,7 +162,7 @@ class OAKDriverNode(Node):
         # --- YOLO ---
         # Note: Switched to NeuralNetwork to handle YOLOv8 segmentation blob without crashing
         yolo_nn = pipeline.create(dai.node.NeuralNetwork)
-        yolo_nn.setBlobPath("/home/robopy/robopy/robopi_controller/robopy_controller_host/robopy_controller/models/yolo_seg.blob")
+        yolo_nn.setBlobPath("/mnt/ssd/robopy_controller_host/robopy_controller/models/yolo_seg.blob")
         yolo_nn.setNumInferenceThreads(2)
         yolo_nn.input.setBlocking(False)
         

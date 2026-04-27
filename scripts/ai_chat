@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
 Simple CLI to send text to the AI node.
 Usage: ros2 run robopy_controller ai_chat
@@ -15,11 +15,11 @@ class AIChatCLI(Node):
         self.pub = self.create_publisher(String, '/ai/input/text', 10)
         self.sub = self.create_subscription(
             String, '/ai/conversation/response', self.on_response, 10)
-        print("🤖 AI Chat - Scrivi un messaggio e premi Invio (Ctrl+C per uscire)")
+        print("ðŸ¤– AI Chat - Scrivi un messaggio e premi Invio (Ctrl+C per uscire)")
         print("-" * 50)
     
     def on_response(self, msg):
-        print(f"\n🤖 AI: {msg.data}\n> ", end='', flush=True)
+        print(f"\nðŸ¤– AI: {msg.data}\n> ", end='', flush=True)
     
     def send(self, text):
         msg = String()
@@ -40,7 +40,7 @@ def main():
             if text.strip():
                 node.send(text)
     except (KeyboardInterrupt, EOFError):
-        print("\n👋 Bye!")
+        print("\nðŸ‘‹ Bye!")
     finally:
         node.destroy_node()
         rclpy.shutdown()

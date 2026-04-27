@@ -11,8 +11,8 @@ class WorldModel:
     battery_level: Optional[float] = None
     position: Optional[Tuple[float, float]] = None
     current_task: Optional[str] = None
-    recent_events: deque = field(default_factory=lambda: deque(maxlen=10))
-    recent_interactions: deque = field(default_factory=lambda: deque(maxlen=5))
+    recent_events: deque = field(default_factory=lambda: deque(maxlen=20))
+    recent_interactions: deque = field(default_factory=lambda: deque(maxlen=50))
 
     def to_prompt_section(self) -> str:
         parts = ["[WORLD MODEL]"]
@@ -28,9 +28,10 @@ class WorldModel:
             for ev in list(self.recent_events)[-3:]:
                 parts.append(f"  * {ev}")
         if self.recent_interactions:
-            parts.append("- Interazioni Recenti:")
-            for inter in list(self.recent_interactions)[-3:]:
-                parts.append(f"  * {inter}")
+            parts.append("- Cronologia Recente (Short-Term Memory):")
+            # Includiamo gli ultimi 15 turni per non saturare il prompt ma dare contesto sufficiente
+            for inter in list(self.recent_interactions)[-15:]:
+                parts.append(f"  {inter}")
         return "\n".join(parts)
 
 class WorldModelUpdater:
@@ -44,11 +45,13 @@ class WorldModelUpdater:
         self.event_bus.subscribe(EventType.DIAGNOSTIC_UPDATE, self._on_diagnostic)
         self.event_bus.subscribe(EventType.FACE_RECOGNIZED, self._on_face_recognized)
 
-    async def _on_diagnostic(self, event_data: dict):
+    async def _on_diagnostic(self, event):
+        event_data = event.data
         if "battery" in event_data:
             self.world_model.battery_level = event_data["battery"]
 
-    async def _on_face_recognized(self, event_data: dict):
+    async def _on_face_recognized(self, event):
+        event_data = event.data
         name = event_data.get("name", "Unknown")
         self.world_model.current_user = {"name": name}
         self.world_model.recent_events.append(f"Riconosciuto utente: {name}")

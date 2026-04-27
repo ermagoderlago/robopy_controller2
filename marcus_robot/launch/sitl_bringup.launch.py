@@ -1,16 +1,24 @@
 from launch import LaunchDescription
-from launch.actions import (ExecuteProcess, TimerAction,
-                             RegisterEventHandler, SetEnvironmentVariable)
+from launch.actions import (DeclareLaunchArgument, ExecuteProcess, TimerAction,
+                             RegisterEventHandler, SetEnvironmentVariable, IncludeLaunchDescription)
 from launch.event_handlers import OnProcessStart, OnProcessExit
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, Command, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
-from launch.substitutions import PathJoinSubstitution, Command
 from ament_index_python.packages import get_package_share_directory
 import os
 
 def generate_launch_description():
     pkg_share = get_package_share_directory('marcus_robot')
+    
+    headless = LaunchConfiguration('headless')
+    declare_headless_cmd = DeclareLaunchArgument(
+        'headless',
+        default_value='true',
+        description='Whether to run Gazebo headless (server only)'
+    )
 
     # STEP 0 - Env vars Pi 5
     set_env_vars = [
@@ -31,15 +39,21 @@ def generate_launch_description():
         ])
     ])
 
-    # STEP 3 - Gazebo
+    # STEP 3 - Gazebo (Forced Server-only for SSH stability with headless rendering)
+    # L'uso di shell=True con una stringa singola è più affidabile per forzare l'ambiente.
+    world_path = os.path.join(pkg_share, 'worlds', 'semantic_house.sdf')
     gazebo = ExecuteProcess(
-        cmd=["gz", "sim", "--verbose",
-             PathJoinSubstitution([pkg_share, "worlds", "semantic_house.sdf"]),
-             "-r"],
+        cmd=[f"unset DISPLAY; export QT_QPA_PLATFORM=offscreen; gz sim -s -r -v 4 --headless-rendering {world_path}"],
+        shell=True,
         output="screen",
         additional_env={
+            "LIBGL_ALWAYS_SOFTWARE": "1",
+            "MESA_GL_VERSION_OVERRIDE": "3.3",
+            "GALLIUM_DRIVER": "llvmpipe",
+            "GZ_IP": "127.0.0.1",
+            "GZ_PARTITION": "marcus",
             "LD_LIBRARY_PATH":
-                os.environ.get("LD_LIBRARY_PATH", "") + ":/home/robopy/ros2_jazzy/install/lib"
+                os.environ.get("LD_LIBRARY_PATH", "") + ":/opt/ros/jazzy/lib"
         }
     )
 
@@ -104,16 +118,23 @@ def generate_launch_description():
         )
     )
 
-    # STEP 8 - Integrazione fast_flow_lanch (Opzione disabilitata per ora per sicurezza sandbox totale)
-    # fast_flow = IncludeLaunchDescription(
-    #     PythonLaunchDescriptionSource([...fast_flow_lanch.py...]),
-    #     launch_arguments={"sim_mode": "true", "use_sim_time": "true",
-    #                       "enable_hardware": "false"}.items()
-    # )
+    # STEP 8 - Integrazione fast_flow_launch
+    fast_flow = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource([
+            os.path.join(get_package_share_directory('robopy_controller'), 'launch', 'fast_flow_launch.py')
+        ]),
+        launch_arguments={
+            "sim_mode": "true",
+            "delete_db": "true",
+            "localization": "false"
+        }.items()
+    )
 
     return LaunchDescription(
         set_env_vars + [
+            declare_headless_cmd,
             gazebo, rsp_node,
-            delayed_spawn, delayed_bridge, delayed_visual_memory
+            delayed_spawn, delayed_bridge, delayed_visual_memory,
+            fast_flow
         ]
     )

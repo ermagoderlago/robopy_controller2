@@ -1,4 +1,4 @@
-import depthai as dai
+﻿import depthai as dai
 
 with dai.Device() as device:
     print(f"Connected to {device.getMxId()}")

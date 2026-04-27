@@ -14,10 +14,21 @@ import os
 from launch import LaunchDescription
 from launch.actions import TimerAction, DeclareLaunchArgument, OpaqueFunction, IncludeLaunchDescription, ExecuteProcess
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
-from launch_ros.actions import Node
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
+from launch_ros.actions import Node, SetParameter
 from launch_ros.parameter_descriptions import ParameterValue
 from ament_index_python.packages import get_package_share_directory
+
+# Import Marcus Config
+import sys
+# Aggiunge il path per trovare config_utils
+sys.path.append(os.path.join(get_package_share_directory('robopy_controller'), 'utils'))
+try:
+    import config_utils
+except ImportError:
+    # Fallback if not installed in shared-dir yet
+    sys.path.append('/mnt/ssd/robopy_controller_host/robopy_controller/utils')
+    import config_utils
 
 
 def generate_launch_description():
@@ -42,6 +53,7 @@ def generate_launch_description():
         DeclareLaunchArgument('delete_db', default_value='false', description='Delete RTAB-Map database on start'),
         DeclareLaunchArgument('localization', default_value='false', description='Location mode (no mapping)'),
         DeclareLaunchArgument('enable_nav2', default_value='true', description='Enable Navigation2 stack'),
+        DeclareLaunchArgument('sim_mode', default_value='false', description='Enable Gazebo simulation mode'),
     ]
     
     # URDF
@@ -171,6 +183,10 @@ def generate_launch_description():
         }],
         remappings=[
             ('imu', '/oak/imu/data'),
+            # Camera topic remapping for Gazebo
+            ('/rgb/image', PythonExpression(["'/oak/stereo/image_raw' if '", LaunchConfiguration('sim_mode'), "' == 'true' else '/rgb/image'"])),
+            ('/camera/camera_info', PythonExpression(["'/oak/stereo/camera_info' if '", LaunchConfiguration('sim_mode'), "' == 'true' else '/camera/camera_info'"])),
+            ('/camera/depth/image_raw', PythonExpression(["'/oak/stereo/image_depth' if '", LaunchConfiguration('sim_mode'), "' == 'true' else '/camera/depth/image_raw'"])),
         ]
     )
     
@@ -224,12 +240,13 @@ def generate_launch_description():
                     {
                         'Mem/IncrementalMemory': 'false' if LaunchConfiguration('localization').perform(context).lower() == 'true' else 'true',
                         'Mem/InitWMWithAllNodes': 'true' if LaunchConfiguration('localization').perform(context).lower() == 'true' else 'false',
+                        'database_path': config_utils.get_path('RTABMAP_DB_PATH', '/home/robopy/.ros/rtabmap.db'),
                     }
                 ],
                 remappings=[
-                    ('rgb/image', '/rgb/image'),
-                    ('rgb/camera_info', '/camera/camera_info'),
-                    ('depth/image', '/camera/depth/image_raw'),
+                    ('rgb/image', PythonExpression(["'/oak/stereo/image_raw' if '", LaunchConfiguration('sim_mode'), "' == 'true' else '/rgb/image'"])),
+                    ('rgb/camera_info', PythonExpression(["'/oak/stereo/camera_info' if '", LaunchConfiguration('sim_mode'), "' == 'true' else '/camera/camera_info'"])),
+                    ('depth/image', PythonExpression(["'/oak/stereo/image_depth' if '", LaunchConfiguration('sim_mode'), "' == 'true' else '/camera/depth/image_raw'"])),
                     ('scan', '/scan'),
                 ],
                 sigterm_timeout='60.0',
@@ -340,21 +357,13 @@ echo "[NAV2-ENSURE] Done."
     if 'GST_PLUGIN_PATH' not in os.environ:
         os.environ['GST_PLUGIN_PATH'] = '/usr/local/lib/gstreamer-1.0:/usr/local/lib/aarch64-linux-gnu/gstreamer-1.0:'
 
-    audio_capture_node = Node(
-        package='audio_capture',
-        executable='audio_capture_node',
-        name='audio_capture',
-        output='screen',
-        respawn=True,
-        respawn_delay=3.0,
-        parameters=[{
-            'sample_rate': 16000,
-            'channels': 1,
-            'format': 'wave',  # 'wave' o 'mp3' — '16' non è un formato valido
-        }],
-        remappings=[
-            ('audio', '/audio/audio')
-        ]
+    # audio_capture_node e wake_word_node sono stati sostituiti dal nuovo VUI
+    # che gestisce nativamente acquisizione, WW e pubblicazione.
+    respeaker_vui = Node(
+        package='robopy_controller',
+        executable='respeaker_vui_node',
+        name='respeaker_vui_node',
+        output='screen'
     )
 
     robot_ai_node = Node(
@@ -364,7 +373,10 @@ echo "[NAV2-ENSURE] Done."
         output='screen',
         emulate_tty=True,
         remappings=[
-            ('/camera/image_raw', '/rgb/image')
+            ('/camera/image_raw', '/rgb/image'),
+            ('/ai/input/text', '/robopy/conversation_rx'),
+            ('/ask_visual_question', '/memory/visual_ask'),
+            ('/memory_search', '/memory/search')
         ]
     )
 
@@ -392,12 +404,7 @@ echo "[NAV2-ENSURE] Done."
         output='screen'
     )
 
-    wake_word_node = Node(
-        package='robopy_controller',
-        executable='wake_word_node',
-        name='wake_word_sentinel',
-        output='screen'
-    )
+    # wake_word_node eliminato (integrato in respeaker_vui_node)
 
     ultrasonic_node = Node(
         package='robopy_controller',
@@ -406,8 +413,28 @@ echo "[NAV2-ENSURE] Done."
         output='screen'
     )
 
+    # ── ReSpeaker Lite — Hardware Wake Word + LED + Speaker + Audio ──────
+    # Bridge UART bidirezionale con XIAO ESP32S3 su /dev/ttyACM0.
+    # Gestisce: TRIGGER_JARVIS → /ai/input/mic_mute, LED feedback,
+    #            heartbeat watchdog, streaming audio PCM, speaker output.
+    respeaker_node = Node(
+        package='robopy_controller',
+        executable='respeaker_interface_node',
+        name='respeaker_interface_node',
+        output='screen',
+        parameters=[{
+            'uart_port': '/dev/ttyACM0',
+            'uart_baud': 921600,    # FIX: era 115200, deve corrispondere al firmware
+            'enabled': True,        # FIX: era False — necessario per audio e LED
+        }]
+    )
+
     return LaunchDescription([
         *args,  # Include declared launch arguments
+        
+        # Force use_sim_time if sim_mode is true
+        SetParameter('use_sim_time', LaunchConfiguration('sim_mode')),
+        
         robot_state_publisher,
         camera_tf,
         imu_tf,
@@ -423,11 +450,16 @@ echo "[NAV2-ENSURE] Done."
         motor_control,
         foxglove,
         foxglove_bridge,
-        audio_capture_node,
-        wake_word_node,
-        robot_ai_node,
-        homeassistant_node,
-        servo_coda_node,
+        
+        # Hardware specific nodes - disabled in sim_mode
+        TimerAction(period=5.0, actions=[OpaqueFunction(function=lambda context: [
+            respeaker_vui,
+            respeaker_node,
+            robot_ai_node,
+            homeassistant_node,
+            servo_coda_node,
+            ultrasonic_node,
+        ] if LaunchConfiguration('sim_mode').perform(context).lower() == 'false' else [])]),
+        
         ultrasonic_tf,
-        ultrasonic_node,
     ])

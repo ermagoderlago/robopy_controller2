@@ -74,8 +74,8 @@ class EmbeddingService:
         embeddings = await service.embed_batch(["Hello", "World"])
     """
     
-    EMBEDDING_MODEL = "gemini-embedding-001"
-    DEFAULT_DIMENSION = 3072  # gemini-embedding-001 output dimension
+    EMBEDDING_MODEL = "models/gemini-embedding-2-preview"
+    DEFAULT_DIMENSION = 3072  # gemini-embedding-2-preview output dimension
     
     def __init__(self, config_manager: ConfigManager = None):
         self.logger = get_logger("embedding_service")

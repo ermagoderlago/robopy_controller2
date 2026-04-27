@@ -1,10 +1,10 @@
-#!/bin/bash
+﻿#!/bin/bash
 # Build script for robopy_controller with clang
 # Fixes CMake path conflicts between system ROS and custom ros2_jazzy
 
 set -e
 
-cd /home/robopy/robopy/robopi_controller/robopy_controller_host
+cd /mnt/ssd/robopy_controller_host
 
 # Clean old build to avoid generator conflicts
 rm -rf build/robopy_controller install/robopy_controller
@@ -13,10 +13,10 @@ rm -rf build/robopy_controller install/robopy_controller
 unset AMENT_PREFIX_PATH CMAKE_PREFIX_PATH COLCON_PREFIX_PATH
 
 # Source ONLY the custom ros2_jazzy 
-source /home/robopy/ros2_jazzy/install/setup.bash 2>/dev/null || true
+source /opt/ros/jazzy/setup.bash 2>/dev/null || true
 
 # Override CMAKE_PREFIX_PATH to exclude system ROS
-export CMAKE_PREFIX_PATH="/home/robopy/ros2_jazzy/install:$CMAKE_PREFIX_PATH"
+export CMAKE_PREFIX_PATH="/opt/ros/jazzy:$CMAKE_PREFIX_PATH"
 
 # Build with clang
 colcon build \

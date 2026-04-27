@@ -110,6 +110,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/DescriptorsCompressed.msg"
   "msg/OAKSyncFrame.msg"
   "srv/AskVisualQuestion.srv"
+  "srv/MemorySearch.srv"
   DEPENDENCIES std_msgs geometry_msgs sensor_msgs vision_msgs
 )
 
@@ -119,12 +120,19 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 set(PYTHON_INSTALL_DIR "lib/python${Python3_VERSION_MAJOR}.${Python3_VERSION_MINOR}/site-packages")
 
-# Manually install the python package (merges with rosidl generated one)
-install(DIRECTORY robopy_controller
-  DESTINATION ${PYTHON_INSTALL_DIR}
+# Manually install the python package (excluding heavy files like .esphome and logs)
+install(DIRECTORY robopy_controller/
+  DESTINATION ${PYTHON_INSTALL_DIR}/robopy_controller
+  REGEX "/files_utili/" EXCLUDE
+  REGEX "/\\.esphome/" EXCLUDE
+  REGEX "/platformio/" EXCLUDE
+  REGEX "/log/" EXCLUDE
+  REGEX "/build/" EXCLUDE
+  REGEX "/install/" EXCLUDE
+  REGEX "/__pycache__/" EXCLUDE
 )
 
-# Install entry point script
+# Install entry point scripts
 install(PROGRAMS 
   scripts/oak_driver_node
   scripts/superpoint_node
@@ -142,8 +150,12 @@ install(PROGRAMS
   scripts/foxglove_nav2_bridge
   scripts/wake_word_node
   scripts/ultrasonic_sensor
+  scripts/respeaker_interface_node
+  scripts/respeaker_vui_node
+  scripts/verify_env.py
   DESTINATION lib/${PROJECT_NAME}
 )
+
 
 
 # Install Data Files (launch, urdf) - IN ROOT
@@ -167,6 +179,7 @@ ament_environment_hooks(
 ament_environment_hooks(
   "${CMAKE_CURRENT_SOURCE_DIR}/hooks/${PROJECT_NAME}_lib.dsv.in"
 )
+
 
 
 

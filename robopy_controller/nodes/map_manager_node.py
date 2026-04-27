@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 #map_manager_node.py
 
-import rclpy
-from rclpy.node import Node
 import os
 import sqlite3
-import time
+import rclpy
+from rclpy.node import Node
 from std_srvs.srv import Empty
+from robopy_controller.utils import config_utils
 
 class MapManager(Node):
     def __init__(self):
         super().__init__('map_manager')
         
-        self.declare_parameter('database_path', '/home/robopy/.ros/rtabmap.db')
+        default_db = config_utils.get_path('RTABMAP_DB_PATH', '/home/robopy/.ros/rtabmap.db')
+        self.declare_parameter('database_path', default_db)
         self.declare_parameter('min_similarity_threshold', 0.3)
         self.declare_parameter('auto_save_interval', 300)
         

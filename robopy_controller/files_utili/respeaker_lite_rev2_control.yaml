@@ -1,0 +1,361 @@
+################################################################################
+#  ReSpeaker Lite — Pure Peripheral Controller Rev. 2 (USB TETHERED)
+#  Hardware: Seeed XIAO ESP32S3 + ReSpeaker 2-Mic Lite
+#
+#  Architettura DEFINITIVA:
+#    - XMOS XU316: firmware USB → audio diretto al Pi (/dev/snd/...)
+#    - ESP32 XIAO: controlla LED, DSP via I2C, GPIO (senza WiFi/API)
+#    - Raspberry Pi: controllo via seriale USB (/dev/ttyACM0)
+#
+#  Cablaggio:
+#    - Cavo 1: XIAO (porta piccola) → Pi /dev/ttyACM0  (LED/DSP comandi)
+#    - Cavo 2: XMOS (porta vicino jack 3.5mm) → Pi hw:ReSpeaker (audio)
+#
+#  Protocollo seriale (115200 baud, newline terminato):
+#    TX (Pi → ESP32):
+#      LED_RGB:R,G,B        → imposta colore (0-255)
+#      LED_EFFECT:NOME      → effetto (IDLE, LISTENING, THINKING, ERROR, OFF)
+#      LED_OFF              → spegni LED
+#      DSP_AEC:0/1          → Acoustic Echo Cancellation
+#      DSP_AGC:0/1          → Auto Gain Control
+#      DSP_NS:0/1           → Noise Suppression
+#      VOL:0-100            → Volume speaker (%)
+#      DFU                  → Entra in modalità DFU XMOS
+#      PING                 → Test connessione
+#    RX (ESP32 → Pi):
+#      READY                → Boot completato
+#      PONG                 → Risposta a PING
+#      OK                   → Comando eseguito
+#      ERR                  → Comando non riconosciuto
+#
+#  Pin:
+#    LED   = GPIO1  (WS2812B via level-shifter Q5)
+#    SDA   = GPIO5  (I2C verso XU316 @ 0x42 e AIC3204 @ 0x18)
+#    SCL   = GPIO6
+#    RST   = GPIO2  (XU316 Reset, tenuto HIGH)
+#    DFU   = GPIO3  (XU316 DFU boot pin)
+#    BOOT  = GPIO0  (tasto fisico XIAO, hold 3s → DFU)
+################################################################################
+
+esphome:
+  name: respeaker-lite-control
+  friendly_name: Marcus Voice Controller
+  on_boot:
+    # Priorità alta: accendi XMOS e inizializza seriale
+    - priority: 900
+      then:
+        - switch.turn_on: xu316_power
+        - delay: 1500ms
+        - lambda: |-
+            // Inizializza UART0 per comunicazione col Pi
+            uart_config_t uart_cfg = {
+              .baud_rate = 115200,
+              .data_bits = UART_DATA_8_BITS,
+              .parity    = UART_PARITY_DISABLE,
+              .stop_bits = UART_STOP_BITS_1,
+              .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+            };
+            uart_param_config(UART_NUM_0, &uart_cfg);
+            uart_driver_install(UART_NUM_0, 1024, 1024, 0, NULL, 0);
+            id(serial_ready) = true;
+            const char* msg = "READY\n";
+            uart_write_bytes(UART_NUM_0, msg, strlen(msg));
+
+    # Priorità bassa: feedback LED al boot
+    - priority: -10
+      then:
+        - light.turn_on:
+            id: onboard_led
+            blue: 100%
+            brightness: 50%
+        - delay: 500ms
+        - light.turn_off: onboard_led
+
+esp32:
+  board: seeed_xiao_esp32s3
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_ESP_CONSOLE_UART_DEFAULT: n
+      CONFIG_ESP_CONSOLE_NONE: y
+      COMPILER_OPTIMIZATION_SIZE: y
+
+logger:
+  level: INFO
+  baud_rate: 0   # Console IDF disabilitata, GPIO43/44 liberi
+
+# ── Variabili globali ────────────────────────────────────────────────────
+globals:
+  - id: serial_ready
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  - id: rx_buf
+    type: std::string
+    restore_value: no
+    initial_value: '""'
+
+# ── I2C verso XU316 (0x42) e AIC3204 (0x18) ─────────────────────────────
+i2c:
+  sda: GPIO5
+  scl: GPIO6
+  scan: true
+  id: xmos_bus
+  frequency: 400000
+
+# ── XMOS Power/Reset ─────────────────────────────────────────────────────
+switch:
+  - platform: gpio
+    pin: GPIO2
+    id: xu316_power
+    restore_mode: ALWAYS_ON
+    internal: true
+
+# ── DFU pin ──────────────────────────────────────────────────────────────
+output:
+  - platform: gpio
+    pin: GPIO3
+    id: xu316_dfu_pin
+
+# ── LED WS2812 ───────────────────────────────────────────────────────────
+light:
+  - platform: esp32_rmt_led_strip
+    id: onboard_led
+    name: "ReSpeaker LED"
+    pin: GPIO1
+    num_leds: 1
+    chipset: WS2812
+    rgb_order: GRB
+    rmt_symbols: 192
+    default_transition_length: 0ms
+    restore_mode: ALWAYS_OFF
+    effects:
+      - pulse:
+          name: "Respiro"
+          transition_length: 1000ms
+          update_interval: 1000ms
+          min_brightness: 5%
+          max_brightness: 80%
+      - pulse:
+          name: "RespiroVeloce"
+          transition_length: 400ms
+          update_interval: 400ms
+          min_brightness: 5%
+          max_brightness: 100%
+      - strobe:
+          name: "Lampeggio"
+          colors:
+            - state: true
+              brightness: 100%
+              duration: 150ms
+            - state: false
+              duration: 100ms
+
+# ── Tasto fisico BOOT (hold 3s → DFU) ────────────────────────────────────
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO0
+      inverted: true
+      mode:
+        input: true
+        pullup: true
+    id: boot_button
+    internal: true
+    on_click:
+      - min_length: 3000ms
+        max_length: 15000ms
+        then:
+          - script.execute: script_enter_dfu
+
+# ── Scripts ──────────────────────────────────────────────────────────────
+script:
+  - id: script_enter_dfu
+    then:
+      - light.turn_on:
+          id: onboard_led
+          red: 100%
+          green: 0%
+          blue: 100%
+          brightness: 100%
+      - output.turn_on: xu316_dfu_pin
+      - switch.turn_off: xu316_power
+      - delay: 300ms
+      - switch.turn_on: xu316_power
+      - delay: 500ms
+      - output.turn_off: xu316_dfu_pin
+      - light.turn_off: onboard_led
+      - lambda: |-
+          if (id(serial_ready)) {
+            uart_write_bytes(UART_NUM_0, "OK:DFU\n", 7);
+          }
+
+  - id: script_led_idle
+    then:
+      - light.turn_off: onboard_led
+
+  - id: script_led_listening
+    then:
+      - light.turn_on:
+          id: onboard_led
+          red: 0%
+          green: 100%
+          blue: 20%
+          brightness: 80%
+          effect: "Respiro"
+
+  - id: script_led_thinking
+    then:
+      - light.turn_on:
+          id: onboard_led
+          red: 0%
+          green: 40%
+          blue: 100%
+          brightness: 80%
+          effect: "RespiroVeloce"
+
+  - id: script_led_replying
+    then:
+      - light.turn_on:
+          id: onboard_led
+          red: 0%
+          green: 100%
+          blue: 100%
+          brightness: 80%
+          effect: "Respiro"
+
+  - id: script_led_error
+    then:
+      - light.turn_on:
+          id: onboard_led
+          red: 100%
+          green: 0%
+          blue: 0%
+          brightness: 100%
+          effect: "Lampeggio"
+
+# ── Polling seriale 20ms ─────────────────────────────────────────────────
+interval:
+  - interval: 20ms
+    then:
+      - lambda: |-
+          if (!id(serial_ready)) return;
+
+          // Leggi bytes disponibili
+          uint8_t byte;
+          size_t available = 0;
+          uart_get_buffered_data_len(UART_NUM_0, &available);
+
+          for (size_t i = 0; i < available && i < 64; i++) {
+            int ret = uart_read_bytes(UART_NUM_0, &byte, 1, 0);
+            if (ret <= 0) break;
+
+            if (byte == '\n' || byte == '\r') {
+              std::string cmd = id(rx_buf);
+              id(rx_buf) = "";
+              if (cmd.empty()) continue;
+
+              // ── Parser comandi ──────────────────────────────────────
+
+              auto serial_ok = []() {
+                uart_write_bytes(UART_NUM_0, "OK\n", 3);
+              };
+              auto serial_err = []() {
+                uart_write_bytes(UART_NUM_0, "ERR\n", 4);
+              };
+
+              // PING
+              if (cmd == "PING") {
+                uart_write_bytes(UART_NUM_0, "PONG\n", 5);
+              }
+
+              // LED_OFF
+              else if (cmd == "LED_OFF") {
+                auto c = id(onboard_led).turn_off();
+                c.perform();
+                serial_ok();
+              }
+
+              // LED_RGB:R,G,B
+              else if (cmd.rfind("LED_RGB:", 0) == 0) {
+                int r=0, g=0, b=0;
+                if (sscanf(cmd.c_str()+8, "%d,%d,%d", &r, &g, &b) == 3
+                    && r>=0 && r<=255 && g>=0 && g<=255 && b>=0 && b<=255) {
+                  auto c = id(onboard_led).turn_on();
+                  c.set_rgb(r/255.0f, g/255.0f, b/255.0f);
+                  c.set_brightness(1.0f);
+                  c.set_effect("None");
+                  c.perform();
+                  serial_ok();
+                } else {
+                  serial_err();
+                }
+              }
+
+              // LED_EFFECT:NOME
+              else if (cmd.rfind("LED_EFFECT:", 0) == 0) {
+                std::string eff = cmd.substr(11);
+                if (eff == "IDLE")      { id(script_led_idle).execute();     serial_ok(); }
+                else if (eff == "LISTENING") { id(script_led_listening).execute(); serial_ok(); }
+                else if (eff == "THINKING")  { id(script_led_thinking).execute();  serial_ok(); }
+                else if (eff == "REPLYING")  { id(script_led_replying).execute();  serial_ok(); }
+                else if (eff == "ERROR")     { id(script_led_error).execute();     serial_ok(); }
+                else serial_err();
+              }
+
+              // DSP_AEC:0/1
+              else if (cmd.rfind("DSP_AEC:", 0) == 0) {
+                uint8_t val = (cmd[8] == '1') ? 0x01 : 0x00;
+                uint8_t buf[] = {0xF1, 0x11, 0x01, val};
+                id(xmos_bus).write(0x42, buf, 4, true);
+                serial_ok();
+              }
+
+              // DSP_AGC:0/1
+              else if (cmd.rfind("DSP_AGC:", 0) == 0) {
+                uint8_t val = (cmd[8] == '1') ? 0x01 : 0x00;
+                uint8_t buf[] = {0xF1, 0x12, 0x01, val};
+                id(xmos_bus).write(0x42, buf, 4, true);
+                serial_ok();
+              }
+
+              // DSP_NS:0/1
+              else if (cmd.rfind("DSP_NS:", 0) == 0) {
+                uint8_t val = (cmd[7] == '1') ? 0x01 : 0x00;
+                uint8_t buf[] = {0xF1, 0x13, 0x01, val};
+                id(xmos_bus).write(0x42, buf, 4, true);
+                serial_ok();
+              }
+
+              // VOL:0-100
+              else if (cmd.rfind("VOL:", 0) == 0) {
+                int vol_pct = atoi(cmd.c_str()+4);
+                if (vol_pct >= 0 && vol_pct <= 100) {
+                  uint8_t vol = (uint8_t)((1.0f - (vol_pct / 100.0f)) * 127.0f);
+                  uint8_t page0[] = {0x00, 0x00};
+                  id(xmos_bus).write(0x18, page0, 2, true);
+                  uint8_t left[]  = {0x41, vol};
+                  uint8_t right[] = {0x42, vol};
+                  id(xmos_bus).write(0x18, left,  2, true);
+                  id(xmos_bus).write(0x18, right, 2, true);
+                  serial_ok();
+                } else {
+                  serial_err();
+                }
+              }
+
+              // DFU
+              else if (cmd == "DFU") {
+                id(script_enter_dfu).execute();
+              }
+
+              else {
+                serial_err();
+              }
+
+            } else if (byte >= 32 && byte < 128) {
+              id(rx_buf) += (char)byte;
+              if (id(rx_buf).size() > 64) id(rx_buf) = "";
+            }
+          }

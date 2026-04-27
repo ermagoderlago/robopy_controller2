@@ -1,0 +1,7 @@
+# minimal_flash.yaml - solo per liberare GPIO2
+esphome:
+  name: respeaker-lite
+esp32:
+  board: seeed_xiao_esp32s3
+  framework:
+    type: esp-idf

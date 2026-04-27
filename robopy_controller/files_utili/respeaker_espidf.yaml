@@ -1,0 +1,462 @@
+################################################################################
+#  ReSpeaker Lite — Firmware ESPHome v3
+#  Hardware: Seeed XIAO ESP32S3 + ReSpeaker 2-Mic Lite
+#
+#  ┌──────────────────────────────────────────────────────────────────────┐
+#  │  PIN REFERENCE                                                       │
+#  │                                                                      │
+#  │  UART → Raspberry Pi   TX=GPIO1 (D6)  RX=GPIO2 (D7)                 │
+#  │  I2S Microfono         BCLK=GPIO7     LRCLK=GPIO8   DIN=GPIO9       │
+#  │  LED WS2812            GPIO21                                        │
+#  │  Pulsante BOOT         GPIO0 (pull-up, active-low)                  │
+#  └──────────────────────────────────────────────────────────────────────┘
+#
+#  Protocollo seriale → vedi respeaker_interface.py
+#
+#  secrets.yaml richiesto:
+#    wifi_ssid: "..."
+#    wifi_password: "..."
+################################################################################
+
+esphome:
+  name: respeaker-lite
+  friendly_name: ReSpeaker Lite del Robot
+  includes:
+    - mbed_helper.h   # include mbedtls/base64.h per mbedtls_base64_encode()
+  on_boot:
+    priority: 600
+    then:
+      - light.turn_off: respeaker_led
+
+esp32:
+  board: seeed_xiao_esp32s3
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      # USB CDC come console principale: garantisce /dev/ttyACM0 stabile
+      CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG: y
+      CONFIG_ESP_CONSOLE_UART_DEFAULT: n
+      # Ottimizzazione size (NON usare NONE: porta a firmware 4+ MB)
+      COMPILER_OPTIMIZATION_SIZE: y
+      COMPILER_CXX_EXCEPTIONS: y
+      CONFIG_LWIP_IPV6: n
+      # Unicore: riduce context-switch overhead per audio real-time
+      CONFIG_FREERTOS_UNICORE: y
+      CONFIG_ESP32S3_DATA_CACHE_64KB: y
+      # mbedtls base64 (necessario per encoding audio PCM)
+      CONFIG_MBEDTLS_BASE64_C: y
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  enable_on_boot: false
+
+api:
+ota:
+  platform: esphome
+
+logger:
+  level: INFO
+  hardware_uart: USB_SERIAL_JTAG
+
+# ── Variabili globali ───────────────────────────────────────────────────
+globals:
+  - id: wake_word_enabled
+    type: bool
+    restore_value: no
+    initial_value: 'true'
+
+  - id: wifi_active
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  # Stato LED corrente (usato nella risposta STATO:)
+  - id: led_r
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: led_g
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: led_b
+    type: int
+    restore_value: no
+    initial_value: '0'
+
+  # Flag streaming audio
+  - id: audio_streaming_enabled
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  # Buffer di accumulo UART (polling byte per byte)
+  - id: uart_rx_buf
+    type: std::string
+    restore_value: no
+    initial_value: '""'
+
+# ── UART bidirezionale verso Raspberry Pi ──────────────────────────────
+# Baud 921600: necessario per il throughput audio PCM base64
+# (16kHz x 2byte x ~1.33 overhead base64 ≈ 43 kB/s vs ~92 kB/s disponibili)
+uart:
+  id: uart_ros
+  tx_pin: GPIO1
+  rx_pin: GPIO2
+  baud_rate: 921600
+  rx_buffer_size: 512
+
+# ── LED WS2812 ──────────────────────────────────────────────────────────
+light:
+  - platform: esp32_rmt_led_strip
+    chipset: WS2812
+    rgb_order: GRB
+    pin: GPIO21
+    num_leds: 1
+    id: respeaker_led
+    name: "ReSpeaker LED"
+    restore_mode: ALWAYS_OFF
+    effects:
+      - pulse:
+          name: "Respiro"
+          transition_length: 800ms
+          update_interval: 800ms
+          min_brightness: 5%
+          max_brightness: 100%
+      - flicker:
+          name: "Flicker"
+          alpha: 0.95
+          intensity: 1.5%
+      - strobe:
+          name: "Lampeggio"
+          colors:
+            - state: true
+              brightness: 100%
+              duration: 150ms
+            - state: false
+              duration: 100ms
+
+# ── Script ──────────────────────────────────────────────────────────────
+script:
+  # Doppio lampeggio cyan al wake word.
+  # Usa script (non delay() in lambda): delay() in una lambda
+  # blocca il task FreeRTOS e può causare watchdog reset.
+  - id: script_wake_led
+    mode: restart
+    then:
+      - light.turn_on:
+          id: respeaker_led
+          red: 0%
+          green: 100%
+          blue: 100%
+          brightness: 100%
+          transition_length: 0ms
+      - delay: 150ms
+      - light.turn_off:
+          id: respeaker_led
+          transition_length: 0ms
+      - delay: 80ms
+      - light.turn_on:
+          id: respeaker_led
+          red: 0%
+          green: 100%
+          blue: 100%
+          brightness: 100%
+          transition_length: 0ms
+      - delay: 150ms
+      - light.turn_off:
+          id: respeaker_led
+          transition_length: 0ms
+
+  # Elaborazione comandi UART.
+  # mode: queued = i comandi non si perdono in caso di burst ravvicinati.
+  - id: script_process_cmd
+    mode: queued
+    then:
+      - lambda: |-
+          std::string cmd = id(uart_rx_buf);
+          id(uart_rx_buf) = "";   // svuota subito per ricevere il prossimo
+          if (cmd.empty()) return;
+          ESP_LOGD("uart_rx", "CMD: %s", cmd.c_str());
+
+          // ── Helper LED ─────────────────────────────────────────────
+          // Sintassi obbligatoria: call → set_* → perform()
+          // Senza .perform() il comando viene ignorato silenziosamente.
+          auto set_led = [](int r, int g, int b) {
+            id(led_r) = r; id(led_g) = g; id(led_b) = b;
+            auto call = id(respeaker_led).turn_on();
+            call.set_rgb(r / 255.0f, g / 255.0f, b / 255.0f);
+            call.set_brightness(1.0f);
+            call.set_transition_length(0);
+            call.perform();
+          };
+
+          // ── Helper UART write ──────────────────────────────────────
+          auto uart_write = [](const std::string &s) {
+            id(uart_ros).write_array(
+              reinterpret_cast<const uint8_t*>(s.c_str()), s.length()
+            );
+          };
+
+          // ── Ping ──────────────────────────────────────────────────
+          if (cmd == "HEARTBEAT_REQ") {
+            uart_write("HEARTBEAT\n");
+          }
+
+          // ── Stato ─────────────────────────────────────────────────
+          else if (cmd == "STATO") {
+            char buf[64];
+            snprintf(buf, sizeof(buf), "STATO:ww=%d,led=%d:%d:%d\n",
+                     id(wake_word_enabled) ? 1 : 0,
+                     id(led_r), id(led_g), id(led_b));
+            uart_write(std::string(buf));
+          }
+
+          // ── LED RGB diretto: LED_RGB:R,G,B ────────────────────────
+          else if (cmd.rfind("LED_RGB:", 0) == 0) {
+            int r = 0, g = 0, b = 0;
+            if (sscanf(cmd.c_str() + 8, "%d,%d,%d", &r, &g, &b) == 3) {
+              set_led(r, g, b);
+            } else {
+              ESP_LOGW("led", "Formato LED_RGB non valido: %s", cmd.c_str());
+            }
+          }
+
+          // ── LED off ───────────────────────────────────────────────
+          else if (cmd == "LED_OFF") {
+            id(led_r) = 0; id(led_g) = 0; id(led_b) = 0;
+            id(respeaker_led).turn_off().perform();
+          }
+
+          // ── LED blu (retro-compatibilità) ─────────────────────────
+          else if (cmd == "LED_BLU") {
+            set_led(0, 0, 255);
+          }
+
+          // ── Effetti predefiniti: LED_EFFECT:NOME ──────────────────
+          else if (cmd.rfind("LED_EFFECT:", 0) == 0) {
+            std::string eff = cmd.substr(11);
+            if (eff == "IDLE") {
+              auto call = id(respeaker_led).turn_on();
+              call.set_effect("Respiro");
+              call.set_rgb(1.0f, 1.0f, 1.0f);
+              call.perform();
+            } else if (eff == "LISTENING") {
+              auto call = id(respeaker_led).turn_on();
+              call.set_effect("Respiro");
+              call.set_rgb(0.0f, 1.0f, 0.2f);
+              call.perform();
+            } else if (eff == "THINKING") {
+              auto call = id(respeaker_led).turn_on();
+              call.set_effect("Flicker");
+              call.set_rgb(0.0f, 0.4f, 1.0f);
+              call.perform();
+            } else if (eff == "SUCCESS") {
+              set_led(0, 255, 80);
+            } else if (eff == "ERROR") {
+              auto call = id(respeaker_led).turn_on();
+              call.set_effect("Lampeggio");
+              call.set_rgb(1.0f, 0.0f, 0.0f);
+              call.perform();
+            } else if (eff == "WAKE_WORD") {
+              id(script_wake_led).execute();
+            } else {
+              ESP_LOGW("led", "Effetto sconosciuto: %s", eff.c_str());
+            }
+          }
+
+          // ── Audio streaming ───────────────────────────────────────
+          else if (cmd == "AUDIO_START") {
+            id(audio_streaming_enabled) = true;
+            uart_write("STREAM:ON\n");
+            ESP_LOGI("audio", "Streaming avviato");
+          }
+          else if (cmd == "AUDIO_STOP") {
+            id(audio_streaming_enabled) = false;
+            uart_write("STREAM:OFF\n");
+            ESP_LOGI("audio", "Streaming fermato");
+          }
+
+          // ── Wake word on/off ──────────────────────────────────────
+          // id(mww) richiede che micro_wake_word abbia "id: mww"
+          else if (cmd == "PAUSA") {
+            id(wake_word_enabled) = false;
+            id(mww).stop();       // CORRETTO: id(), non micro_wake_word::stop()
+            set_led(255, 120, 0); // arancione = in pausa
+            ESP_LOGI("ww", "Wake word in pausa");
+          }
+          else if (cmd == "RIPRENDI") {
+            id(wake_word_enabled) = true;
+            id(mww).start();      // CORRETTO: id(), non micro_wake_word::start()
+            id(respeaker_led).turn_off().perform();
+            id(led_r) = 0; id(led_g) = 0; id(led_b) = 0;
+            ESP_LOGI("ww", "Wake word riattivato");
+          }
+
+          else {
+            ESP_LOGW("uart_rx", "Comando non riconosciuto: %s", cmd.c_str());
+          }
+
+# ── I2S Audio / Microfono ───────────────────────────────────────────────
+i2s_audio:
+  i2s_lrclk_pin: GPIO8
+  i2s_bclk_pin: GPIO7
+
+microphone:
+  - platform: i2s_audio
+    id: respeaker_mic
+    i2s_din_pin: GPIO9
+    adc_type: external
+    pdm: false
+    sample_rate: 16000   # 16kHz mono: formato richiesto da Gemini Live API
+    on_data:
+      then:
+        - lambda: |-
+            if (!id(audio_streaming_enabled)) return;
+            if (x.empty()) return;
+
+            // Encoding base64 via mbedtls (sempre disponibile in esp-idf).
+            // NON usare esphome::base64::encode: non è API pubblica di ESPHome
+            // e genera errori di compilazione.
+            //
+            // x è std::vector<int16_t> → raw bytes = x.size() * 2
+            const uint8_t* raw_ptr = reinterpret_cast<const uint8_t*>(x.data());
+            const size_t   raw_len = x.size() * 2;
+
+            // Dimensione output base64: ceil(input/3)*4 + null terminator
+            const size_t enc_max = ((raw_len + 2) / 3) * 4 + 1;
+            std::vector<uint8_t> enc_buf(enc_max);
+            size_t enc_len = 0;
+
+            int ret = mbedtls_base64_encode(
+              enc_buf.data(), enc_max, &enc_len, raw_ptr, raw_len
+            );
+            if (ret != 0) {
+              ESP_LOGW("audio", "base64 encode errore: %d", ret);
+              return;
+            }
+
+            // Messaggio: "AUDIO_PCM:<base64>\n"
+            std::string msg = "AUDIO_PCM:";
+            msg.append(reinterpret_cast<const char*>(enc_buf.data()), enc_len);
+            msg += "\n";
+
+            id(uart_ros).write_array(
+              reinterpret_cast<const uint8_t*>(msg.c_str()), msg.size()
+            );
+
+# ── Wake Word ───────────────────────────────────────────────────────────
+# CRITICO: id: mww è obbligatorio per id(mww).stop()/start() nelle lambda.
+# Senza questo id: il compilatore genera "use of undeclared identifier 'mww'".
+micro_wake_word:
+  id: mww
+  microphone: respeaker_mic
+  models:
+    - model: hey_jarvis
+      probability_cutoff: 0.90
+  on_wake_word_detected:
+    then:
+      - script.execute: script_wake_led
+      - uart.write:
+          id: uart_ros
+          data: "TRIGGER_JARVIS\n"
+      - logger.log: "Wake word rilevato: JARVIS"
+      - delay: 300ms
+      - light.turn_on:
+          id: respeaker_led
+          red: 0%
+          green: 100%
+          blue: 20%
+          brightness: 80%
+          transition_length: 200ms
+      - delay: 2s
+      - light.turn_off:
+          id: respeaker_led
+
+# ── Pulsante BOOT — toggle WiFi ─────────────────────────────────────────
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO0
+      inverted: true
+      mode:
+        input: true
+        pullup: true
+    id: button_wifi
+    name: "Toggle WiFi"
+    filters:
+      - delayed_on: 50ms
+    on_press:
+      then:
+        - if:
+            condition:
+              lambda: 'return id(wifi_active);'
+            then:
+              - lambda: 'id(wifi_active) = false;'
+              - wifi.disable:
+              - light.turn_on:
+                  id: respeaker_led
+                  red: 100%
+                  green: 0%
+                  blue: 0%
+                  brightness: 100%
+                  transition_length: 0ms
+              - uart.write:
+                  id: uart_ros
+                  data: "WIFI_OFF\n"
+              - delay: 1s
+              - light.turn_off: respeaker_led
+            else:
+              - lambda: 'id(wifi_active) = true;'
+              - wifi.enable:
+              - light.turn_on:
+                  id: respeaker_led
+                  red: 0%
+                  green: 0%
+                  blue: 100%
+                  brightness: 100%
+                  transition_length: 0ms
+              - uart.write:
+                  id: uart_ros
+                  data: "WIFI_ON\n"
+              - delay: 1s
+              - light.turn_off: respeaker_led
+
+# ── Intervalli ──────────────────────────────────────────────────────────
+interval:
+  # Heartbeat verso Raspberry Pi ogni 5s
+  - interval: 5s
+    then:
+      - uart.write:
+          id: uart_ros
+          data: "HEARTBEAT\n"
+
+  # UART RX polling ogni 20ms.
+  # Accumula byte in uart_rx_buf; a ogni \n lancia script_process_cmd.
+  # Più robusto di on_receive per comandi con payload variabile.
+  - interval: 20ms
+    then:
+      - lambda: |-
+          while (id(uart_ros).available()) {
+            uint8_t byte;
+            if (!id(uart_ros).read_byte(&byte)) break;
+
+            if (byte == '\n' || byte == '\r') {
+              std::string &buf = id(uart_rx_buf);
+              // Rimuovi spazi finali
+              while (!buf.empty() && buf.back() == ' ') buf.pop_back();
+              if (!buf.empty()) {
+                id(script_process_cmd).execute();
+                id(uart_rx_buf) = "";
+              }
+            } else if (byte >= 32 && byte < 128) {
+              // Accetta solo ASCII stampabile, ignora byte corrotti
+              id(uart_rx_buf) += static_cast<char>(byte);
+              // Protezione overflow (max 512 char per comando)
+              if (id(uart_rx_buf).size() > 512) {
+                ESP_LOGW("uart_rx", "Buffer overflow, reset");
+                id(uart_rx_buf) = "";
+              }
+            }
+          }

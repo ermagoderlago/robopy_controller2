@@ -291,24 +291,25 @@ def generate_launch_description():
             parameters=[ekf_config]
         ),
 
-        ExecuteProcess(
-            cmd=[
-                'rpicam-vid',
-                '-t', '0',
-                '--width', '640',
-                '--height', '480',
-                '--framerate', '25',
-                '--codec', 'mjpeg',
-                '--nopreview',
-                '--inline',
-                '--listen',
-                '-o', 'udp://127.0.0.1:5000'
-            ],
-            output='screen'
-        ),
+        # ExecuteProcess(
+        #     cmd=[
+        #         'rpicam-vid',
+        #         '-t', '0',
+        #         '--width', '640',
+        #         '--height', '480',
+        #         '--framerate', '25',
+        #         '--codec', 'mjpeg',
+        #         '--nopreview',
+        #         '--inline',
+        #         '--listen',
+        #         '-o', 'udp://127.0.0.1:5000'
+        #     ],
+        #     output='screen'
+        # ),
+        # TODO: Setup standard v4l2_camera or usb_cam here for PC environment
 
         ExecuteProcess(
-            cmd=['rviz2', '-d', '/home/robopy/robopy/RVIZ2/robopy.rviz'],
+            cmd=['rviz2', '-d', '/home/robopy/severus/config/robopy.rviz'],
             output='screen'
         ),
 

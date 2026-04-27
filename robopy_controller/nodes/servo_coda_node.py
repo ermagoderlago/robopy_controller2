@@ -113,8 +113,6 @@ def main(args=None):
     except KeyboardInterrupt:
         pass
     finally:
-        if node.servo is not None:
-            node.gpio.Device.close_all()
         node.destroy_node()
         rclpy.shutdown()
 

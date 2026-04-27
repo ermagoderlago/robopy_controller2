@@ -1,6 +1,6 @@
 import os
 
-install_dir = "/home/robopy/ros2_jazzy/install"
+install_dir = "/mnt/ssd/robopy_controller_host"
 subdirs = [os.path.join(install_dir, d) for d in os.listdir(install_dir) if os.path.isdir(os.path.join(install_dir, d))]
 
 cmake_paths = []

@@ -2,14 +2,14 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>robopy_controller</name>
-  <version>0.0.0</version>
+  <version>0.1.2</version>
   <description>Controllo robotico con ROS2 e camera RGB</description>
   <maintainer email="suffia.luca@gmail.com">luca</maintainer>
   <license>MIT</license>
 
   <!-- Dipendenze di runtime -->
   <exec_depend>geometry_msgs</exec_depend>
-  <exec_depend>buildhat</exec_depend>
+  <!-- <exec_depend>buildhat</exec_depend> -->
   <exec_depend>bluedot</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>cv_bridge</exec_depend>
@@ -17,7 +17,8 @@
   <exec_depend>audio_capture</exec_depend>
   <exec_depend>audio_common_msgs</exec_depend>
   <exec_depend>rclpy</exec_depend>
-  <exec_depend>picamera2</exec_depend>
+  <!-- <exec_depend>picamera2</exec_depend> -->
+  <exec_depend>v4l2_camera</exec_depend>
   <exec_depend>robot_localization</exec_depend>
   <depend>rclcpp</depend>
   <depend>tf2</depend>

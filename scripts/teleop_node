@@ -1,13 +1,25 @@
 #!/usr/bin/env python3
 import sys
+import os
 import importlib.util
 
-# Load teleop_node directly from the correct path to avoid namespace conflict
-MODULE_PATH = '/home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/python3.11/site-packages/robopy_controller/nodes/teleop_node.py'
+# Dynamic path resolution
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+# Wrapper: [PKG_ROOT]/lib/[PKG_NAME]/
+# Site-packages: [PKG_ROOT]/lib/python3.11/site-packages/
+PKG_INSTALL_ROOT = os.path.dirname(os.path.dirname(SCRIPT_DIR))
 
-spec = importlib.util.spec_from_file_location("teleop_node", MODULE_PATH)
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
+MODULE_PATH = os.path.join(PKG_INSTALL_ROOT, 'lib/python3.11/site-packages/robopy_controller/nodes/teleop_node.py')
+
+try:
+    spec = importlib.util.spec_from_file_location("module", MODULE_PATH)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+except Exception as e:
+    print(f"Error: Could not load module at {MODULE_PATH}")
+    print(f"Details: {e}")
+    sys.exit(1)
 
 if __name__ == '__main__':
     module.main()
+

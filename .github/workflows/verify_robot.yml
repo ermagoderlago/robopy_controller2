@@ -1,0 +1,47 @@
+name: Marcus AI CI/CD
+
+on:
+  push:
+    branches: [ "main", "develop" ]
+  pull_request:
+    branches: [ "main", "develop" ]
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+    - name: Python Syntax Smoke Test
+      run: |
+        echo "Executing Python Py_Compile Smoke Test..."
+        # Compile all .py files to catch syntax errors
+        find . -name "*.py" -not -path "*/venv/*" -not -path "*/.venv/*" -not -path "*/venv_ros/*" -exec python -m py_compile {} +
+        echo "Smoke test passed successfully."
+
+    - name: Validate ROS 2 Package Structure
+      run: |
+        echo "Checking ROS 2 typical structure..."
+        if [ ! -f "package.xml" ]; then
+          echo "Warning: package.xml not found."
+        else
+          echo "package.xml found."
+        fi
+        if [ ! -f "CMakeLists.txt" ] && [ ! -f "setup.py" ]; then
+          echo "Error: Neither CMakeLists.txt nor setup.py found. Is this a valid ROS 2 package?"
+          exit 1
+        fi
+        echo "Structure validation passed."

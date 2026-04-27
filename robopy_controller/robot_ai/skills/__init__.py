@@ -6,6 +6,7 @@ Sistema di skill per le capacità del robot.
 
 from .base_skill import (
     BaseSkill,
+    Capability,
     SkillMetadata,
     SkillResult,
     SkillErrorCode,
@@ -16,6 +17,7 @@ from .skill_registry import (
 
 __all__ = [
     "BaseSkill",
+    "Capability",
     "SkillMetadata",
     "SkillResult",
     "SkillErrorCode",

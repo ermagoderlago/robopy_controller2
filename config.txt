@@ -1,0 +1,11 @@
+# Configurazione Marcus Robot
+# Usare /ssd/.marcus per evitare usura SD e log pesanti
+
+# Percorso base su SSD
+SSD_PATH=/mnt/ssd/.marcus
+
+# Database RTAB-Map
+RTABMAP_DB_PATH=/mnt/ssd/.marcus/rtabmap.db
+
+# Cartella Log
+LOGS_DIR=/mnt/ssd/.marcus/logs
