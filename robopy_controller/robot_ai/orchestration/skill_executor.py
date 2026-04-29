@@ -28,7 +28,7 @@ class SkillExecutor:
             return []
 
         execution_text = args.get("text", "")
-        context = {}
+        context = args.copy()
 
         # --- Routing specifico per skill ---
 
@@ -45,17 +45,19 @@ class SkillExecutor:
             )
 
         elif skill_name == "check_emails":
-            # Gemini manda: {intent, text, account, limit} via function_call.
+            # Gemini manda: {intent, text, account, limit, date_filter, email_id} via function_call.
             # Forwarda tutto come context e garantisce un execution_text sensato.
             context = {
                 "intent":  args.get("intent",  "read"),
                 "account": args.get("account", "default"),
                 "limit":   int(args.get("limit", 5)),
+                "date_filter": args.get("date_filter", "all"),
+                "email_id": args.get("email_id", ""),
             }
             execution_text = args.get("text", "leggi le mie email")
             self._logger.info(
                 f"📧 Routing check_emails: intent={context['intent']}, "
-                f"limit={context['limit']}, text='{execution_text}'"
+                f"limit={context['limit']}, date_filter={context['date_filter']}, text='{execution_text}'"
             )
 
         elif skill_name == "navigation" and "action" in args:

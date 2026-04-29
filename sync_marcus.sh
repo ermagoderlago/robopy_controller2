@@ -37,34 +37,39 @@ echo ""
 echo "📥 [1/4] Back-Sync: Recupero aggiornamenti dal Robot..."
 
 # Recupera skill generate/aggiornate sul robot
-rsync -avz --progress -e "${RSYNC_SSH}" \
+rsync -auvz --progress -e "${RSYNC_SSH}" \
     --exclude='__pycache__/' --exclude='*.pyc' \
     ${TARGET_HOST}:${TARGET_DIR}/robopy_controller/robot_ai/skills/active/ \
     ./robopy_controller/robot_ai/skills/active/ 2>/dev/null || echo "  ⚠️  Cartella active/ non trovata sul robot, skip."
 
-rsync -avz --progress -e "${RSYNC_SSH}" \
+rsync -auvz --progress -e "${RSYNC_SSH}" \
     --exclude='__pycache__/' --exclude='*.pyc' \
     ${TARGET_HOST}:${TARGET_DIR}/robopy_controller/robot_ai/skills/staging/ \
     ./robopy_controller/robot_ai/skills/staging/ 2>/dev/null || echo "  ⚠️  Cartella staging/ non trovata sul robot, skip."
 
+rsync -auvz --progress -e "${RSYNC_SSH}" \
+    --exclude='__pycache__/' --exclude='*.pyc' \
+    ${TARGET_HOST}:${TARGET_DIR}/robopy_controller/robot_ai/skills/script/ \
+    ./robopy_controller/robot_ai/skills/script/ 2>/dev/null || echo "  ⚠️  Cartella script/ non trovata sul robot, skip."
+
 # Recupera logs aggiornati
-rsync -avz -e "${RSYNC_SSH}" \
+rsync -auvz -e "${RSYNC_SSH}" \
     ${TARGET_HOST}:${TARGET_DIR}/robopy_controller/logs/ \
     ./robopy_controller/logs/ 2>/dev/null || echo "  ⚠️  Cartella logs/ non trovata sul robot, skip."
 
 # Recupera WORKSPACE_STATE e files_topic aggiornati dal robot
-rsync -avz -e "${RSYNC_SSH}" \
+rsync -auvz -e "${RSYNC_SSH}" \
     ${TARGET_HOST}:${TARGET_DIR}/WORKSPACE_STATE.md \
     ./WORKSPACE_STATE.md 2>/dev/null || echo "  ⚠️  WORKSPACE_STATE.md non trovato, skip."
 
-rsync -avz -e "${RSYNC_SSH}" \
+rsync -auvz -e "${RSYNC_SSH}" \
     ${TARGET_HOST}:${TARGET_DIR}/files_topic.md \
     ./files_topic.md 2>/dev/null || echo "  ⚠️  files_topic.md non trovato, skip."
 
 # --- STEP 2: FORWARD-SYNC (PC -> ROBOT) - Workspace completo ---
 echo ""
 echo "📤 [2/4] Forward-Sync: Aggiornamento workspace completo sul Robot..."
-rsync -avz --progress -e "${RSYNC_SSH}" \
+rsync -auvz --progress -e "${RSYNC_SSH}" \
     --exclude='.git/' \
     --exclude='.agent/' \
     --exclude='.cache/' \
@@ -88,7 +93,7 @@ SITE_PKGS="install/robopy_controller/lib/python${PYTHON_VER}/site-packages"
 
 echo "   -> Target: ${TARGET_DIR}/${SITE_PKGS}/robopy_controller/"
 
-rsync -avz -e "${RSYNC_SSH}" \
+rsync -auvz -e "${RSYNC_SSH}" \
     --include='nodes/' \
     --include='nodes/**' \
     --include='robot_ai/' \
@@ -98,7 +103,7 @@ rsync -avz -e "${RSYNC_SSH}" \
     --exclude='*' \
     robopy_controller/ ${TARGET_HOST}:${TARGET_DIR}/${SITE_PKGS}/robopy_controller/
 
-rsync -avz -e "${RSYNC_SSH}" \
+rsync -auvz -e "${RSYNC_SSH}" \
     --exclude='__pycache__/' --exclude='*.pyc' \
     launch/ ${TARGET_HOST}:${TARGET_DIR}/install/robopy_controller/share/robopy_controller/launch/
 

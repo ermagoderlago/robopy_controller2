@@ -434,3 +434,5 @@
 - `image_raw`
 - `motor_speed`
 - `servo_angle`
+
+  - `robot_ai/skills/active/spotify_skill.py`

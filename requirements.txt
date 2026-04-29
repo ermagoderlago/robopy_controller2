@@ -27,3 +27,4 @@ onnxruntime-gpu>=1.15.0
 # Utils locali / generiche
 python-dotenv>=1.0.0
 PyYAML>=6.0
+spotipy>=2.23.0

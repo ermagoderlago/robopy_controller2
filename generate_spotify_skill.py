@@ -1,0 +1,164 @@
+import asyncio
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))
+
+from robopy_controller.robot_ai.skills.skill_generator import SkillGeneratorPipeline, SkillRequest
+
+request = SkillRequest(
+    name="SpotifySkill",
+    description="Skill to control Spotify Premium account (play, pause, next, prev, volume up/down, search). Music volume separated from voice.",
+    capabilities=["web.search"],
+    topics_sub=[],
+    topics_pub=[],
+    test_utterances=["riproduci su spotify", "alza volume musica", "prossima canzone", "cerca canzone"]
+)
+
+codice_generato = """<SKILL_CODE>
+from robopy_controller.robot_ai.skills.base_skill import BaseSkill, SkillMetadata, SkillResult, SkillErrorCode, Capability
+from typing import Any, Dict
+import asyncio
+import logging
+import spotipy
+from spotipy.oauth2 import SpotifyOAuth
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+class SpotifySkill(BaseSkill):
+    \"\"\"Skill per controllare Spotify Premium.\"\"\"
+
+    def __init__(self):
+        super().__init__()
+        self.sp = None
+        self.cache_path = str(Path.home() / ".spotipy_cache")
+
+    def _init_spotify(self):
+        if self.sp is None:
+            try:
+                auth_manager = SpotifyOAuth(
+                    scope="user-modify-playback-state user-read-playback-state",
+                    cache_path=self.cache_path,
+                    open_browser=False
+                )
+                
+                # Se non c'e' il token in cache, l'autenticazione fallisce
+                if not auth_manager.get_cached_token():
+                    logger.error(f"Token Spotify mancante in {self.cache_path}.")
+                    return False
+                    
+                self.sp = spotipy.Spotify(auth_manager=auth_manager)
+                return True
+            except Exception as e:
+                logger.error(f"Errore inizializzazione Spotify: {e}")
+                return False
+        return True
+
+    def get_metadata(self) -> SkillMetadata:
+        return SkillMetadata(
+            name="spotify_skill",
+            description="Controllo riproduzione Spotify (volume, play/pausa, avanti/indietro, ricerca).",
+            keywords=["spotify", "musica", "canzone", "brano", "riproduci", "pausa", "avanti", "indietro"],
+            priority=6,
+            capabilities=[Capability.WEB_SEARCH],
+        )
+
+    def match(self, text: str, context: Dict[str, Any] = None) -> float:
+        text_lower = text.lower()
+        if "spotify" in text_lower:
+            return 0.95
+        keywords = ["riproduci musica", "metti pausa", "canzone", "brano", "volume musica", "avanti", "indietro", "prossima traccia"]
+        if any(k in text_lower for k in keywords):
+            return 0.6
+        return 0.0
+
+    async def execute(self, text: str, context: Dict[str, Any] = None) -> SkillResult:
+        try:
+            return await asyncio.to_thread(self._sync_execute, text)
+        except Exception as e:
+            return SkillResult.failure_result(f"Errore esecuzione thread Spotify: {str(e)}")
+
+    def _sync_execute(self, text: str) -> SkillResult:
+        if not self._init_spotify():
+            return SkillResult.failure_result("Non riesco ad accedere a Spotify. Assicurati di aver configurato il token e le credenziali (.env) con lo script spotify_auth.py.")
+
+        text_lower = text.lower()
+
+        try:
+            if "pausa" in text_lower or "ferma" in text_lower:
+                self.sp.pause_playback()
+                return SkillResult.success_result("Musica in pausa.")
+            
+            elif "riproduci" in text_lower and "su spotify" not in text_lower and "cerca" not in text_lower:
+                self.sp.start_playback()
+                return SkillResult.success_result("Riproduzione ripresa.")
+                
+            elif "avanti" in text_lower or "prossima" in text_lower:
+                self.sp.next_track()
+                return SkillResult.success_result("Passo alla prossima traccia.")
+                
+            elif "indietro" in text_lower or "precedente" in text_lower:
+                self.sp.previous_track()
+                return SkillResult.success_result("Torno alla traccia precedente.")
+                
+            elif "volume" in text_lower:
+                if "alza" in text_lower or "aumenta" in text_lower:
+                    current = self.sp.current_playback()
+                    if current and current.get('device'):
+                        vol = current['device']['volume_percent']
+                        self.sp.volume(min(vol + 20, 100))
+                        return SkillResult.success_result("Volume musica alzato.")
+                elif "abbassa" in text_lower or "diminuisci" in text_lower:
+                    current = self.sp.current_playback()
+                    if current and current.get('device'):
+                        vol = current['device']['volume_percent']
+                        self.sp.volume(max(vol - 20, 0))
+                        return SkillResult.success_result("Volume musica abbassato.")
+                
+                import re
+                match = re.search(r'al (\\d+)', text_lower)
+                if match:
+                    vol = int(match.group(1))
+                    self.sp.volume(max(0, min(100, vol)))
+                    return SkillResult.success_result(f"Volume musica impostato al {vol} percento.")
+                return SkillResult.success_result("Comando volume non specifico.")
+            
+            elif "cerca" in text_lower or "riproduci" in text_lower or "suona" in text_lower:
+                query = text_lower.replace("cerca", "").replace("su spotify", "").replace("riproduci", "").replace("suona", "").strip()
+                if query:
+                    results = self.sp.search(q=query, type='track', limit=1)
+                    if results and results['tracks']['items']:
+                        track_uri = results['tracks']['items'][0]['uri']
+                        self.sp.start_playback(uris=[track_uri])
+                        track_name = results['tracks']['items'][0]['name']
+                        return SkillResult.success_result(f"Sto riproducendo {track_name} su Spotify.")
+                    else:
+                        return SkillResult.failure_result(f"Non ho trovato canzoni corrispondenti a {query}.")
+            
+            return SkillResult.success_result("Comando Spotify compreso ma nessuna azione intrapresa.")
+        except spotipy.SpotifyException as e:
+            return SkillResult.failure_result(f"Errore API Spotify: controlla che Spotify sia aperto su un dispositivo (NO ACTIVE DEVICE). Dettagli: {e.msg}")
+        except Exception as e:
+            return SkillResult.failure_result(f"Errore inatteso: {str(e)}")
+</SKILL_CODE>"""
+
+async def run():
+    pipeline = SkillGeneratorPipeline()
+    print("Avvio generazione e validazione skill Spotify...")
+    result = await pipeline.process_generated_code(request, codice_generato, 1)
+
+    if result.success:
+        print("Validazione completata con successo!")
+        pipeline.approve_skill(request)
+        print("Skill approvata (spostata in active/).")
+        pipeline.enable_skill(request.name)
+        print("Skill abilitata nel manifest.")
+        pipeline.update_rak_for_skill(request)
+        pipeline.update_ai_context_for_skill(request)
+        print("Contesto RAK e AI aggiornato.")
+    else:
+        print("Validazione fallita:")
+        print(result.failure_report)
+
+if __name__ == "__main__":
+    asyncio.run(run())

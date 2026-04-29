@@ -65,11 +65,31 @@ rsync -avz -e "${RSYNC_SSH}" \
 
 # 5. Config aggiornate (lesson_learned, pesi RAG, ecc.)
 echo ""
-echo "🧠 [5/5] Recupero weights aggiornati..."
+echo "🧠 [5/6] Recupero weights aggiornati..."
 rsync -avz --progress -e "${RSYNC_SSH}" \
     --exclude='*.db' --exclude='*.bin' --exclude='ChromaDB/' \
     ${TARGET_HOST}:${TARGET_DIR}/weights/ \
     ./weights/ 2>/dev/null || echo "  ⚠️  weights/ skip"
+
+# 6. File identità aggiornati dal Nightly Dream
+echo ""
+echo "🧬 [6/6] Recupero file identità Marcus (aggiornati dal Nightly Dream)..."
+# MEMORY.md — aggiornato automaticamente da NightlyDreamService
+rsync -avz -e "${RSYNC_SSH}" \
+    ${TARGET_HOST}:${TARGET_DIR}/MEMORY.md \
+    ./MEMORY.md 2>/dev/null || echo "  ⚠️  MEMORY.md non trovato, skip"
+
+# USER.md — può essere aggiornato dal Nightly Dream con osservazioni su Luca
+rsync -avz -e "${RSYNC_SSH}" \
+    ${TARGET_HOST}:${TARGET_DIR}/USER.md \
+    ./USER.md 2>/dev/null || echo "  ⚠️  USER.md non trovato, skip"
+
+# SOUL.md — può evolversi tramite skill o dream (raramente)
+rsync -avz -e "${RSYNC_SSH}" \
+    ${TARGET_HOST}:${TARGET_DIR}/SOUL.md \
+    ./SOUL.md 2>/dev/null || echo "  ⚠️  SOUL.md non trovato, skip"
+
+# NOTA: AGENTS.md NON viene recuperato dal robot — è gestito solo dal dev (Antigravity/Luca)
 
 # Chiudi tunnel
 ${SSH_CMD} -O exit ${TARGET_HOST} 2>/dev/null || true
@@ -79,5 +99,6 @@ echo "=============================================="
 echo " ✅ BACK-SYNC COMPLETATO!"
 echo "   Il tuo workspace locale è aggiornato con le ultime"
 echo "   modifiche del robot."
+echo "   File identità recuperati: MEMORY.md, USER.md, SOUL.md"
 echo "   Ora puoi fare forward-sync sicuro con: bash sync_marcus.sh"
 echo "=============================================="

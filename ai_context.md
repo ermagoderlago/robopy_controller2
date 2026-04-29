@@ -6,7 +6,9 @@
 - **Repository ROS 2 principale:** `robopy_controller` (residente su **SSD** in `/mnt/ssd/robopy_controller_host`). 
 - **ROS 2 target:** Jazzy (standardized link at `/opt/ros/jazzy` pointing to SSD). 
 - **Mapping:** Database RTAB-Map salvati su **SSD** per massimizzare la velocità di accesso I/O.
-- **Hardware target operativo:** Raspberry Pi 5 (connesso a SSD NVMe/USB3). 
+- **Hardware target operativo:** Raspberry Pi 5 (IP: `192.168.1.11`, connesso a SSD NVMe/USB3).
+- **Ambiente Python:** Utilizzo di ambiente virtuale dedicato in `~/ros2_venv/`.
+- **Compilazione:** Avviene fuori dal venv per evitare conflitti con i generatori ROS 2.
 - **Python rilevato nell'ambiente corrente:** `Python 3.10.19`.
 
 ### Vincoli embedded (da rispettare nello sviluppo futuro)
@@ -46,7 +48,7 @@
 
 ### Core Memory
 - `robopy_controller/robot_ai/orchestration/memory_manager.py`  
-  Manager ad alto livello con coda async (`asyncio.Queue`) e worker background per storage/search.
+  Manager ad alto livello con coda async (`asyncio.Queue`) e worker background for storage/search.
 - `robopy_controller/robot_ai/rag/base_memory_store.py`  
   Contratto astratto per memory store (add/search async).
 - `robopy_controller/robot_ai/rag/memory_store.py`  
@@ -106,6 +108,10 @@
 - `robopy_controller/robot_ai/skills/builtin/visual_exploration_skill.py`
 - `robopy_controller/robot_ai/skills/builtin/nightly_dream_skill.py`
 - `robopy_controller/robot_ai/skills/builtin/calibration_skill.py`
+- `robopy_controller/robot_ai/skills/active/spotify_skill.py`
+  Skill per controllare Spotify Premium (play, pausa, avanti, indietro, volume, ricerca). 
+  **Nota**: Gestisce il volume musica in modo indipendente tramite API Spotipy.
+  Richiede `.spotipy_cache` nella home utente.
 - `robopy_controller/robot_ai/skills/builtin/email_skill.py`
   Skill per leggere, riassumere e rispondere alle email (IMAP/SMTP).
 - `robopy_controller/robot_ai/skills/builtin/alarm_skill.py`
@@ -114,6 +120,9 @@
   Gestione timer rapidi con avviso sonoro.
 - `robopy_controller/robot_ai/skills/builtin/technical_document_skill.py`
   Elaborazione PDF tecnici (Docling) in Markdown per il RAG.
+- `robopy_controller/robot_ai/skills/active/terminal_skill.py`
+  Esecuzione sicura di script Python/Bash e lettura OS (es. spazio disco, processi). 
+  Usa dependency injection per llm_service. Reitera automaticamente gli errori per massimizzare il successo.
 - `robopy_controller/robot_ai/skills/builtin/crea_skill.py`
   **Meta-skill**: genera nuove skill ROS 2 per Marcus in modo autonomo.
   Keywords: "crea skill", "genera skill", "impara a", "nuova abilità", "nuova funzione".
@@ -364,6 +373,8 @@ Ogni nodo deve poter essere avviato standalone (`ros2 run`) e validato con `topi
 - `pydantic>=2.0.0`
 - `pyyaml>=6.0`
 - `paramiko>=3.0.0`
+- `spotipy>=2.26.0`
+- `python-dotenv>=1.0.0`
 
 ---
 
@@ -421,4 +432,3 @@ Ogni nodo deve poter essere avviato standalone (`ros2 run`) e validato con `topi
   2) timeout+fallback,
   3) impatto memoria/CPU su Pi 5,
   4) coerenza topic/type ROS.
-

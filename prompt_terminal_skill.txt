@@ -1,0 +1,606 @@
+## RICHIESTA DI GENERAZIONE SKILL
+
+### Vincoli Hardware (OBBLIGATORI)
+Il sistema gira su Raspberry Pi 5, CPU ARM, 4-8 GB RAM, senza GPU.
+Tutto il codice deve essere async, non bloccare callback ROS, usare queue bounded,
+evitare copie inutili di array numpy/immagini. Timeout default 5s su chiamate esterne.
+Logging solo via self.get_logger() se nel contesto ROS, altrimenti standard Python logging.
+
+### Contesto RAK
+Hash contesto: sha256:88a5affa2a5a99ad
+
+=== ai_context.md ===
+# AI_CONTEXT.md
+
+## 1) Contesto e Vincoli
+
+### Sistema target
+- **Repository ROS 2 principale:** `robopy_controller` (residente su **SSD** in `/mnt/ssd/robopy_controller_host`). 
+- **ROS 2 target:** Jazzy (standardized link at `/opt/ros/jazzy` pointing to SSD). 
+- **Mapping:** Database RTAB-Map salvati su **SSD** per massimizzare la velocità di accesso I/O.
+- **Hardware target operativo:** Raspberry Pi 5 (connesso a SSD NVMe/USB3). 
+- **Python rilevato nell'ambiente corrente:** `Python 3.10.19`.
+
+### Vincoli embedded (da rispettare nello sviluppo futuro)
+- **RAM limitata (4–8 GB):** evitare accumulo frame, queue non bounded, cache non controllate.
+- **CPU ARM senza GPU dedicata generale:** preferire modelli leggeri, rate limiting, task async e degradazione controllata.
+- **Storage SSD (Cruciale):** Tutto il sistema critico (ROS2, workspace, mappe) risiede su SSD. Sebbene l'I/O sia veloce, evitare comunque logging eccessivo non necessario per preservare l'affidabilità a lungo termine.
+
+### Implicazioni tecniche obbligatorie
+- Evitare allocazioni grandi e copie superflue (soprattutto immagini/audio).
+- Minimizzare copie di `bytes`/`numpy` tra pipeline camera → AI.
+- Preferire streaming/chunking (audio, frame, RAG ingestion).
+- Non bloccare callback ROS o event loop asyncio.
+
+---
+
+## 2) Mappa dell’Architettura (File-Level)
+
+> **Nota:** questa mappa riflette solo componenti realmente trovati nel workspace.
+
+### Core AI Modules
+- `robopy_controller/robot_ai/core/event_bus.py`  
+  Bus di eventi asincrono per la comunicazione tra moduli e servizi.
+- `robopy_controller/robot_ai/core/state_machine.py`  
+  Gestione degli stati logici dell'IA (conversazione, esplorazione, idle).
+- `robopy_controller/robot_ai/core/circuit_breaker.py`  
+  Protezione contro fallimenti a cascata nelle chiamate API esterne (Gemini).
+- `robopy_controller/robot_ai/core/config_manager.py`  
+  Gestore centralizzato dei parametri di configurazione (YAML/Env).
+- `robopy_controller/robot_ai/core/action_controller.py`  
+  Dispatching e controllo delle azioni/skill invocate dal LLM.
+- `robopy_controller/robot_ai/core/image_handler.py`  
+  Processamento e ottimizzazione frame per visione AI.
+- `robopy_controller/robot_ai/core/input_sanitizer.py`  
+  Pulizia e validazione degli input (testo/audio).
+- `robopy_controller/robot_ai/core/exceptions.py`  
+  Definizione eccezioni custom del framework AI.
+
+### Core Memory
+- `robopy_controller/robot_ai/orchestration/memory_manager.py`  
+  Manager ad alto livello con coda async (`asyncio.Queue`) e worker background per storage/search.
+- `robopy_controller/robot_ai/rag/base_memory_store.py`  
+  Contratto astratto per memory store (add/search async).
+- `robopy_controller/robot_ai/rag/memory_store.py`  
+  Modello memoria + implementazioni di base del layer RAG.
+- `robopy_controller/robot_ai/rag/llama_index_store.py`  
+  Backend dichiarato “state of the art” usato dall’orchestratore (`LlamaIndexMemoryStore`).
+- `robopy_controller/robot_ai/rag/metadata_m
+
+=== files_topic.md ===
+# Files and Topics of robopy_controller
+
+This file lists the ROS 2 nodes and their topics (auto-generated).
+
+## mock_camera.py
+- **Subscribes to:** None
+- **Transmits (Publishes) to:**
+  - `/rgb/image/compressed`
+
+## robopy_controller\bluedot_node.py
+- **Subscribes to:** None
+- **Transmits (Publishes) to:**
+  - `bluedot_input`
+  - `servo_angle`
+
+## robopy_controller\camera_publisher.py
+- **Subscribes to:** None
+- **Transmits (Publishes) to:**
+  - `/camera/camera_info`
+  - `/camera/image_raw`
+  - `/camera_info`
+  - `/raw_image`
+
+## robopy_controller\camera_publisher_node.py
+- **Subscribes to:** None
+- **Transmits (Publishes) to:**
+  - `/camera/camera_info`
+  - `/camera/image_raw`
+
+## robopy_controller\depth_to_pointcloud_node.py
+- **Subscribes to:** None
+- **Transmits (Publishes) to:**
+  - `/rgb/pointcloud`
+
+## robopy_controller\gray_camera_publisher_node.py
+- **Subscribes to:** None
+- **Transmits (Publishes) to:**
+  - `/rgb/camera_info`
+  - `/rgb/image`
+
+## robopy_controller\lite_depth_node.py
+- **Subscribes to:**
+  - `/camera/image_raw`
+- **Transmits (Publishes) to:**
+  - `/depth/image_raw`
+
+## robopy_controller\midas_depth_node.py
+- **Subscribes to:**
+  - `/rgb/image`
+- **Transmits (Publishes) to:**
+  - `/rgb/depth`
+
+## robopy_controller\midas_depth_node_NCNN.py
+- **Subscribes to:**
+  - `/rgb/image`
+- **Transmits (Publishes) to:**
+  - `/depth/image`
+
+## robopy_controller\midas_lite_ONNX_node.py
+- **Subscribes to:**
+  - `/rgb/image`
+- **Transmits (Publishes) to:**
+  - `/rgb/depth`
+
+## robopy_controller\motion_detector_node.py
+- **Subscribes to:**
+  - `/rgb/image`
+- **Transmits (Publishes) to:**
+  - `/motion_detected`
+
+## robopy_controller\motor_control_node.py
+- **Subscribes to:**
+  - `bluedot_input`
+  - `cmd_vel`
+- **Transmits (Publishes) to:** None
+
+## robopy_controller\nodes\IMU_node.py
+- **Subscribes to:** None
+- **Transmits (Publishes) to:**
+  - `imu/data_raw`
+  - `imu/mag`
+
+## robopy_controller\nodes\camera_info_publisher.py
+- **Subscribes to:** None
+- **Transmits (Publishes) to:**
+  - `camera_info`
+
+## robopy_controller\nodes\cpu_superpoint_node.py
+- **Subscribes to:** None
+- **Transmits (Publishes) to:**
+  - `/cpu/superpoint/keypoints`
+  - `/cpu/superpoint/overlay`
+  - `/superpoint/user_data`
+
+## robopy_controller\nodes\dynamic_camera_tf_node.py
+- **Subscribes to:**
+  - `/imu/calibrated`
+  - `/imu/data`
+- **Transmits (Publishes) to:** None
+
+## robopy_controller\nodes\fastdepth_node.py
+- **Subscribes to:**
+  - `/rgb/image`
+- **Transmits (Publishes) to:**
+  - `/rgb/depth`
+
+## robopy_controller\nodes\foxglove_nav2_bridge.py
+- **Subscribes to:**
+  - `/goal_pose`
+- **Transmits (Publishes) to:** None
+
+## robopy_controller\nodes\homeassistant_node.py
+- **Subscribes to:**
+  - `/robot/state`
+  - `/sensors/temperature`
+  - `/system/performance`
+- **Transmits (Publishes) to:**
+  - `/cmd_vel`
+  - `ha/buttons`
+  - `ha/lights`
+  - `ha/switches`
+
+## robopy_controller\nodes\image_compressor_node.py
+- **Subscribes to:**
+  - `/camera/image_raw`
+  - `/dept
+
+### Contratto BaseSkill (da rispettare TASSATIVAMENTE)
+```python
+"""
+Robot AI Skills - Base Skill
+==============================
+Classe base astratta per tutte le skill.
+"""
+
+from abc import ABC, abstractmethod
+from typing import Any, Dict, List, Optional, Set
+from dataclasses import dataclass, field
+from enum import Enum
+import time
+
+
+class Capability(str, Enum):
+    """
+    Permessi dichiarativi per le skill.
+    
+    Lo SkillRegistry inietta solo i client corrispondenti alle capability
+    dichiarate. Qualsiasi accesso a risorse non dichiarate restituisce None.
+    """
+    AUDIO_PLAY  = "audio.play"    # PUB /respeaker/speaker_audio
+    NAV_MOVE    = "nav.move"      # PUB /cmd_vel
+    HA_READ     = "ha.read"       # SUB ha/lights, ha/switches, ha/buttons
+    HA_WRITE    = "ha.write"      # PUB tramite homeassistant_node.py
+    CAMERA_READ = "camera.read"   # SUB /rgb/image/compressed, /oak/rgb/image_raw
+    MEMORY_RW   = "memory.rw"     # SRV memory_search, LlamaIndexMemoryStore
+    VISION_QA   = "vision.qa"     # SRV ask_visual_question
+    WEB_SEARCH  = "web.search"    # Internet access for external info
+
+
+class SkillErrorCode(Enum):
+    """Codici errore standard per le skill (Sprint 0 hardening)."""
+
+    SUCCESS = 'SUCCESS'
+    SKILL_NOT_FOUND = 'SKILL_NOT_FOUND'
+    INVALID_PARAMETERS = 'INVALID_PARAMETERS'
+    EXECUTION_TIMEOUT = 'EXECUTION_TIMEOUT'
+    EXTERNAL_SERVICE_ERROR = 'EXTERNAL_SERVICE_ERROR'
+    PERMISSION_DENIED = 'PERMISSION_DENIED'
+    UNKNOWN_ERROR = 'UNKNOWN_ERROR'
+
+
+@dataclass
+class SkillResult:
+    """
+    Risultato dell'esecuzione di una skill.
+    
+    Campi:
+        success: Se la skill è stata eseguita con successo.
+        message: Messaggio leggibile (breve).
+        data: Dati di output specifici della skill.
+        actions: Lista di azioni da eseguire.
+        speak: Testo da pronunciare all'utente.
+        error_code: Codice errore standard (se fallimento).
+        duration_ms: Tempo di esecuzione in millisecondi.
+    """
+    success: bool
+    message: str = ''
+    data: Dict[str, Any] = field(default_factory=dict)
+    actions: List[Dict[str, Any]] = field(default_factory=list)
+    speak: Optional[str] = None
+    error_code: Optional[SkillErrorCode] = None
+    duration_ms: float = 0
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Converte in dizionario serializzabile JSON."""
+        return {
+            "success": self.success,
+            "message": self.message,
+            "data": self.data,
+            "actions": self.actions,
+            "speak": self.speak,
+            "error_code": self.error_code.value if self.error_code else None,
+            "duration_ms": self.duration_ms,
+        }
+    
+    @staticmethod
+    def success_result(
+        message: str,
+        data: Optional[Dict[str, Any]] = None,
+        actions: Optional[List[Dict[str, Any]]] = None,
+        speak: Optional[str] = None,
+        duration_ms: float = 0.0,
+    ) -> "SkillResult":
+        """Factory: crea risultato di successo."""
+        return SkillResult(
+            success=True,
+            message=message,
+            data=data or {},
+            actions=actions or [],
+            speak=speak,
+            error_code=None,
+            duration_ms=duration_ms,
+        )
+    
+    @staticmethod
+    def failure_result(
+        message: str,
+        error_code: SkillErrorCode = SkillErrorCode.UNKNOWN_ERROR,
+        speak: Optional[str] = None,
+        duration_ms: float = 0.0,
+    ) -> "SkillResult":
+        """Factory: crea risultato di fallimento."""
+        return SkillResult(
+            success=False,
+            message=message,
+            data={},
+            actions=[],
+            speak=speak or f"Errore: {message}",
+            error_code=error_code,
+            duration_ms=duration_ms,
+        )
+
+
+@dataclass
+class SkillMetadata:
+    """Metadata for a skill."""
+    name: str
+    description: str
+    version: str = '1.0.0'
+    author: str = ''
+    keywords: List[str] = field(default_factory=list)
+    priority: int = 0
+    enabled: bool = True
+    requires_internet: bool = False
+    requires_ha: bool = False
+    requires_nav: bool = False
+    requires_vision: bool = False
+    capabilities: List[Capability] = field(default_factory=list)
+
+
+class BaseSkill(ABC):
+    """
+    Abstract base class for all skills.
+    
+    A skill is a self-contained capability that the robot can execute.
+    Examples: controlling lights, setting timers, navigation commands.
+    
+    Usage:
+        class LightSkill(BaseSkill):
+            def get_metadata(self) -> SkillMetadata:
+                return SkillMetadata(
+                    name="lights",
+                    description="Control lights",
+                    keywords=["luce", "luci", "lampada"]
+                )
+            
+            def match(self, text: str, context: Dict) -> float:
+                # Return confidence score 0-1
+                ...
+            
+            async def execute(self, text: str, context: Dict) -> SkillResult:
+                # Execute the skill
+                ...
+    """
+    
+    def __init__(self):
+        """Initialize stats and execution tracking."""
+        self._stats = {
+            'invocations': 0,
+            'successes': 0,
+            'failures': 0,
+            'total_duration_ms': 0
+        }
+        self._last_execution: Optional[float] = None
+    
+    @abstractmethod
+    def get_metadata(self) -> SkillMetadata:
+        """Return skill metadata."""
+        pass
+    
+    @abstractmethod
+    def match(self, text: str, context: Dict[str, Any] = None) -> float:
+        """
+        Calculate match score for input text.
+        
+        Args:
+            text: User input text
+            context: Additional context (location, time, etc.)
+            
+        Returns:
+            Match confidence score 0-1. Return 0 if skill doesn't match.
+        """
+        pass
+    
+    @abstractmethod
+    async def execute(self, text: str, context: Dict[str, Any] = None) -> SkillResult:
+        """
+        Execute the skill.
+        
+        Args:
+            text: User input text
+            context: Additional context
+            
+        Returns:
+            SkillResult with execution outcome
+        """
+        pass
+    
+    @property
+    def name(self) -> str:
+        """Get skill name."""
+        return self.get_metadata().name
+    
+    @property
+    def description(self) -> str:
+        """Get skill description."""
+        return self.get_metadata().description
+    
+    @property
+    def keywords(self) -> List[str]:
+        """Get skill keywords."""
+        return self.get_metadata().keywords
+    
+    @property
+    def enabled(self) -> bool:
+        """Check if skill is enabled."""
+        return self.get_metadata().enabled
+    
+    @property
+    def priority(self) -> int:
+        """Get skill priority (higher = matched first)."""
+        return self.get_metadata().priority
+    
+    def keyword_match(self, text: str) -> float:
+        """
+        Calculate match score based on keywords.
+        
+        Args:
+            text: Input text
+            
+        Returns:
+            Score 0-1 based on keyword presence
+        """
+        text_lower = text.lower()
+        keywords = self.keywords
+        
+        if not keywords:
+            return 0.0
+        
+        matches = sum(1 for kw in keywords if kw.lower() in text_lower)
+        return min(1.0, matches / len(keywords) * 2)  # 50% keywords = 1.0
+    
+    async def safe_execute(self, text: str, context: Dict[str, Any] = None) -> SkillResult:
+        """
+        Execute skill with error handling and statistics.
+        
+        Args:
+            text: User input text
+            context: Additional context
+            
+        Returns:
+            SkillResult
+        """
+        start_time = time.perf_counter()
+        self._stats["invocations"] += 1
+        
+        try:
+            # Execute skill
+            res = self.execute(text, context or {})
+            
+            # Helper to check for async generator without imports if possible, or use hasattr
+            if hasattr(res, '__aiter__'):  # AsyncGenerator
+                return res
+            
+            # Coroutine -> await it
+            result = await res
+            
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            
+            result.duration_ms = duration_ms
+            self._last_execution = time.time()
+            self._stats["total_duration_ms"] += duration_ms
+            
+            if result.success:
+                self._stats["successes"] += 1
+            else:
+                self._stats["failures"] += 1
+            
+            return result
+            
+        except Exception as e:
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            self._stats["failures"] += 1
+            self._stats["total_duration_ms"] += duration_ms
+            
+            return SkillResult(
+                success=False,
+                message=f'Skill execution error: {str(e)}',
+                duration_ms=duration_ms
+            )
+    
+    def get_statistics(self) -> Dict[str, Any]:
+        """Get skill execution statistics."""
+        avg_duration = (
+            self._stats["total_duration_ms"] / self._stats["invocations"]
+            if self._stats["invocations"] > 0 else 0
+        )
+        
+        success_rate = (
+            self._stats["successes"] / self._stats["invocations"] * 100
+            if self._stats["invocations"] > 0 else 0
+        )
+        
+        return {
+            'name': self.name,
+            'invocations': self._stats['invocations'],
+            'successes': self._stats['successes'],
+            'failures': self._stats['failures'],
+            'success_rate': round(success_rate, 2),
+            'avg_duration_ms': round(avg_duration, 2),
+            'last_execution': self._last_execution
+        }
+    
+    def reset_statistics(self) -> None:
+        """Reset statistics counters."""
+        self._stats = {
+            "invocations": 0,
+            "successes": 0,
+            "failures": 0,
+            "total_duration_ms": 0
+        }
+    
+    def to_function_declaration(self) -> Dict[str, Any]:
+        """
+        Convert skill to LLM function declaration format.
+        
+        Returns:
+            Function declaration dict for use with Gemini function calling
+        """
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": self.get_parameters_schema()
+        }
+    
+    def get_parameters_schema(self) -> Dict[str, Any]:
+        """
+        Get JSON schema for skill parameters.
+        Override in subclasses for specific parameters.
+        
+        Returns:
+            JSON schema dict
+        """
+        return {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    
+    def __repr__(self) -> str:
+        meta = self.get_metadata()
+        return f"<Skill: {meta.name} v{meta.version}>"
+
+```
+
+### Dettagli Skill Richiesta
+- **Nome classe:** TerminalSkill
+- **Descrizione:** Permette al robot di creare file python/bash, eseguirli, leggerne i log e modificarli iterativamente, con controlli di sicurezza stringenti.
+- **Capability:** ['ha.write']
+- **Topic SUB:** []
+- **Topic PUB:** ['/ai/conversation/response']
+- **Utterances di test:** ['crea uno script per fare il ping di google', 'crea un file python che mi calcola i numeri primi']
+- **Contesto aggiuntivo:** Valutazione rischi: NON modificare file di Marcus, NON cancellare parti del sistema operativo. Chiedi prima di installare librerie. Usa terminal.md per non duplicare file. Usa Gemini 3.1 Pro per complessità. Genera file in /robopy_controller/robot_ai/skills/script.
+
+### Regole tassative (NON NEGOZIABILI)
+1. Restituire SOLO codice Python tra i tag <SKILL_CODE> e </SKILL_CODE>, senza markdown.
+2. Nessun import da: os, sys, subprocess, shutil.
+3. Nessun uso di: eval, exec, open, __import__.
+4. Tutto il codice I/O deve essere async/await.
+5. Nessuna allocazione non bounded di array/immagini.
+6. Logging via logging (non self.get_logger(), dato che la skill non è un nodo ROS).
+7. La classe DEVE ereditare da BaseSkill.
+8. DEVE implementare: get_metadata() -> SkillMetadata, match(text, context) -> float, async execute(text, context) -> SkillResult
+9. L'import di BaseSkill deve essere: from robopy_controller.robot_ai.skills.base_skill import BaseSkill, SkillMetadata, SkillResult, SkillErrorCode, Capability
+10. Nessun print() — usare logging.
+
+### Template da seguire
+```python
+from robopy_controller.robot_ai.skills.base_skill import BaseSkill, SkillMetadata, SkillResult, SkillErrorCode, Capability
+from typing import Any, Dict, List
+import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
+
+class TerminalSkill(BaseSkill):
+    """Descrizione."""
+
+    def __init__(self):
+        super().__init__()
+
+    def get_metadata(self) -> SkillMetadata:
+        return SkillMetadata(
+            name="terminal_skill",
+            description="...",
+            keywords=[...],
+            priority=5,
+            capabilities=[...],
+        )
+
+    def match(self, text: str, context: Dict[str, Any] = None) -> float:
+        ...
+
+    async def execute(self, text: str, context: Dict[str, Any] = None) -> SkillResult:
+        ...
+```

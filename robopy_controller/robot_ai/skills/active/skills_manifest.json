@@ -15,5 +15,39 @@
     "iterations_needed": 1,
     "approved_by": "",
     "approved_at": ""
+  },
+  "TerminalSkill": {
+    "file": "terminal_skill.py",
+    "version": "1.0",
+    "generated_at": "2026-04-27T23:53:00.000000Z",
+    "prompt_version": "MARCUS_PROMPT_v2.1",
+    "rak_hash": "",
+    "capabilities": [
+      "memory.rw"
+    ],
+    "topics_sub": [],
+    "topics_pub": [],
+    "enabled": true,
+    "notes": "Skill generata da Antigravity per esecuzione script.",
+    "iterations_needed": 1,
+    "approved_by": "Antigravity",
+    "approved_at": "2026-04-27T23:53:00.000000Z"
+  },
+  "SpotifySkill": {
+    "file": "spotify_skill.py",
+    "version": "1.0",
+    "generated_at": "2026-04-29T20:33:32.695542Z",
+    "prompt_version": "MARCUS_PROMPT_v2.1",
+    "rak_hash": "",
+    "capabilities": [
+      "web.search"
+    ],
+    "topics_sub": [],
+    "topics_pub": [],
+    "enabled": true,
+    "notes": "In attesa di attivazione manuale",
+    "iterations_needed": 1,
+    "approved_by": "utente",
+    "approved_at": "2026-04-29T20:33:32.699216Z"
   }
 }

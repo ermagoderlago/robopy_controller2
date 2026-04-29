@@ -352,8 +352,8 @@ class EmailSkill(BaseSkill):
                 # msg_data struttura: [b'N (RFC822 {size})', <raw_bytes>, b')']
                 raw_bytes = None
                 for item in msg_data:
-                    if isinstance(item, bytes) and len(item) > 100:
-                        raw_bytes = item
+                    if isinstance(item, (bytes, bytearray)) and len(item) > 100:
+                        raw_bytes = bytes(item) if isinstance(item, bytearray) else item
                         break
 
                 if raw_bytes:

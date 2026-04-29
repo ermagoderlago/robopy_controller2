@@ -53,6 +53,9 @@ from robot_ai.skills.builtin.email_skill import EmailSkill
 from robot_ai.skills.builtin.crea_skill import CreaSkill
 from robot_ai.skills.builtin.alarm_skill import AlarmSkill
 
+# Active Skills che necessitano di dipendenze manuali
+from robot_ai.skills.active.terminal_skill import TerminalSkill
+
 from robot_ai.core.camera_frame import CameraFrame
 
 # Moduli Orchestration
@@ -185,6 +188,13 @@ class AIOrchestrator(Node):
                 memory_manager=self.memory_manager,
                 llm_service=self.llm_service,
             )
+        )
+
+        # TerminalSkill - Skill in active/ ma che richiede Dependency Injection
+        self.skill_registry.register_with_deps(
+            TerminalSkill,
+            memory_manager=self.memory_manager,
+            llm_service=self.llm_service,
         )
 
         # Skill generate autonomamente (da manifest active/) — carica quelle con enabled=true
@@ -594,6 +604,14 @@ class AIOrchestrator(Node):
         except Exception:
             pass
         self.memory_manager.start()
+        
+        # Avvia i task in background delle skill (es. scheduler sveglie)
+        for skill in self.skill_registry.get_all():
+            if hasattr(skill, 'start_background_tasks'):
+                try:
+                    skill.start_background_tasks()
+                except Exception as e:
+                    self.ai_logger.error(f"Errore avvio task background per skill {skill.name}: {e}")
 
     async def _init_ha(self):
         try:

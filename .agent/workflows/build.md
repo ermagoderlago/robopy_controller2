@@ -13,11 +13,61 @@ description: Build the robopy_controller ROS 2 package
 ---
 
 # 🗺️ MAPPA DEL PROGETTO (CONTESTO)
-**IMPORTANTE PER L'IA:** Prima di ogni modifica, consulta i seguenti file per capire la struttura del progetto, i topic ROS 2 e le limitazioni hardware:
+**IMPORTANTE PER L'IA:** Prima di ogni modifica, consulta i seguenti file per capire chi sei, la struttura del progetto, i topic ROS 2 e le limitazioni hardware:
+
+### 📁 File Identità di Marcus (LEGGERE SEMPRE ALL'AVVIO)
+Questi file definiscono l'anima, il comportamento e la memoria di Marcus. Vengono caricati dal `NightlyDreamService` e aggiornati automaticamente durante il "dream" notturno. Devono essere sincronizzati sul Pi via `sync_marcus.sh`.
+
+- [AGENTS.md](file:///c:/Users/lsuffia/OneDrive%20-%20BRUGOLA%20OEB%20INDUSTRIALE%20SPA/Documents/robopy/antigravity/AGENTS.md): **Il tuo Spazio di Lavoro e regole comportamentali.** Leggilo SEMPRE all'avvio. Contiene le regole operative, la gestione della memoria e come interagire.
+- [SOUL.md](file:///c:/Users/lsuffia/OneDrive%20-%20BRUGOLA%20OEB%20INDUSTRIALE%20SPA/Documents/robopy/antigravity/SOUL.md): **L'anima di Marcus** — valori, identità fisica, vincoli etici. Viene iniettato nel manifest del Nightly Dream. Marcus può proporre aggiornamenti tramite il dream.
+- [USER.md](file:///c:/Users/lsuffia/OneDrive%20-%20BRUGOLA%20OEB%20INDUSTRIALE%20SPA/Documents/robopy/antigravity/USER.md): **Il profilo di Luca** — preferenze, abitudini, contesto. Aggiornato automaticamente dal Nightly Dream con osservazioni concrete.
+- [MEMORY.md](file:///c:/Users/lsuffia/OneDrive%20-%20BRUGOLA%20OEB%20INDUSTRIALE%20SPA/Documents/robopy/antigravity/MEMORY.md): **Memoria a lungo termine curata** — lezioni, pattern, idee. Aggiornata ogni notte dal Nightly Dream con le nuove conoscenze distillate.
+
+### 📁 File Architettura e Contesto Tecnico
 - [ai_context.md](file:///c:/Users/lsuffia/OneDrive%20-%20BRUGOLA%20OEB%20INDUSTRIALE%20SPA/Documents/robopy/antigravity/ai_context.md): Descrizione manuale dell'architettura e dei vincoli embedded. **Questa è la tua fonte di verità principale.**
 - [files_topic.md](file:///c:/Users/lsuffia/OneDrive%20-%20BRUGOLA%20OEB%20INDUSTRIALE%20SPA/Documents/robopy/antigravity/files_topic.md): Mappatura dettagliata di ogni file con i relativi topic e servizi ROS 2. **Leggilo per capire le interconnessioni.**
 - [WORKSPACE_STATE.md](file:///c:/Users/lsuffia/OneDrive%20-%20BRUGOLA%20OEB%20INDUSTRIALE%20SPA/Documents/robopy/antigravity/WORKSPACE_STATE.md): Stato aggiornato del workspace (lista file e topic globali).
 - [weights/lesson_learned.md](file:///c:/Users/lsuffia/OneDrive%20-%20BRUGOLA%20OEB%20INDUSTRIALE%20SPA/Documents/robopy/antigravity/weights/lesson_learned.md): Archivio degli errori passati e lezioni imparate. **LEGGILO SEMPRE per evitare di ripetere errori già commessi in precedenza.**
+
+---
+
+# 🧠 CICLO DI AUTO-MIGLIORAMENTO DI MARCUS (IDENTITY FILES)
+
+Marcus possiede un sistema di identità persistente basato su file che cresce nel tempo:
+
+```
+[Interazioni diurne] → [Memorie ChromaDB] → [Nightly Dream 03:00]
+                                                      │
+                         ┌────────────────────────────┼─────────────────────────┐
+                         ▼                            ▼                         ▼
+                    MEMORY.md              USER.md (profilo Luca)       continuous_improvements.md
+               (memoria curata)        (preferenze osservate)          (log tecnico grezzo)
+```
+
+**Flusso del Nightly Dream (`NightlyDreamService.run_analysis()`):**
+1. Recupera le ultime 24h di memorie da ChromaDB
+2. Carica `SOUL.md`, `USER.md`, `AGENTS.md`, `MEMORY.md` dal filesystem
+3. Esegue analisi (Gemini single-pass o Gemini+DeepSeek collaborativo)
+4. Estrae insight strutturati con Gemini
+5. Aggiorna `MEMORY.md` con nuove osservazioni, lezioni, idee
+6. Salva il report grezzo in `logs/continuous_improvements.md`
+7. Se DeepSeek è disponibile, genera un **Master Prompt** da preporre al system prompt
+
+**Percorsi sul Raspberry Pi:**
+```
+/mnt/ssd/robopy_controller_host/
+├── SOUL.md          ← chi è Marcus (identità)
+├── USER.md          ← chi è Luca (profilo utente)
+├── AGENTS.md        ← regole operative
+├── MEMORY.md        ← memoria a lungo termine curata
+└── robopy_controller/logs/
+    ├── continuous_improvements.md  ← log grezzo Nightly Dream
+    └── master_prompt.txt           ← prompt evolutivo generato da DeepSeek
+```
+
+**Sincronizzazione:** I file identità vengono sincronizzati Windows→Pi tramite `sync_marcus.sh`. Dopo un Nightly Dream, usa `sync_from_marcus.sh` per recuperare `MEMORY.md` aggiornato.
+
+> ⚠️ **IMPORTANTE:** Se aggiungi nuovi file di identità, aggiornali anche in `NightlyDreamService._load_identity_context()` e assicurati che `sync_marcus.sh` li includa.
 
 ---
 
@@ -28,6 +78,9 @@ Sebbene VS Code possa sincronizzare i file via SFTP, per una **sincronizzazione 
 # Da terminale PowerShell locale su Windows (usando bash per lo script):
 bash sync_marcus.sh
 ```
+
+> ⚠️ **REGOLA CRITICA PER L'IA SUI PATH DEI SORGENTI:**
+> Non modificare MAI copie di backup dei file che si trovano nella root del progetto. Quando modifichi file Python come le Skill o i Nodi, **DEVI TASSATIVAMENTE modificare il file sorgente originale situato all'interno della cartella `robopy_controller/`** (es. `robopy_controller/robot_ai/skills/builtin/email_skill.py`). Se modifichi file clonati o temporanei presenti nella cartella root di Windows, `sync_marcus.sh` li ignorerà!
 
 Lo script si occupa di:
 1. Copiare `CMakeLists.txt`, `srv/`, `msg/`, `launch/` e `robopy_controller/robot_ai/`.

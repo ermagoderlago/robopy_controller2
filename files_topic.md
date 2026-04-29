@@ -501,3 +501,7 @@ This file lists the ROS 2 nodes and their topics (auto-generated).
   - `ai/input/text`
   - `ai/input/voice_test`
 
+
+## robopy_controller\robot_ai\skills\active\spotify_skill.py
+- **Subscribes to:** None
+- **Transmits (Publishes) to:** None

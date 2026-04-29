@@ -75,8 +75,13 @@ class AlarmSkill(BaseSkill):
         self._alarms: Dict[str, Dict] = {}
         self._scheduler_task: Optional[asyncio.Task] = None
         self._load_alarms()
-        # Avvio scheduler in background al primo execute
         self._scheduler_started = False
+
+    def start_background_tasks(self):
+        """Avviato dall'orchestratore all'inizializzazione del sistema."""
+        if not self._scheduler_started:
+            self._scheduler_started = True
+            self._scheduler_task = asyncio.create_task(self._alarm_scheduler_loop())
 
     # ------------------------------------------------------------------
     # BaseSkill API
@@ -127,8 +132,7 @@ class AlarmSkill(BaseSkill):
     async def execute(self, text: str, context: Dict[str, Any] = None) -> SkillResult:
         # Avvia lo scheduler la prima volta
         if not self._scheduler_started:
-            self._scheduler_started = True
-            asyncio.create_task(self._alarm_scheduler_loop())
+            self.start_background_tasks()
 
         context = context or {}
         
@@ -436,7 +440,15 @@ class AlarmSkill(BaseSkill):
                     if not alarm.get("enabled"):
                         continue
                     if self._should_fire(alarm, now):
-                        await self._fire_alarm(alarm, now)
+                        # Segna subito come avviata per evitare doppi scatti
+                        alarm.setdefault("history", []).append({
+                            "fired_at": now.isoformat(),
+                            "message": "Avvio in corso...",
+                            "user_response": "In attesa"
+                        })
+                        self._save_alarms()
+                        # Esegue in un task separato per non bloccare lo scheduler
+                        asyncio.create_task(self._fire_alarm_task(alarm, now))
             except Exception as e:
                 logger.error(f"[ALARM] Errore scheduler: {e}", exc_info=True)
             # Controlla ogni 30 secondi
@@ -483,8 +495,8 @@ class AlarmSkill(BaseSkill):
             return False
         return False
 
-    async def _fire_alarm(self, alarm: Dict, now: datetime.datetime):
-        """Suona la sveglia, attende risposta, salva in memoria."""
+    async def _fire_alarm_task(self, alarm: Dict, now: datetime.datetime):
+        """Suona la sveglia, attende risposta, salva in memoria e gestisce cancellazione."""
         logger.info(f"[ALARM] Sveglia '{alarm['name']}' in scatto.")
         message = self._build_fire_message(alarm, now)
 
@@ -509,18 +521,16 @@ class AlarmSkill(BaseSkill):
                     pass
             user_response = await self._wait_for_response(timeout=60) or "nessuna risposta"
 
-        # Log in memoria
-        entry = {
-            "fired_at": now.isoformat(),
-            "message": message,
-            "user_response": user_response,
-        }
-        alarm.setdefault("history", []).append(entry)
+        # Aggiorna l'entry in history (già creata da _alarm_scheduler_loop)
+        if alarm.get("history"):
+            alarm["history"][-1]["message"] = message
+            alarm["history"][-1]["user_response"] = user_response
 
-        # Se "once" → disattiva dopo lo scatto
-        if alarm["recurrence"] == "once":
-            alarm["enabled"] = False
-
+        # Se "once" → elimina direttamente la sveglia come richiesto
+        if alarm.get("recurrence") == "once":
+            logger.info(f"[ALARM] Sveglia '{alarm['name']}' era 'once', la elimino definitivamente.")
+            self._alarms.pop(alarm["name"], None)
+        
         self._save_alarms()
 
         # Salva in RAG

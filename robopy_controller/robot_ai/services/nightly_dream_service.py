@@ -3,11 +3,15 @@ Robot AI Services - Nightly Dream Service
 =========================================
 Analyzes daily interactions to generate insights and improve performance.
 Supports collaborative analysis with DeepSeek as second AI model.
+
+Identity-aware: loads SOUL.md, USER.md, AGENTS.md and MEMORY.md at runtime
+and updates MEMORY.md (and optionally SOUL.md) after each successful analysis.
 """
 
 import time
 import os
 import json
+import re
 import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
@@ -58,6 +62,14 @@ class NightlyDreamService:
         self.log_path = os.path.join(base_path, "logs", "continuous_improvements.md")
         self.master_prompt_path = os.path.join(base_path, "logs", "master_prompt.txt")
         
+        # Identity files — synced from Windows workspace via SFTP
+        # Located at the root of the workspace (parent of robopy_controller/)
+        _host_root = os.path.dirname(base_path)  # /mnt/ssd/robopy_controller_host
+        self.soul_path    = os.path.join(_host_root, "SOUL.md")
+        self.user_path    = os.path.join(_host_root, "USER.md")
+        self.agents_path  = os.path.join(_host_root, "AGENTS.md")
+        self.memory_path  = os.path.join(_host_root, "MEMORY.md")
+        
         # Ensure log dir exists
         os.makedirs(os.path.dirname(self.log_path), exist_ok=True)
 
@@ -65,29 +77,158 @@ class NightlyDreamService:
         """Set the summary of available skills."""
         self.skills_summary = summary
 
+    # ------------------------------------------------------------------
+    # Identity File Helpers
+    # ------------------------------------------------------------------
+
+    def _read_identity_file(self, path: str, label: str) -> str:
+        """Read an identity file, returning its content or a placeholder."""
+        try:
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8") as f:
+                    content = f.read().strip()
+                self.logger.info(f"Loaded identity file: {label} ({len(content)} chars)")
+                return content
+            else:
+                self.logger.warning(f"Identity file not found: {path}")
+                return f"_[{label} non trovato — percorso: {path}]_"
+        except Exception as e:
+            self.logger.error(f"Error reading {label}: {e}")
+            return f"_[Errore lettura {label}: {e}]_"
+
+    def _load_identity_context(self) -> str:
+        """Build a combined identity context string from all identity files."""
+        soul    = self._read_identity_file(self.soul_path,   "SOUL.md")
+        user    = self._read_identity_file(self.user_path,   "USER.md")
+        agents  = self._read_identity_file(self.agents_path, "AGENTS.md")
+        memory  = self._read_identity_file(self.memory_path, "MEMORY.md")
+
+        return (
+            "# === CONTESTO IDENTITÀ MARCUS ===\n\n"
+            f"## La Mia Anima (SOUL.md)\n{soul}\n\n"
+            f"## Il Mio Umano (USER.md)\n{user}\n\n"
+            f"## Le Mie Regole Operative (AGENTS.md — sintesi)\n"
+            f"{agents[:3000]}\n_(troncato per token)_\n\n"
+            f"## La Mia Memoria a Lungo Termine (MEMORY.md)\n{memory}\n\n"
+            "# === FINE CONTESTO IDENTITÀ ===\n"
+        )
+
+    def _update_memory_md(self, new_observations: str, new_lessons: str, new_ideas: str):
+        """
+        Append new entries to MEMORY.md after a successful Nightly Dream.
+        Writes to the structured sections without overwriting existing content.
+        """
+        today = datetime.now().strftime("%Y-%m-%d")
+        try:
+            if not os.path.exists(self.memory_path):
+                self.logger.warning("MEMORY.md not found, skipping update.")
+                return
+
+            with open(self.memory_path, "r", encoding="utf-8") as f:
+                content = f.read()
+
+            additions = []
+
+            # Append to 'Cosa Ho Imparato su Me Stesso'
+            if new_observations.strip():
+                for line in new_observations.strip().splitlines():
+                    line = line.strip().lstrip("-• ").strip()
+                    if line:
+                        additions.append(("## 🧠 Cosa Ho Imparato su Me Stesso",
+                                          f"| {today} | {line} |"))
+
+            # Append to 'Cosa Ho Imparato su Luca'
+            if new_lessons.strip():
+                for line in new_lessons.strip().splitlines():
+                    line = line.strip().lstrip("-• ").strip()
+                    if line:
+                        additions.append(("## 👤 Cosa Ho Imparato su Luca",
+                                          f"| {today} | {line} |"))
+
+            # Append to 'Idee e Miglioramenti'
+            if new_ideas.strip():
+                for line in new_ideas.strip().splitlines():
+                    line = line.strip().lstrip("-• ").strip()
+                    if line:
+                        additions.append(("## 💡 Idee e Miglioramenti Proposti",
+                                          f"| Media | {line} | {today} | Da valutare |"))
+
+            # Insert each row before the closing '---' of its section
+            for section_header, new_row in additions:
+                # Find the section and insert before its trailing `---` or next `##`
+                pattern = re.compile(
+                    rf"({re.escape(section_header)}.*?\n)(\| — .*?\n)",
+                    re.DOTALL
+                )
+                def replacer(m, row=new_row):
+                    # Replace placeholder row with new row, keeping the placeholder too
+                    return m.group(1) + row + "\n" + m.group(2)
+                new_content = pattern.sub(replacer, content, count=1)
+                if new_content != content:
+                    content = new_content
+                else:
+                    # Placeholder already replaced — just append the row before next section
+                    content = content.replace(
+                        section_header,
+                        section_header,  # no-op, handled below
+                    )
+                    # Simple append after section header's table
+                    # Find the section and add a row before the blank line after last table row
+                    sec_idx = content.find(section_header)
+                    if sec_idx != -1:
+                        end_table = content.find("\n---", sec_idx)
+                        if end_table == -1:
+                            end_table = content.find("\n## ", sec_idx + len(section_header))
+                        if end_table != -1:
+                            content = content[:end_table] + "\n" + new_row + content[end_table:]
+
+            # Update the log section
+            log_row = f"| {today} | Aggiornamento Nightly Dream | Osservazioni, lezioni, idee aggiunte |"
+            content = content.replace(
+                "| — | *Nessuna idea ancora registrata* | — | — |",
+                "| — | *Nessuna idea ancora registrata* | — | — |",  # no-op, idempotent
+            )
+            # Always add to the log table
+            log_section = "## 📅 Log Aggiornamenti"
+            log_idx = content.find(log_section)
+            if log_idx != -1:
+                end_log = content.find("\n---", log_idx)
+                if end_log == -1:
+                    end_log = len(content)
+                # Add before the trailing ---
+                content = content[:end_log] + "\n" + log_row + content[end_log:]
+
+            with open(self.memory_path, "w", encoding="utf-8") as f:
+                f.write(content)
+            self.logger.info(f"MEMORY.md updated successfully ({len(additions)} new entries).")
+
+        except Exception as e:
+            self.logger.error(f"Failed to update MEMORY.md: {e}")
+
     def _get_system_manifest(self) -> str:
         """Get a manifest of the robot's current configuration and capabilities."""
         cfg = self.config.get_config()
         robot = cfg.robot
+
+        # Load live identity context from files
+        identity_context = self._load_identity_context()
         
-        manifest = f"""
-## Chi Sei (Manifesto)
-Sei {robot.name} ({robot.full_name}), un robot autonomo basato su {robot.model}.
-Creato da: {robot.creator}.
-Versione: {robot.version}.
-
-### Hardware & Sensori
-- **Visione**: OAK-D Lite (RGB 4K, Depth, AI on-chip).
-- **Audio**: Microfono con VAD, Speaker TTS (Google).
-- **Movimento**: Base mobile differenziale (2 ruote).
-- **Computer**: Raspberry Pi 5 (8GB RAM).
-
-### Software & Integrazioni
-- **Cervello**: LLM Gemini 2.5 Flash + RAG (ChromaDB).
-- **Domotica**: Home Assistant (Luci, Tapparelle, Clima, Media).
-- **Navigazione**: ROS 2 Nav2 + SLAM (RTAB-Map).
-- **Skills**: {self.skills_summary}
-"""
+        manifest = (
+            f"{identity_context}\n\n"
+            f"## Configurazione Runtime\n"
+            f"Nome: {robot.name} ({robot.full_name})\n"
+            f"Creato da: {robot.creator} · Versione: {robot.version}\n\n"
+            f"### Hardware & Sensori\n"
+            f"- Visione: OAK-D Lite (RGB 4K, Depth, AI on-chip)\n"
+            f"- Audio: Microfono Respeaker + AEC + Speaker TTS\n"
+            f"- Movimento: Base mobile differenziale (2 ruote)\n"
+            f"- Computer: Raspberry Pi 5 (8GB RAM)\n\n"
+            f"### Software & Integrazioni\n"
+            f"- Cervello: LLM Gemini 2.5 Flash Live API + RAG (LlamaIndex/ChromaDB)\n"
+            f"- Domotica: Home Assistant (Luci, Tapparelle, Clima, Media)\n"
+            f"- Navigazione: ROS 2 Nav2 + SLAM (RTAB-Map)\n"
+            f"- Skills attive: {self.skills_summary}\n"
+        )
         return manifest
 
     async def run_analysis(self) -> Dict[str, Any]:
@@ -102,6 +243,36 @@ Versione: {robot.version}.
         """
         self.logger.info("Starting Nightly Dream Analysis...")
         
+        # --- FIX TERMINAL SCRIPTS ---
+        try:
+            from pathlib import Path
+            import sys
+            # Aggiungiamo il path per far funzionare l'import
+            script_path = Path("/mnt/ssd/robopy_controller_host/robopy_controller/robot_ai/skills/active/terminal_skill.py")
+            if script_path.exists():
+                import importlib.util
+                spec = importlib.util.spec_from_file_location("terminal_skill", script_path)
+                ts_module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(ts_module)
+                skill = ts_module.TerminalSkill(memory_manager=self.memory_store, llm_service=self.llm_service)
+                entries = skill._read_registry()
+                for e in entries:
+                    if e.get("status") == "in lavorazione":
+                        task = e.get("task")
+                        filepath = Path("/mnt/ssd/robopy_controller_host/robopy_controller/robot_ai/skills/script") / e["filename"]
+                        code = filepath.read_text(encoding="utf-8") if filepath.exists() else ""
+                        self.logger.info(f"Tentativo notturno per script: {e['filename']}")
+                        success, output = await skill._execute_and_iterate(filepath, code, task)
+                        if success:
+                            e["status"] = "approvato"
+                            skill._write_registry(entries)
+                            await self.memory_store.add(
+                                f"Risolto script notturno per: {task}. Output: {output[:100]}", 
+                                {"memory_type": MemoryType.SUMMARY.value, "source": "nightly_dream_terminal"}
+                            )
+        except Exception as e:
+            self.logger.error(f"Errore durante l'esecuzione notturna degli script terminale: {e}")
+            
         # 1. Retrieve Memories (last 24h)
         raw_results = await self.memory_store.get_recent(limit=300)
         
@@ -161,6 +332,12 @@ Versione: {robot.version}.
         except Exception as e:
             self.logger.warning(f"Could not save summary to memory: {e}")
 
+        # 5. Extract structured insights and update MEMORY.md
+        try:
+            await self._extract_and_update_memory(report_content)
+        except Exception as e:
+            self.logger.warning(f"Could not update MEMORY.md: {e}")
+
         self.logger.info("Nightly Dream Analysis completed successfully.")
         return {
             "status": "success",
@@ -168,6 +345,64 @@ Versione: {robot.version}.
             "report_length": len(report_content),
             "collaborative": use_collaboration,
         }
+
+    async def _extract_and_update_memory(self, report_content: str):
+        """
+        Ask Gemini to extract structured insights from the analysis report,
+        then update MEMORY.md with the results.
+        """
+        extraction_prompt = (
+            "Sei Marcus, un robot domestico. Hai appena completato l'analisi notturna delle tue interazioni.\n"
+            "Ecco il report completo:\n\n"
+            f"{report_content[:6000]}\n\n"
+            "## ISTRUZIONI\n"
+            "Estrai SOLO le informazioni concrete e specifiche in tre sezioni. "
+            "Ogni voce deve essere una frase breve (max 100 caratteri). "
+            "Se non hai nulla da riportare in una sezione, scrivi NESSUNA.\n\n"
+            "### SEZIONE 1 — Cosa ho imparato su me stesso:\n"
+            "(Pattern di comportamento, punti di forza, aree di miglioramento osservati oggi)\n"
+            "- <frase 1>\n- <frase 2>\n\n"
+            "### SEZIONE 2 — Cosa ho imparato su Luca:\n"
+            "(Preferenze, abitudini, pattern osservati nelle sue richieste oggi)\n"
+            "- <frase 1>\n- <frase 2>\n\n"
+            "### SEZIONE 3 — Idee di miglioramento:\n"
+            "(Miglioramenti concreti al codice o al comportamento — specifici, non generici)\n"
+            "- <frase 1>\n- <frase 2>\n\n"
+            "Rispondi SOLO con le tre sezioni sopra, senza introduzioni né conclusioni."
+        )
+        try:
+            response = await self.llm_service.generate(extraction_prompt, max_tokens=1024)
+            extracted = response.text or ""
+        except Exception as e:
+            self.logger.warning(f"Memory extraction LLM call failed: {e}")
+            return
+
+        if not extracted.strip():
+            return
+
+        # Parse sections
+        def _extract_section(text: str, header: str) -> str:
+            pattern = re.compile(
+                rf"{re.escape(header)}.*?\n(.*?)(?=### SEZIONE|$)",
+                re.DOTALL | re.IGNORECASE
+            )
+            m = pattern.search(text)
+            if m:
+                content = m.group(1).strip()
+                return "" if content.upper() == "NESSUNA" else content
+            return ""
+
+        obs   = _extract_section(extracted, "### SEZIONE 1")
+        luca  = _extract_section(extracted, "### SEZIONE 2")
+        ideas = _extract_section(extracted, "### SEZIONE 3")
+
+        self.logger.info(
+            f"Extracted memory insights — self: {len(obs)} chars, "
+            f"user: {len(luca)} chars, ideas: {len(ideas)} chars"
+        )
+
+        if obs or luca or ideas:
+            self._update_memory_md(obs, luca, ideas)
 
     async def _run_single_analysis(self, context_text: str, system_manifest: str) -> str:
         """Single-pass Gemini analysis (fallback mode)."""

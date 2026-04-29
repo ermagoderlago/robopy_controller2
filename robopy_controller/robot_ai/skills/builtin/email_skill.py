@@ -15,6 +15,7 @@ import logging
 import os
 import re
 import time
+import datetime
 from email.header import decode_header as _rfc2047_decode
 from email.message import EmailMessage
 from typing import Any, AsyncGenerator, Dict, List, Optional
@@ -50,15 +51,15 @@ Email (in ordine cronologico inverso):
 
 Schema JSON richiesto (rispetta esattamente questa struttura):
 {{
-  "summary":     "<stringa, max 150 char, comprensibile se letta ad alta voce, in italiano>",
+  "summary":     "<stringa, max 250 char, in italiano. Se intent=deepdive leggi per esteso i dettagli dell'email. Altrimenti fai un breve riassunto>",
   "reply_draft": "<bozza risposta in prima persona come robot Marcus> | null",
-  "ha_actions":  [{{"type": "reminder|light_on|light_off|speak", "payload": {{"detail": "<str>"}}}}],
+  "ha_actions":  [{{"type": "reminder|store_memory|speak", "payload": {{"detail": "<str>"}}}}],
   "priority":    "urgent|normal|low"
 }}
 
 Vincoli:
-- "summary" inizia sempre con "Hai N email:" e cita i mittenti principali
-- "ha_actions" è sempre una lista JSON, mai null (usa [] se nessuna azione)
+- "summary" se intent=deepdive, spiega il contenuto testuale della mail. Altrimenti inizia sempre con "Hai N email:" e cita i mittenti.
+- "ha_actions" usa type=store_memory se l'email contiene date o dettagli importanti da ricordare a lungo termine (usa payload.detail per inserire il testo da ricordare).
 - "priority" è "urgent" solo per emergenze o scadenze entro 24h
 - "reply_draft" è null se intent != "reply"
 """.strip()
@@ -78,6 +79,7 @@ _INTENT_PATTERNS = [
     ("reply",   0.95, re.compile(r'\b(rispondi|manda|invia|scrivi)\b.{0,40}\b(email|mail|risposta)\b', re.I)),
     ("urgent",  0.90, re.compile(r'\b(urgent[ei]?|important[ei]?|priorit[àa])\b.{0,30}\b(email|mail)\b', re.I)),
     ("urgent",  0.90, re.compile(r'\b(email|mail)\b.{0,30}\b(urgent[ei]?|important[ei]?|priorit[àa])\b', re.I)),
+    ("deepdive",0.90, re.compile(r'\b(approfondisci|dettagli|leggimi|tutta)\b.{0,25}\b(email|mail|quella)\b', re.I)),
     ("read",    0.85, re.compile(r'\b(leggi|controlla|apri|guarda|dammi)\b.{0,25}\b(email|mail|posta|messaggi)\b', re.I)),
     ("new",     0.85, re.compile(r'\b(ho|ci sono|nuov[ie]|arrivat[ei]|ricevut[eo])\b.{0,25}\b(mail|email|messaggi)\b', re.I)),
     ("summary", 0.80, re.compile(r'\b(riassumi|riepiloga|di\s+cosa\s+parlano|cosa\s+dicono)\b.{0,35}\b(email|mail)\b', re.I)),
@@ -120,6 +122,8 @@ class EmailSkill(BaseSkill):
         self.t_llm        = self.config.get("llm_timeout",     20)
         self.max_emails   = self.config.get("max_emails",       8)
         self.min_interval = self.config.get("min_interval_s",  30)
+        
+        self._recent_emails: List[Dict] = []
 
     # -----------------------------------------------------------------------
     # LLM Tool Schema
@@ -131,12 +135,13 @@ class EmailSkill(BaseSkill):
             "properties": {
                 "intent": {
                     "type": "string",
-                    "enum": ["read", "reply", "urgent", "summary", "new"],
+                    "enum": ["read", "reply", "urgent", "summary", "new", "deepdive"],
                     "description": (
                         "L'intento dell'operazione email. "
                         "'read': leggi ultime email, 'reply': rispondi all'ultima, "
                         "'urgent': cerca email urgenti, 'summary': riassumi inbox, "
-                        "'new': controlla se ci sono nuovi messaggi."
+                        "'new': controlla se ci sono nuovi messaggi, "
+                        "'deepdive': approfondisci una mail specifica tra quelle lette."
                     )
                 },
                 "text": {
@@ -150,6 +155,15 @@ class EmailSkill(BaseSkill):
                 "limit": {
                     "type": "integer",
                     "description": "Numero massimo di email da leggere (default: 5)."
+                },
+                "date_filter": {
+                    "type": "string",
+                    "enum": ["today", "yesterday", "week", "all"],
+                    "description": "Filtro temporale per la ricerca."
+                },
+                "email_id": {
+                    "type": "string",
+                    "description": "Nome del mittente o parola chiave se l'intent è deepdive."
                 }
             },
             "required": ["intent", "text"]
@@ -292,7 +306,7 @@ class EmailSkill(BaseSkill):
     # -----------------------------------------------------------------------
     # IMAP fetch (cancellabile)
     # -----------------------------------------------------------------------
-    async def _fetch_emails_task(self, intent: str) -> List[Dict]:
+    async def _fetch_emails_task(self, intent: str, date_filter: str = "all") -> List[Dict]:
         """
         Connessione IMAP, fetch dei messaggi non letti, parsing.
         Cancellabile tramite asyncio.Task.cancel().
@@ -320,6 +334,17 @@ class EmailSkill(BaseSkill):
             )
 
             # Fetch solo l'ultimo (intent reply) o tutti gli UNSEEN
+            search_cmd = "UNSEEN"
+            if date_filter == "today":
+                d = datetime.date.today().strftime("%d-%b-%Y")
+                search_cmd = f"SINCE {d}"
+            elif date_filter == "yesterday":
+                d = (datetime.date.today() - datetime.timedelta(days=1)).strftime("%d-%b-%Y")
+                search_cmd = f"SINCE {d}"
+            elif date_filter == "week":
+                d = (datetime.date.today() - datetime.timedelta(days=7)).strftime("%d-%b-%Y")
+                search_cmd = f"SINCE {d}"
+
             if intent == "reply":
                 # Cerca l'ultimo messaggio in assoluto
                 _, search_data = await asyncio.wait_for(
@@ -327,12 +352,11 @@ class EmailSkill(BaseSkill):
                 )
             else:
                 _, search_data = await asyncio.wait_for(
-                    imap.search("UNSEEN"), timeout=self.t_fetch
+                    imap.search(search_cmd), timeout=self.t_fetch
                 )
                 # Fallback: se non ci sono nuove mail, proviamo a prendere le ultime ALL
-                # per dare comunque una risposta all'utente (tranne per intent urgent che deve essere specifico)
                 raw_ids_str = " ".join(b.decode() for b in search_data if b)
-                if not raw_ids_str.strip() and intent in ["read", "summary"]:
+                if not raw_ids_str.strip() and search_cmd == "UNSEEN":
                     logger.info("EmailSkill: UNSEEN vuoto, fallback su ALL per intent 'read/summary'")
                     _, search_data = await asyncio.wait_for(
                         imap.search("ALL"), timeout=self.t_fetch
@@ -360,15 +384,16 @@ class EmailSkill(BaseSkill):
                 # msg_data struttura tipica: [b'1 (RFC822 {size})', <raw_bytes>, b')']
                 raw_bytes = None
                 for item in msg_data:
-                    if not isinstance(item, bytes):
+                    if not isinstance(item, (bytes, bytearray)):
                         continue
+                    item_bytes = bytes(item) if isinstance(item, bytearray) else item
                     # Decodifica snippet per controllo header IMAP (più permissivo)
-                    snippet_upper = item[:100].decode(errors='ignore').upper()
+                    snippet_upper = item_bytes[:100].decode(errors='ignore').upper()
                     # Scartiamo l'header del protocollo (es: "* 1 FETCH (RFC822 {1234})") e il footer ")"
                     if ("FETCH" in snippet_upper and "RFC822" in snippet_upper) or snippet_upper.strip() == ")":
                         continue
                     # Il primo chunk che non è protocollo è il vero contenuto RFC822
-                    raw_bytes = item
+                    raw_bytes = item_bytes
                     break
 
                 if raw_bytes:
@@ -468,51 +493,77 @@ class EmailSkill(BaseSkill):
                 )
                 return
 
-            # ── 2. Intent ───────────────────────────────────────────────
-            intent = self._detect_intent(text)
-            logger.info(f"EmailSkill: intent={intent!r} text={text!r}")
+            # ── 2. Intent e Filtri ───────────────────────────────────────────────
+            context = context or {}
+            intent = context.get("intent")
+            if not intent or intent == "read":
+                # Fallback su regex se LLM ha generato 'read' di default
+                intent = self._detect_intent(text)
+            
+            date_filter = context.get("date_filter", "all")
+            search_keyword = context.get("email_id", "")
+            
+            logger.info(f"EmailSkill: intent={intent!r} date_filter={date_filter!r} text={text!r}")
 
-            # ── 3. Connessione IMAP ─────────────────────────────────────
-            yield SkillResult(
-                success=True,
-                message="Connessione al server email in corso...",
-                speak="Un momento, mi connetto al server email."
-            )
-
-            self._current_task = asyncio.create_task(
-                self._fetch_emails_task(intent)
-            )
-
-            try:
-                emails = await self._current_task
-
-            except asyncio.CancelledError:
+            if intent == "deepdive" and self._recent_emails:
                 yield SkillResult(
-                    success=False,
-                    message="Operazione annullata dall'utente",
-                    speak="Ok, ho interrotto la lettura delle email."
+                    success=True,
+                    message="Recupero i dettagli dell'email dalla memoria...",
+                    speak="Certo, vado ad approfondire."
                 )
-                return
+                
+                # Cerca l'email che corrisponde meglio a search_keyword o text
+                target_email = self._recent_emails[0] # Default ultima
+                if search_keyword:
+                    for em in self._recent_emails:
+                        if search_keyword.lower() in em["from"].lower() or search_keyword.lower() in em["subject"].lower():
+                            target_email = em
+                            break
+                emails = [target_email]
+            else:
+                # ── 3. Connessione IMAP ─────────────────────────────────────
+                yield SkillResult(
+                    success=True,
+                    message="Connessione al server email in corso...",
+                    speak="Un momento, mi connetto al server email."
+                )
 
-            except PermissionError as e:
-                logger.error(f"Autenticazione IMAP fallita: {e}")
-                yield SkillResult.failure_result(
-                    f"Accesso email negato: {e}",
-                    error_code=SkillErrorCode.PERMISSION_DENIED,
-                    speak="Non riesco ad accedere alla tua email. "
-                          "Controlla le credenziali o abilita la password per app."
+                self._current_task = asyncio.create_task(
+                    self._fetch_emails_task(intent, date_filter)
                 )
-                return
 
-            except (aioimaplib.Abort, asyncio.TimeoutError, OSError) as e:
-                logger.error(f"Errore IMAP ({type(e).__name__}): {e}")
-                yield SkillResult.failure_result(
-                    f"Server email non raggiungibile: {e}",
-                    error_code=SkillErrorCode.EXTERNAL_SERVICE_ERROR,
-                    speak="Non riesco a contattare il server email. "
-                          "Controlla la connessione di rete."
-                )
-                return
+                try:
+                    emails = await self._current_task
+                    if emails:
+                        self._recent_emails = emails # salva in memoria per futuri deepdive
+
+                except asyncio.CancelledError:
+                    yield SkillResult(
+                        success=False,
+                        message="Operazione annullata dall'utente",
+                        speak="Ok, ho interrotto la lettura delle email."
+                    )
+                    return
+
+                except PermissionError as e:
+                    logger.error(f"Autenticazione IMAP fallita: {e}")
+                    yield SkillResult.failure_result(
+                        f"Accesso email negato: {e}",
+                        error_code=SkillErrorCode.PERMISSION_DENIED,
+                        speak="Non riesco ad accedere alla tua email. "
+                              "Controlla le credenziali o abilita la password per app."
+                    )
+                    return
+
+                except (aioimaplib.Abort, asyncio.TimeoutError, OSError) as e:
+                    logger.error(f"Errore IMAP ({type(e).__name__}): {e}")
+                    yield SkillResult.failure_result(
+                        f"Server email non raggiungibile: {e}",
+                        error_code=SkillErrorCode.EXTERNAL_SERVICE_ERROR,
+                        speak="Non riesco a contattare il server email. "
+                              "Controlla la connessione di rete."
+                    )
+                    return
 
             # ── 4. Nessuna email nuova ──────────────────────────────────
             if not emails:
