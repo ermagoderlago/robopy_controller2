@@ -1,0 +1,32 @@
+
+nav2_velocity_smoother:
+  ros__parameters:
+    # Frequenza di smoothing/interpolazione (Hz)
+    smoothing_frequency: 100.0
+
+    # Modalità feedback: OPEN_LOOP o CLOSED_LOOP
+    feedback: "OPEN_LOOP"          # usa l’ultimo comando; se hai odom ad alta frequenza, puoi mettere CLOSED_LOOP
+
+    # Limiti cinetici (x, y, theta) in m/s e rad/s
+    max_velocity: [0.8, 0.0, 2.0]
+    min_velocity: [-0.8, 0.0, -2.0]
+
+    # Limiti di accelerazione (x, y, theta)
+    max_accel: [1.5, 0.0, 3.0]
+    min_accel: [-1.5, 0.0, -3.0]
+
+    # Deadband: evita micro-oscillazioni attorno allo zero
+    # (valori piccoli ma >0 in x e theta sono spesso utili)
+    deadband_velocity: [0.02, 0.0, 0.02]
+
+    # Timeout: se Nav2 smette di pubblicare, invia zero
+    velocity_timeout: 0.5
+
+    # Scaling multi-asse (mantiene direzione quando si limita un asse)
+    scale_velocities: true
+
+    # Topic I/O
+    # In genere il controller Nav2 pubblica su /cmd_vel
+    input_vel: "/cmd_vel"
+    # Uscita smussata (il nostro bridge legge qui)
+    output_vel: "/cmd_vel_smoothed"

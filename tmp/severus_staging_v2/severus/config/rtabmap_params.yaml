@@ -1,0 +1,85 @@
+# rtabmap_params.yaml - VERSIONE CORRETTA per ROS 2
+rtabmap:
+  ros__parameters:
+    # ============ CONFIGURAZIONE FRAME ============
+    # Nota: Usa camera_optical_frame_stabilized come nel tuo launch
+    frame_id: "base_link"
+    map_frame_id: "map"
+    odom_frame_id: "odom"
+    publish_tf: true             # RTAB-Map pubblicherà map -> odom
+    
+    # ============ SOTTOSCRIZIONI ============
+    subscribe_depth: true
+    subscribe_rgb: true
+    subscribe_odom: true         # Legge l'output dell'EKF o dell'odometria visiva
+    approx_sync: true
+    approx_sync_max_interval: 0.20 # Aumentato per evitare i warning "high time diff"
+    queue_size: 20
+    wait_for_transform: 0.5
+    sync_queue_size: 10
+    #Rtabmap/DetectionRate: "0.7"
+    # RTAB-Map configuration for SuperPoint features
+    # Configurazione RTAB-Map per SuperPoint
+
+    # ============ CONFIGURAZIONE BASE ============
+    frame_id: "base_link"
+    map_frame_id: "map"
+    odom_frame_id: "odom"
+    publish_tf: true
+    
+    subscribe_depth: true
+    subscribe_rgb: true
+    subscribe_odom: true
+    subscribe_features: true
+    approx_sync: true
+    approx_sync_max_interval: 0.20
+    queue_size: 20
+    
+    # ============ SUPERPOINT ============
+    Kp/DetectorStrategy: "6"
+    Vis/FeatureType: "6"
+    Kp/MaxFeatures: "300"           # Aumentato da 200
+    Vis/MaxFeatures: "300"          # Aumentato da 200
+    
+    # ============ DEPTH FILTERING (RILASSATO) ============
+    Grid/FromDepth: "true"
+    Grid/RangeMax: "3.5"            # Aumentato da 2.5 a 3.5 metri
+    Grid/RangeMin: "0.15"           # Ridotto da 0.2 a 0.15 metri
+    Grid/CellSize: "0.04"           # Rilassato da 0.03 a 0.04 metri
+    
+    # Filtri di rumore più permissivi
+    Grid/NoiseFilteringRadius: "0.08"      # Aumentato da 0.05
+    Grid/NoiseFilteringMinNeighbors: "3"   # Ridotto da 5 a 3
+    Grid/MinClusterSize: "8"               # Ridotto da 10 a 8
+    
+    # ============ MATCHING (RILASSATO) ============
+    Vis/MinInliers: "8"              # Ridotto da 12 a 8
+    Vis/InlierDistance: "0.08"       # Aumentato leggermente da 0.05
+    Vis/CorGuessWinSize: "40"        # Aumentato da 30
+    Vis/Iterations: "800"            # Ridotto da 1000 (più veloce)
+    
+    # ============ ICP (RILASSATO) ============
+    Icp/MaxTranslation: "0.4"        # Aumentato da 0.3
+    Icp/MaxRotation: "0.4"           # Aumentato da 0.3
+    
+    # ============ LOOP CLOSURE ============
+    RGBD/ProximityPathMaxNeighbors: "8"   # Aumentato da 5
+    RGBD/LocalRadius: "0.8"               # Aumentato da 0.5
+    
+    # ============ MEMORY ============
+    Mem/STMSize: "20"                # Aumentato da 15
+    Mem/RehearsalSimilarity: "0.85"  # Ridotto da 0.90 (tiene più mappe)
+    
+    # ============ VISUALIZATION ============
+    Rtabmap/DetectionRate: "1"       # Ridotto da 2 Hz (più tempo per processare)
+
+    # Allineato con la nuova risoluzione
+    Grid/DepthDecimation: "1"        # Non decimare (usiamo già risoluzione bassa)
+    Grid/RangeMax: "3.0"
+    Grid/RangeMin: "0.1"
+    Grid/CellSize: "0.02"            # Più piccolo per risoluzione maggiore
+
+
+    Reg/Strategy: "1"  # Viso + ICP per 3D
+    Icp/PointToPlane: "true"
+    RGBD/OptimizeMaxError: "2.0"  # Più tollerante per 3D

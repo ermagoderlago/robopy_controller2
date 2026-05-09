@@ -1,5 +1,0 @@
-﻿#!/usr/bin/env python3
-import sys
-from robopy_controller.robot_ai.services.llm_service import main
-if __name__ == "__main__":
-    sys.exit(main())

@@ -51,8 +51,7 @@ from ..core.config_manager import ConfigManager
 from ..utils.logging_utils import get_logger
 from ..services.llm_service import LLMService
 from ..services.embedding_service import EmbeddingService
-from ..rag.memory_store import Memory, MemoryType
-from ..rag.base_memory_store import BaseMemoryStore
+from ..rag.memory_store import MemoryStore, Memory, MemoryType
 
 
 class VisualMemoryService:
@@ -64,7 +63,7 @@ class VisualMemoryService:
         config_manager: ConfigManager,
         llm_service: LLMService,
         embedding_service: EmbeddingService,
-        memory_store,
+        memory_store: MemoryStore,
         on_visual_memory: Optional[Callable[[str], None]] = None,
     ):
         self.node = node
@@ -437,11 +436,11 @@ class VisualMemoryService:
                 )
                 
                 # Use UUID-based upsert logic
-                if mem.id and self.memory_store.get_sync(mem.id):
-                    self.memory_store.update_sync(mem)
+                if mem.id and self.memory_store.get(mem.id):
+                    self.memory_store.update(mem)
                     self.logger.info(f"📍 Memory UPDATED for {primary_obj.get('label')} [UUID: {mem.id}]")
                 else:
-                    self.memory_store.add_sync(mem)
+                    self.memory_store.add(mem)
                     self.logger.info(f"🆕 Memory SAVED for {primary_obj.get('label')} [UUID: {mem.id or 'N/A'}]")
             else:
                 self.logger.info("♻️ Spatial deduplication: skipped Vector DB save.")

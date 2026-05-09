@@ -1,0 +1,43 @@
+# visual_odometry_params.yaml
+visual_odometry:
+  ros__parameters:
+    # ============ FRAME IDS ============
+    # Nota: Deve coincidere con il frame della camera o quello stabilizzato
+    frame_id: "camera_link" 
+    odom_frame_id: "odom"
+    
+    # IMPORTANTE: Deve essere false perché l'EKF pubblica la TF odom -> base_link
+    publish_tf: false 
+
+    # ============ SINCRONIZZAZIONE ============
+    approx_sync: true
+    approx_sync_max_interval: 0.05  # Bilanciamento tra i log precedenti e precisione
+    queue_size: 20
+    
+    # ============ FEATURE EXTRACTION ============
+    "Vis/FeatureType": "0"          # 0=ORB (Più robusto su hardware embedded)
+    "Vis/MaxFeatures": "1000"
+    "Kp/MaxFeatures": "1000"
+    "Kp/DetectorStrategy": "0"      # 0=Feature2D
+    "Vis/CorNNType": "1"            # 1=FLANN matcher (più veloce)
+    
+    # ============ ODOMETRY STRATEGY ============
+    # Usiamo Frame-to-Map (F2M) per maggiore stabilità
+    "Odom/Strategy": "0"            
+    "Odom/GuessMotion": "true"      # Fondamentale per non perdere il tracking nei movimenti bruschi
+    "Odom/FillInfoData": "true"     # Invia dati di debug (qualità, inliers)
+    "Odom/VisKeyFrameThr": "0.5"    # Crea nuovi keyframe più spesso per mantenere precisione
+    "OdomF2M/MaxSize": "1500"       # Dimensione della mappa locale per l'odometria
+    
+    # ============ REGISTRAZIONE E AFFINAMENTO ============
+    "Reg/Strategy": "0"             # 0=Visual (OAK-D ha depth rumorosa, meglio affidarsi ai pixel)
+    "Reg/Force3DoF": "true"         # Forza movimento 2D (X, Y, Yaw) per RoboPy
+    "Vis/MinInliers": "15"          # Aumentato a 15 per evitare drift da fermo (soglia di sicurezza)
+    "Vis/InlierDistance": "0.1"     # Tolleranza in metri per considerare un match valido
+    "Vis/EstimationType": "1"       # 1=PnP+RANSAC (Standard robusto)
+    "Vis/PnPRefineIterations": "5"  # Raffina la posa calcolata
+    
+    # ============ COMPORTAMENTO IN CASO DI PERDITA ============
+    # Se il tracking fallisce, pubblichiamo un'odometria nulla invece di una errata
+    "publish_null_when_lost": false 
+    "Odom/ResetCountdown": "1"      # Se perso per 1 frame, prova a resettare o usare il movimento stimato

@@ -1,0 +1,68 @@
+# rtabmap_params.yaml
+rtabmap:
+  ros__parameters:
+    # ============ CONFIGURAZIONE FRAME ============
+    # Nota: Usa camera_optical_frame_stabilized come nel tuo launch
+    frame_id: "base_link"
+    map_frame_id: "map"
+    odom_frame_id: "odom"
+    publish_tf: true             # RTAB-Map pubblicherà map -> odom
+    
+    # ============ SOTTOSCRIZIONI ============
+    subscribe_depth: true
+    subscribe_rgb: true
+    subscribe_odom: true         # Legge l'output dell'EKF o dell'odometria visiva
+    approx_sync: true
+    approx_sync_max_interval: 0.20 # Aumentato per evitare i warning "high time diff"
+    queue_size: 20
+    wait_for_transform: 0.5
+    sync_queue_size: 10
+    #Rtabmap/DetectionRate: "0.7"
+
+    # ============ LOGICA SLAM (RTAB-Map Core) ============
+    # Frequenza di aggiornamento della mappa (Hz)
+    "Rtabmap/DetectionRate": "1.0"
+    "RGBD/LinearUpdate": "0.1"    # Aggiorna mappa ogni 10cm di movimento
+    "RGBD/AngularUpdate": "0.1"   # Aggiorna mappa ogni 0.1 rad di rotazione
+    
+    # ============ FEATURE EXTRACTION (OAK-D Optimized) ============
+    "Vis/FeatureType": "2"         # 0=ORB, 6=GFTT/BRIEF (ORB è più leggero)
+    "Kp/DetectorStrategy": "6"     # 0=Feature2D
+    "Vis/MaxFeatures": "600"      # Bilanciamento CPU/Precisione
+    "Kp/MaxFeatures": "600"
+    "Vis/MinInliers": "15"         # Aumentato (da 5) per evitare movimenti "fantasma" quando fermo
+    "Vis/InlierDistance": "0.1"    # Tolleranza per sensore stereo
+    "Vis/EstimationType": "1"      # 1=PnP+RANSAC
+    
+    # ============ LOOP CLOSURE & MEMORIA ============
+    "Rtabmap/LoopThr": "0.11"
+    "Mem/IncrementalMemory": "true"
+    "Mem/STMSize": "30"            # Dimensione memoria a breve termine
+    "RGBD/OptimizeFromGraphEnd": "true"
+    "Reg/Strategy": "0"            # 0=Visual (più stabile), 1=ICP, 2=Vis+ICP
+    "Reg/Force3DoF": "true"        # Forza il robot sul piano (X, Y, Yaw) - Fondamentale per robot 2D
+    "Mem/NotLinkedNodesKept": "false" # Pulisce i nodi isolati per risparmiare RAM
+    
+    # ============ MAPPATURA (Occupancy Grid) ============
+    "Grid/3D": "false"              # Crea mappa 3D per ostacoli
+    "Grid/CellSize": "0.1"        # Risoluzione 5cm
+    "Grid/RangeMax": "2.0"         # Ignora dati oltre i 3.5 metri (troppo rumore)
+    "Grid/MaxGroundHeight": "0.1"  # Considera ostacoli solo sopra i 10cm
+    "Grid/MaxObstacleHeight": "1.5"  # Considera ostacoli fino a 1.5m
+    "Grid/RayTracing": "true"      # Fondamentale per cancellare ostacoli non più presenti
+    "Grid/FromDepth": "true"       # Crea la griglia dalla depth camera
+    
+    # ============ ODOMETRIA VISIVA (Interna) ============
+    # Questi parametri influenzano il nodo rgbd_odometry
+    "Odom/Strategy": "0"           # 0=Frame-to-Map (Migliore precisione nel tempo)
+    "Odom/GuessMotion": "true"     # Usa il movimento precedente per stimare il nuovo
+    "Odom/FillInfoData": "true"
+    "Odom/VisKeyFrameThr": "150"
+    "Odom/ResetCountdown": "1"     # Se perde il tracking, resetta subito l'odometria
+    "Odom/InlierDistance": "0.1"
+    "Vis/CorNNType": "1"           # NORM_HAMMING per BRIEF (molto veloce)
+    "odom_topic": "/odom"       # Topic di odometria (dell'EKF o visuale)
+
+    "Mem/NotLinkedNodesKept": "false" # Pulisce i nodi isolati per risparmiare RAM
+
+  

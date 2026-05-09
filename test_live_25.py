@@ -7,7 +7,7 @@ api_key = os.environ.get("GEMINI_API_KEY")
 
 if not api_key:
     try:
-        with open('/mnt/ssd/robopy_controller_host/setup_keys.sh', 'r') as f:
+        with open('/home/robopy/robopy/robopi_controller/robopy_controller_host/setup_keys.sh', 'r') as f:
             for line in f:
                 if line.startswith('export GEMINI_API_KEY='):
                     api_key = line.split('=', 1)[1].strip().strip('"').strip("'")
@@ -18,7 +18,6 @@ if not api_key:
 
 from google import genai
 from google.genai import types
-
 
 client = genai.Client(api_key=api_key)
 

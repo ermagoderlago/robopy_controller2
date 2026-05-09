@@ -1,95 +1,12 @@
-# ==========================================
-# Marcus AI - .gitignore
-# ==========================================
-
-# 1. Credenziali e Segreti (CRITICO)
-.env
-.env.*
-secrets.yaml
-setup_keys.sh
-*.key
-*.pem
-*.p12
-*.crt
-client_secret.json
-credentials.json
-auth.json
-
-# 2. Database e Indici Locali
-ChromaDB/
-*.db
-*.sqlite
-*.sqlite3
-chroma.sqlite3
-
-# 3. Log e Dati Operativi
-logs/
-log/
-*.log
-startup_log.txt
-startup_log_u.txt
-build_log.txt
-launch_output.log
-test_output.log
-bt_nav.log
-controller_diag.log
-fast_flow.log
-gdb_controller.log
-debug_run.log
-
-# 4. Cache Python e Ambienti Virtuali
-__pycache__/
-*.py[cod]
-*$py.class
-.pytest_cache/
-.coverage
-htmlcov/
-venv/
-env/
-.venv/
-.env/
-ros2env/
-esphome_venv/
-pip-log.txt
-pip-delete-this-directory.txt
-
-# 5. Build ROS 2 e CMake
+core
+*.core
 build/
 install/
 log/
-*.cmake
-CMakeCache.txt
-CMakeFiles/
-Makefile
-*.ninja
-
-# 6. ESPHome e Microcontrollori
-.esphome/
-firmware_pronto/
-*.bin
-*.elf
-*.map
-
-# 7. Modelli e Pesi Locali
-models/
-weights/
-.depthai_cached_models/
-*.pt
-*.pth
-*.onnx
+# Sensitive files - NEVER COMMIT THESE
+setup_keys.sh
+.env
+# Large files
 *.blob
-
-# 8. Editor e OS (VSCode, Windows, macOS)
-.vscode/
-.idea/
-.DS_Store
-Thumbs.db
-*.code-workspace
-
-# 9. Dati Temporanei
-tmp/
-temp/
-*.swp
-*~
-*.bak
-*.tar.gz
+weights/
+models/

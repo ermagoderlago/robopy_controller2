@@ -18,64 +18,14 @@ class SkillExecutor:
     def get_all(self):
         return self.registry.get_all()
 
-    def get_summary(self):
-        return self.registry.get_summary()
-
     async def execute_skill(self, skill_name: str, args: dict) -> List[str]:
         skill = self.registry.get(skill_name)
         if not skill:
-            self._logger.warning(f"Skill '{skill_name}' non trovata nel registry. Disponibili: {list(self.registry._skills.keys())}")
+            self._logger.warning(f"Skill '{skill_name}' non trovata nel registry.")
             return []
 
         execution_text = args.get("text", "")
-        context = args.copy()
-
-        # --- Routing specifico per skill ---
-
-        if skill_name == "check_home_assistant":
-            # L'LLM passa entity_id/domain via function call args, non via text.
-            # Forwarda tutti gli args come context alla skill.
-            context = {
-                "entity_id": args.get("entity_id", ""),
-                "domain": args.get("domain", ""),
-            }
-            self._logger.info(
-                f"🏠 Routing check_home_assistant: entity_id={context['entity_id']}, "
-                f"domain={context['domain']}"
-            )
-
-        elif skill_name == "check_emails":
-            # Gemini manda: {intent, text, account, limit, date_filter, email_id, reply_to} via function_call.
-            # Forwarda tutto come context e garantisce un execution_text sensato.
-            context = {
-                "intent":      args.get("intent",  "read"),
-                "account":     args.get("account", "default"),
-                "limit":       int(args.get("limit", 5)),
-                "date_filter": args.get("date_filter", "all"),
-                "email_id":    args.get("email_id", ""),
-                "reply_to":    args.get("reply_to", ""),
-            }
-            execution_text = args.get("text", "leggi le mie email")
-            self._logger.info(
-                f"📧 Routing check_emails: intent={context['intent']}, "
-                f"limit={context['limit']}, date_filter={context['date_filter']}, "
-                f"reply_to={context['reply_to']!r}, text='{execution_text}'"
-            )
-
-        elif skill_name == "spotify_skill":
-            # Gemini manda: {action, query, volume_percent, text} via function_call.
-            context = {
-                "action":         args.get("action", ""),
-                "query":          args.get("query", ""),
-                "volume_percent": args.get("volume_percent"),
-            }
-            execution_text = args.get("text", f"Spotify {context['action']}")
-            self._logger.info(
-                f"🎵 Routing spotify_skill: action={context['action']}, "
-                f"query='{context['query']}', volume={context['volume_percent']}"
-            )
-
-        elif skill_name == "navigation" and "action" in args:
+        if skill_name == "navigation" and "action" in args:
              # Backward compatibility mappings for older prompts
              action = args.get("action")
              if action == "move_to_room":
@@ -88,7 +38,7 @@ class SkillExecutor:
                  execution_text = "torna alla base"
 
         try:
-            result = await skill.safe_execute(execution_text, context)
+            result = await skill.safe_execute(execution_text)
             return await self._collect_speak_texts(result)
         except Exception as e:
             self._logger.error(f"Error executing skill {skill_name}: {e}", exc_info=True)

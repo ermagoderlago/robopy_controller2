@@ -1,8 +1,0 @@
-pygame 2.1.2 (SDL 2.26.5, Python 3.11.2)
-Hello from the pygame community. https://www.pygame.org/contribute.html
-[INFO] [1777843792.570117564] [robot_ai_orchestrator]: Inizializzazione LLM Service (Delegated Context)
-[INFO] [1777843792.994800221] [robot_ai_orchestrator]:  [DEBUG-AG] 🚀 MODELLI ATTIVI: Standard=gemini-3.1-flash-lite-preview (v1beta), Live=gemini-2.5-flash-native-audio-latest (v1alpha)
-[INFO] [1777843793.059919130] [robot_ai_orchestrator]: Connecting to gemini-2.5-flash-native-audio-latest with modalities ['AUDIO'] ...
-[INFO] [1777843793.295586550] [robot_ai_orchestrator]: Live API connessa con successo. Sessione pronta.
-[33m23:30:05 WARNING [0m [tts_service] Failed to create Google TTS client: Your default credentials were not found. To set up Application Default Credentials, see https://cloud.google.com/docs/authentication/external/set-up-adc for more information.
-[32m23:30:05 INFO    [0m [tts_service] TTS Service initialized

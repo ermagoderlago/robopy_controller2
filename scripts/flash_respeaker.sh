@@ -1,6 +1,6 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 # ============================================================
-#  flash_respeaker.sh â€” Flasha il firmware ESPHome sul
+#  flash_respeaker.sh — Flasha il firmware ESPHome sul
 #  ReSpeaker Lite (XIAO ESP32S3) connesso via USB.
 #
 #  Uso:
@@ -19,16 +19,16 @@ VENV_DIR="$HOME/esphome_venv"
 PORT="${1:-/dev/ttyACM0}"
 MONITOR="${2:-}"
 
-# â”€â”€ Colori â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Colori ──────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; RESET='\033[0m'
 
 log()  { echo -e "${CYAN}[flash_respeaker]${RESET} $*"; }
-ok()   { echo -e "${GREEN}[âœ“]${RESET} $*"; }
+ok()   { echo -e "${GREEN}[✓]${RESET} $*"; }
 warn() { echo -e "${YELLOW}[!]${RESET} $*"; }
-err()  { echo -e "${RED}[âœ—]${RESET} $*" >&2; exit 1; }
+err()  { echo -e "${RED}[✗]${RESET} $*" >&2; exit 1; }
 
-# â”€â”€ Checks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-log "=== ReSpeaker Lite â€” Flash Tool ==="
+# ── Checks ──────────────────────────────────────────────────
+log "=== ReSpeaker Lite — Flash Tool ==="
 log "YAML   : $YAML_FILE"
 log "Port   : $PORT"
 log "Venv   : $VENV_DIR"
@@ -36,21 +36,21 @@ log "Venv   : $VENV_DIR"
 [[ -f "$YAML_FILE" ]] || err "File YAML non trovato: $YAML_FILE"
 [[ -e "$PORT"      ]] || err "Porta non trovata: $PORT (controlla lsusb e ls /dev/ttyACM*)"
 
-# â”€â”€ Verifica che la porta sia l'ESP32S3 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Verifica che la porta sia l'ESP32S3 ─────────────────────
 if ! lsusb | grep -qi "Espressif"; then
     warn "Nessun dispositivo Espressif trovato in lsusb. Continuo comunque..."
 else
     ok "Dispositivo Espressif rilevato."
 fi
 
-# â”€â”€ Permessi seriale â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Permessi seriale ─────────────────────────────────────────
 if ! groups "$USER" | grep -q dialout; then
-    warn "L'utente $(whoami) non Ã¨ nel gruppo 'dialout'. Aggiungo..."
+    warn "L'utente $(whoami) non è nel gruppo 'dialout'. Aggiungo..."
     sudo usermod -aG dialout "$USER"
     warn "Potrebbe essere necessario un logout/login per applicare il gruppo."
 fi
 
-# â”€â”€ Crea / aggiorna venv ESPHome â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Crea / aggiorna venv ESPHome ────────────────────────────
 if [[ ! -d "$VENV_DIR" ]]; then
     log "Creazione venv ESPHome in $VENV_DIR ..."
     python3 -m venv "$VENV_DIR"
@@ -64,41 +64,41 @@ pip install --upgrade pip --quiet
 pip install esphome --quiet
 ok "ESPHome $(esphome version) installato."
 
-# â”€â”€ Crea secrets.yaml se non esiste â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Crea secrets.yaml se non esiste ─────────────────────────
 if [[ ! -f "$SECRETS_FILE" ]]; then
     log "Creo $SECRETS_FILE ..."
     cat > "$SECRETS_FILE" << 'SECRETS_EOF'
-# ESPHome secrets â€” non committare questo file in git!
+# ESPHome secrets — non committare questo file in git!
 wifi_ssid: "Vodafone-suffia"
 wifi_password: "CJGHEhRbXGdRNreX"
 SECRETS_EOF
     ok "secrets.yaml creato."
 else
-    ok "secrets.yaml esiste giÃ ."
+    ok "secrets.yaml esiste già."
 fi
 
 # Aggiorna il YAML per usare !secret correttamente se necessario
-# (il YAML dell'utente ha giÃ  !secret, quindi Ã¨ corretto)
+# (il YAML dell'utente ha già !secret, quindi è corretto)
 
-# â”€â”€ Compila il firmware â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Compila il firmware ──────────────────────────────────────
 log "Compilazione firmware ESPHome (potrebbe richiedere 5-10 minuti alla prima esecuzione)..."
 cd "$(dirname "$YAML_FILE")"
 esphome compile respeaker.yaml
 ok "Compilazione completata."
 
-# â”€â”€ Flash sul dispositivo â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Flash sul dispositivo ────────────────────────────────────
 log "Flash del firmware su $PORT ..."
 log "(Assicurati che il dispositivo NON sia in uso da altri processi)"
 
-# Se il dispositivo Ã¨ in modalitÃ  normale, prova upload
+# Se il dispositivo è in modalità normale, prova upload
 esphome upload --device "$PORT" respeaker.yaml
 ok "Flash completato con successo!"
 
-# â”€â”€ Istruzioni post-flash â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Istruzioni post-flash ────────────────────────────────────
 echo ""
-echo -e "${GREEN}â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•${RESET}"
+echo -e "${GREEN}════════════════════════════════════════${RESET}"
 echo -e "${GREEN}  ReSpeaker Lite flashato con successo! ${RESET}"
-echo -e "${GREEN}â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•${RESET}"
+echo -e "${GREEN}════════════════════════════════════════${RESET}"
 echo ""
 echo "Per monitorare i log seriali:"
 echo "  source $VENV_DIR/bin/activate && esphome logs --device $PORT $(dirname "$YAML_FILE")/respeaker.yaml"
@@ -107,7 +107,7 @@ echo "Oppure con python3:"
 echo "  python3 -m serial.tools.miniterm $PORT 115200"
 echo ""
 
-# â”€â”€ Monitor opzionale â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Monitor opzionale ────────────────────────────────────────
 if [[ "${MONITOR:-}" == "--monitor" ]]; then
     log "Avvio monitor seriale (Ctrl+C per uscire)..."
     esphome logs --device "$PORT" respeaker.yaml
