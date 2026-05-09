@@ -71,8 +71,8 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # Sprint 2 P7 — hard timeouts
 # ---------------------------------------------------------------------------
-_EMBED_TIMEOUT_S    = 3.0   # embedding generation
-_RETRIEVE_TIMEOUT_S = 2.0   # vector-db aretrieve
+_EMBED_TIMEOUT_S    = 10.0  # embedding generation
+_RETRIEVE_TIMEOUT_S = 5.0   # vector-db aretrieve
 
 # ---------------------------------------------------------------------------
 # Sprint 3 P10 — dedup registry parameters
@@ -201,7 +201,7 @@ class LlamaIndexMemoryStore(BaseMemoryStore):
         config = config_manager.get_config()
         api_key = config.secrets.gemini_api_key or os.environ.get("GEMINI_API_KEY", "")
         embedding_model_name = "models/gemini-embedding-2-preview"
-        llm_model_name = getattr(config.llm, "model", "gemini-3.1-flash-lite-preview")
+        llm_model_name = getattr(config.llm, "model", "gemini-2.0-flash")
 
         mem_cfg = getattr(config, "memory", None)
         self._max_cpu_percent: float = float(

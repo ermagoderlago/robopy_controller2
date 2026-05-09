@@ -72,6 +72,7 @@ class TTSService:
         # State
         self._is_speaking = False
         self._lock = None
+        self._ambient_noise_rms = 50.0  # [v11.0] Auto-Volume base
         
         # Cache
         self._cache_dir = os.path.join(tempfile.gettempdir(), "robot_tts_cache")
@@ -251,6 +252,7 @@ class TTSService:
                     raw_pcm = audio_bytes[44:] if len(audio_bytes) > 44 else audio_bytes
 
                 if raw_pcm:
+                    raw_pcm = self._apply_auto_volume(raw_pcm)
                     self.event_bus.publish(EventType.TTS_AUDIO_BUFFER, {"audio_data": raw_pcm})
 
                 with open(filename, "wb") as out:
@@ -297,13 +299,15 @@ class TTSService:
         Play raw PCM chunks (16kHz, mono, s16le).
         Used for Gemini Live ultra-low latency audio.
         """
-        if self._output_stream:
+        data = self._apply_auto_volume(data)
+        if hasattr(self, '_output_stream') and self._output_stream:
             try:
                 self._output_stream.write(data)
             except Exception as e:
                 self.logger.error(f"Failed to play raw PCM chunk: {e}")
         else:
-            self.logger.debug("Raw PCM ignored: no audio output stream available")
+            # Fallback event bus se stream non disponibile
+            self.event_bus.publish(EventType.LIVE_AUDIO_CHUNK, {"audio_data": data})
 
     
     def stop(self) -> None:
@@ -314,4 +318,28 @@ class TTSService:
             except Exception:
                 pass
         self._is_speaking = False
+
+    def set_ambient_noise(self, rms: float):
+        """[v11.0] Update ambient noise RMS for auto-volume."""
+        self._ambient_noise_rms = rms
+
+    def _apply_auto_volume(self, raw_pcm: bytes) -> bytes:
+        """[v11.0] Moltiplica il PCM in base al rumore ambientale."""
+        if not raw_pcm:
+            return raw_pcm
+        
+        # Mappatura: 50.0 RMS = 5% Volume, 1000.0 RMS = 40% Volume
+        rms = getattr(self, '_ambient_noise_rms', 50.0)
+        min_rms, max_rms = 50.0, 1000.0
+        min_vol, max_vol = 0.05, 0.40
+        
+        clamped_rms = max(min_rms, min(rms, max_rms))
+        factor = min_vol + (max_vol - min_vol) * ((clamped_rms - min_rms) / (max_rms - min_rms))
+        
+        try:
+            import audioop
+            return audioop.mul(raw_pcm, 2, factor)
+        except Exception as e:
+            self.logger.warning(f"Auto-volume failed: {e}")
+            return raw_pcm
 

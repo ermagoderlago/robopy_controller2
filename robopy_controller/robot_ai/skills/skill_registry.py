@@ -10,6 +10,7 @@ import importlib
 import importlib.util
 import threading
 import time
+import inspect
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Type
 
@@ -158,6 +159,17 @@ class SkillRegistry:
     def get(self, name: str) -> Optional[BaseSkill]:
         """Get a skill by name."""
         return self._skills.get(name)
+
+    # Compatibility alias used in older code
+    def get_skill(self, name: str) -> Optional[BaseSkill]:
+        """Alias for get() to maintain backward compatibility.
+
+        Some parts of the codebase (e.g., orchestrator) still call
+        `skill_registry.get_skill(name)`. The original `SkillRegistry`
+        only provided `get()`, causing an AttributeError during runtime.
+        This method simply forwards the call to `get()`.
+        """
+        return self.get(name)
     
     def get_all(self, enabled_only: bool = True) -> List[BaseSkill]:
         """Get all registered skills."""
@@ -228,38 +240,35 @@ class SkillRegistry:
 
             # Find skill classes
             count = 0
-            for name in dir(module):
-                obj = getattr(module, name)
-
-                if (isinstance(obj, type) and
-                        issubclass(obj, BaseSkill) and
-                        obj is not BaseSkill):
-
-                    # Try to instantiate without args first (most skills)
-                    try:
-                        skill = obj()
-                        self.register(skill)
-                        self._skill_paths[skill.name] = file_path
-                        self._skill_mtimes[str(file_path)] = file_path.stat().st_mtime
-                        count += 1
-                    except TypeError as te:
-                        # Skill requires constructor arguments (dependency injection).
-                        # Log clearly and track it for manual registration.
-                        self.logger.warning(
-                            f"Skill class '{name}' in {file_path.name} requires "
-                            f"constructor arguments (DI) and cannot be auto-instantiated. "
-                            f"Use register_with_deps() to register it manually. "
-                            f"Details: {te}"
-                        )
-                        # Track in DI-required map so callers can find the class
-                        with self._lock:
-                            self._di_required[name] = obj
-                        self._skill_mtimes[str(file_path)] = file_path.stat().st_mtime
-                    except Exception as e:
-                        self.logger.error(f"Failed to instantiate {name}: {e}")
-
+            for name, obj in inspect.getmembers(module):
+                if inspect.isclass(obj):
+                    # Use __mro__ to check for BaseSkill by name to avoid import duplication issues
+                    # where sys.modules contains both 'robot_ai.skills.base_skill' and 'robopy_controller...'
+                    mro_names = [base.__name__ for base in getattr(obj, '__mro__', [])]
+                    is_skill = 'BaseSkill' in mro_names and obj.__name__ != 'BaseSkill'
+                        
+                    if is_skill:
+                        if name in self._di_required:
+                            continue
+                        
+                        try:
+                            skill = obj()
+                            self.register(skill)
+                            self._skill_paths[skill.name] = file_path
+                            self._skill_mtimes[str(file_path)] = file_path.stat().st_mtime
+                            count += 1
+                        except TypeError as te:
+                            self.logger.warning(
+                                f"Skill class '{name}' in {file_path.name} requires "
+                                f"constructor arguments (DI) and cannot be auto-instantiated. "
+                                f"Use register_with_deps() to register it manually. "
+                                f"Details: {te}"
+                            )
+                            with self._lock:
+                                self._di_required[name] = obj
+                        except Exception as e:
+                            self.logger.error(f"Failed to instantiate {name}: {e}")
             return count
-
         except Exception as e:
             self.logger.error(f"Failed to load module {file_path}: {e}")
             return 0
@@ -450,40 +459,37 @@ class SkillRegistry:
 
     def discover_active(self, active_dir: str = None) -> int:
         """
-        Carica le skill generate dalla directory active/ basandosi sul manifest.
-
-        Legge skills_manifest.json e carica solo le skill con enabled=true.
-
-        Args:
-            active_dir: Path alla directory active/ (default: calcolo automatico)
-
-        Returns:
-            Numero di skill caricate
+        Carica le skill dal file skills_manifest.json nella directory active/.
+        Vengono caricate solo le skill con "enabled": true.
         """
         if active_dir is None:
             active_dir = str(Path(__file__).parent / "active")
-
+        
         active_path = Path(active_dir)
         manifest_path = active_path / "skills_manifest.json"
+
+        self.logger.info(f"[DEBUG-AG] discover_active in {active_dir}")
+        self.logger.info(f"[DEBUG-AG] manifest_path: {manifest_path} (exists: {manifest_path.exists()})")
 
         if not manifest_path.exists():
             self.logger.info("Nessun manifest trovato, nessuna skill attiva da caricare.")
             return 0
-
+            
         try:
             import json
             with open(manifest_path, 'r', encoding='utf-8') as f:
                 manifest = json.load(f)
+                
+            self.logger.info(f"[DEBUG-AG] Manifest loaded, keys: {list(manifest.keys())}")
         except (json.JSONDecodeError, FileNotFoundError) as e:
             self.logger.warning(f"Errore lettura manifest: {e}")
             return 0
-
+            
         count = 0
         for skill_name, entry in manifest.items():
             if not entry.get("enabled", False):
-                self.logger.debug(f"Skill '{skill_name}' non abilitata, skip.")
                 continue
-
+            
             skill_file = active_path / entry.get("file", "")
             if not skill_file.exists():
                 self.logger.warning(

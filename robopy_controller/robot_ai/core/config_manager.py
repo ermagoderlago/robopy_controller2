@@ -61,7 +61,7 @@ class PersonalityConfig(BaseModel):
 class LLMConfig(BaseModel):
     """LLM configuration."""
     provider: str = "gemini"
-    model: str = "gemini-3.1-flash-lite-preview"
+    model: str = "gemini-2.0-flash"
     temperature: float = 0.7
     max_tokens: int = 2048
     top_p: float = 0.95

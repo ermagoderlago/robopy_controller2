@@ -43,3 +43,25 @@
 **Problem**: `sync_marcus.sh` apriva 4-5 connessioni SSH separate (per rsync, per PYTHON_VER, per chmod), ognuna richiedeva la password interattiva anche con chiave SSH configurata su Windows/Git Bash.
 **Solution**: Usare SSH ControlMaster con socket di controllo: `ssh -o ControlMaster=auto -o ControlPath=/tmp/ctrl_sock -o ControlPersist=60`. La prima connessione autentica, tutte le successive riusano il tunnel senza password. Funziona sia su Linux che su Windows/Git Bash.
 
+## 10. Fast-Path Skill Match vs LLM Tool Calling
+**Problem**: Le skill (come Spotify) con regex troppo flessibili (es. solo la parola "spotify") attivavano il fast-path (match >= 0.95), bypassando l'LLM. Questo impediva a Gemini di estrarre gli argomenti strutturati (es. la query della canzone) e causava fallimenti silenziosi o azioni vuote. Inoltre, il fast-path in `conversation.py` non pubblicava la risposta sul topic ROS `/ai/conversation/response`.
+**Solution**: 1. Abbassato il punteggio di match grezzo in `spotify_skill.py` (da 0.95 a 0.8) per lasciare a Gemini il compito di gestire il tool calling tramite le sue function. 2. Aggiunto `self.response_callback(response_text)` e aggiornato `recent_interactions` nel fast-path di `conversation.py` per propagare correttamente le risposte sul frontend Foxglove.
+
+## 11. Spotify Connect (Raspotify/Librespot) vs ALSA/PulseAudio Sandbox
+**Problem**: Usando il servizio di sistema di default `raspotify` su Raspberry Pi, il client Spotify non riusciva ad aprire la scheda audio (Errore 16 ALSA Device Busy o PulseAudio Permission Denied) perché la scheda era in uso dai nodi vocali ROS di `robopy` (TTS e microfono). Inoltre le regole di sandboxing di systemd (`ProtectHome=true`, `PrivateUsers=true`) impedivano la condivisione dell'IPC audio, facendo crashare il demone Spotify quando selezionato dal telefono.
+**Solution**: Disabilitare il servizio di sistema di raspotify e configurare `librespot` come **Servizio Utente** (`systemctl --user`). Avviando il servizio tramite l'ambiente di `robopy`, `librespot` si aggancia istantaneamente al demone PulseAudio dell'utente, permettendo il mixing automatico dell'audio (la musica si abbassa/mixa con la voce del robot senza conflitti ALSA).
+
+## 12. Errore 403 Spotify API "Cannot control device volume"
+**Problem**: Chiedendo a Marcus di modificare il volume di Spotify, le API Web di Spotify restituivano un errore `403` rifiutandosi di modificare il volume di Raspotify/Librespot. Questo perché Spotify blocca nativamente le richieste API di volume verso client Connect di terze parti per evitare danni agli speaker.
+**Solution**: Aggirare completamente le API Web di Spotify nello script Python `spotify_skill.py`. Quando viene intercettato il comando di volume, l'azione `volume_set` esegue direttamente a livello di sistema operativo `subprocess.run(['amixer', 'sset', 'Master', 'X%'])`. Questo modifica il volume hardware globale dell'intero speaker del robot, coerentemente con come operano i veri assistenti vocali.
+
+## 13. Sincronizzazione manuale "Hot-Swap" dei file Python
+**Problem**: In caso di debug e correzione rapida degli script Python senza usare `sync_marcus.sh` o senza voler ricompilare l'intero workspace ROS 2 con `colcon build`, i file sorgenti modificati non venivano caricati dal robot al riavvio.
+**Solution**: ROS 2 carica gli script Python dalla cartella `install/`, non da `robopy_controller/`. Per aggiornare al volo un file Python sul Raspberry Pi:
+1. Copiare il file nel codice sorgente locale: `scp my_skill.py robopy@marcus:/mnt/ssd/robopy_controller_host/robopy_controller/robot_ai/skills/active/`
+2. **Copiare il file anche nella cartella installata (site-packages)**: `scp my_skill.py robopy@marcus:/mnt/ssd/robopy_controller_host/install/robopy_controller/lib/python3.11/site-packages/robopy_controller/robot_ai/skills/active/`
+3. Riavviare il demone (`bash restart.sh`) per caricare la modifica all'istante senza build.
+
+## 14. PipeWire "auto_null" Dummy Output & PyAudio ALSA Lock
+**Problem**: Nonostante Spotify Connect/Librespot fosse configurato perfettamente su PulseAudio e l'API rispondesse `success=True`, le casse rimanevano mute. Analizzando `pactl list sinks`, si è scoperto che il server audio PipeWire stava instradando l'output verso `auto_null` (un dispositivo virtuale "buco nero" silente). Questo accadeva perché lo script Python `respeaker_vui_node.py` usava PyAudio per agganciarsi al nome hardware "ReSpeaker", acquisendo un **lock esclusivo (hw:0) su ALSA**. Trovando la scheda fisica occupata da ROS, PipeWire non poteva accedervi e creava il sink fittizio `auto_null` dove scaricava la musica di Spotify in silenzio.
+**Solution**: Modificato `_find_audio_devices` in `respeaker_vui_node.py` per ignorare il nome hardware fisico e forzare la ricerca di dispositivi virtuali nominati `"pulse"` o `"default"`. Costringendo PyAudio a connettersi al server virtuale (PipeWire) anziché direttamente all'hardware, il server PipeWire diventa l'unico padrone della scheda fisica e permette il mixing simultaneo (condivisione) di ROS TTS, microfono e Spotify Connect senza creare dispositivi dummy.

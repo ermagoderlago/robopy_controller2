@@ -47,7 +47,7 @@ class HomeAssistantSkill(BaseSkill):
             re.compile(r'\b(clima|condizionatore|riscaldamento|temperatura)\b', re.IGNORECASE),
         ],
         "media_player": [
-            re.compile(r'\b(tv|televisione|televisore|stereo|musica|spotify)\b', re.IGNORECASE),
+            re.compile(r'\b(tv|televisione|televisore|stereo)\b', re.IGNORECASE),
         ],
         "cover": [
             re.compile(r'\b(tapparella|tenda|persiana|serranda)\b', re.IGNORECASE),

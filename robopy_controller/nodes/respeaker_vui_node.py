@@ -43,7 +43,7 @@ import webrtcvad
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
-from std_msgs.msg import Bool, String
+from std_msgs.msg import Bool, String, Float32
 from robopy_controller.msg import AudioData            # classe AudioData usata per _pub_speech
 import pyaudio
 import pvporcupine
@@ -237,6 +237,7 @@ class ReSpeakerVUINode(Node):
         # [v5.7] Debug VAD
         self._voice_frame_count    = 0
         self._is_tts_speaking      = False # [v10.1]
+        self._is_music_playing     = False # [v11.0]
 
         # ------------------------------------------------------------------ #
         # [v2.5 #1] Stato VUI con threading.Event
@@ -275,6 +276,7 @@ class ReSpeakerVUINode(Node):
         self.audio_pub     = self.create_publisher(AudioData, '/ai/input/audio_chunk',  qos_profile_audio)
         self.led_pub       = self.create_publisher(String,    '/respeaker/led_command',  10)
         self.barge_in_pub  = self.create_publisher(Bool,      '/ai/barge_in',            10)  # [v5.6]
+        self.ambient_noise_pub = self.create_publisher(Float32, '/ai/ambient_noise',       10)  # [v11.0] Auto-Volume
 
         # [v3.0] _pub_speech alias per il VAD gate (usa lo stesso topic audio_pub)
         self._pub_speech  = self.audio_pub
@@ -282,6 +284,7 @@ class ReSpeakerVUINode(Node):
         self.create_subscription(Bool,      '/ai/tts/speaking',         self._tts_speaking_cb,  10)
         self.create_subscription(AudioData, '/respeaker/speaker_audio', self._speaker_audio_cb, 10)
         self.create_subscription(Bool,      '/ai/input/mic_mute',       self._mic_mute_cb,      10)
+        self.create_subscription(Bool,      '/ai/music_playing',        self._music_playing_cb, 10)
 
         # ------------------------------------------------------------------ #
         # PyAudio — usa CHUNK_SIZE come frames_per_buffer
@@ -470,6 +473,14 @@ class ReSpeakerVUINode(Node):
             if not self._ev_listening.is_set():
                 self.set_led('IDLE')
 
+    def _music_playing_cb(self, msg: Bool):
+        """[v11.0] Tracks if Spotify is playing to inhibit VAD"""
+        self._is_music_playing = msg.data
+        if msg.data:
+            self.get_logger().info("🎵 [MUSIC] Spotify in riproduzione: VAD inibito (Porcupine attivo).")
+        else:
+            self.get_logger().info("🎵 [MUSIC] Spotify in pausa: VAD riattivato.")
+
     def _mic_mute_cb(self, msg: Bool):
         if msg.data:
             self._stop_listen_timer()
@@ -607,6 +618,9 @@ class ReSpeakerVUINode(Node):
             
         if rms < current_threshold:
             is_voice = False
+        elif self._is_music_playing:
+            # [v11.0] VAD Inibito se suona musica (per evitare eco), ci affidiamo solo alla Wake Word
+            is_voice = False
         else:
             # [DSP-HOT] tobytes() inevitabile (API C) — solo su view da 320 campioni
             try:
@@ -705,18 +719,42 @@ class ReSpeakerVUINode(Node):
             l_ch = audio_stereo[::2]
             n    = min(len(l_ch), CHUNK_SIZE)
             
+            # [v11.0] Calcolo continuo RMS per Auto-Volume Ambientale
+            rms_current = np.sqrt(np.mean(l_ch[:n].astype(np.float32)**2))
+            if not hasattr(self, '_is_speech_active'):
+                self._is_speech_active = False
+            
+            if not self._is_speech_active and not self._is_tts_speaking:
+                if not hasattr(self, '_ambient_noise_ema'):
+                    self._ambient_noise_ema = float(rms_current)
+                    self._ambient_noise_chunks = 0
+                else:
+                    alpha = 0.05
+                    self._ambient_noise_ema = (alpha * float(rms_current)) + ((1.0 - alpha) * self._ambient_noise_ema)
+                
+                self._ambient_noise_chunks += 1
+                if self._ambient_noise_chunks >= 16:  # Ogni ~1 sec (@16000Hz / 960)
+                    self._ambient_noise_chunks = 0
+                    msg = Float32()
+                    msg.data = self._ambient_noise_ema
+                    self.ambient_noise_pub.publish(msg)
+
             # Diagnostica Volume MIC (RMS ogni ~1s @ 960 chunks)
             self._rms_chunk_count += 1
-            if self._rms_chunk_count % 16 == 0: 
-                rms_l  = np.sqrt(np.mean(l_ch[:n].astype(np.float32)**2))
-                r_ch   = audio_stereo[1::2] # Canale destro
+            # [FIX v11.1] rms_l/rms_r devono essere SEMPRE definiti qui (anche fuori dal %16)
+            # per evitare UnboundLocalError nei blocchi cfg_diag_mode e barge-in che li usano.
+            rms_l = rms_current
+            rms_r = 0.0
+            rms_boosted = 0.0
+            if self._rms_chunk_count % 16 == 0:
+                r_ch   = audio_stereo[1::2]  # Canale destro
                 rms_r  = np.sqrt(np.mean(r_ch[:n].astype(np.float32)**2))
             # [v10.1] Dynamic Gain Control: riduciamo il guadagno durante il TTS per evitare eco
             stt_gain_to_use = self.stt_gain
             if self._is_tts_speaking:
                 # Se l'AI parla, abbassiamo il boost drasticamente (0.1x) per proteggere il VAD dall'eco [v10.4]
-                stt_gain_to_use = 0.1 
-            
+                stt_gain_to_use = 0.1
+
             if self._cfg_diag_mode:
                 # Calcola RMS dopo il boost (quello che vede Porcupine)
                 rms_boosted = rms_l * stt_gain_to_use
@@ -931,7 +969,9 @@ class ReSpeakerVUINode(Node):
             n_out = dev.get('maxOutputChannels')
             self.get_logger().info(f"  [{i}] {name} (in:{n_in}, out:{n_out})")
 
-            if self.device_name_target.lower() in name.lower():
+            # Cerchiamo esplicitamente 'pulse' o 'default' per usare il server PulseAudio/PipeWire
+            # In questo modo non blocchiamo l'hardware ALSA hw:0 e Raspotify può mixare l'audio!
+            if "pulse" in name.lower() or "default" in name.lower():
                 if n_in > 0 and in_idx is None:
                     in_idx = i
                 if n_out > 0 and out_idx is None:

@@ -1,0 +1,262 @@
+cd /mnt/ssd/robopy_controller_host
+source /opt/ros/jazzy/setup.bash
+source /home/robopy/ros2_venv/bin/activate
+source install/setup.bash
+source /mnt/ssd/robopy_controller_host/setup_keys.sh
+export ROS_DOMAIN_ID=42
+export PYTHONUNBUFFERED=1
+ros2 launch robopy_controller robot_ia_launch.py
+xhost:  unable to open display ""
+not found: "/home/robopy/robopy/robopi_controller/robopy_controller_host/install
+/local_setup.bash"
+not found: "/home/robopy/robopy/robopi_controller/robopy_controller_host/install
+/local_setup.bash"
+robopy@raspberrypi:~ $ cd /mnt/ssd/robopy_controller_host
+robopy@raspberrypi:/mnt/ssd/robopy_controller_host $ source /opt/ros/jazzy/setup
+.bash
+not found: "/home/robopy/robopy/robopi_controller/robopy_controller_host/install
+/local_setup.bash"
+robopy@raspberrypi:/mnt/ssd/robopy_controller_host $ source /home/robopy/ros2_ve
+nv/bin/activate
+(ros2_venv) robopy@raspberrypi:/mnt/ssd/robopy_controller_host $ source install/
+setup.bash
+(ros2_venv) robopy@raspberrypi:/mnt/ssd/robopy_controller_host $ source /mnt/ssd
+/robopy_controller_host/setup_keys.sh
+📄 Caricamento chiavi da /mnt/ssd/robopy_controller_host/.env...
+✅ Tutte le chiavi API e credenziali caricate correttamente.
+(ros2_venv) robopy@raspberrypi:/mnt/ssd/robopy_controller_host $ export ROS_DOMA
+IN_ID=42
+(ros2_venv) robopy@raspberrypi:/mnt/ssd/robopy_controller_host $ export PYTHONUN
+BUFFERED=1
+(ros2_venv) robopy@raspberrypi:/mnt/ssd/robopy_controller_host $ ros2 launch rob
+opy_controller robot_ia_launch.py
+[INFO] [launch]: All log files can be found below /home/robopy/.ros/log/2026-05-
+03-23-33-35-673344-raspberrypi-145460
+[INFO] [launch]: Default logging verbosity is set to INFO
+[ERROR] [respeaker_interface_node-5]: exception occurred while executing process
+:
+Traceback (most recent call last):
+  File "/mnt/ssd/ros2_jazzy/build/launch/launch/actions/execute_local.py", line
+569, in __execute_process
+    transport, self._subprocess_protocol = await async_execute_process(
+                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/ssd/ros2_jazzy/build/osrf_pycommon/osrf_pycommon/process_utils/asyn
+c_execute_process_asyncio/impl.py", line 139, in async_execute_process
+    transport, protocol = await _async_execute_process_nopty(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/ssd/ros2_jazzy/build/osrf_pycommon/osrf_pycommon/process_utils/asyn
+c_execute_process_asyncio/impl.py", line 45, in _async_execute_process_nopty
+    transport, protocol = await loop.subprocess_exec(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/asyncio/base_events.py", line 1694, in subprocess_ex
+ec
+    transport = await self._make_subprocess_transport(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/asyncio/unix_events.py", line 207, in _make_subproce
+ss_transport
+    transp = _UnixSubprocessTransport(self, protocol, args, shell,
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/asyncio/base_subprocess.py", line 36, in __init__
+    self._start(args=args, shell=shell, stdin=stdin, stdout=stdout,
+  File "/usr/lib/python3.11/asyncio/unix_events.py", line 810, in _start
+    self._proc = subprocess.Popen(
+                 ^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/subprocess.py", line 1024, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File "/usr/lib/python3.11/subprocess.py", line 1789, in _execute_child
+    self._posix_spawn(args, executable, env, restore_signals,
+  File "/usr/lib/python3.11/subprocess.py", line 1733, in _posix_spawn
+    self.pid = os.posix_spawn(executable, args, env, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+OSError: [Errno 8] Exec format error: '/mnt/ssd/robopy_controller_host/install/r
+obopy_controller/lib/robopy_controller/respeaker_interface_node'
+
+[ERROR] [servo_coda_node-8]: exception occurred while executing process:
+Traceback (most recent call last):
+  File "/mnt/ssd/ros2_jazzy/build/launch/launch/actions/execute_local.py", line
+569, in __execute_process
+    transport, self._subprocess_protocol = await async_execute_process(
+                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/ssd/ros2_jazzy/build/osrf_pycommon/osrf_pycommon/process_utils/asyn
+c_execute_process_asyncio/impl.py", line 139, in async_execute_process
+    transport, protocol = await _async_execute_process_nopty(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/ssd/ros2_jazzy/build/osrf_pycommon/osrf_pycommon/process_utils/asyn
+c_execute_process_asyncio/impl.py", line 45, in _async_execute_process_nopty
+    transport, protocol = await loop.subprocess_exec(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/asyncio/base_events.py", line 1694, in subprocess_ex
+ec
+    transport = await self._make_subprocess_transport(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/asyncio/unix_events.py", line 207, in _make_subproce
+ss_transport
+    transp = _UnixSubprocessTransport(self, protocol, args, shell,
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/asyncio/base_subprocess.py", line 36, in __init__
+    self._start(args=args, shell=shell, stdin=stdin, stdout=stdout,
+  File "/usr/lib/python3.11/asyncio/unix_events.py", line 810, in _start
+    self._proc = subprocess.Popen(
+                 ^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/subprocess.py", line 1024, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File "/usr/lib/python3.11/subprocess.py", line 1789, in _execute_child
+    self._posix_spawn(args, executable, env, restore_signals,
+  File "/usr/lib/python3.11/subprocess.py", line 1733, in _posix_spawn
+    self.pid = os.posix_spawn(executable, args, env, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+OSError: [Errno 8] Exec format error: '/mnt/ssd/robopy_controller_host/install/r
+obopy_controller/lib/robopy_controller/servo_coda_node'
+
+[ERROR] [ultrasonic_sensor-9]: exception occurred while executing process:
+Traceback (most recent call last):
+  File "/mnt/ssd/ros2_jazzy/build/launch/launch/actions/execute_local.py", line
+569, in __execute_process
+    transport, self._subprocess_protocol = await async_execute_process(
+                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/ssd/ros2_jazzy/build/osrf_pycommon/osrf_pycommon/process_utils/asyn
+c_execute_process_asyncio/impl.py", line 139, in async_execute_process
+    transport, protocol = await _async_execute_process_nopty(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/ssd/ros2_jazzy/build/osrf_pycommon/osrf_pycommon/process_utils/asyn
+c_execute_process_asyncio/impl.py", line 45, in _async_execute_process_nopty
+    transport, protocol = await loop.subprocess_exec(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/asyncio/base_events.py", line 1694, in subprocess_ex
+ec
+    transport = await self._make_subprocess_transport(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/asyncio/unix_events.py", line 207, in _make_subproce
+ss_transport
+    transp = _UnixSubprocessTransport(self, protocol, args, shell,
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/asyncio/base_subprocess.py", line 36, in __init__
+    self._start(args=args, shell=shell, stdin=stdin, stdout=stdout,
+  File "/usr/lib/python3.11/asyncio/unix_events.py", line 810, in _start
+    self._proc = subprocess.Popen(
+                 ^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/subprocess.py", line 1024, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File "/usr/lib/python3.11/subprocess.py", line 1789, in _execute_child
+    self._posix_spawn(args, executable, env, restore_signals,
+  File "/usr/lib/python3.11/subprocess.py", line 1733, in _posix_spawn
+    self.pid = os.posix_spawn(executable, args, env, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+OSError: [Errno 8] Exec format error: '/mnt/ssd/robopy_controller_host/install/r
+obopy_controller/lib/robopy_controller/ultrasonic_sensor'
+
+[INFO] [robot_ai_node-6]: process started with pid [145482]
+[INFO] [robot_state_publisher-1]: process started with pid [145465]
+[INFO] [static_transform_publisher-2]: process started with pid [145467]
+[INFO] [foxglove_bridge-3]: process started with pid [145469]
+[INFO] [respeaker_vui_node-4]: process started with pid [145471]
+[INFO] [homeassistant_node-7]: process started with pid [145484]
+[robot_state_publisher-1] [WARN] [1777844016.093216426] [rcl]: ROS_LOCALHOST_ONL
+Y is deprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_
+RANGE and ROS_STATIC_PEERS instead.
+[robot_state_publisher-1] [WARN] [1777844016.093256537] [rcl]: 'localhost_only'
+is disabled, 'automatic_discovery_range' and 'static_peers' will be used.
+[static_transform_publisher-2] [WARN] [1777844016.186046615] [rcl]: ROS_LOCALHOS
+T_ONLY is deprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCO
+VERY_RANGE and ROS_STATIC_PEERS instead.
+[static_transform_publisher-2] [WARN] [1777844016.186084652] [rcl]: 'localhost_o
+nly' is disabled, 'automatic_discovery_range' and 'static_peers' will be used.
+[static_transform_publisher-2] [WARN] [1777844016.188014320] []: Old-style argum
+ents are deprecated; see --help for new-style arguments
+[foxglove_bridge-3] [WARN] [1777844016.290161456] [rcl]: ROS_LOCALHOST_ONLY is d
+eprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_RANGE
+and ROS_STATIC_PEERS instead.
+[foxglove_bridge-3] [WARN] [1777844016.290188160] [rcl]: 'localhost_only' is dis
+abled, 'automatic_discovery_range' and 'static_peers' will be used.
+[static_transform_publisher-2] [INFO] [1777844016.304098747] [base_to_ultrasonic
+_tf]: Spinning until stopped - publishing transform
+[static_transform_publisher-2] translation: ('0.120000', '0.000000', '0.050000')
+[static_transform_publisher-2] rotation: ('0.000000', '0.000000', '0.000000', '1
+.000000')
+[static_transform_publisher-2] from 'base_link' to 'ultrasonic_sensor'
+[robot_state_publisher-1] [WARN] [1777844016.594630659] [kdl_parser]: The root l
+ink base_link has an inertia specified in the URDF, but KDL does not support a r
+oot link with an inertia.  As a workaround, you can add an extra dummy link to y
+our URDF.
+[robot_state_publisher-1] [INFO] [1777844016.595312685] [robot_state_publisher]:
+ Robot initialized
+[foxglove_bridge-3] [INFO] [1777844016.696399143] [foxglove_bridge]: Starting fo
+xglove_bridge (jazzy, 3.2.2@releases/typescript/v0.7.1-592-gcf6d7a3)
+[foxglove_bridge-3] [INFO] [1777844016.704772877] [foxglove_bridge]: Server list
+ening on port 8765
+[respeaker_vui_node-4] not found: "/home/robopy/robopy/robopi_controller/robopy_
+controller_host/install/local_setup.bash"
+[foxglove_bridge-3] [INFO] [1777844016.889822953] [foxglove_bridge]: Advertising
+ new channel 1 for topic "/tf"
+[foxglove_bridge-3] [INFO] [1777844016.934138220] [foxglove_bridge]: Advertising
+ new channel 2 for topic "/rosout"
+[foxglove_bridge-3] [INFO] [1777844016.934266981] [foxglove_bridge]: Advertising
+ new channel 3 for topic "/tf_static"
+[foxglove_bridge-3] [INFO] [1777844016.945782524] [foxglove_bridge]: Advertising
+ new channel 4 for topic "/robot_description"
+[foxglove_bridge-3] [INFO] [1777844017.005826768] [foxglove_bridge]: Advertising
+ new channel 5 for topic "/parameter_events"
+[foxglove_bridge-3] [INFO] [1777844017.264026239] [foxglove_bridge]: received co
+nnection graph subscribe request
+[foxglove_bridge-3] [INFO] [1777844017.264602170] [foxglove_bridge]: received su
+bscribe request for channel 2 from client 1 (sink 1)
+[foxglove_bridge-3] [WARN] [1777844017.265077194] [foxglove_bridge]: Limiting hi
+story depth for topic '/rosout' to 25 (was 3000). You may want to increase the m
+ax_qos_depth parameter value.
+[foxglove_bridge-3] [INFO] [1777844017.274108268] [foxglove_bridge]: created ROS
+ subscription on /rosout (rcl_interfaces/msg/Log) successfully for channel 2 (cl
+ient 1, sink 1)
+[foxglove_bridge-3] [INFO] [1777844017.274231324] [foxglove_bridge]: received su
+bscribe request for channel 1 from client 1 (sink 1)
+[foxglove_bridge-3] [WARN] [1777844017.274351122] [foxglove_bridge]: Limiting hi
+story depth for topic '/tf' to 25 (was 100). You may want to increase the max_qo
+s_depth parameter value.
+[foxglove_bridge-3] [INFO] [1777844017.305343105] [foxglove_bridge]: created ROS
+ subscription on /tf (tf2_msgs/msg/TFMessage) successfully for channel 1 (client
+ 1, sink 1)
+[foxglove_bridge-3] [INFO] [1777844017.305477255] [foxglove_bridge]: received su
+bscribe request for channel 3 from client 1 (sink 1)
+[foxglove_bridge-3] [INFO] [1777844017.319566491] [foxglove_bridge]: created ROS
+ subscription on /tf_static (tf2_msgs/msg/TFMessage) successfully for channel 3
+(client 1, sink 1)
+[foxglove_bridge-3] [INFO] [1777844017.325047658] [foxglove_bridge]: received su
+bscribe request for channel 4 from client 1 (sink 1)
+[foxglove_bridge-3] [INFO] [1777844017.339996996] [foxglove_bridge]: created ROS
+ subscription on /robot_description (std_msgs/msg/String) successfully for chann
+el 4 (client 1, sink 1)
+[homeassistant_node-7] [WARN] [1777844017.682710942] [rcl]: ROS_LOCALHOST_ONLY i
+s deprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_RAN
+GE and ROS_STATIC_PEERS instead.
+[homeassistant_node-7] [WARN] [1777844017.682734812] [rcl]: 'localhost_only' is
+disabled, 'automatic_discovery_range' and 'static_peers' will be used.
+[foxglove_bridge-3] [INFO] [1777844017.710630394] [foxglove_bridge]: Advertising
+ new channel 6 for topic "/joint_states"
+[foxglove_bridge-3] [INFO] [1777844017.725275451] [foxglove_bridge]: publishing
+connection graph
+[homeassistant_node-7] [INFO] [1777844017.974233124] [homeassistant_node]: 🔄 Te
+ntativo di connessione a ws://192.168.1.45:8123/api/websocket
+[homeassistant_node-7] [INFO] [1777844017.978174794] [homeassistant_node]: 🤖 No
+do Home Assistant Bridge inizializzato
+[foxglove_bridge-3] [INFO] [1777844018.248327239] [foxglove_bridge]: Advertising
+ new channel 7 for topic "/system/performance"
+[foxglove_bridge-3] [INFO] [1777844018.257786206] [foxglove_bridge]: Advertising
+ new channel 8 for topic "/sensors/temperature"
+[foxglove_bridge-3] [INFO] [1777844018.258693159] [foxglove_bridge]: Advertising
+ new channel 9 for topic "/robot/state"
+[foxglove_bridge-3] [INFO] [1777844018.267677899] [foxglove_bridge]: Advertising
+ new channel 10 for topic "/ha/switches"
+[foxglove_bridge-3] [INFO] [1777844018.268840448] [foxglove_bridge]: Advertising
+ new channel 11 for topic "/ha/lights"
+[foxglove_bridge-3] [INFO] [1777844018.269357379] [foxglove_bridge]: Advertising
+ new channel 12 for topic "/ha/buttons"
+[foxglove_bridge-3] [INFO] [1777844018.281905841] [foxglove_bridge]: Advertising
+ new channel 13 for topic "/cmd_vel"
+[foxglove_bridge-3] [INFO] [1777844018.378723386] [foxglove_bridge]: publishing
+connection graph
+[foxglove_bridge-3] [INFO] [1777844018.883921639] [foxglove_bridge]: publishing
+connection graph
+[homeassistant_node-7] [ERROR] [1777844021.150968446] [homeassistant_node]: ❌ E
+rrore connessione: [Errno 113] Connect call failed ('192.168.1.45', 8123)
+[homeassistant_node-7] [INFO] [1777844021.162418674] [homeassistant_node]: 🔄 Ri
+tento connessione in 60 secondi...
+

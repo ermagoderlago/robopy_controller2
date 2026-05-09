@@ -1,8 +1,11 @@
 # robopy_controller/robot_ai/skills/builtin/email_skill.py
 """
-Robot AI Skills - Email Skill
-==============================
-Legge, riassume e risponde alle email tramite IMAP/SMTP con analisi LLM.
+Robot AI Skills - Email Skill v2.0
+===================================
+Assistente email professionale per Marcus.
+Legge, classifica, riassume e risponde alle email tramite IMAP/SMTP.
+Polling automatico ogni 10 min con quiet hours, classificazione intelligente,
+salvataggio RAG per email importanti, notifiche proattive.
 
 Pattern: AsyncGenerator (come SearchSkill) — feedback vocale progressivo.
 Dipendenze esterne: aioimaplib, aiosmtplib
@@ -10,6 +13,7 @@ Dipendenze esterne: aioimaplib, aiosmtplib
 
 import asyncio
 import email as email_lib
+import hashlib
 import json
 import logging
 import os
@@ -38,30 +42,50 @@ _FALLBACK_RESPONSE: Dict[str, Any] = {
     "priority":    "normal",
 }
 
+# Pattern per email interessanti (pacchi, corrieri, ordini)
+_INTERESTING_PATTERNS = [
+    re.compile(r'\b(amazon|aliexpress|ali\s*express|ebay|temu|wish)\b', re.I),
+    re.compile(r'\b(tracking|spedizione|corriere|pacco|consegna|shipment|delivery|shipped)\b', re.I),
+    re.compile(r'\b(BRT|Bartolini|DHL|UPS|FedEx|GLS|SDA|Poste\s*Italiane|TNT|Nexive)\b', re.I),
+    re.compile(r'\b(ordine|order|conferma.*ordine|order.*confirm|fattura|invoice)\b', re.I),
+]
+
+# Quiet hours defaults
+_QUIET_START = 23  # 23:00
+_QUIET_END = 7     # 07:00
+_POLL_INTERVAL_MIN = 10
+
 _LLM_PROMPT_TEMPLATE = """
-Sei l'assistente AI del robot Marcus. Analizza le seguenti {n} email.
+Sei l'assistente AI del robot Marcus, il fedele assistente di Luca Suffia.
+Analizza le seguenti {n} email con attenzione professionale.
 Rispondi ESCLUSIVAMENTE con un oggetto JSON valido.
 Non aggiungere testo, markdown o backtick prima o dopo il JSON.
 
 Intent dell'utente: {intent}
 {reply_instruction}
 
+Mittenti prioritari (VIP — segnala sempre): {vip_senders}
+
 Email (in ordine cronologico inverso):
 {emails_json}
 
 Schema JSON richiesto (rispetta esattamente questa struttura):
 {{
-  "summary":     "<stringa, max 250 char, in italiano. Se intent=deepdive leggi per esteso i dettagli dell'email. Altrimenti fai un breve riassunto>",
-  "reply_draft": "<bozza risposta in prima persona come robot Marcus> | null",
+  "summary":     "<stringa, max 350 char, in italiano. Se intent=deepdive leggi per esteso. Altrimenti riassumi brevemente citando mittenti e oggetti>",
+  "reply_draft": "<bozza risposta in prima persona come robot Marcus, professionale e cortese> | null",
   "ha_actions":  [{{"type": "reminder|store_memory|speak", "payload": {{"detail": "<str>"}}}}],
-  "priority":    "urgent|normal|low"
+  "priority":    "urgent|normal|low",
+  "tracking":    "<numero tracking se presente> | null",
+  "classifications": [{{"from": "<mittente>", "class": "urgent|important|interesting|normal|spam"}}]
 }}
 
 Vincoli:
-- "summary" se intent=deepdive, spiega il contenuto testuale della mail. Altrimenti inizia sempre con "Hai N email:" e cita i mittenti.
-- "ha_actions" usa type=store_memory se l'email contiene date o dettagli importanti da ricordare a lungo termine (usa payload.detail per inserire il testo da ricordare).
-- "priority" è "urgent" solo per emergenze o scadenze entro 24h
-- "reply_draft" è null se intent != "reply"
+- "summary" se intent=deepdive, spiega il contenuto testuale della mail con dettagli. Altrimenti inizia con "Hai N email:" e cita i mittenti.
+- "ha_actions" usa type=store_memory se l'email contiene date, scadenze, numeri tracking, consegne o dettagli importanti da ricordare.
+- "priority" è "urgent" solo per emergenze o scadenze entro 24h.
+- "reply_draft" è null se intent != "reply".
+- "tracking" estrai numeri di tracking/spedizione se presenti nel corpo email.
+- "classifications" classifica OGNI email: email da VIP sono "important", pacchi/ordini sono "interesting", newsletter/promo sono "spam".
 """.strip()
 
 # ---------------------------------------------------------------------------
@@ -94,10 +118,11 @@ class EmailSkill(BaseSkill):
     durante operazioni potenzialmente lunghe (IMAP connect → fetch → LLM → SMTP).
     """
 
-    def __init__(self, llm_service, config: Dict[str, Any] = None):
+    def __init__(self, llm_service, config: Dict[str, Any] = None, memory_manager=None):
         super().__init__()
         self.llm_service = llm_service
         self.config      = config or {}
+        self.memory_manager = memory_manager
 
         # Stato interno
         self._is_running:         bool                   = False
@@ -120,10 +145,27 @@ class EmailSkill(BaseSkill):
         self.t_fetch      = self.config.get("timeout_fetch",   15)
         self.t_send       = self.config.get("timeout_send",    20)
         self.t_llm        = self.config.get("llm_timeout",     20)
-        self.max_emails   = self.config.get("max_emails",       8)
-        self.min_interval = self.config.get("min_interval_s",  30)
+        self.max_emails   = self.config.get("max_emails",      30)  # v2.0: era 8
+        self.min_interval = self.config.get("min_interval_s",   5)  # v2.0: ridotto, rate limit leggero
         
         self._recent_emails: List[Dict] = []
+
+        # v2.0: Polling automatico
+        self._poll_interval = self.config.get("poll_interval_min", _POLL_INTERVAL_MIN) * 60
+        self._quiet_start   = self.config.get("quiet_start", _QUIET_START)
+        self._quiet_end     = self.config.get("quiet_end", _QUIET_END)
+        self._poll_task: Optional[asyncio.Task] = None
+
+        # v2.0: Notifiche proattive
+        self._notification_buffer: List[Dict] = []
+
+        # v2.0: Deduplicazione email
+        self._known_email_ids: set = set()
+
+        # v2.0: Mittenti VIP (importanti)
+        self._vip_senders: List[str] = self.config.get("vip_senders", [
+            "luisella.bonfanti@gmail.com",
+        ])
 
     # -----------------------------------------------------------------------
     # LLM Tool Schema
@@ -164,6 +206,10 @@ class EmailSkill(BaseSkill):
                 "email_id": {
                     "type": "string",
                     "description": "Nome del mittente o parola chiave se l'intent è deepdive."
+                },
+                "reply_to": {
+                    "type": "string",
+                    "description": "Nome o indirizzo email del mittente a cui rispondere (es: 'Luisella', 'mario@example.com'). Usato con intent=reply."
                 }
             },
             "required": ["intent", "text"]
@@ -175,11 +221,12 @@ class EmailSkill(BaseSkill):
     def get_metadata(self) -> SkillMetadata:
         return SkillMetadata(
             name="check_emails",
-            description="Legge, riassume e risponde alle email tramite IMAP/SMTP",
-            version="1.1.0",
+            description="Assistente email professionale: legge, classifica, riassume e risponde alle email tramite IMAP/SMTP. Polling automatico con notifiche.",
+            version="2.0.0",
             keywords=[
                 "email", "mail", "posta", "messaggi", "inbox", "casella",
-                "leggi", "controlla", "rispondi", "urgent", "importante", "check_emails"
+                "leggi", "controlla", "rispondi", "urgent", "importante",
+                "check_emails", "pacco", "tracking", "spedizione",
             ],
             priority=7,
             requires_internet=True,
@@ -306,9 +353,16 @@ class EmailSkill(BaseSkill):
     # -----------------------------------------------------------------------
     # IMAP fetch (cancellabile)
     # -----------------------------------------------------------------------
-    async def _fetch_emails_task(self, intent: str, date_filter: str = "all") -> List[Dict]:
+    async def _fetch_emails_task(
+        self,
+        intent: str,
+        date_filter: str = "all",
+        sender_filter: str = "",
+        subject_filter: str = "",
+    ) -> List[Dict]:
         """
-        Connessione IMAP, fetch dei messaggi non letti, parsing.
+        Connessione IMAP, fetch dei messaggi, parsing.
+        Supporta filtro mittente/oggetto lato server via IMAP SEARCH.
         Cancellabile tramite asyncio.Task.cancel().
         """
         emails: List[Dict] = []
@@ -320,12 +374,11 @@ class EmailSkill(BaseSkill):
                 imap.wait_hello_from_server(), timeout=self.t_connect
             )
 
-            # Login — fallimento qui = credenziali errate (non errore di rete)
+            # Login
             login_resp = await asyncio.wait_for(
                 imap.login(self.email_addr, self.email_pass),
                 timeout=self.t_connect
             )
-            # aioimaplib ritorna (status, [data]): status è 'OK' o 'NO'/'BAD'
             if login_resp[0].upper() != "OK":
                 raise PermissionError(f"Login IMAP rifiutato: {login_resp}")
 
@@ -333,9 +386,25 @@ class EmailSkill(BaseSkill):
                 imap.select("INBOX"), timeout=self.t_connect
             )
 
-            # Fetch solo l'ultimo (intent reply) o tutti gli UNSEEN
-            search_cmd = "UNSEEN"
-            if date_filter == "today":
+            # --- Costruzione SEARCH command ---
+            # Priorità: filtri specifici > date_filter > UNSEEN
+            if sender_filter:
+                # IMAP SEARCH FROM è case-insensitive e cerca in tutta la stringa From:
+                base_cmd = f'FROM "{sender_filter}"'
+                if date_filter and date_filter != "all":
+                    d_map = {
+                        "today": datetime.date.today(),
+                        "yesterday": datetime.date.today() - datetime.timedelta(days=1),
+                        "week": datetime.date.today() - datetime.timedelta(days=7),
+                    }
+                    d = d_map.get(date_filter, datetime.date.today()).strftime("%d-%b-%Y")
+                    search_cmd = f'SINCE {d} {base_cmd}'
+                else:
+                    search_cmd = base_cmd
+            elif subject_filter:
+                base_cmd = f'SUBJECT "{subject_filter}"'
+                search_cmd = base_cmd
+            elif date_filter == "today":
                 d = datetime.date.today().strftime("%d-%b-%Y")
                 search_cmd = f"SINCE {d}"
             elif date_filter == "yesterday":
@@ -344,32 +413,38 @@ class EmailSkill(BaseSkill):
             elif date_filter == "week":
                 d = (datetime.date.today() - datetime.timedelta(days=7)).strftime("%d-%b-%Y")
                 search_cmd = f"SINCE {d}"
+            elif intent == "reply":
+                search_cmd = "ALL"
+            else:
+                search_cmd = "UNSEEN"
 
-            if intent == "reply":
-                # Cerca l'ultimo messaggio in assoluto
+            logger.info(f"IMAP SEARCH: '{search_cmd}'")
+
+            _, search_data = await asyncio.wait_for(
+                imap.search(search_cmd), timeout=self.t_fetch
+            )
+
+            # Fallback: se UNSEEN vuoto, prendi le ultime ALL
+            raw_ids_str = " ".join(b.decode() for b in search_data if b)
+            if not raw_ids_str.strip() and search_cmd == "UNSEEN":
+                logger.info("EmailSkill: UNSEEN vuoto, fallback su ALL")
                 _, search_data = await asyncio.wait_for(
                     imap.search("ALL"), timeout=self.t_fetch
                 )
-            else:
-                _, search_data = await asyncio.wait_for(
-                    imap.search(search_cmd), timeout=self.t_fetch
-                )
-                # Fallback: se non ci sono nuove mail, proviamo a prendere le ultime ALL
-                raw_ids_str = " ".join(b.decode() for b in search_data if b)
-                if not raw_ids_str.strip() and search_cmd == "UNSEEN":
-                    logger.info("EmailSkill: UNSEEN vuoto, fallback su ALL per intent 'read/summary'")
-                    _, search_data = await asyncio.wait_for(
-                        imap.search("ALL"), timeout=self.t_fetch
-                    )
 
-            # Uniamo tutti i chunk della risposta SEARCH e filtriamo solo gli ID numerici
+            # Fallback aggiuntivo per filtri specifici: se FROM non trova nulla, cerca in ALL
+            if not raw_ids_str.strip() and sender_filter:
+                logger.info(f"EmailSkill: nessun risultato FROM '{sender_filter}', cerco in subject")
+                _, search_data = await asyncio.wait_for(
+                    imap.search(f'SUBJECT "{sender_filter}"'), timeout=self.t_fetch
+                )
+
             raw_ids_str = " ".join(b.decode() for b in search_data if b)
-            all_ids     = [i for i in raw_ids_str.split() if i.isdigit()]
-            msg_ids     = all_ids[-self.max_emails:]       # ultimi N (più recenti)
+            all_ids = [i for i in raw_ids_str.split() if i.isdigit()]
+            msg_ids = all_ids[-self.max_emails:]  # ultimi N (più recenti)
 
             logger.info(
-                f"IMAP: trovati {len(all_ids)} ID validi, "
-                f"processo gli ultimi {len(msg_ids)}: {msg_ids}"
+                f"IMAP: trovati {len(all_ids)} ID, processo gli ultimi {len(msg_ids)}: {msg_ids}"
             )
 
             for msg_id in msg_ids:
@@ -502,10 +577,27 @@ class EmailSkill(BaseSkill):
             
             date_filter = context.get("date_filter", "all")
             search_keyword = context.get("email_id", "")
-            
-            logger.info(f"EmailSkill: intent={intent!r} date_filter={date_filter!r} text={text!r}")
+            reply_to = context.get("reply_to", "") or search_keyword
+            sender_filter = ""  # inizializzato qui, valorizzato nel blocco IMAP
 
-            if intent == "deepdive" and self._recent_emails:
+            logger.info(f"EmailSkill: intent={intent!r} date_filter={date_filter!r} reply_to={reply_to!r} text={text!r}")
+
+            # v2.0: Reply a mittente specifico — cerca nelle email recenti
+            if intent == "reply" and reply_to and self._recent_emails:
+                target = self._find_email_by_sender(reply_to)
+                if target:
+                    emails = [target]
+                    logger.info(f"📧 Reply to specific sender: {target['from']}")
+                else:
+                    yield SkillResult(
+                        success=True,
+                        message=f"Non trovo email recenti da {reply_to}",
+                        speak=f"Non ho trovato email recenti da {reply_to}. Provo a controllare la posta."
+                    )
+                    # Fallthrough: prova a fare un fetch fresco
+                    reply_to = ""  # reset per non ricercare dopo fetch
+
+            elif intent == "deepdive" and self._recent_emails:
                 yield SkillResult(
                     success=True,
                     message="Recupero i dettagli dell'email dalla memoria...",
@@ -528,8 +620,12 @@ class EmailSkill(BaseSkill):
                     speak="Un momento, mi connetto al server email."
                 )
 
+                # Estrai sender_filter da email_id o reply_to
+                # Viene usato sia per IMAP SEARCH FROM che come post-filtro locale
+                sender_filter = (reply_to or search_keyword or "").strip()
+
                 self._current_task = asyncio.create_task(
-                    self._fetch_emails_task(intent, date_filter)
+                    self._fetch_emails_task(intent, date_filter, sender_filter=sender_filter)
                 )
 
                 try:
@@ -566,13 +662,43 @@ class EmailSkill(BaseSkill):
                     return
 
             # ── 4. Nessuna email nuova ──────────────────────────────────
+            # sender_filter è definito sopra (pre-inizializzato a "")
             if not emails:
-                yield SkillResult(
-                    success=True,
-                    message="Nessun messaggio non letto",
-                    speak="Non hai nuove email da leggere."
-                )
+                if sender_filter and self._recent_emails:
+                    # IMAP SEARCH non ha trovato nulla: post-filtro sulla cache locale
+                    local_matches = [
+                        em for em in self._recent_emails
+                        if sender_filter.lower() in em.get("from", "").lower()
+                        or sender_filter.lower() in em.get("subject", "").lower()
+                    ]
+                    if local_matches:
+                        logger.info(f"📧 Post-filtro cache: {len(local_matches)} email per '{sender_filter}'")
+                        emails = local_matches
+                    else:
+                        yield SkillResult(
+                            success=True,
+                            message=f"Nessuna email trovata da '{sender_filter}'",
+                            speak=f"Non ho trovato email recenti da {sender_filter}."
+                        )
+                        return
+                elif sender_filter:
+                    yield SkillResult(
+                        success=True,
+                        message=f"Nessuna email trovata da '{sender_filter}'",
+                        speak=f"Non ho trovato email recenti da {sender_filter}."
+                    )
+                    return
+                else:
+                    yield SkillResult(
+                        success=True,
+                        message="Nessun messaggio non letto",
+                        speak="Non hai nuove email da leggere."
+                    )
+                    return
+
+            if not emails:  # secondo check dopo post-filtro
                 return
+
 
             n = len(emails)
 
@@ -597,6 +723,7 @@ class EmailSkill(BaseSkill):
                 intent=intent,
                 reply_instruction=reply_instruction,
                 emails_json=emails_json,
+                vip_senders=", ".join(self._vip_senders),
             )
 
             # Chiamata LLM
@@ -696,6 +823,202 @@ class EmailSkill(BaseSkill):
         if self._current_task and not self._current_task.done():
             self._current_task.cancel()
             logger.info("EmailSkill: task IMAP annullato")
+
+    # -----------------------------------------------------------------------
+    # v2.0: Background Polling
+    # -----------------------------------------------------------------------
+    def start_background_tasks(self):
+        """Avvia il polling automatico delle email (chiamato dall'orchestratore)."""
+        if not self.email_addr or not self.email_pass:
+            logger.warning("EmailSkill: polling non avviato (credenziali mancanti)")
+            return
+        self._poll_task = asyncio.create_task(self._email_poll_loop())
+        logger.info(
+            f"📧 Email polling v2.0 avviato (ogni {self._poll_interval // 60} min, "
+            f"quiet {self._quiet_start}:00-{self._quiet_end}:00)"
+        )
+
+    async def _email_poll_loop(self):
+        """Loop background: controlla email ogni N minuti, salta le quiet hours."""
+        await asyncio.sleep(60)  # Attendi 1 min dopo boot per stabilizzazione
+        while True:
+            try:
+                hour = datetime.datetime.now().hour
+                if self._quiet_start <= hour or hour < self._quiet_end:
+                    logger.debug(f"📧 Quiet hours ({hour}:00), polling sospeso")
+                    await asyncio.sleep(300)  # Ricontrolla tra 5 min
+                    continue
+                
+                await self._auto_check_emails()
+            except asyncio.CancelledError:
+                logger.info("📧 Polling loop annullato")
+                break
+            except Exception as e:
+                logger.error(f"📧 Email poll error: {e}")
+            
+            await asyncio.sleep(self._poll_interval)
+
+    async def _auto_check_emails(self):
+        """Polling automatico: fetch, classifica, salva in RAG, bufferizza notifiche."""
+        try:
+            emails = await self._fetch_emails_task("read", "all")
+            if not emails:
+                logger.debug("📧 Polling: nessuna email trovata")
+                return
+            
+            new_emails = self._filter_new_emails(emails)
+            if not new_emails:
+                logger.debug("📧 Polling: nessuna email nuova")
+                return
+            
+            for em in new_emails:
+                classification = self._classify_email(em)
+                em["_classification"] = classification
+                
+                # Salva in RAG se importante/interessante
+                if classification in ("urgent", "important", "interesting"):
+                    await self._store_email_in_rag(em, classification)
+                
+                # Bufferizza notifica (escludi spam)
+                if classification != "spam":
+                    self._notification_buffer.append({
+                        "from": em.get("from", "sconosciuto"),
+                        "subject": em.get("subject", "(senza oggetto)"),
+                        "classification": classification,
+                        "timestamp": time.time(),
+                    })
+            
+            self._recent_emails = emails  # Aggiorna cache completa
+            logger.info(
+                f"📧 Polling: {len(new_emails)} nuove email processate "
+                f"({len(self._notification_buffer)} notifiche in buffer)"
+            )
+        except Exception as e:
+            logger.error(f"📧 Auto-check failed: {e}")
+
+    # -----------------------------------------------------------------------
+    # v2.0: Email Classification
+    # -----------------------------------------------------------------------
+    def _classify_email(self, email_data: Dict) -> str:
+        """Classifica email: urgent|important|interesting|normal|spam."""
+        sender = email_data.get("from", "").lower()
+        subject = email_data.get("subject", "")
+        body = email_data.get("body_snippet", "")
+        full_text = f"{subject} {body}"
+        
+        # VIP sender → important
+        for vip in self._vip_senders:
+            if vip.lower() in sender:
+                return "important"
+        
+        # Pattern urgenza nel contenuto
+        if re.search(r'\b(urgente|scadenza|deadline|immediato|critico|URGENTE)\b', full_text, re.I):
+            return "urgent"
+        
+        # Pattern interessanti (pacchi, corrieri, ordini)
+        for pattern in _INTERESTING_PATTERNS:
+            if pattern.search(full_text):
+                return "interesting"
+        
+        # Newsletter/marketing → spam
+        if re.search(r'\b(unsubscribe|disiscriviti|newsletter|promotional|noreply|no-reply)\b', full_text, re.I):
+            return "spam"
+        
+        return "normal"
+
+    # -----------------------------------------------------------------------
+    # v2.0: RAG Storage
+    # -----------------------------------------------------------------------
+    async def _store_email_in_rag(self, email_data: Dict, classification: str):
+        """Salva email nel RAG per memoria a lungo termine."""
+        if not self.memory_manager:
+            return
+        content = (
+            f"Email [{classification.upper()}] ricevuta da {email_data.get('from', '?')}, "
+            f"Oggetto: {email_data.get('subject', '?')}, "
+            f"Data: {email_data.get('date', '?')}, "
+            f"Contenuto: {email_data.get('body_snippet', '')[:400]}"
+        )
+        try:
+            await self.memory_manager.store_background(
+                f"email_{classification}",
+                content,
+                "email"
+            )
+            logger.info(f"📧 RAG: salvata email {classification} da {email_data.get('from', '?')}")
+        except Exception as e:
+            logger.warning(f"📧 RAG save failed: {e}")
+
+    # -----------------------------------------------------------------------
+    # v2.0: Notification Buffer (proattivo)
+    # -----------------------------------------------------------------------
+    def get_pending_notifications(self) -> List[Dict]:
+        """Ritorna le notifiche email pendenti senza consumarle."""
+        return list(self._notification_buffer)
+
+    def consume_notifications(self) -> str:
+        """Consuma e formatta le notifiche pendenti come testo per il prompt."""
+        if not self._notification_buffer:
+            return ""
+        
+        urgent = [n for n in self._notification_buffer if n["classification"] == "urgent"]
+        important = [n for n in self._notification_buffer if n["classification"] == "important"]
+        interesting = [n for n in self._notification_buffer if n["classification"] == "interesting"]
+        normal = [n for n in self._notification_buffer if n["classification"] == "normal"]
+        
+        lines = []
+        if urgent:
+            lines.append(f"⚠️ {len(urgent)} email URGENTI:")
+            for n in urgent:
+                lines.append(f"  - Da {n['from']}: {n['subject']}")
+        if important:
+            lines.append(f"📌 {len(important)} email importanti:")
+            for n in important:
+                lines.append(f"  - Da {n['from']}: {n['subject']}")
+        if interesting:
+            lines.append(f"📦 {len(interesting)} aggiornamenti pacchi/ordini:")
+            for n in interesting:
+                lines.append(f"  - Da {n['from']}: {n['subject']}")
+        if normal:
+            lines.append(f"📧 {len(normal)} altre email")
+        
+        self._notification_buffer.clear()
+        return "\n".join(lines)
+
+    # -----------------------------------------------------------------------
+    # v2.0: Sender Search
+    # -----------------------------------------------------------------------
+    def _find_email_by_sender(self, query: str) -> Optional[Dict]:
+        """Cerca un'email nelle recenti per nome/indirizzo mittente."""
+        query_lower = query.lower().strip()
+        for em in self._recent_emails:
+            sender = em.get("from", "").lower()
+            if query_lower in sender:
+                return em
+        # Fallback: cerca anche nel subject
+        for em in self._recent_emails:
+            subject = em.get("subject", "").lower()
+            if query_lower in subject:
+                return em
+        return None
+
+    # -----------------------------------------------------------------------
+    # v2.0: Deduplication
+    # -----------------------------------------------------------------------
+    def _filter_new_emails(self, emails: List[Dict]) -> List[Dict]:
+        """Filtra solo email non ancora processate (dedup per hash)."""
+        new = []
+        for em in emails:
+            key = f"{em.get('from', '')}_{em.get('subject', '')}_{em.get('date', '')}"
+            email_hash = hashlib.md5(key.encode()).hexdigest()
+            if email_hash not in self._known_email_ids:
+                self._known_email_ids.add(email_hash)
+                new.append(em)
+        # Evita crescita infinita del set (max 500 hash)
+        if len(self._known_email_ids) > 500:
+            # Tieni solo gli ultimi 300
+            self._known_email_ids = set(list(self._known_email_ids)[-300:])
+        return new
 
 
 # =============================================================================

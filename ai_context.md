@@ -113,7 +113,11 @@
   **Nota**: Gestisce il volume musica in modo indipendente tramite API Spotipy.
   Richiede `.spotipy_cache` nella home utente.
 - `robopy_controller/robot_ai/skills/builtin/email_skill.py`
-  Skill per leggere, riassumere e rispondere alle email (IMAP/SMTP).
+  Skill v2.0 — Assistente email professionale: legge, classifica, riassume e risponde alle email (IMAP/SMTP).
+  **Polling automatico** ogni 10 min con quiet hours (23:00-07:00).
+  Classificazione intelligente: urgent|important|interesting|normal|spam.
+  Salvataggio RAG per email importanti/interessanti. Notifiche proattive iniettate nel prompt.
+  Supporta reply per mittente specifico e deduplicazione hash-based.
 - `robopy_controller/robot_ai/skills/builtin/alarm_skill.py`
   Gestione sveglie e promemoria persistenti con annunci vocali e retry.
 - `robopy_controller/robot_ai/skills/builtin/timer_skill.py`

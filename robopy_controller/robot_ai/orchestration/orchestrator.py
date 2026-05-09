@@ -15,7 +15,7 @@ from typing import Optional, List, Dict, Callable, Any
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from sensor_msgs.msg import CompressedImage
-from std_msgs.msg import String, Bool
+from std_msgs.msg import String, Bool, Float32
 from diagnostic_msgs.msg import DiagnosticArray
 # New: VQA and Memory Search Services
 from robopy_controller.srv import AskVisualQuestion, MemorySearch
@@ -158,20 +158,26 @@ class AIOrchestrator(Node):
         ))
         self.skill_registry.register(CalibrationSkill(self))
 
-        # EmailSkill — IMAP/SMTP con analisi LLM
+        # EmailSkill v2.0 — Assistente email professionale con polling automatico
         _email_cfg = {
-            "imap_server":     "imap.gmail.com",
-            "imap_port":       993,
-            "smtp_server":     "smtp.gmail.com",
-            "smtp_port":       587,
-            "max_emails":      8,
-            "min_interval_s":  30,
-            "timeout_connect": 10,
-            "timeout_fetch":   15,
-            "timeout_send":    20,
-            "llm_timeout":     20,
+            "imap_server":       "imap.gmail.com",
+            "imap_port":         993,
+            "smtp_server":       "smtp.gmail.com",
+            "smtp_port":         587,
+            "max_emails":        30,   # v2.0: era 8
+            "min_interval_s":    30,
+            "timeout_connect":   10,
+            "timeout_fetch":     15,
+            "timeout_send":      20,
+            "llm_timeout":       20,
+            "poll_interval_min": 10,   # v2.0: polling ogni 10 min
+            "quiet_start":       23,   # v2.0: quiet hours 23:00-07:00
+            "quiet_end":         7,
+            "vip_senders":       ["luisella.bonfanti@gmail.com"],
         }
-        self.skill_registry.register(EmailSkill(self.llm_service, _email_cfg))
+        self.skill_registry.register(
+            EmailSkill(self.llm_service, _email_cfg, memory_manager=self.memory_manager)
+        )
 
         # CreaSkill — Meta-skill per generazione autonoma di nuove skill.
         # Richiede DI esplicita via register_with_deps() (costruttore con argomenti).
@@ -200,6 +206,11 @@ class AIOrchestrator(Node):
         # Skill generate autonomamente (da manifest active/) — carica quelle con enabled=true
         _n_active = self.skill_registry.discover_active()
         self.ai_logger.info(f"Caricate {_n_active} skill attive dal manifest.")
+        
+        # [v11.0] Inietta dipendenze per skill scoperte dinamicamente
+        spotify_skill = self.skill_registry.get("spotify_skill")
+        if spotify_skill:
+            spotify_skill.memory_manager = self.memory_manager
 
         # Inietto le funzioni registrate nel LLMService per abilitare il Tool Calling (anche Live API)
         self.llm_service.set_tools(self.skill_registry.get_function_declarations())
@@ -248,6 +259,7 @@ class AIOrchestrator(Node):
         self.create_subscription(Bool, '/ai/input/mic_mute', self._mute_callback, 10)
         self.create_subscription(AudioData, '/ai/conversation/audio_chunk', self._audio_chunk_callback, 10)
         self.create_subscription(Bool, '/ai/barge_in', self._barge_in_callback, 10)
+        self.create_subscription(Float32, '/ai/ambient_noise', self._ambient_noise_callback, 10)
 
         # New: Memory Search service
         self.memory_search_srv = self.create_service(
@@ -317,6 +329,23 @@ class AIOrchestrator(Node):
         self.ai_logger.info("🎤 [BARGE-IN] Segnale ricevuto dal VUI — cancello turno LLM...")
         self.conversation_manager.cancel_current_turn()
         self._update_led("LED_EFFECT:LISTENING")
+        
+        # [v11.0] Pausa automatica di Spotify al richiamo della Wake Word
+        spotify_skill = self.skill_registry.get_skill("spotify_skill")
+        if spotify_skill and hasattr(spotify_skill, 'sp') and spotify_skill.sp:
+            try:
+                device_id = spotify_skill._get_device_id()
+                spotify_skill.sp.pause_playback(device_id=device_id)
+                self.ai_logger.info("🎵 [MUSIC] Spotify messo in pausa (Wake Word intercettata).")
+                # Forza aggiornamento stato
+                self.conversation_manager._set_music_playing(False)
+            except Exception as e:
+                self.ai_logger.debug(f"🎵 [MUSIC] Impossibile mettere in pausa Spotify: {e}")
+
+    def _ambient_noise_callback(self, msg: Float32):
+        """Riceve RMS di rumore ambientale e lo passa al TTS per l'auto-volume."""
+        if hasattr(self, 'tts_service'):
+            self.tts_service.set_ambient_noise(msg.data)
         
     def _on_tts_audio_buffer(self, event):
         """Riceve audio dal TTSService via EventBus e lo pubblica su ROS."""

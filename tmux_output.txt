@@ -1,0 +1,481 @@
+cd /mnt/ssd/robopy_controller_host
+source /opt/ros/jazzy/setup.bash
+source /home/robopy/ros2_venv/bin/activate
+source install/setup.bash
+source /mnt/ssd/robopy_controller_host/setup_keys.sh
+export ROS_DOMAIN_ID=42
+xhost:  unable to open display ""
+export PYTHONUNBUFFERED=1
+ros2 launch robopy_controller robot_ia_launch.py
+not found: "/home/robopy/robopy/robopi_controller/robopy_controller_host/install
+/local_setup.bash"
+not found: "/home/robopy/robopy/robopi_controller/robopy_controller_host/install
+/local_setup.bash"
+robopy@raspberrypi:/mnt/ssd/robopy_controller_host $ cd /mnt/ssd/robopy_controll
+er_host
+robopy@raspberrypi:/mnt/ssd/robopy_controller_host $ source /opt/ros/jazzy/setup
+.bash
+not found: "/home/robopy/robopy/robopi_controller/robopy_controller_host/install
+/local_setup.bash"
+robopy@raspberrypi:/mnt/ssd/robopy_controller_host $ source /home/robopy/ros2_ve
+nv/bin/activate
+(ros2_venv) robopy@raspberrypi:/mnt/ssd/robopy_controller_host $ source install/
+setup.bash
+(ros2_venv) robopy@raspberrypi:/mnt/ssd/robopy_controller_host $ source /mnt/ssd
+/robopy_controller_host/setup_keys.sh
+📄 Caricamento chiavi da /mnt/ssd/robopy_controller_host/.env...
+✅ Tutte le chiavi API e credenziali caricate correttamente.
+(ros2_venv) robopy@raspberrypi:/mnt/ssd/robopy_controller_host $ export ROS_DOMA
+IN_ID=42
+(ros2_venv) robopy@raspberrypi:/mnt/ssd/robopy_controller_host $ export PYTHONUN
+BUFFERED=1
+(ros2_venv) robopy@raspberrypi:/mnt/ssd/robopy_controller_host $ ros2 launch rob
+opy_controller robot_ia_launch.py
+[INFO] [launch]: All log files can be found below /home/robopy/.ros/log/2026-05-
+03-23-11-55-026483-raspberrypi-140992
+[INFO] [launch]: Default logging verbosity is set to INFO
+[ERROR] [respeaker_interface_node-5]: exception occurred while executing process
+:
+Traceback (most recent call last):
+  File "/mnt/ssd/ros2_jazzy/build/launch/launch/actions/execute_local.py", line
+569, in __execute_process
+    transport, self._subprocess_protocol = await async_execute_process(
+                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/ssd/ros2_jazzy/build/osrf_pycommon/osrf_pycommon/process_utils/asyn
+c_execute_process_asyncio/impl.py", line 139, in async_execute_process
+    transport, protocol = await _async_execute_process_nopty(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/ssd/ros2_jazzy/build/osrf_pycommon/osrf_pycommon/process_utils/asyn
+c_execute_process_asyncio/impl.py", line 45, in _async_execute_process_nopty
+    transport, protocol = await loop.subprocess_exec(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/asyncio/base_events.py", line 1694, in subprocess_ex
+ec
+    transport = await self._make_subprocess_transport(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/asyncio/unix_events.py", line 207, in _make_subproce
+ss_transport
+    transp = _UnixSubprocessTransport(self, protocol, args, shell,
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/asyncio/base_subprocess.py", line 36, in __init__
+    self._start(args=args, shell=shell, stdin=stdin, stdout=stdout,
+  File "/usr/lib/python3.11/asyncio/unix_events.py", line 810, in _start
+    self._proc = subprocess.Popen(
+                 ^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/subprocess.py", line 1024, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File "/usr/lib/python3.11/subprocess.py", line 1789, in _execute_child
+    self._posix_spawn(args, executable, env, restore_signals,
+  File "/usr/lib/python3.11/subprocess.py", line 1733, in _posix_spawn
+    self.pid = os.posix_spawn(executable, args, env, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+OSError: [Errno 8] Exec format error: '/mnt/ssd/robopy_controller_host/install/r
+obopy_controller/lib/robopy_controller/respeaker_interface_node'
+
+[ERROR] [servo_coda_node-8]: exception occurred while executing process:
+Traceback (most recent call last):
+  File "/mnt/ssd/ros2_jazzy/build/launch/launch/actions/execute_local.py", line
+569, in __execute_process
+    transport, self._subprocess_protocol = await async_execute_process(
+                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/ssd/ros2_jazzy/build/osrf_pycommon/osrf_pycommon/process_utils/asyn
+c_execute_process_asyncio/impl.py", line 139, in async_execute_process
+    transport, protocol = await _async_execute_process_nopty(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/ssd/ros2_jazzy/build/osrf_pycommon/osrf_pycommon/process_utils/asyn
+c_execute_process_asyncio/impl.py", line 45, in _async_execute_process_nopty
+    transport, protocol = await loop.subprocess_exec(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/asyncio/base_events.py", line 1694, in subprocess_ex
+ec
+    transport = await self._make_subprocess_transport(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/asyncio/unix_events.py", line 207, in _make_subproce
+ss_transport
+    transp = _UnixSubprocessTransport(self, protocol, args, shell,
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/asyncio/base_subprocess.py", line 36, in __init__
+    self._start(args=args, shell=shell, stdin=stdin, stdout=stdout,
+  File "/usr/lib/python3.11/asyncio/unix_events.py", line 810, in _start
+    self._proc = subprocess.Popen(
+                 ^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/subprocess.py", line 1024, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File "/usr/lib/python3.11/subprocess.py", line 1789, in _execute_child
+    self._posix_spawn(args, executable, env, restore_signals,
+  File "/usr/lib/python3.11/subprocess.py", line 1733, in _posix_spawn
+    self.pid = os.posix_spawn(executable, args, env, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+OSError: [Errno 8] Exec format error: '/mnt/ssd/robopy_controller_host/install/r
+obopy_controller/lib/robopy_controller/servo_coda_node'
+
+[ERROR] [ultrasonic_sensor-9]: exception occurred while executing process:
+Traceback (most recent call last):
+  File "/mnt/ssd/ros2_jazzy/build/launch/launch/actions/execute_local.py", line
+569, in __execute_process
+    transport, self._subprocess_protocol = await async_execute_process(
+                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/ssd/ros2_jazzy/build/osrf_pycommon/osrf_pycommon/process_utils/asyn
+c_execute_process_asyncio/impl.py", line 139, in async_execute_process
+    transport, protocol = await _async_execute_process_nopty(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/ssd/ros2_jazzy/build/osrf_pycommon/osrf_pycommon/process_utils/asyn
+c_execute_process_asyncio/impl.py", line 45, in _async_execute_process_nopty
+    transport, protocol = await loop.subprocess_exec(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/asyncio/base_events.py", line 1694, in subprocess_ex
+ec
+    transport = await self._make_subprocess_transport(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/asyncio/unix_events.py", line 207, in _make_subproce
+ss_transport
+    transp = _UnixSubprocessTransport(self, protocol, args, shell,
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/asyncio/base_subprocess.py", line 36, in __init__
+    self._start(args=args, shell=shell, stdin=stdin, stdout=stdout,
+  File "/usr/lib/python3.11/asyncio/unix_events.py", line 810, in _start
+    self._proc = subprocess.Popen(
+                 ^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/subprocess.py", line 1024, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File "/usr/lib/python3.11/subprocess.py", line 1789, in _execute_child
+    self._posix_spawn(args, executable, env, restore_signals,
+  File "/usr/lib/python3.11/subprocess.py", line 1733, in _posix_spawn
+    self.pid = os.posix_spawn(executable, args, env, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+OSError: [Errno 8] Exec format error: '/mnt/ssd/robopy_controller_host/install/r
+obopy_controller/lib/robopy_controller/ultrasonic_sensor'
+
+[INFO] [robot_ai_node-6]: process started with pid [141011]
+[INFO] [robot_state_publisher-1]: process started with pid [140995]
+[INFO] [static_transform_publisher-2]: process started with pid [140997]
+[INFO] [foxglove_bridge-3]: process started with pid [140999]
+[INFO] [respeaker_vui_node-4]: process started with pid [141001]
+[INFO] [homeassistant_node-7]: process started with pid [141013]
+[robot_state_publisher-1] [WARN] [1777842715.325944432] [rcl]: ROS_LOCALHOST_ONL
+Y is deprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_
+RANGE and ROS_STATIC_PEERS instead.
+[robot_state_publisher-1] [WARN] [1777842715.325983507] [rcl]: 'localhost_only'
+is disabled, 'automatic_discovery_range' and 'static_peers' will be used.
+[foxglove_bridge-3] [WARN] [1777842715.375385269] [rcl]: ROS_LOCALHOST_ONLY is d
+eprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_RANGE
+and ROS_STATIC_PEERS instead.
+[foxglove_bridge-3] [WARN] [1777842715.375414640] [rcl]: 'localhost_only' is dis
+abled, 'automatic_discovery_range' and 'static_peers' will be used.
+[static_transform_publisher-2] [WARN] [1777842715.409238720] [rcl]: ROS_LOCALHOS
+T_ONLY is deprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCO
+VERY_RANGE and ROS_STATIC_PEERS instead.
+[static_transform_publisher-2] [WARN] [1777842715.410080802] [rcl]: 'localhost_o
+nly' is disabled, 'automatic_discovery_range' and 'static_peers' will be used.
+[static_transform_publisher-2] [WARN] [1777842715.414942391] []: Old-style argum
+ents are deprecated; see --help for new-style arguments
+[robot_state_publisher-1] [WARN] [1777842715.490119926] [kdl_parser]: The root l
+ink base_link has an inertia specified in the URDF, but KDL does not support a r
+oot link with an inertia.  As a workaround, you can add an extra dummy link to y
+our URDF.
+[robot_state_publisher-1] [INFO] [1777842715.490787747] [robot_state_publisher]:
+ Robot initialized
+[static_transform_publisher-2] [INFO] [1777842715.512556718] [base_to_ultrasonic
+_tf]: Spinning until stopped - publishing transform
+[static_transform_publisher-2] translation: ('0.120000', '0.000000', '0.050000')
+[static_transform_publisher-2] rotation: ('0.000000', '0.000000', '0.000000', '1
+.000000')
+[static_transform_publisher-2] from 'base_link' to 'ultrasonic_sensor'
+[foxglove_bridge-3] [INFO] [1777842715.569941194] [foxglove_bridge]: Starting fo
+xglove_bridge (jazzy, 3.2.2@releases/typescript/v0.7.1-592-gcf6d7a3)
+[foxglove_bridge-3] [INFO] [1777842715.582559087] [foxglove_bridge]: Server list
+ening on port 8765
+[foxglove_bridge-3] [INFO] [1777842715.629754271] [foxglove_bridge]: Advertising
+ new channel 1 for topic "/tf"
+[foxglove_bridge-3] [INFO] [1777842715.637159423] [foxglove_bridge]: Advertising
+ new channel 2 for topic "/rosout"
+[foxglove_bridge-3] [INFO] [1777842715.643965013] [foxglove_bridge]: Advertising
+ new channel 3 for topic "/robot_description"
+[foxglove_bridge-3] [INFO] [1777842715.669766230] [foxglove_bridge]: Advertising
+ new channel 4 for topic "/parameter_events"
+[foxglove_bridge-3] [INFO] [1777842715.669959973] [foxglove_bridge]: Advertising
+ new channel 5 for topic "/tf_static"
+[foxglove_bridge-3] [INFO] [1777842715.676905287] [foxglove_bridge]: Advertising
+ new channel 6 for topic "/joint_states"
+[respeaker_vui_node-4] not found: "/home/robopy/robopy/robopi_controller/robopy_
+controller_host/install/local_setup.bash"
+[homeassistant_node-7] [WARN] [1777842716.409444542] [rcl]: ROS_LOCALHOST_ONLY i
+s deprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_RAN
+GE and ROS_STATIC_PEERS instead.
+[homeassistant_node-7] [WARN] [1777842716.409465338] [rcl]: 'localhost_only' is
+disabled, 'automatic_discovery_range' and 'static_peers' will be used.
+[homeassistant_node-7] [INFO] [1777842716.664656533] [homeassistant_node]: 🤖 No
+do Home Assistant Bridge inizializzato
+[homeassistant_node-7] [INFO] [1777842716.665915565] [homeassistant_node]: 🔄 Te
+ntativo di connessione a ws://192.168.1.45:8123/api/websocket
+[foxglove_bridge-3] [INFO] [1777842716.948036229] [foxglove_bridge]: received co
+nnection graph subscribe request
+[foxglove_bridge-3] [INFO] [1777842716.948210379] [foxglove_bridge]: received su
+bscribe request for channel 2 from client 1 (sink 1)
+[foxglove_bridge-3] [WARN] [1777842716.948617902] [foxglove_bridge]: Limiting hi
+story depth for topic '/rosout' to 25 (was 4000). You may want to increase the m
+ax_qos_depth parameter value.
+[foxglove_bridge-3] [INFO] [1777842716.953996644] [foxglove_bridge]: created ROS
+ subscription on /rosout (rcl_interfaces/msg/Log) successfully for channel 2 (cl
+ient 1, sink 1)
+[foxglove_bridge-3] [INFO] [1777842716.954151405] [foxglove_bridge]: received su
+bscribe request for channel 1 from client 1 (sink 1)
+[foxglove_bridge-3] [WARN] [1777842716.954276517] [foxglove_bridge]: Limiting hi
+story depth for topic '/tf' to 25 (was 100). You may want to increase the max_qo
+s_depth parameter value.
+[foxglove_bridge-3] [INFO] [1777842716.966280459] [foxglove_bridge]: created ROS
+ subscription on /tf (tf2_msgs/msg/TFMessage) successfully for channel 1 (client
+ 1, sink 1)
+[foxglove_bridge-3] [INFO] [1777842716.966418998] [foxglove_bridge]: received su
+bscribe request for channel 5 from client 1 (sink 1)
+[foxglove_bridge-3] [INFO] [1777842716.970984472] [foxglove_bridge]: created ROS
+ subscription on /tf_static (tf2_msgs/msg/TFMessage) successfully for channel 5
+(client 1, sink 1)
+[foxglove_bridge-3] [INFO] [1777842716.971122788] [foxglove_bridge]: received su
+bscribe request for channel 3 from client 1 (sink 1)
+[foxglove_bridge-3] [INFO] [1777842716.976680902] [foxglove_bridge]: created ROS
+ subscription on /robot_description (std_msgs/msg/String) successfully for chann
+el 3 (client 1, sink 1)
+[foxglove_bridge-3] [INFO] [1777842717.074184617] [foxglove_bridge]: Advertising
+ new channel 7 for topic "/system/performance"
+[foxglove_bridge-3] [INFO] [1777842717.081913754] [foxglove_bridge]: Advertising
+ new channel 8 for topic "/sensors/temperature"
+[foxglove_bridge-3] [INFO] [1777842717.082101886] [foxglove_bridge]: Advertising
+ new channel 9 for topic "/robot/state"
+[foxglove_bridge-3] [INFO] [1777842717.089641151] [foxglove_bridge]: Advertising
+ new channel 10 for topic "/ha/switches"
+[foxglove_bridge-3] [INFO] [1777842717.089857894] [foxglove_bridge]: Advertising
+ new channel 11 for topic "/ha/lights"
+[foxglove_bridge-3] [INFO] [1777842717.089905987] [foxglove_bridge]: Advertising
+ new channel 12 for topic "/ha/buttons"
+[foxglove_bridge-3] [INFO] [1777842717.096638706] [foxglove_bridge]: Advertising
+ new channel 13 for topic "/cmd_vel"
+[foxglove_bridge-3] [INFO] [1777842717.179877381] [foxglove_bridge]: publishing
+connection graph
+[foxglove_bridge-3] [INFO] [1777842717.682671413] [foxglove_bridge]: publishing
+connection graph
+[homeassistant_node-7] [ERROR] [1777842719.775021230] [homeassistant_node]: ❌ E
+rrore connessione: [Errno 113] Connect call failed ('192.168.1.45', 8123)
+[homeassistant_node-7] [INFO] [1777842719.776149057] [homeassistant_node]: 🔄 Ri
+tento connessione in 60 secondi...
+[robot_ai_node-6] pygame 2.1.2 (SDL 2.26.5, Python 3.11.2)
+[robot_ai_node-6] Hello from the pygame community. https://www.pygame.org/contri
+bute.html
+[respeaker_vui_node-4] 📄 Caricamento chiavi da /mnt/ssd/robopy_controller_host/
+.env...
+[respeaker_vui_node-4] ✅ Tutte le chiavi API e credenziali caricate correttamen
+te.
+[respeaker_vui_node-4] /mnt/ssd/robopy_controller_host/install/robopy_controller
+/lib/python3.11/site-packages/robopy_controller/nodes/respeaker_vui_node.py:36:
+DeprecationWarning: 'audioop' is deprecated and slated for removal in Python 3.1
+3
+[respeaker_vui_node-4]   import audioop
+[respeaker_vui_node-4] [WARN] [1777842723.869319313] [rcl]: ROS_LOCALHOST_ONLY i
+s deprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_RAN
+GE and ROS_STATIC_PEERS instead.
+[respeaker_vui_node-4] [WARN] [1777842723.869338998] [rcl]: 'localhost_only' is
+disabled, 'automatic_discovery_range' and 'static_peers' will be used.
+[foxglove_bridge-3] [INFO] [1777842723.884454047] [foxglove_bridge]: publishing
+connection graph
+[respeaker_vui_node-4] [INFO] [1777842724.075781733] [respeaker_vui_node]: --- R
+eSpeaker VUI Node v5.1 (Optimized Native Pipeline) ---
+[respeaker_vui_node-4] [INFO] [1777842724.083762003] [respeaker_vui_node]: Picov
+oice API Key caricata dalle variabili d'ambiente.
+[respeaker_vui_node-4] [INFO] [1777842724.085194370] [respeaker_vui_node]: Inizi
+alizzazione Porcupine...
+[respeaker_vui_node-4] [INFO] [1777842724.090370795] [respeaker_vui_node]: Acces
+s Key (prefix): Nane***
+[respeaker_vui_node-4] [INFO] [1777842724.091737235] [respeaker_vui_node]: Wake
+word: /mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_con
+troller/config/wake_word/marcus.ppn (exists=True)
+[respeaker_vui_node-4] [INFO] [1777842724.093038730] [respeaker_vui_node]: Model
+ path: /mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_co
+ntroller/config/wake_word/porcupine_params_it.pv (exists=True)
+[respeaker_vui_node-4] [INFO] [1777842724.104301683] [respeaker_vui_node]: Porcu
+pine Init SUCCESS (Custom Marcus) | sensitivity=0.92
+[respeaker_vui_node-4] [INFO] [1777842724.165541551] [respeaker_vui_node]: Avvio
+ playback_worker con Jitter Buffer Adattivo
+[respeaker_vui_node-4] ALSA lib pcm.c:2666:(snd_pcm_open_noupdate) Unknown PCM c
+ards.pcm.rear
+[respeaker_vui_node-4] ALSA lib pcm.c:2666:(snd_pcm_open_noupdate) Unknown PCM c
+ards.pcm.center_lfe
+[respeaker_vui_node-4] ALSA lib pcm.c:2666:(snd_pcm_open_noupdate) Unknown PCM c
+ards.pcm.side
+[respeaker_vui_node-4] ALSA lib pcm.c:2666:(snd_pcm_open_noupdate) Unknown PCM c
+ards.pcm.hdmi
+[respeaker_vui_node-4] ALSA lib pcm.c:2666:(snd_pcm_open_noupdate) Unknown PCM c
+ards.pcm.hdmi
+[respeaker_vui_node-4] ALSA lib pcm.c:2666:(snd_pcm_open_noupdate) Unknown PCM c
+ards.pcm.modem
+[respeaker_vui_node-4] ALSA lib pcm.c:2666:(snd_pcm_open_noupdate) Unknown PCM c
+ards.pcm.modem
+[respeaker_vui_node-4] ALSA lib pcm.c:2666:(snd_pcm_open_noupdate) Unknown PCM c
+ards.pcm.phoneline
+[respeaker_vui_node-4] ALSA lib pcm.c:2666:(snd_pcm_open_noupdate) Unknown PCM c
+ards.pcm.phoneline
+[respeaker_vui_node-4] Cannot connect to server socket err = No such file or dir
+ectory
+[respeaker_vui_node-4] Cannot connect to server request channel
+[respeaker_vui_node-4] jack server is not running or cannot be started
+[respeaker_vui_node-4] JackShmReadWritePtr::~JackShmReadWritePtr - Init not done
+ for -1, skipping unlock
+[respeaker_vui_node-4] JackShmReadWritePtr::~JackShmReadWritePtr - Init not done
+ for -1, skipping unlock
+[respeaker_vui_node-4] Cannot connect to server socket err = No such file or dir
+ectory
+[respeaker_vui_node-4] Cannot connect to server request channel
+[respeaker_vui_node-4] jack server is not running or cannot be started
+[respeaker_vui_node-4] JackShmReadWritePtr::~JackShmReadWritePtr - Init not done
+ for -1, skipping unlock
+[respeaker_vui_node-4] JackShmReadWritePtr::~JackShmReadWritePtr - Init not done
+ for -1, skipping unlock
+[respeaker_vui_node-4] ALSA lib pcm_oss.c:397:(_snd_pcm_oss_open) Cannot open de
+vice /dev/dsp
+[respeaker_vui_node-4] ALSA lib pcm_oss.c:397:(_snd_pcm_oss_open) Cannot open de
+vice /dev/dsp
+[respeaker_vui_node-4] ALSA lib pcm_a52.c:1001:(_snd_pcm_a52_open) a52 is only f
+or playback
+[respeaker_vui_node-4] ALSA lib pcm_a52.c:491:(a52_slave_hw_params_half) Cannot
+set slave rate 48000
+[foxglove_bridge-3] [INFO] [1777842724.385320501] [foxglove_bridge]: Advertising
+ new channel 14 for topic "/wake_word"
+[respeaker_vui_node-4] ALSA lib confmisc.c:160:(snd_config_get_card) Invalid fie
+ld card
+[respeaker_vui_node-4] ALSA lib pcm_usb_stream.c:482:(_snd_pcm_usb_stream_open)
+Invalid card 'card'
+[respeaker_vui_node-4] ALSA lib confmisc.c:160:(snd_config_get_card) Invalid fie
+ld card
+[respeaker_vui_node-4] ALSA lib pcm_usb_stream.c:482:(_snd_pcm_usb_stream_open)
+Invalid card 'card'
+[foxglove_bridge-3] [INFO] [1777842724.390434500] [foxglove_bridge]: Advertising
+ new channel 15 for topic "/respeaker/speaker_audio"
+[foxglove_bridge-3] [INFO] [1777842724.390596409] [foxglove_bridge]: Advertising
+ new channel 16 for topic "/respeaker/led_command"
+[foxglove_bridge-3] [INFO] [1777842724.390648743] [foxglove_bridge]: Advertising
+ new channel 17 for topic "/ai/tts/speaking"
+[foxglove_bridge-3] [INFO] [1777842724.390689447] [foxglove_bridge]: Advertising
+ new channel 18 for topic "/ai/input/mic_mute"
+[foxglove_bridge-3] [INFO] [1777842724.390730540] [foxglove_bridge]: Advertising
+ new channel 19 for topic "/ai/input/audio_chunk"
+[foxglove_bridge-3] [INFO] [1777842724.390772522] [foxglove_bridge]: Advertising
+ new channel 20 for topic "/ai/barge_in"
+[respeaker_vui_node-4] Cannot connect to server socket err = No such file or dir
+ectory
+[respeaker_vui_node-4] Cannot connect to server request channel
+[respeaker_vui_node-4] jack server is not running or cannot be started
+[respeaker_vui_node-4] JackShmReadWritePtr::~JackShmReadWritePtr - Init not done
+ for -1, skipping unlock
+[respeaker_vui_node-4] JackShmReadWritePtr::~JackShmReadWritePtr - Init not done
+ for -1, skipping unlock
+[respeaker_vui_node-4] [INFO] [1777842724.414738794] [respeaker_vui_node]: Dispo
+sitivi audio disponibili:
+[respeaker_vui_node-4] [INFO] [1777842724.415985584] [respeaker_vui_node]:   [0]
+ ReSpeaker Lite: USB Audio (hw:0,0) (in:2, out:2)
+[respeaker_vui_node-4] [INFO] [1777842724.417364414] [respeaker_vui_node]:   [1]
+ sysdefault (in:128, out:128)
+[respeaker_vui_node-4] [INFO] [1777842724.421990074] [respeaker_vui_node]:   [2]
+ front (in:0, out:2)
+[respeaker_vui_node-4] [INFO] [1777842724.423115456] [respeaker_vui_node]:   [3]
+ surround40 (in:0, out:2)
+[respeaker_vui_node-4] [INFO] [1777842724.424144245] [respeaker_vui_node]:   [4]
+ iec958 (in:0, out:2)
+[respeaker_vui_node-4] [INFO] [1777842724.425158570] [respeaker_vui_node]:   [5]
+ spdif (in:2, out:2)
+[foxglove_bridge-3] [INFO] [1777842724.426498140] [foxglove_bridge]: received su
+bscribe request for channel 17 from client 1 (sink 1)
+[respeaker_vui_node-4] [INFO] [1777842724.428436327] [respeaker_vui_node]:   [6]
+ pulse (in:32, out:32)
+[respeaker_vui_node-4] [INFO] [1777842724.429483375] [respeaker_vui_node]:   [7]
+ speex (in:1, out:1)
+[foxglove_bridge-3] [INFO] [1777842724.434527651] [foxglove_bridge]: created ROS
+ subscription on /ai/tts/speaking (std_msgs/msg/Bool) successfully for channel 1
+7 (client 1, sink 1)
+[respeaker_vui_node-4] [INFO] [1777842724.434917951] [respeaker_vui_node]:   [8]
+ upmix (in:8, out:8)
+[respeaker_vui_node-4] [INFO] [1777842724.436138982] [respeaker_vui_node]:   [9]
+ vdownmix (in:6, out:6)
+[respeaker_vui_node-4] [INFO] [1777842724.437221475] [respeaker_vui_node]:   [10
+] dmix (in:0, out:2)
+[respeaker_vui_node-4] [INFO] [1777842724.442509864] [respeaker_vui_node]:   [11
+] default (in:32, out:32)
+[respeaker_vui_node-4] [INFO] [1777842724.446529740] [respeaker_vui_node]: 🔊 Ou
+tput device HW native rate: 16000 Hz
+[respeaker_vui_node-4] [INFO] [1777842724.453843188] [respeaker_vui_node]: 🎤 In
+put stream (mic) aperto! (Idx=0)
+[respeaker_vui_node-4] [INFO] [1777842724.459866029] [respeaker_vui_node]: ✅ Ou
+tput stream aperto a 16000 Hz Stereo (HW native: 16000 Hz)
+[respeaker_vui_node-4] [INFO] [1777842724.466495155] [respeaker_vui_node]: VUI N
+ode pronto | CHUNK_SIZE=960 | FRAME_SIZE=320 | PRE_ROLL_FRAMES=25 | sensitivity=
+0.92 | stt_gain=30.0
+[foxglove_bridge-3] [INFO] [1777842724.475148950] [foxglove_bridge]: publishing
+connection graph
+[foxglove_bridge-3] [INFO] [1777842724.978525098] [foxglove_bridge]: publishing
+connection graph
+[homeassistant_node-7] [WARN] [1777842726.617393215] [homeassistant_node]: 🔌 Co
+nnessione HA persa - tentativo di riconnessione...
+[robot_ai_node-6] [WARN] [1777842727.297189188] [rcl]: ROS_LOCALHOST_ONLY is dep
+recated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_RANGE an
+d ROS_STATIC_PEERS instead.
+[robot_ai_node-6] [WARN] [1777842727.297225837] [rcl]: 'localhost_only' is disab
+led, 'automatic_discovery_range' and 'static_peers' will be used.
+[foxglove_bridge-3] [INFO] [1777842727.313913957] [foxglove_bridge]: publishing
+connection graph
+[robot_ai_node-6] [INFO] [1777842727.622319639] [robot_ai_orchestrator]: Inizial
+izzazione LLM Service (Delegated Context)
+[foxglove_bridge-3] [INFO] [1777842727.814868468] [foxglove_bridge]: Advertising
+ new channel 21 for topic "/respeaker/audio_control"
+[foxglove_bridge-3] [INFO] [1777842727.815036544] [foxglove_bridge]: Advertising
+ new channel 22 for topic "/bluedot_input"
+[foxglove_bridge-3] [INFO] [1777842727.815114341] [foxglove_bridge]: Advertising
+ new channel 23 for topic "/ai/conversation/response"
+[foxglove_bridge-3] [INFO] [1777842727.815185157] [foxglove_bridge]: Advertising
+ new channel 24 for topic "/ai/conversation/status"
+[foxglove_bridge-3] [INFO] [1777842727.833084327] [foxglove_bridge]: received su
+bscribe request for channel 23 from client 1 (sink 1)
+[foxglove_bridge-3] [INFO] [1777842727.839260374] [foxglove_bridge]: created ROS
+ subscription on /ai/conversation/response (std_msgs/msg/String) successfully fo
+r channel 23 (client 1, sink 1)
+[foxglove_bridge-3] [INFO] [1777842727.887555458] [foxglove_bridge]: publishing
+connection graph
+[robot_ai_node-6] [INFO] [1777842727.992470991] [robot_ai_orchestrator]:  [DEBUG
+-AG] 🚀 MODELLI ATTIVI: Standard=gemini-3.1-flash-lite-preview (v1beta), Live=ge
+mini-2.5-flash-native-audio-latest (v1alpha)
+[robot_ai_node-6] [INFO] [1777842728.012661575] [robot_ai_orchestrator]: Connect
+ing to gemini-2.5-flash-native-audio-latest with modalities ['AUDIO'] ...
+[robot_ai_node-6] [INFO] [1777842728.245906444] [robot_ai_orchestrator]: Live AP
+I connessa con successo. Sessione pronta.
+[foxglove_bridge-3] [INFO] [1777842728.389023900] [foxglove_bridge]: Advertising
+ new channel 25 for topic "/robot_ai_orchestrator/stats"
+[foxglove_bridge-3] [INFO] [1777842728.389167920] [foxglove_bridge]: Advertising
+ new channel 26 for topic "/ai/conversation/audio_chunk"
+[foxglove_bridge-3] [INFO] [1777842728.409770267] [foxglove_bridge]: publishing
+connection graph
+[foxglove_bridge-3] [INFO] [1777842728.913762717] [foxglove_bridge]: publishing
+connection graph
+[foxglove_bridge-3] [INFO] [1777842732.698553169] [foxglove_bridge]: publishing
+connection graph
+[foxglove_bridge-3] [INFO] [1777842733.203249330] [foxglove_bridge]: publishing
+connection graph
+[homeassistant_node-7] [WARN] [1777842736.617496052] [homeassistant_node]: 🔌 Co
+nnessione HA persa - tentativo di riconnessione...
+[foxglove_bridge-3] [ERROR] [1777842737.702303630] [foxglove_bridge]: Failed to
+retrieve parameters from node '/robot_ai_orchestrator': Failed to retrieve param
+eter names for node '/robot_ai_orchestrator'
+[foxglove_bridge-3] [WARN] [1777842737.702449206] [foxglove_bridge]: Adding node
+ /robot_ai_orchestrator to the ignore list to prevent repeated timeouts or failu
+res in future parameter requests.
+[foxglove_bridge-3] [INFO] [1777842737.722884255] [foxglove_bridge]: publishing
+connection graph
+[robot_ai_node-6] 23:12:20 WARNING  [tts_service] Failed to create Google TTS cl
+ient: Your default credentials were not found. To set up Application Default Cre
+dentials, see https://cloud.google.com/docs/authentication/external/set-up-adc f
+or more information.
+[robot_ai_node-6] 23:12:20 INFO     [tts_service] TTS Service initialized
+[homeassistant_node-7] [WARN] [1777842746.617841527] [homeassistant_node]: 🔌 Co
+nnessione HA persa - tentativo di riconnessione...
+[robot_ai_node-6] 23:12:32 WARNING  [asr_service] Failed to create Google ASR cl
+ient: Your default credentials were not found. To set up Application Default Cre
+dentials, see https://cloud.google.com/docs/authentication/external/set-up-adc f
+or more information.
+[robot_ai_node-6] 23:12:32 INFO     [asr_service] ASR Service initialized
+

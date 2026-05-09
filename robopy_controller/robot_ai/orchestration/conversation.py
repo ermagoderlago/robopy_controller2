@@ -38,8 +38,10 @@ class ConversationManager:
         
         # Pre-create publishers to avoid on-the-fly ROS 2 discovery hangs
         self._speaking_pub = None
+        self._music_playing_pub = None
         if self.node:
              self._speaking_pub = self.node.create_publisher(Bool, '/ai/tts/speaking', 10)
+             self._music_playing_pub = self.node.create_publisher(Bool, '/ai/music_playing', 10)
              self._logger.info("ROS 2 Publishers attached to ConversationManager.")
 
         # [v5.6] Task tracking per barge-in cancellation
@@ -57,6 +59,13 @@ class ConversationManager:
     async def _get_latest_frame(self):
         with self._frame_lock:
             return self._latest_frame
+
+    def _set_music_playing(self, is_playing: bool):
+        """[v11.0] Tracks Spotify state to inhibit VAD"""
+        if self._music_playing_pub:
+            msg = Bool()
+            msg.data = is_playing
+            self._music_playing_pub.publish(msg)
 
     def set_mic_muted(self, muted: bool):
         self._mic_muted = muted
@@ -111,8 +120,15 @@ class ConversationManager:
         if skill:
             self._logger.info(f"Fast-path skill match: {skill.name}")
             texts = await self.skill_executor.execute_skill(skill.name, {"text": clean_text})
+            response_text = texts[-1] if texts else f"Eseguita azione rapida: {skill.name}"
+            
             for t in texts:
                 await self.tts.speak(t)
+                
+            self.world_model.recent_interactions.append(f"Robot: {response_text}")
+            if self.response_callback:
+                self.response_callback(response_text)
+                
             return True
 
         # Offline fallback
@@ -313,7 +329,29 @@ class ConversationManager:
                         response_text = ha_data_str
                         ha_handled = True
 
-        # Esecuzione azioni rimanenti (non-HA, non-email) tramite il path standard
+            elif action_name == "spotify_skill":
+                # Handler dedicato Spotify— routing diretto con args strutturati
+                spotify_args = action.get("args", {})
+                self._logger.info(f"🎵 Spotify action detected: {spotify_args}")
+                
+                act = spotify_args.get("action", "")
+                if act in ["play", "search_play", "search_playlist", "resume"]:
+                    self._set_music_playing(True)
+                elif act in ["pause", "stop"]:
+                    self._set_music_playing(False)
+
+                spotify_speak_texts = await self.skill_executor.execute_skill(
+                    "spotify_skill", spotify_args
+                )
+                if spotify_speak_texts:
+                    response_text = spotify_speak_texts[-1]
+                    skill_speak_texts.extend(spotify_speak_texts)
+                else:
+                    response_text = "Ho eseguito il comando Spotify."
+                ha_handled = True
+                self._logger.info(f"🎵 Spotify skill done, response: '{response_text[:80]}'")
+
+        # Esecuzione azioni rimanenti (non-HA, non-email, non-spotify) tramite il path standard
         if response_actions:
             self._logger.debug(f"LLM suggested actions: {response_actions}")
             remaining_actions = []
@@ -323,8 +361,8 @@ class ConversationManager:
                  if self._is_emergency(target_act):
                       await self._handle_emergency()
                       continue
-                 # Salta le azioni già gestite con handler dedicato (HA, email)
-                 if act_name in ("check_home_assistant", "check_emails"):
+                 # Salta le azioni già gestite con handler dedicato
+                 if act_name in ("check_home_assistant", "check_emails", "spotify_skill"):
                       continue
                  remaining_actions.append(act)
 
@@ -447,8 +485,38 @@ class ConversationManager:
             prompt += f"{world_context}\n"
         if skill_summary:
             prompt += f"{skill_summary}\n"
+
+        # v2.0: Inietta notifiche email dal polling automatico
+        try:
+            email_skill = self.skill_executor.registry.get("check_emails")
+            if email_skill and hasattr(email_skill, 'consume_notifications'):
+                email_notifs = email_skill.consume_notifications()
+                if email_notifs:
+                    prompt += f"\n[NOTIFICHE EMAIL RECENTI — polling automatico]\n{email_notifs}\n"
+                    prompt += "IMPORTANTE: Comunica all'utente queste notifiche email in modo naturale e conciso. Se ci sono email urgenti o importanti, menzionale subito.\n"
+        except Exception:
+            pass  # Non bloccare il prompt se la skill non è disponibile
+
         prompt += f"Utente: {user_text}\n"
-        prompt += "\nRispondi all'utente in modo naturale. Se hai bisogno di usare dei tool elencati sopra (es: controllare le email o la domotica), usali tramite function calling.\n"
+
+        # Istruzioni esplicite di routing degli strumenti
+        prompt += (
+            "\n## REGOLE TASSATIVE PER L'USO DEI TOOL:\n"
+            "1. **spotify_skill**: Usa SEMPRE e SOLO questo tool per QUALSIASI richiesta musicale "
+            "(suonare, riprodurre, volume, pausa, avanti, indietro, cercare brani/artisti/playlist, Spotify). "
+            "Azioni disponibili: 'search_play' (brani/artisti), 'search_playlist' (playlist), "
+            "'volume_set' (volume specifico 0-100), 'volume_up', 'volume_down', 'play', 'pause', "
+            "'next', 'previous', 'what_is_playing', 'save_track'. "
+            "Questa skill è COMPLETAMENTE OPERATIVA e connessa a Spotify Premium.\n"
+            "2. **terminal_skill**: Usa SOLO per task di sistema (spazio disco, processi, script Python generici). "
+            "NON usare MAI terminal_skill per musica, Spotify, volume, brani o qualsiasi cosa musicale. "
+            "NON usare 'run_existing' con filename='spotify_skill.py' — non funziona così.\n"
+            "3. **crea_skill**: USA SOLO se l'utente dice ESPLICITAMENTE 'crea una nuova skill'. "
+            "NON invocare crea_skill per musica, email, domotica o qualsiasi capacità che hai già.\n"
+            "4. **check_emails**: Usa per leggere, cercare o gestire email.\n"
+            "5. **check_home_assistant**: Usa per controllare luci, dispositivi, temperature.\n"
+            "\nRicorda: se la skill giusta esiste, USALA direttamente senza spiegazioni. Agisci.\n"
+        )
         return prompt
 
     def _is_vision_request(self, text: str) -> bool:

@@ -63,6 +63,8 @@ class CreaSkill(BaseSkill):
         self.node = node
         self.memory_manager = memory_manager
         self.pipeline = SkillGeneratorPipeline()
+        self._pending_request = None
+        self._pending_original_text = None
 
     def _log(self, level: str, msg: str):
         """Logging unificato: usa ROS logger se disponibile, altrimenti standard."""
@@ -91,8 +93,16 @@ class CreaSkill(BaseSkill):
         )
 
     def match(self, text: str, context: Dict[str, Any] = None) -> float:
-        """Individua richieste di creazione nuove skill."""
+        """Individua richieste di creazione nuove skill o risposte di conferma."""
         text_lower = text.lower()
+        
+        # Se c'è una richiesta in sospeso, intercettiamo le conferme/rifiuti
+        if getattr(self, '_pending_request', None) is not None:
+            confirm_words = ["si", "sì", "ok", "procedi", "va bene", "certamente", "creala", "yes", "no", "annulla", "fermati", "cancella", "stop"]
+            # Controlla se la frase contiene una di queste parole
+            if any(w in text_lower.split() for w in confirm_words) or any(text_lower.strip() == w for w in confirm_words):
+                return 0.99
+
         strong_patterns = [
             "crea una skill", "genera una skill", "crea skill",
             "genera skill", "nuova skill", "create skill",
@@ -128,54 +138,80 @@ class CreaSkill(BaseSkill):
             step_logs.append((ts, msg))
             self._log("info", f"[CreaSkill] {msg}")
 
-        # --- Step 0: Verifica prerequisiti ---
-        if self.llm_service is None:
-            msg = (
-                "Non posso creare skill: il servizio LLM non è disponibile. "
-                "Contatta l'amministratore per configurare CreaSkill con register_with_deps()."
-            )
-            _log_step(f"ERRORE: llm_service non configurato")
-            yield SkillResult(False, "Errore configurazione", msg)
-            return
+        # Gestione Human-in-the-Loop: Se c'è una richiesta in attesa di conferma
+        if self._pending_request is not None:
+            text_lower = text.lower()
+            if any(w in text_lower.split() for w in ["no", "annulla", "fermati", "cancella", "stop", "non", "niente"]) or text_lower.strip() == "no":
+                self._pending_request = None
+                self._pending_original_text = None
+                _log_step("Creazione skill annullata dall'utente.")
+                yield SkillResult(True, "Annullato", "D'accordo, ho annullato la creazione della skill.")
+                return
+            elif any(w in text_lower.split() for w in ["si", "sì", "ok", "procedi", "va bene", "certamente", "creala", "yes", "fai pure"]) or text_lower.strip() in ["si", "sì"]:
+                request = self._pending_request
+                original_text = self._pending_original_text
+                self._pending_request = None
+                self._pending_original_text = None
+                yield SkillResult(True, "Conferma ricevuta", f"Perfetto, inizio subito a generare il codice per la skill {request.name}.")
+                # Prosegue con lo Step 3...
+            else:
+                yield SkillResult(False, "Attesa conferma", f"Scusa, non ho capito. Vuoi che crei la skill '{self._pending_request.name}'? Rispondi sì per procedere, o no per annullare.")
+                return
+        else:
+            # NUOVA RICHIESTA
+            # --- Step 0: Verifica prerequisiti ---
+            if self.llm_service is None:
+                msg = (
+                    "Non posso creare skill: il servizio LLM non è disponibile. "
+                    "Contatta l'amministratore per configurare CreaSkill con register_with_deps()."
+                )
+                _log_step(f"ERRORE: llm_service non configurato")
+                yield SkillResult(False, "Errore configurazione", msg)
+                return
 
-        # --- Step 1: Analisi della richiesta ---
-        yield SkillResult(
-            True, "Avvio generazione",
-            "Certamente! Sto analizzando la tua richiesta per creare una nuova capacità..."
-        )
-        _log_step("Step 1: Analisi richiesta avviata")
-
-        # --- Step 2: Estrazione parametri via LLM ---
-        yield SkillResult(
-            True, "Estrazione parametri",
-            "Sto estraendo i parametri della skill dalla tua richiesta..."
-        )
-        _log_step("Step 2: Chiamata LLM per estrazione parametri")
-
-        try:
-            request = await self._extract_skill_params(text)
-            _log_step(
-                f"Step 2 OK: nome='{request.name}', "
-                f"caps={request.capabilities}, "
-                f"utterances={request.test_utterances}"
-            )
+            # --- Step 1: Analisi della richiesta ---
             yield SkillResult(
-                True, "Parametri estratti",
-                f"Ho capito: voglio creare la skill '{request.name}'. "
-                f"Avvio la generazione del codice..."
+                True, "Avvio generazione",
+                "Certamente! Sto analizzando la tua richiesta per creare una nuova capacità..."
             )
-        except Exception as e:
-            _log_step(f"Step 2 FALLITO: {e}")
-            # Fallback: usa il testo grezzo come descrizione
-            request = SkillRequest(
-                name="NuovaSkill",
-                description=text,
-                test_utterances=[text],
-            )
+            _log_step("Step 1: Analisi richiesta avviata")
+
+            # --- Step 2: Estrazione parametri via LLM ---
             yield SkillResult(
-                True, "Parametri base",
-                "Non riesco a estrarre i parametri precisi, ma procedo con i dati base..."
+                True, "Estrazione parametri",
+                "Sto estraendo i parametri della skill dalla tua richiesta..."
             )
+            _log_step("Step 2: Chiamata LLM per estrazione parametri")
+
+            try:
+                request = await self._extract_skill_params(text)
+                _log_step(
+                    f"Step 2 OK: nome='{request.name}', "
+                    f"caps={request.capabilities}, "
+                    f"utterances={request.test_utterances}"
+                )
+                yield SkillResult(
+                    True, "Richiesta conferma",
+                    f"Vuoi che crei una nuova skill chiamata '{request.name}' per la seguente funzionalità: '{request.description}'? Rispondi sì o no per procedere."
+                )
+                self._pending_request = request
+                self._pending_original_text = original_text
+                return
+            except Exception as e:
+                _log_step(f"Step 2 FALLITO: {e}")
+                # Fallback: usa il testo grezzo come descrizione
+                request = SkillRequest(
+                    name="NuovaSkill",
+                    description=text,
+                    test_utterances=[text],
+                )
+                yield SkillResult(
+                    True, "Richiesta conferma",
+                    f"Vuoi che crei una nuova skill chiamata '{request.name}' per la seguente funzionalità: '{request.description}'? Rispondi sì o no per procedere."
+                )
+                self._pending_request = request
+                self._pending_original_text = original_text
+                return
 
         # --- Step 3-5: Pipeline di generazione (con step_callback) ---
         _log_step("Step 3: Avvio pipeline SkillGeneratorPipeline")
@@ -412,9 +448,9 @@ Il nome DEVE essere in PascalCase e terminare con "Skill" (es: AccendiLuceSkill)
         return {
             "name": "crea_skill",
             "description": (
-                "Genera una nuova skill (capacità) per il robot Marcus. "
-                "Usare quando l'utente chiede di imparare a fare qualcosa di nuovo, "
-                "creare una nuova funzionalità, o aggiungere una nuova capacità al robot."
+                "ATTENZIONE: USA QUESTO TOOL SOLO SE L'UTENTE HA ESPRESSAMENTE CHIESTO DI CREARE, GENERARE, SCRIVERE O IMPARARE UNA **NUOVA** SKILL / CODICE. "
+                "NON usare per eseguire azioni comuni come 'avvia spotify', 'suona musica', 'accendi la luce'. Controlla sempre se esistono altre skill per quello. "
+                "Questo tool avvia il processo di generazione codice per aggiungere capacità mancanti a Marcus."
             ),
             "parameters": {
                 "type": "object",

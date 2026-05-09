@@ -61,6 +61,8 @@ class NightlyDreamService:
             
         self.log_path = os.path.join(base_path, "logs", "continuous_improvements.md")
         self.master_prompt_path = os.path.join(base_path, "logs", "master_prompt.txt")
+        self.file_index_path = os.path.join(base_path, "logs", "file_index.json")
+        self.pending_eco_path = os.path.join(base_path, "logs", "pending_improvements.json")
         
         # Identity files — synced from Windows workspace via SFTP
         # Located at the root of the workspace (parent of robopy_controller/)
@@ -338,6 +340,32 @@ class NightlyDreamService:
         except Exception as e:
             self.logger.warning(f"Could not update MEMORY.md: {e}")
 
+        # [NEW] 5b. Prune and Compress Memory (Scalability)
+        try:
+            await self._prune_and_compress_memory()
+        except Exception as e:
+            self.logger.warning(f"Memory pruning failed: {e}")
+
+        # 6. Point 5: Nightly File System Indexing
+        try:
+            self._index_workspace()
+        except Exception as e:
+            self.logger.warning(f"File indexing failed: {e}")
+
+        # 7. Point 6: Structured ECO generation
+        try:
+            await self._extract_structured_eco(report_content)
+        except Exception as e:
+            self.logger.warning(f"Structured ECO extraction failed: {e}")
+
+        # [NEW] 8. System Log Ingestion (Error Detection)
+        try:
+            log_report = await self._ingest_system_logs()
+            if log_report:
+                self._append_to_log(f"## 🤖 Analisi Log di Sistema\n\n{log_report}")
+        except Exception as e:
+            self.logger.warning(f"System log ingestion failed: {e}")
+
         self.logger.info("Nightly Dream Analysis completed successfully.")
         return {
             "status": "success",
@@ -614,3 +642,190 @@ class NightlyDreamService:
             self.logger.info(f"Appended report to {self.log_path}")
         except Exception as e:
             self.logger.error(f"Failed to write log file: {e}")
+
+    # ------------------------------------------------------------------
+    # Point 5 & 6 Implementations
+    # ------------------------------------------------------------------
+
+    def _index_workspace(self):
+        """
+        [Point 5] Crawl the workspace and create a map of filenames to absolute paths.
+        Enables TerminalSkill to find files instantly.
+        """
+        self.logger.info("Indexing workspace files...")
+        # Get workspace root (parent of robopy_controller)
+        ws_root = os.path.dirname(os.path.dirname(self.log_path))
+        if not os.path.exists(ws_root):
+            self.logger.warning(f"Workspace root not found for indexing: {ws_root}")
+            return
+
+        file_map = {}
+        exclude_dirs = {'.git', '__pycache__', 'build', 'install', 'log', '.venv', 'node_modules'}
+        
+        for root, dirs, files in os.walk(ws_root):
+            # Prune unwanted directories
+            dirs[:] = [d for d in dirs if d not in exclude_dirs]
+            
+            for file in files:
+                if file.endswith(('.py', '.md', '.txt', '.sh', '.yaml', '.yml', '.xml')):
+                    # If duplicate filename, keep a list of paths
+                    full_path = os.path.abspath(os.path.join(root, file))
+                    if file in file_map:
+                        if isinstance(file_map[file], list):
+                            file_map[file].append(full_path)
+                        else:
+                            file_map[file] = [file_map[file], full_path]
+                    else:
+                        file_map[file] = full_path
+
+        try:
+            with open(self.file_index_path, "w", encoding="utf-8") as f:
+                json.dump({
+                    "last_updated": datetime.now().isoformat(),
+                    "total_files": len(file_map),
+                    "files": file_map
+                }, f, indent=2)
+            self.logger.info(f"Workspace indexed: {len(file_map)} files found. Saved to {self.file_index_path}")
+        except Exception as e:
+            self.logger.error(f"Failed to save file index: {e}")
+
+    async def _extract_structured_eco(self, report_content: str):
+        """
+        [Point 6] Extract structured Engineering Change Orders (ECO) from the report.
+        Saves as JSON for the AI Assistant to act upon in future sessions.
+        """
+        self.logger.info("Extracting structured ECOs...")
+        eco_prompt = (
+            "Sei Marcus, un robot in fase di auto-miglioramento. Basandoti sul seguente report di analisi notturna, "
+            "genera una lista di Engineering Change Orders (ECO) strutturati in formato JSON.\n\n"
+            f"REPORT:\n{report_content[:6000]}\n\n"
+            "FORMATO RICHIESTO (JSON puro, senza markdown):\n"
+            "[\n"
+            "  {\n"
+            "    \"id\": \"ECO-YYYYMMDD-NN\",\n"
+            "    \"title\": \"Titolo breve\",\n"
+            "    \"description\": \"Descrizione dettagliata del problema e della soluzione\",\n"
+            "    \"priority\": \"high|medium|low\",\n"
+            "    \"affected_files\": [\"file1.py\", \"file2.md\"],\n"
+            "    \"type\": \"feature|bugfix|optimization|refactor\"\n"
+            "  }\n"
+            "]\n\n"
+            "Genera solo modifiche CONCRETE al codice o alla configurazione. "
+            "Se non ci sono miglioramenti chiari, restituisci un array vuotto []."
+        )
+
+        try:
+            response = await self.llm_service.generate(eco_prompt, max_tokens=2048)
+            eco_json_str = response.text or "[]"
+            # Basic cleanup if LLM included markdown code blocks
+            eco_json_str = re.sub(r'```json\s*|\s*```', '', eco_json_str).strip()
+            
+            eco_data = json.loads(eco_json_str)
+            
+            # Add metadata
+            final_data = {
+                "date": datetime.now().strftime("%Y-%m-%d"),
+                "source": "nightly_dream",
+                "improvements": eco_data
+            }
+            
+            with open(self.pending_eco_path, "w", encoding="utf-8") as f:
+                json.dump(final_data, f, indent=2)
+            
+            self.logger.info(f"Saved {len(eco_data)} structured ECOs to {self.pending_eco_path}")
+        except Exception as e:
+            self.logger.error(f"Failed to extract structured ECOs: {e}")
+
+    async def _prune_and_compress_memory(self):
+        """
+        [New Improvement] Analyze MEMORY.md and compress redundant information.
+        Maintains a "forgetting curve" to keep the context clean and relevant.
+        """
+        if not os.path.exists(self.memory_path):
+            return
+
+        self.logger.info("Starting Memory Pruning and Compression...")
+        with open(self.memory_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        # Only compress if the file is getting large (e.g. > 15KB)
+        if len(content) < 15000:
+            self.logger.info(f"Memory size ({len(content)} bytes) is within limits. Skipping compression.")
+            return
+
+        compression_prompt = (
+            "Sei Marcus, un robot che sta riorganizzando la sua memoria a lungo termine.\n"
+            "Il tuo file MEMORY.md sta diventando troppo grande. Devi comprimerlo seguendo queste regole:\n"
+            "1. Unisci osservazioni simili o ridondanti.\n"
+            "2. Elimina informazioni obsolete o che non aggiungono più valore (es. vecchi test superati).\n"
+            "3. Mantieni le tabelle Markdown ma condensa le righe: una riga può riassumere più eventi simili.\n"
+            "4. Preserva le preferenze critiche di Luca e la tua identità core.\n"
+            "5. Restituisci il file intero, pulito e ben formattato.\n\n"
+            f"CONTENUTO ATTUALE MEMORY.md:\n{content}\n\n"
+            "Rispondi SOLO con il nuovo contenuto Markdown per il file MEMORY.md."
+        )
+
+        try:
+            response = await self.llm_service.generate(compression_prompt, max_tokens=8192)
+            new_content = response.text or ""
+            if new_content and len(new_content) < len(content):
+                # Backup old memory
+                backup_path = self.memory_path + ".bak"
+                os.rename(self.memory_path, backup_path)
+                
+                with open(self.memory_path, "w", encoding="utf-8") as f:
+                    f.write(new_content)
+                self.logger.info(f"Memory compressed from {len(content)} to {len(new_content)} bytes.")
+            else:
+                self.logger.info("Compression did not reduce file size or failed. Keeping original.")
+        except Exception as e:
+            self.logger.error(f"Error during memory compression: {e}")
+
+    async def _ingest_system_logs(self) -> str:
+        """
+        [New Improvement] Ingest system and ROS 2 logs to detect hidden hardware/software issues.
+        """
+        self.logger.info("Ingesting system logs for error detection...")
+        
+        # Paths for ROS 2 logs (typical location on robot)
+        log_paths = [
+            os.path.join(os.path.expanduser("~"), ".ros/log/latest/robot_ai_node.log"),
+            os.path.join(os.path.expanduser("~"), ".ros/log/latest/vui_node.log"),
+            # Local workspace logs
+            os.path.join(os.path.dirname(self.log_path), "LOG_spotify_skill_001.txt")
+        ]
+        
+        relevant_logs = []
+        for path in log_paths:
+            if os.path.exists(path):
+                try:
+                    # Read last 100 lines
+                    with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                        lines = f.readlines()[-100:]
+                        # Filter for ERROR or WARNING
+                        errors = [l for l in lines if "ERROR" in l.upper() or "WARNING" in l.upper() or "CRITICAL" in l.upper()]
+                        if errors:
+                            relevant_logs.append(f"--- LOG: {os.path.basename(path)} ---\n" + "".join(errors))
+                except Exception as e:
+                    self.logger.warning(f"Could not read log {path}: {e}")
+
+        if not relevant_logs:
+            return ""
+
+        log_context = "\n".join(relevant_logs)
+        analysis_prompt = (
+            "Sei Marcus, un robot domestico. Stai analizzando i tuoi log tecnici per trovare problemi nascosti.\n"
+            "Analizza i seguenti frammenti di log e identifica:\n"
+            "1. Errori ricorrenti (es. crash di nodi, timeout I2C).\n"
+            "2. Problemi di performance (es. latenza alta).\n"
+            "3. Suggerimenti per la manutenzione.\n\n"
+            f"LOG:\n{log_context[:4000]}\n\n"
+            "Sii breve, tecnico e focalizzato sulle soluzioni."
+        )
+
+        try:
+            response = await self.llm_service.generate(analysis_prompt, max_tokens=1024)
+            return response.text or ""
+        except Exception as e:
+            self.logger.error(f"Error during log analysis: {e}")
+            return ""

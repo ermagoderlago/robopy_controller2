@@ -291,9 +291,9 @@ class LLMService: # Rimosso Node e rinominato in LLMService (alias ora diretto)
         if not self.node.has_parameter('gemini_api_key'):
             self.node.declare_parameter('gemini_api_key',           '')
         if not self.node.has_parameter('model_name'):
-            self.node.declare_parameter('model_name',               'gemini-3.1-flash-lite-preview')
+            self.node.declare_parameter('model_name',               'gemini-2.0-flash')
         if not self.node.has_parameter('live_model_name'):
-            self.node.declare_parameter('live_model_name',          'gemini-2.5-flash-native-audio-latest')
+            self.node.declare_parameter('live_model_name',          'gemini-2.0-flash')
         if not self.node.has_parameter('audio_volume'):
             self.node.declare_parameter('audio_volume',             0.05)
 
@@ -302,11 +302,11 @@ class LLMService: # Rimosso Node e rinominato in LLMService (alias ora diretto)
         if not self.node.has_parameter('max_tokens'):
             self.node.declare_parameter('max_tokens',               2048)
         if not self.node.has_parameter('circuit_breaker_failures'):
-            self.node.declare_parameter('circuit_breaker_failures', 5)
+            self.node.declare_parameter('circuit_breaker_failures', 10)
         if not self.node.has_parameter('circuit_breaker_timeout'):
             self.node.declare_parameter('circuit_breaker_timeout',  60.0)
         if not self.node.has_parameter('timeout_standard'):
-            self.node.declare_parameter('timeout_standard',         60.0)
+            self.node.declare_parameter('timeout_standard',         30.0)
         if not self.node.has_parameter('timeout_live'):
             self.node.declare_parameter('timeout_live',             30.0)
         if not self.node.has_parameter('voice_name'):
@@ -1307,9 +1307,6 @@ class LLMService: # Rimosso Node e rinominato in LLMService (alias ora diretto)
         tokens  = 0
 
         try:
-            if hasattr(response, 'text') and response.text:
-                text = response.text
-
             if hasattr(response, 'candidates') and response.candidates:
                 candidate = response.candidates[0]
                 if hasattr(candidate, 'content') and candidate.content.parts:
@@ -1319,6 +1316,13 @@ class LLMService: # Rimosso Node e rinominato in LLMService (alias ora diretto)
                                 "action_type": part.function_call.name,
                                 "args":        dict(part.function_call.args),
                             })
+                        elif hasattr(part, 'text') and part.text:
+                            text += part.text
+
+            # Se ci sono function calls, il testo eventuale viene scartato:
+            # l'LLM ha scelto di AGIRE, non di rispondere testualmente.
+            if actions:
+                text = ""
 
             if hasattr(response, 'usage_metadata'):
                 tokens = getattr(response.usage_metadata, 'total_token_count', 0)
@@ -1333,6 +1337,7 @@ class LLMService: # Rimosso Node e rinominato in LLMService (alias ora diretto)
             latency_ms=latency_ms,
             model=model,
         )
+
 
     # -----------------------------------------------------------------------
     # Shutdown graceful

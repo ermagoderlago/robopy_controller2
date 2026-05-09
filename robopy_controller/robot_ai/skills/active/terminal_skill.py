@@ -11,6 +11,7 @@ logger = logging.getLogger("robot_ai.skills.terminal_skill")
 
 SCRIPT_DIR = Path("/mnt/ssd/robopy_controller_host/robopy_controller/robot_ai/skills/script")
 TERMINAL_MD = SCRIPT_DIR / "terminal.md"
+FILE_INDEX_PATH = Path("/mnt/ssd/robopy_controller_host/robopy_controller/logs/file_index.json")
 
 class TerminalSkill(BaseSkill):
     """
@@ -48,6 +49,14 @@ class TerminalSkill(BaseSkill):
             filename = context.get("filename")
             return await self._run_script(filename, task)
             
+        if action == "find_file":
+            filename = context.get("filename")
+            return await self._find_file_in_index(filename)
+
+        if action == "read_file":
+            filepath = context.get("filepath")
+            return await self._read_file_content(filepath)
+
         return await self._create_and_run_script(task, text)
 
     def _read_registry(self) -> List[Dict[str, Any]]:
@@ -252,23 +261,78 @@ class TerminalSkill(BaseSkill):
         else:
             return SkillResult.failure_result(message=f"Errore: {stderr.decode()}", speak="Lo script ha restituito un errore.")
 
+    async def _find_file_in_index(self, filename: str) -> SkillResult:
+        """[Point 5] Search for a file in the nightly-generated index."""
+        if not FILE_INDEX_PATH.exists():
+            return SkillResult.failure_result("Indice dei file non ancora generato. Verrà creato stanotte.")
+        
+        try:
+            with open(FILE_INDEX_PATH, "r", encoding="utf-8") as f:
+                index = json.load(f)
+            
+            files = index.get("files", {})
+            # Cerca per nome esatto o pattern semplice
+            matches = []
+            for f_name, f_path in files.items():
+                if filename.lower() in f_name.lower():
+                    if isinstance(f_path, list):
+                        matches.extend(f_path)
+                    else:
+                        matches.append(f_path)
+            
+            if not matches:
+                return SkillResult.failure_result(f"Nessun file trovato corrispondente a '{filename}'.")
+            
+            msg = f"Trovati {len(matches)} file:\n" + "\n".join(matches[:10])
+            speak = f"Ho trovato {len(matches)} file con quel nome. Quale vuoi che legga?"
+            return SkillResult.success_result(message=msg, speak=speak)
+        except Exception as e:
+            return SkillResult.failure_result(f"Errore lettura indice: {e}")
+
+    async def _read_file_content(self, filepath: str) -> SkillResult:
+        """[Point 5] Read the content of a file found via index."""
+        path = Path(filepath)
+        if not path.exists():
+            return SkillResult.failure_result(f"Il file {filepath} non esiste.")
+        
+        # Sicurezza: impedisci la lettura di file fuori dal workspace o sensibili
+        if any(part in path.parts for part in ['.ssh', '.gnupg', 'etc', 'var']):
+             return SkillResult.failure_result("Accesso negato a directory di sistema.")
+
+        try:
+            content = path.read_text(encoding="utf-8")
+            # Troncamento se troppo lungo per il prompt
+            if len(content) > 3000:
+                content = content[:3000] + "\n... [TRONCATO]"
+            
+            return SkillResult.success_result(
+                message=f"Contenuto di {path.name}:\n{content}",
+                speak=f"Ho letto il file {path.name}. Contiene {len(content)} caratteri. Cosa vuoi sapere?"
+            )
+        except Exception as e:
+            return SkillResult.failure_result(f"Errore lettura file: {e}")
+
     def get_parameters_schema(self) -> Dict[str, Any]:
         return {
             "type": "object",
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["create", "run_existing"],
-                    "description": "Azione da eseguire: create (nuovo script) o run_existing (esegui esistente)."
+                    "enum": ["create", "run_existing", "find_file", "read_file"],
+                    "description": "Azione: create (nuovo script), run_existing (esegui), find_file (cerca path), read_file (leggi contenuto)."
                 },
                 "task": {
                     "type": "string",
-                    "description": "Descrizione chiara del task da programmare."
+                    "description": "Descrizione del task (per create/run_existing)."
                 },
                 "filename": {
                     "type": "string",
-                    "description": "Nome del file da eseguire (se run_existing)."
+                    "description": "Nome del file da cercare o eseguire."
+                },
+                "filepath": {
+                    "type": "string",
+                    "description": "Percorso assoluto del file da leggere (per read_file)."
                 }
             },
-            "required": ["action", "task"]
+            "required": ["action"]
         }

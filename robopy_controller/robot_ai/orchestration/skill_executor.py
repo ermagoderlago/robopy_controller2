@@ -24,7 +24,7 @@ class SkillExecutor:
     async def execute_skill(self, skill_name: str, args: dict) -> List[str]:
         skill = self.registry.get(skill_name)
         if not skill:
-            self._logger.warning(f"Skill '{skill_name}' non trovata nel registry.")
+            self._logger.warning(f"Skill '{skill_name}' non trovata nel registry. Disponibili: {list(self.registry._skills.keys())}")
             return []
 
         execution_text = args.get("text", "")
@@ -45,19 +45,34 @@ class SkillExecutor:
             )
 
         elif skill_name == "check_emails":
-            # Gemini manda: {intent, text, account, limit, date_filter, email_id} via function_call.
+            # Gemini manda: {intent, text, account, limit, date_filter, email_id, reply_to} via function_call.
             # Forwarda tutto come context e garantisce un execution_text sensato.
             context = {
-                "intent":  args.get("intent",  "read"),
-                "account": args.get("account", "default"),
-                "limit":   int(args.get("limit", 5)),
+                "intent":      args.get("intent",  "read"),
+                "account":     args.get("account", "default"),
+                "limit":       int(args.get("limit", 5)),
                 "date_filter": args.get("date_filter", "all"),
-                "email_id": args.get("email_id", ""),
+                "email_id":    args.get("email_id", ""),
+                "reply_to":    args.get("reply_to", ""),
             }
             execution_text = args.get("text", "leggi le mie email")
             self._logger.info(
                 f"📧 Routing check_emails: intent={context['intent']}, "
-                f"limit={context['limit']}, date_filter={context['date_filter']}, text='{execution_text}'"
+                f"limit={context['limit']}, date_filter={context['date_filter']}, "
+                f"reply_to={context['reply_to']!r}, text='{execution_text}'"
+            )
+
+        elif skill_name == "spotify_skill":
+            # Gemini manda: {action, query, volume_percent, text} via function_call.
+            context = {
+                "action":         args.get("action", ""),
+                "query":          args.get("query", ""),
+                "volume_percent": args.get("volume_percent"),
+            }
+            execution_text = args.get("text", f"Spotify {context['action']}")
+            self._logger.info(
+                f"🎵 Routing spotify_skill: action={context['action']}, "
+                f"query='{context['query']}', volume={context['volume_percent']}"
             )
 
         elif skill_name == "navigation" and "action" in args:
