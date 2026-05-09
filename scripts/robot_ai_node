@@ -2,25 +2,13 @@
 import sys
 import os
 import importlib.util
-
-# Dynamic path resolution
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-# Wrapper: [PKG_ROOT]/lib/[PKG_NAME]/
-# Site-packages: [PKG_ROOT]/lib/python3.11/site-packages/
-PKG_INSTALL_ROOT = os.path.dirname(os.path.dirname(SCRIPT_DIR))
-WORKSPACE_ROOT = os.path.dirname(os.path.dirname(PKG_INSTALL_ROOT))
-
-# [CRITICO] Aggiunge la root del pacchetto al PYTHONPATH per permettere "from robot_ai..."
-# Poiché robot_ai è una sottocartella di robopy_controller nel site-packages
-SITE_PKGS = os.path.join(PKG_INSTALL_ROOT, 'lib/python3.11/site-packages')
-PKG_BASE = os.path.join(SITE_PKGS, 'robopy_controller')
-if os.path.exists(PKG_BASE) and PKG_BASE not in sys.path:
-    sys.path.insert(0, PKG_BASE)
+import subprocess
 
 # Auto-load GEMINI_API_KEY from setup_keys.sh if not already set
 if not os.environ.get('GEMINI_API_KEY'):
-    setup_keys_path = os.path.join(WORKSPACE_ROOT, 'setup_keys.sh')
+    setup_keys_path = '/home/robopy/robopy/robopi_controller/robopy_controller_host/setup_keys.sh'
     if os.path.exists(setup_keys_path):
+        # Extract the API key from the script
         try:
             with open(setup_keys_path, 'r') as f:
                 for line in f:
@@ -32,19 +20,18 @@ if not os.environ.get('GEMINI_API_KEY'):
         except Exception as e:
             print(f"⚠️ Could not load API key from {setup_keys_path}: {e}")
 
-# Load module directly from the dynamic path
-MODULE_PATH = os.path.join(PKG_INSTALL_ROOT, 'lib/python3.11/site-packages/robopy_controller/nodes/robot_ai_node.py')
+# Load module directly from the correct path to avoid namespace conflict
+# NOTE: This path depends on the install location derived from colcon build
+MODULE_PATH = '/home/robopy/robopy/robopi_controller/robopy_controller_host/install/robopy_controller/lib/python3.11/site-packages/robopy_controller/nodes/robot_ai_node.py'
 
 try:
     spec = importlib.util.spec_from_file_location("module", MODULE_PATH)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-except Exception as e:
-    print(f"Error: Could not load module at {MODULE_PATH}")
-    print(f"Details: {e}")
+except FileNotFoundError:
+    print(f"Error: Could not find module at {MODULE_PATH}")
     print("Make sure you have built the workspace: colcon build --packages-select robopy_controller")
     sys.exit(1)
 
 if __name__ == '__main__':
     module.main()
-

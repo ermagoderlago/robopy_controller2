@@ -113,7 +113,8 @@ def generate_launch_description():
                 'source_imu_topic': '/oak/imu/data',
                 'publish_imu_topic': '/imu/data',
             }]
-        ),
+        )
+
         Node(
             package='robot_localization',
             executable='ekf_node',

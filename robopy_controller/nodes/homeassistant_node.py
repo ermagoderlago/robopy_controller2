@@ -24,7 +24,7 @@ class AdvancedHAWebSocketBridge(Node):
             'url': '192.168.1.45',
             'port': 8123,
             'token': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiIwZTU4MTA4OWEyZjk0YTk3OGQ2NWQyOTY5YWM3MjEyOSIsImlhdCI6MTc2MDI5ODE2MCwiZXhwIjoyMDc1NjU4MTYwfQ.8dymD3-cId-1v7kVIuvqXiZCrOF9ONVMvIh2_cGXgvo',
-            'reconnect_delay': 60
+            'reconnect_delay': 5
         }
         
         self.websocket = None

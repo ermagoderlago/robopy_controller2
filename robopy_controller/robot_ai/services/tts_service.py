@@ -5,12 +5,9 @@ Text-to-Speech service using Google Cloud TTS or local fallback.
 """
 
 import asyncio
-import io
 import os
-import struct
 import tempfile
 import threading
-import wave
 from typing import Any, Dict, Optional, Union
 import base64
 
@@ -60,9 +57,47 @@ class TTSService:
         self.ai_config = self.config.get_config()
         self.event_bus = EventBus()
         
-        # Audio playback init tramite PyGame rimosso per stabilità su ALSA/Pi
-        # Tutta l'emissione audio è ora indirizzata tramite EventBus.TTS_AUDIO_BUFFER 
-        # al nodo VUI senza occupare il device ALSA hardware in questo processo.
+        # Audio playback init
+        if HAS_PYGAME:
+            try:
+                pygame.mixer.init()
+            except Exception as e:
+                self.logger.error(f"Failed to init pygame mixer: {e}")
+        
+        # PyAudio output for raw streams
+        self._pyaudio_interface = None
+        self._output_stream = None
+        self._respeaker_device_index = None
+        if HAS_PYAUDIO:
+            try:
+                self._pyaudio_interface = pyaudio.PyAudio()
+                self._respeaker_device_index = self._find_respeaker_device_index()
+                if self._respeaker_device_index is not None:
+                    self.logger.info(
+                        f"🔊 ReSpeaker speaker trovato (PyAudio device #{self._respeaker_device_index}). "
+                        "Uscita audio instradata sul ReSpeaker."
+                    )
+                self._output_stream = self._pyaudio_interface.open(
+                    format=pyaudio.paInt16,
+                    channels=1,
+                    rate=16000,
+                    output=True,
+                    output_device_index=self._respeaker_device_index  # None = default
+                )
+            except Exception as e:
+                self.logger.error(f"Failed to init pyaudio output: {e}")
+
+        # Pygame: re-init su device ALSA ReSpeaker se disponibile
+        if HAS_PYGAME:
+            try:
+                respeaker_alsa = self._find_respeaker_alsa_card()
+                if respeaker_alsa is not None:
+                    os.environ['SDL_AUDIODRIVER'] = 'alsa'
+                    os.environ['AUDIODEV'] = respeaker_alsa
+                    self.logger.info(f"🔊 Pygame SDL audio → ReSpeaker ALSA ({respeaker_alsa})")
+                pygame.mixer.init()
+            except Exception as e:
+                self.logger.error(f"Failed to init pygame mixer: {e}")
 
         
         # Google TTS Client
@@ -71,8 +106,7 @@ class TTSService:
         
         # State
         self._is_speaking = False
-        self._lock = None
-        self._ambient_noise_rms = 50.0  # [v11.0] Auto-Volume base
+        self._lock = asyncio.Lock()
         
         # Cache
         self._cache_dir = os.path.join(tempfile.gettempdir(), "robot_tts_cache")
@@ -156,9 +190,6 @@ class TTSService:
         if not text:
             return False
             
-        if self._lock is None:
-            self._lock = asyncio.Lock()
-            
         async with self._lock:
             # Stop current if priority
             if self._is_speaking and priority:
@@ -215,10 +246,9 @@ class TTSService:
                 )
                 
                 audio_config = texttospeech.AudioConfig(
-                    audio_encoding=texttospeech.AudioEncoding.LINEAR16,
+                    audio_encoding=texttospeech.AudioEncoding.MP3,
                     speaking_rate=self.ai_config.tts.speaking_rate,
-                    pitch=self.ai_config.tts.pitch,
-                    sample_rate_hertz=16000
+                    pitch=self.ai_config.tts.pitch
                 )
             
                 response = await asyncio.to_thread(
@@ -228,86 +258,52 @@ class TTSService:
                     audio_config=audio_config
                 )
                 
-                audio_bytes = response.audio_content
-                # Strip WAV header usando il modulo wave (header variabile, NON fisso a 44 byte!)
-                # Google TTS restituisce LINEAR16 con header che può essere 44, 46, 58+ byte.
-                # Un offset fisso di 44 corrompeva il PCM → voce meccanica.
-                try:
-                    with wave.open(io.BytesIO(audio_bytes), 'rb') as wf:
-                        n_channels   = wf.getnchannels()
-                        sampwidth    = wf.getsampwidth()
-                        framerate    = wf.getframerate()
-                        n_frames     = wf.getnframes()
-                        raw_pcm      = wf.readframes(n_frames)
-                    self.logger.debug(
-                        f"WAV parsed: ch={n_channels}, sw={sampwidth}, "
-                        f"rate={framerate}, frames={n_frames}, "
-                        f"pcm_bytes={len(raw_pcm)}"
-                    )
-                except Exception as wav_err:
-                    # Fallback ultra-conservativo: salta i primi 44 byte
-                    self.logger.warning(
-                        f"WAV parse failed ({wav_err}), using 44-byte fallback strip."
-                    )
-                    raw_pcm = audio_bytes[44:] if len(audio_bytes) > 44 else audio_bytes
-
-                if raw_pcm:
-                    raw_pcm = self._apply_auto_volume(raw_pcm)
-                    self.event_bus.publish(EventType.TTS_AUDIO_BUFFER, {"audio_data": raw_pcm})
-
                 with open(filename, "wb") as out:
-                    out.write(audio_bytes)
+                    out.write(response.audio_content)
                     
                 return filename
                 
             except Exception as e:
-                self.logger.error(f"Google TTS synthesis error (fall back to Console): {e}")
-                self.logger.info(f"--- [MOCK TTS RESPONSE]: {text} ---")
-                return "CONSOLE_TTS"
+                self.logger.error(f"Google TTS synthesis error: {e}")
+                raise TTSError(f"Synthesis failed: {e}")
         else:
             # Console fallback
             self.logger.info(f"[CONSOLE TTS] {text}")
             return "CONSOLE_TTS"
-            
     
     async def _play_audio(self, filename: str) -> None:
         """Play audio file."""
         if filename == "CONSOLE_TTS":
             return
 
-        # Bypass pyGame to avoid ALSA 'Device or resource busy' error.
-        # Audio has been published via ROS 2 topics to respeaker_vui_node!
-        # Calcola la durata attesa basandosi solo sui byte PCM puri (no header WAV).
-        # In precedenza size_bytes includeva l'header → sleep troppo lungo → lock bloccato.
+        if not HAS_PYGAME:
+            self.logger.warning("Cannot play audio: pygame not installed")
+            return
+        
         try:
-            with wave.open(filename, 'rb') as wf:
-                n_channels   = wf.getnchannels()
-                sampwidth    = wf.getsampwidth()
-                framerate    = wf.getframerate()
-                n_frames     = wf.getnframes()
-            # bytes_per_sec = framerate * sampwidth * channels
-            bytes_per_sec = framerate * sampwidth * n_channels
-            pcm_bytes     = n_frames * sampwidth * n_channels
-            duration_sec  = pcm_bytes / bytes_per_sec if bytes_per_sec > 0 else 1.0
+            pygame.mixer.music.load(filename)
+            pygame.mixer.music.play()
+            
+            # Wait for completion
+            while pygame.mixer.music.get_busy():
+                await asyncio.sleep(0.1)
+                
         except Exception as e:
-            self.logger.warning(f"WAV duration parse error ({e}), usando fallback 1s.")
-            duration_sec = 1.0
-        await asyncio.sleep(duration_sec + 0.1)
+            self.logger.error(f"Audio playback error: {e}")
+            raise TTSError(f"Playback failed: {e}")
 
     def play_raw_pcm(self, data: bytes) -> None:
         """
         Play raw PCM chunks (16kHz, mono, s16le).
         Used for Gemini Live ultra-low latency audio.
         """
-        data = self._apply_auto_volume(data)
-        if hasattr(self, '_output_stream') and self._output_stream:
+        if self._output_stream:
             try:
                 self._output_stream.write(data)
             except Exception as e:
                 self.logger.error(f"Failed to play raw PCM chunk: {e}")
         else:
-            # Fallback event bus se stream non disponibile
-            self.event_bus.publish(EventType.LIVE_AUDIO_CHUNK, {"audio_data": data})
+            self.logger.debug("Raw PCM ignored: no audio output stream available")
 
     
     def stop(self) -> None:
@@ -318,28 +314,3 @@ class TTSService:
             except Exception:
                 pass
         self._is_speaking = False
-
-    def set_ambient_noise(self, rms: float):
-        """[v11.0] Update ambient noise RMS for auto-volume."""
-        self._ambient_noise_rms = rms
-
-    def _apply_auto_volume(self, raw_pcm: bytes) -> bytes:
-        """[v11.0] Moltiplica il PCM in base al rumore ambientale."""
-        if not raw_pcm:
-            return raw_pcm
-        
-        # Mappatura: 50.0 RMS = 5% Volume, 1000.0 RMS = 40% Volume
-        rms = getattr(self, '_ambient_noise_rms', 50.0)
-        min_rms, max_rms = 50.0, 1000.0
-        min_vol, max_vol = 0.05, 0.40
-        
-        clamped_rms = max(min_rms, min(rms, max_rms))
-        factor = min_vol + (max_vol - min_vol) * ((clamped_rms - min_rms) / (max_rms - min_rms))
-        
-        try:
-            import audioop
-            return audioop.mul(raw_pcm, 2, factor)
-        except Exception as e:
-            self.logger.warning(f"Auto-volume failed: {e}")
-            return raw_pcm
-

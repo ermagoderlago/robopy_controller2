@@ -31,7 +31,7 @@
     # Neural Network
     nn:
       enable: true
-      model: "/mnt/ssd/ros2_jazzy/src/robopy_controller/models/mobilenet-ssd_openvino_2021.4_6shave.blob"
+      model: "/home/robopy/ros2_jazzy/src/robopy_controller/models/mobilenet-ssd_openvino_2021.4_6shave.blob"
       model_name: "mobilenet-ssd"
       confidence_threshold: 0.5
       spatial_detection: true

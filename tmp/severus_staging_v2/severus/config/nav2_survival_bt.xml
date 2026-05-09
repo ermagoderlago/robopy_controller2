@@ -1,0 +1,43 @@
+<root BTCPP_format="4" main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <RecoveryNode number_of_retries="4" name="NavigateRecovery">
+      
+      <!-- Esecuzione Standard: Ripianifica a 1.0Hz e Segui Path -->
+      <PipelineSequence name="NavigateWithReplanning">
+        <RateController hz="1.0">
+          <RecoveryNode number_of_retries="1" name="ComputePathToPose">
+            <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased" error_code_id="{compute_path_error_code}"/>
+            <ClearEntireCostmap name="ClearGlobalCostmap-Context" service_name="/global_costmap/clear_entirely_global_costmap"/>
+          </RecoveryNode>
+        </RateController>
+        
+        <RecoveryNode number_of_retries="1" name="FollowPath">
+          <FollowPath path="{path}" controller_id="FollowPath" error_code_id="{follow_path_error_code}"/>
+          <ClearEntireCostmap name="ClearLocalCostmap-Context" service_name="/local_costmap/clear_entirely_local_costmap"/>
+        </RecoveryNode>
+      </PipelineSequence>
+
+      <!-- Sequenza di Sblocco Sopravvivenza (In caso di timeout / ostacolo invisibile) -->
+      <Sequence name="SurvivalRecoverySequence">
+        <!-- 1. Indietreggia alla cieca per sbloccarsi -->
+        <BackUp backup_dist="0.15" backup_speed="0.15" name="DisengageBackUp" error_code_id="{backup_error_code}"/>
+        
+        <Wait wait_duration="0.5"/>
+        
+        <!-- 2. Pulisci la memoria locale e globale -->
+        <ClearEntireCostmap name="ClearGlobalCostmap-Recovery" service_name="/global_costmap/clear_entirely_global_costmap"/>
+        <ClearEntireCostmap name="ClearLocalCostmap-Recovery" service_name="/local_costmap/clear_entirely_local_costmap"/>
+        
+        <!-- 3. Ruota sul posto di 90 gradi per aggiornare l'odometria visiva e mappare -->
+        <!-- 90 gradi = 1.57 radianti -->
+        <Spin spin_dist="1.57" name="MappingSpin90Deg" error_code_id="{spin_error_code}"/>
+        
+        <Wait wait_duration="0.5"/>
+        
+        <!-- 4. Ricalcola un percorso fresco dallo spazio appena scoperto -->
+        <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased" error_code_id="{compute_path_error_code}"/>
+      </Sequence>
+      
+    </RecoveryNode>
+  </BehaviorTree>
+</root>

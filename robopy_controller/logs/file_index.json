@@ -1,0 +1,905 @@
+{
+  "last_updated": "2026-05-06T23:40:44.807644",
+  "total_files": 405,
+  "files": {
+    "00_START_HERE.txt": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\00_START_HERE.txt",
+    "AGENTS.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\AGENTS.md",
+    "ai_context.md": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\ai_context.md",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\.agent\\ai_context.md"
+    ],
+    "bringup_fix.sh": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\bringup_fix.sh",
+    "build.sh": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\build.sh",
+    "build_clang.sh": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\build_clang.sh",
+    "build_log.txt": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\build_log.txt",
+    "build_marcus.sh": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\build_marcus.sh",
+    "build_marcus_pi.sh": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\build_marcus_pi.sh",
+    "CMakeLists.txt": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\CMakeLists.txt",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\marcus_robot\\CMakeLists.txt",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\CMakeLists.txt"
+    ],
+    "config.txt": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\config.txt",
+    "continuous_improvements.md": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\continuous_improvements.md",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\logs\\continuous_improvements.md"
+    ],
+    "conversation.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\conversation.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\orchestration\\conversation.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\orchestration\\conversation.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\orchestration\\conversation.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\orchestration\\conversation.py"
+    ],
+    "custom_nav2_launch.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\custom_nav2_launch.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\launch\\custom_nav2_launch.py"
+    ],
+    "debug_manifest.txt": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\debug_manifest.txt",
+    "diag_list_models.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\diag_list_models.py",
+    "diag_llama.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\diag_llama.py",
+    "dump_helper.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\dump_helper.py",
+    "email_skill.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\email_skill.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\builtin\\email_skill.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\skills\\builtin\\email_skill.py"
+    ],
+    "fast_flow_launch.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\fast_flow_launch.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\launch\\fast_flow_launch.py"
+    ],
+    "files_topic.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\files_topic.md",
+    "find_crash.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\find_crash.py",
+    "fixed_setup.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\fixed_setup.py",
+    "fix_bashrc.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\fix_bashrc.py",
+    "fix_cache.sh": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\fix_cache.sh",
+    "fix_env.sh": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\fix_env.sh",
+    "fix_ros.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\fix_ros.py",
+    "full_robot_launch.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\full_robot_launch.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\launch\\full_robot_launch.py"
+    ],
+    "generate_env_fix.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\generate_env_fix.py",
+    "generate_spotify_skill.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\generate_spotify_skill.py",
+    "get_crash.sh": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\get_crash.sh",
+    "github_push.sh": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\github_push.sh",
+    "HEARTBEAT.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\HEARTBEAT.md",
+    "IDENTITY.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\IDENTITY.md",
+    "image_launch.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\image_launch.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\launch\\image_launch.py"
+    ],
+    "IMPLEMENTATION_REPORT.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\IMPLEMENTATION_REPORT.md",
+    "imu_bridge.launch.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\imu_bridge.launch.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\launch\\imu_bridge.launch.py"
+    ],
+    "INDEX.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\INDEX.md",
+    "install_librespot.sh": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\install_librespot.sh",
+    "LAUNCH_UPDATE_GUIDE.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\LAUNCH_UPDATE_GUIDE.md",
+    "lesson_learned.md": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\lesson_learned.md",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\weights\\lesson_learned.md"
+    ],
+    "list_audio.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\list_audio.py",
+    "list_gemini_models.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\list_gemini_models.py",
+    "list_models_gemini.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\list_models_gemini.py",
+    "Marcus plan 01 planning.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\Marcus plan 01 planning.md",
+    "Marcus plan 02 risks tests ci.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\Marcus plan 02 risks tests ci.md",
+    "Marcus plan 03 runbook.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\Marcus plan 03 runbook.md",
+    "Marcus plan 04 roadmap 30 60 90.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\Marcus plan 04 roadmap 30 60 90.md",
+    "Marcus plan 05 sprint 0 code.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\Marcus plan 05 sprint 0 code.md",
+    "MEMORY.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\MEMORY.md",
+    "migrate.sh": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\migrate.sh",
+    "mock_camera.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\mock_camera.py",
+    "models_list.txt": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\models_list.txt",
+    "modular_superpoint_launch.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\modular_superpoint_launch.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\launch\\modular_superpoint_launch.py"
+    ],
+    "mono_inertial.launch.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\mono_inertial.launch.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\launch\\mono_inertial.launch.py"
+    ],
+    "mono_launch.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\mono_launch.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\launch\\mono_launch.py"
+    ],
+    "mono_slam_lanuch.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\mono_slam_lanuch.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\launch\\mono_slam_lanuch.py"
+    ],
+    "node_debug.txt": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\node_debug.txt",
+    "node_debug_full.txt": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\node_debug_full.txt",
+    "oakd_launch.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\oakd_launch.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\launch\\oakd_launch.py"
+    ],
+    "oakd_rtabmap.launch.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\oakd_rtabmap.launch.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\launch\\oakd_rtabmap.launch.py"
+    ],
+    "oak_stereo_minimal.launch.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\oak_stereo_minimal.launch.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\launch\\oak_stereo_minimal.launch.py"
+    ],
+    "oak_vo_launch.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\oak_vo_launch.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\launch\\oak_vo_launch.py"
+    ],
+    "package.xml": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\package.xml",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\marcus_robot\\package.xml",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\package.xml"
+    ],
+    "patch_conversation.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\patch_conversation.py",
+    "patch_conversation2.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\patch_conversation2.py",
+    "patch_conversation3.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\patch_conversation3.py",
+    "patch_conversation4.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\patch_conversation4.py",
+    "patch_ros.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\patch_ros.py",
+    "perception_composition.launch.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\perception_composition.launch.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\launch\\perception_composition.launch.py"
+    ],
+    "PROJECT_COMPLETION.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\PROJECT_COMPLETION.md",
+    "prompt_terminal_skill.txt": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\prompt_terminal_skill.txt",
+    "QUICK_START.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\QUICK_START.md",
+    "README.md": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\README.md",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\.pytest_cache\\README.md",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\script\\superpoint_fp16_320x200\\SuperPoint_nurenda\\README.md"
+    ],
+    "README_FRAMES.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\README_FRAMES.md",
+    "remote_logs.txt": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\remote_logs.txt",
+    "remote_mail_grep.txt": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\remote_mail_grep.txt",
+    "requirements.txt": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\requirements.txt",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\requirements.txt"
+    ],
+    "requirements_ai.txt": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\requirements_ai.txt",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\requirements_ai.txt"
+    ],
+    "restart.sh": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\restart.sh",
+    "robopy_launch.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_launch.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\launch\\robopy_launch.py"
+    ],
+    "robopy_mapping_launch.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_mapping_launch.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\launch\\robopy_mapping_launch.py"
+    ],
+    "robopy_stable_launch.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_stable_launch.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\launch\\robopy_stable_launch.py"
+    ],
+    "robot_ia_launch.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ia_launch.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\launch\\robot_ia_launch.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\launch\\robot_ia_launch.py"
+    ],
+    "rtabmap_rgbd_launch.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\rtabmap_rgbd_launch.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\launch\\rtabmap_rgbd_launch.py"
+    ],
+    "secrets.yaml": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\secrets.yaml",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\files_utili\\secrets.yaml"
+    ],
+    "setup.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\setup.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\script\\superpoint_fp16_320x200\\SuperPoint_nurenda\\setup.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\setup.py"
+    ],
+    "setup_keys.sh": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\setup_keys.sh",
+    "SOUL.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\SOUL.md",
+    "startup_log.txt": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\startup_log.txt",
+    "startup_log_u.txt": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\startup_log_u.txt",
+    "superpoint.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\superpoint.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\features\\superpoint.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\script\\superpoint.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\script\\superpoint_fp16_320x200\\SuperPoint_nurenda\\superpoint.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\script\\superpoint_fp16_320x200\\SuperPoint_nurenda\\superpoint\\superpoint.py"
+    ],
+    "sync_auto.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\sync_auto.py",
+    "sync_from_marcus.sh": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\sync_from_marcus.sh",
+    "sync_marcus.sh": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\sync_marcus.sh",
+    "test2_launch.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test2_launch.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\launch\\test2_launch.py"
+    ],
+    "test_2d_only_launch.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test_2d_only_launch.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\launch\\test_2d_only_launch.py"
+    ],
+    "test_ai_interaction.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test_ai_interaction.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\scratch\\test_ai_interaction.py"
+    ],
+    "test_blob.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test_blob.py",
+    "test_dedup.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test_dedup.py",
+    "test_devices.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test_devices.py",
+    "test_genai.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test_genai.py",
+    "test_image.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test_image.py",
+    "test_imap.sh": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test_imap.sh",
+    "test_key.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test_key.py",
+    "test_l1_cache.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test_l1_cache.py",
+    "test_launch.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test_launch.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\launch\\test_launch.py"
+    ],
+    "test_live_25.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test_live_25.py",
+    "test_live_api.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test_live_api.py",
+    "test_live_api_stability.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test_live_api_stability.py",
+    "test_modalities.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test_modalities.py",
+    "test_obs.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test_obs.py",
+    "test_odometry_launch.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test_odometry_launch.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\launch\\test_odometry_launch.py"
+    ],
+    "test_parse.sh": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test_parse.sh",
+    "test_play.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test_play.py",
+    "test_robot_ai.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test_robot_ai.py",
+    "test_ros.sh": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test_ros.sh",
+    "test_spotify.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test_spotify.py",
+    "test_sr.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test_sr.py",
+    "test_sr2.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test_sr2.py",
+    "test_sr3.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test_sr3.py",
+    "test_volume.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test_volume.py",
+    "test_volume_amixer.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test_volume_amixer.py",
+    "test_wall_follow.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test_wall_follow.py",
+    "TF_RESTRUCTURE_SUMMARY.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\TF_RESTRUCTURE_SUMMARY.md",
+    "tf_verify.sh": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tf_verify.sh",
+    "tmp_parser.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp_parser.py",
+    "tmux2.txt": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmux2.txt",
+    "tmux_debug.txt": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmux_debug.txt",
+    "tmux_final.txt": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmux_final.txt",
+    "tmux_output.txt": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmux_output.txt",
+    "TOOLS.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\TOOLS.md",
+    "ultrasonic_tf_launch.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\ultrasonic_tf_launch.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\launch\\ultrasonic_tf_launch.py"
+    ],
+    "update_project_context.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\update_project_context.py",
+    "USER.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\USER.md",
+    "vo_system_launch.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\vo_system_launch.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\launch\\vo_system_launch.py"
+    ],
+    "WORKSPACE_STATE.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\WORKSPACE_STATE.md",
+    "build.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\.agent\\workflows\\build.md",
+    "crea_skill.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\.agent\\workflows\\crea_skill.md",
+    "deepseek.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\.agent\\workflows\\deepseek.md",
+    "nav2_implementation.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\.agent\\workflows\\nav2_implementation.md",
+    "metadata.yaml": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\.depthai_cached_models\\d6c7bc68ec92f539353467d6cd566910d104ad30\\metadata.yaml",
+    "verify_robot.yml": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\.github\\workflows\\verify_robot.yml",
+    "2026-04-07.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\.openclaw\\memory\\2026-04-07.md",
+    "ros_gz_bridge.yaml": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\marcus_robot\\config\\ros_gz_bridge.yaml",
+    "sitl_bringup.launch.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\marcus_robot\\launch\\sitl_bringup.launch.py",
+    "run_sitl_test.sh": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\marcus_robot\\scripts\\run_sitl_test.sh",
+    "2026-04-08-2203.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\memory\\2026-04-08-2203.md",
+    "2026-04-08-2206.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\memory\\2026-04-08-2206.md",
+    "2026-04-08-llm-error-error-code-404-messa.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\memory\\2026-04-08-llm-error-error-code-404-messa.md",
+    "bluedot_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\bluedot_node.py",
+    "camera_publisher.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\camera_publisher.py",
+    "camera_publisher_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\camera_publisher_node.py",
+    "convert_litle_mono.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\convert_litle_mono.py",
+    "convert_ONNX.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\convert_ONNX.py",
+    "depth_to_pointcloud_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\depth_to_pointcloud_node.py",
+    "first_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\first_node.py",
+    "gray_camera_publisher_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\gray_camera_publisher_node.py",
+    "LiteMono.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\LiteMono.py",
+    "lite_depth_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\lite_depth_node.py",
+    "midas_depth_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\midas_depth_node.py",
+    "midas_depth_node_NCNN.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\midas_depth_node_NCNN.py",
+    "midas_lite_ONNX_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\midas_lite_ONNX_node.py",
+    "motion_detector_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\motion_detector_node.py",
+    "motor_control_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\motor_control_node.py",
+    "object_detection_node copy.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\object_detection_node copy.py",
+    "object_detection_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\object_detection_node.py",
+    "odometry_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\odometry_node.py",
+    "pipeline_scripts.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\pipeline_scripts.py",
+    "sync_publisher_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\sync_publisher_node.py",
+    "test_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\test_node.py",
+    "test_ssd_config.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\test_ssd_config.py",
+    "test_uart_parsing.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\test_uart_parsing.py",
+    "ultrasonic_sensor.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\ultrasonic_sensor.py",
+    "yuv_camera_publisher_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\yuv_camera_publisher_node.py",
+    "__init__.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\depth\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\features\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\files_utili\\custom_components\\respeaker_audio\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\matching\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\msg\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\networks\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\oak_logic\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\pose\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\core\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\integrations\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\rag\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\services\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\active\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\builtin\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\failed\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\staging\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\utils\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\script\\superpoint_fp16_320x200\\SuperPoint_nurenda\\superpoint\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\utils\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\viz\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\core\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\integrations\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\rag\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\services\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\skills\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\skills\\builtin\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\utils\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\core\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\integrations\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\rag\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\services\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\skills\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\skills\\builtin\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\utils\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\nodes\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\core\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\integrations\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\rag\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\services\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\skills\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\skills\\active\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\skills\\builtin\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\skills\\failed\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\skills\\staging\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\utils\\__init__.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\utils\\__init__.py"
+    ],
+    "camera_params.yaml": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\config\\camera_params.yaml",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\config\\camera_params.yaml"
+    ],
+    "ekf copy 2.yaml": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\config\\ekf copy 2.yaml",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\config\\ekf copy 2.yaml"
+    ],
+    "ekf copy.yaml": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\config\\ekf copy.yaml",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\config\\ekf copy.yaml"
+    ],
+    "ekf.yaml": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\config\\ekf.yaml",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\config\\ekf.yaml"
+    ],
+    "ekf_imu.yaml": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\config\\ekf_imu.yaml",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\config\\ekf_imu.yaml"
+    ],
+    "imu_filter.yaml": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\config\\imu_filter.yaml",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\config\\imu_filter.yaml"
+    ],
+    "nav2_params.yaml": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\config\\nav2_params.yaml",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\config\\nav2_params.yaml"
+    ],
+    "nav2_params_jazzy.yaml": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\config\\nav2_params_jazzy.yaml",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\config\\nav2_params_jazzy.yaml"
+    ],
+    "nav2_survival_bt.xml": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\config\\nav2_survival_bt.xml",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\config\\nav2_survival_bt.xml"
+    ],
+    "nav2_velocity_smoother.yaml": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\config\\nav2_velocity_smoother.yaml",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\config\\nav2_velocity_smoother.yaml"
+    ],
+    "rtabmap.yaml": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\config\\rtabmap.yaml",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\config\\rtabmap.yaml"
+    ],
+    "rtabmap_params copy.yaml": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\config\\rtabmap_params copy.yaml",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\config\\rtabmap_params copy.yaml"
+    ],
+    "rtabmap_params.yaml": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\config\\rtabmap_params.yaml",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\config\\rtabmap_params.yaml"
+    ],
+    "superpoint_limits.yaml": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\config\\superpoint_limits.yaml",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\config\\superpoint_limits.yaml"
+    ],
+    "superpoint_params.yaml": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\config\\superpoint_params.yaml",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\config\\superpoint_params.yaml"
+    ],
+    "visual_odometry_params.yaml": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\config\\visual_odometry_params.yaml",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\config\\visual_odometry_params.yaml"
+    ],
+    "~ build.md": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\config\\~ build.md",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\config\\~ build.md"
+    ],
+    "~ deepseek.md": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\config\\~ deepseek.md",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\config\\~ deepseek.md"
+    ],
+    "~ nav2_implementation.md": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\config\\~ nav2_implementation.md",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\config\\~ nav2_implementation.md"
+    ],
+    "optical_flow.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\features\\optical_flow.py",
+    "superpoint_extractor.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\features\\superpoint_extractor.py",
+    "tracker.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\features\\tracker.py",
+    "minimal_flash.yaml": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\files_utili\\minimal_flash.yaml",
+    "respeaker.yaml": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\files_utili\\respeaker.yaml",
+    "respeaker_espidf.yaml": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\files_utili\\respeaker_espidf.yaml",
+    "respeaker_lite_firmware.yaml": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\files_utili\\respeaker_lite_firmware.yaml",
+    "respeaker_lite_rev2_control.yaml": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\files_utili\\respeaker_lite_rev2_control.yaml",
+    "respeaker_lite_rev2_safe.yaml": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\files_utili\\respeaker_lite_rev2_safe.yaml",
+    "respeaker_simple.yaml": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\files_utili\\respeaker_simple.yaml",
+    "LOG_spotify_skill_001.txt": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\logs\\LOG_spotify_skill_001.txt",
+    "LOG_web_search_skill_001.txt": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\logs\\LOG_web_search_skill_001.txt",
+    "hybrid_matcher.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\matching\\hybrid_matcher.py",
+    "import_torch.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\models\\import_torch.py",
+    "depth_decoder.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\networks\\depth_decoder.py",
+    "layers.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\networks\\layers.py",
+    "litemono.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\networks\\litemono.py",
+    "pose_decoder.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\networks\\pose_decoder.py",
+    "resnet_encoder.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\networks\\resnet_encoder.py",
+    " bno080_odom_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\ bno080_odom_node.py",
+    "audio_player_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\audio_player_node.py",
+    "camera_info_publisher.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\camera_info_publisher.py",
+    "cpu_superpoint_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\cpu_superpoint_node.py",
+    "dynamic_camera_tf_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\dynamic_camera_tf_node.py",
+    "ekf_localization_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\ekf_localization_node.py",
+    "fastdepth_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\fastdepth_node.py",
+    "foxglove_nav2_bridge.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\foxglove_nav2_bridge.py",
+    "homeassistant_node.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\homeassistant_node.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\nodes\\homeassistant_node.py"
+    ],
+    "image_compressor_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\image_compressor_node.py",
+    "imu_bridge_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\imu_bridge_node.py",
+    "IMU_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\IMU_node.py",
+    "IMU_oakd_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\IMU_oakd_node.py",
+    "imu_transformer_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\imu_transformer_node.py",
+    "lite_mono_depth_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\lite_mono_depth_node.py",
+    "madgwick_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\madgwick_node.py",
+    "map_manager_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\map_manager_node.py",
+    "mobilenet_skipadd.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\mobilenet_skipadd.py",
+    "nav2_bridge_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\nav2_bridge_node.py",
+    "oakd_camera_publisher_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\oakd_camera_publisher_node.py",
+    "oakd_camera_publisher_node_super.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\oakd_camera_publisher_node_super.py",
+    "oakd_camera_publisher_node_test.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\oakd_camera_publisher_node_test.py",
+    "oakd_camera_publisher_node_v2.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\oakd_camera_publisher_node_v2.py",
+    "oak_driver_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\oak_driver_node.py",
+    "oak_d_lite_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\oak_d_lite_node.py",
+    "oak_superpoint_odometry_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\oak_superpoint_odometry_node.py",
+    "object_3d_mapper.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\object_3d_mapper.py",
+    "odometria_ibrida_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\odometria_ibrida_node.py",
+    "performance_monitor.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\performance_monitor.py",
+    "respeaker_interface_node.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\respeaker_interface_node.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\nodes\\respeaker_interface_node.py"
+    ],
+    "respeaker_vui_node.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\respeaker_vui_node.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\nodes\\respeaker_vui_node.py"
+    ],
+    "robot_ai_node.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\robot_ai_node.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\nodes\\robot_ai_node.py"
+    ],
+    "rtabmap_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\rtabmap_node.py",
+    "servo_coda_node.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\servo_coda_node.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\nodes\\servo_coda_node.py"
+    ],
+    "servo_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\servo_node.py",
+    "simple_matcher_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\simple_matcher_node.py",
+    "smart_buildhat_driver.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\smart_buildhat_driver.py",
+    "stereo_camera_info_converter.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\stereo_camera_info_converter.py",
+    "superpoint_node copy.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\superpoint_node copy.py",
+    "superpoint_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\superpoint_node.py",
+    "system_monitor_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\system_monitor_node.py",
+    "teleop_bridge_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\teleop_bridge_node.py",
+    "teleop_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\teleop_node.py",
+    "test_2d_static.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\test_2d_static.py",
+    "topic_checker_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\topic_checker_node.py",
+    "v4l2_camera_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\v4l2_camera_node.py",
+    "vision_safety_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\vision_safety_node.py",
+    "wake_word_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\wake_word_node.py",
+    "web_video_stream_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\nodes\\web_video_stream_node.py",
+    "adaptive_roi.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\oak_logic\\adaptive_roi.py",
+    "delta_encoder.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\oak_logic\\delta_encoder.py",
+    "health_monitor.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\oak_logic\\health_monitor.py",
+    "motion_trigger.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\oak_logic\\motion_trigger.py",
+    "rate_controller.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\oak_logic\\rate_controller.py",
+    "spatial_bucketing.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\oak_logic\\spatial_bucketing.py",
+    "sync_buffer.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\oak_logic\\sync_buffer.py",
+    "odometry.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\pose\\odometry.py",
+    "action_controller.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\core\\action_controller.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\core\\action_controller.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\core\\action_controller.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\core\\action_controller.py"
+    ],
+    "camera_frame.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\core\\camera_frame.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\core\\camera_frame.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\core\\camera_frame.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\core\\camera_frame.py"
+    ],
+    "circuit_breaker.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\core\\circuit_breaker.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\core\\circuit_breaker.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\core\\circuit_breaker.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\core\\circuit_breaker.py"
+    ],
+    "config_manager.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\core\\config_manager.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\core\\config_manager.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\core\\config_manager.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\core\\config_manager.py"
+    ],
+    "event_bus.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\core\\event_bus.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\core\\event_bus.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\core\\event_bus.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\core\\event_bus.py"
+    ],
+    "exceptions.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\core\\exceptions.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\core\\exceptions.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\core\\exceptions.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\core\\exceptions.py"
+    ],
+    "image_handler.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\core\\image_handler.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\core\\image_handler.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\core\\image_handler.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\core\\image_handler.py"
+    ],
+    "input_sanitizer.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\core\\input_sanitizer.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\core\\input_sanitizer.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\core\\input_sanitizer.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\core\\input_sanitizer.py"
+    ],
+    "state_machine.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\core\\state_machine.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\core\\state_machine.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\core\\state_machine.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\core\\state_machine.py"
+    ],
+    "tool_declarations.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\core\\tool_declarations.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\core\\tool_declarations.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\core\\tool_declarations.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\core\\tool_declarations.py"
+    ],
+    "home_assistant.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\integrations\\home_assistant.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\integrations\\home_assistant.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\integrations\\home_assistant.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\integrations\\home_assistant.py"
+    ],
+    "navigation.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\integrations\\navigation.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\integrations\\navigation.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\integrations\\navigation.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\integrations\\navigation.py"
+    ],
+    "ha_context.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\orchestration\\ha_context.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\orchestration\\ha_context.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\orchestration\\ha_context.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\orchestration\\ha_context.py"
+    ],
+    "memory_manager.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\orchestration\\memory_manager.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\orchestration\\memory_manager.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\orchestration\\memory_manager.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\orchestration\\memory_manager.py"
+    ],
+    "metrics.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\orchestration\\metrics.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\orchestration\\metrics.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\orchestration\\metrics.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\orchestration\\metrics.py"
+    ],
+    "orchestrator.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\orchestration\\orchestrator.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\orchestration\\orchestrator.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\orchestration\\orchestrator.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\orchestration\\orchestrator.py"
+    ],
+    "reactive_safety.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\orchestration\\reactive_safety.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\orchestration\\reactive_safety.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\orchestration\\reactive_safety.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\orchestration\\reactive_safety.py"
+    ],
+    "skill_executor.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\orchestration\\skill_executor.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\orchestration\\skill_executor.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\orchestration\\skill_executor.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\orchestration\\skill_executor.py"
+    ],
+    "world_model.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\orchestration\\world_model.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\orchestration\\world_model.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\orchestration\\world_model.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\orchestration\\world_model.py"
+    ],
+    "base_memory_store.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\rag\\base_memory_store.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\rag\\base_memory_store.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\rag\\base_memory_store.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\rag\\base_memory_store.py"
+    ],
+    "llama_index_store.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\rag\\llama_index_store.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\rag\\llama_index_store.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\rag\\llama_index_store.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\rag\\llama_index_store.py"
+    ],
+    "memory_store.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\rag\\memory_store.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\rag\\memory_store.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\rag\\memory_store.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\rag\\memory_store.py"
+    ],
+    "metadata_manager.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\rag\\metadata_manager.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\rag\\metadata_manager.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\rag\\metadata_manager.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\rag\\metadata_manager.py"
+    ],
+    "debug_email_skill.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\scratch\\debug_email_skill.py",
+    "test_email_fix.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\scratch\\test_email_fix.py",
+    "asr_service.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\services\\asr_service.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\services\\asr_service.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\services\\asr_service.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\services\\asr_service.py"
+    ],
+    "deepseek_service.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\services\\deepseek_service.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\services\\deepseek_service.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\services\\deepseek_service.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\services\\deepseek_service.py"
+    ],
+    "embedding_service.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\services\\embedding_service.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\services\\embedding_service.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\services\\embedding_service.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\services\\embedding_service.py"
+    ],
+    "face_recognition_service.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\services\\face_recognition_service.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\services\\face_recognition_service.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\services\\face_recognition_service.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\services\\face_recognition_service.py"
+    ],
+    "llm_service.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\services\\llm_service.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\services\\llm_service.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\services\\llm_service.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\services\\llm_service.py"
+    ],
+    "nightly_dream_service.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\services\\nightly_dream_service.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\services\\nightly_dream_service.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\services\\nightly_dream_service.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\services\\nightly_dream_service.py"
+    ],
+    "openrouter_service.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\services\\openrouter_service.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\services\\openrouter_service.py"
+    ],
+    "tts_service.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\services\\tts_service.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\services\\tts_service.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\services\\tts_service.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\services\\tts_service.py"
+    ],
+    "visual_memory_service.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\services\\visual_memory_service.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\services\\visual_memory_service.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\services\\visual_memory_service.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\services\\visual_memory_service.py"
+    ],
+    "web_crawl_service.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\services\\web_crawl_service.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\services\\web_crawl_service.py"
+    ],
+    "base_skill.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\base_skill.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\skills\\base_skill.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\skills\\base_skill.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\skills\\base_skill.py"
+    ],
+    "manifest_manager.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\manifest_manager.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\skills\\manifest_manager.py"
+    ],
+    "security_validator.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\security_validator.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\skills\\security_validator.py"
+    ],
+    "skill_generator.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\skill_generator.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\skills\\skill_generator.py"
+    ],
+    "skill_registry.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\skill_registry.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\skills\\skill_registry.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\skills\\skill_registry.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\skills\\skill_registry.py"
+    ],
+    "skill_sandbox.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\skill_sandbox.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\skills\\skill_sandbox.py"
+    ],
+    "spotify_skill.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\active\\spotify_skill.py",
+    "terminal_skill.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\active\\terminal_skill.py",
+    "web_search_skill.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\active\\web_search_skill.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\skills\\active\\web_search_skill.py"
+    ],
+    "alarm_skill.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\builtin\\alarm_skill.py",
+    "calibration_skill.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\builtin\\calibration_skill.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\skills\\builtin\\calibration_skill.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\skills\\builtin\\calibration_skill.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\skills\\builtin\\calibration_skill.py"
+    ],
+    "crea_skill.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\builtin\\crea_skill.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\skills\\builtin\\crea_skill.py"
+    ],
+    "ha_query_skill.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\builtin\\ha_query_skill.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\skills\\builtin\\ha_query_skill.py"
+    ],
+    "ha_skill.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\builtin\\ha_skill.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\skills\\builtin\\ha_skill.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\skills\\builtin\\ha_skill.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\skills\\builtin\\ha_skill.py"
+    ],
+    "navigation_skill.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\builtin\\navigation_skill.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\skills\\builtin\\navigation_skill.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\skills\\builtin\\navigation_skill.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\skills\\builtin\\navigation_skill.py"
+    ],
+    "nightly_dream_skill.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\builtin\\nightly_dream_skill.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\skills\\builtin\\nightly_dream_skill.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\skills\\builtin\\nightly_dream_skill.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\skills\\builtin\\nightly_dream_skill.py"
+    ],
+    "search_skill.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\builtin\\search_skill.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\skills\\builtin\\search_skill.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\skills\\builtin\\search_skill.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\skills\\builtin\\search_skill.py"
+    ],
+    "technical_document_skill.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\builtin\\technical_document_skill.py",
+    "timer_skill.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\builtin\\timer_skill.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\skills\\builtin\\timer_skill.py"
+    ],
+    "visual_exploration_skill.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\builtin\\visual_exploration_skill.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\skills\\builtin\\visual_exploration_skill.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\skills\\builtin\\visual_exploration_skill.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\skills\\builtin\\visual_exploration_skill.py"
+    ],
+    "task_20260428_001222.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\script\\task_20260428_001222.py",
+    "task_20260428_002307.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\script\\task_20260428_002307.py",
+    "task_20260428_002418.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\script\\task_20260428_002418.py",
+    "task_20260428_002647.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\script\\task_20260428_002647.py",
+    "task_20260428_002740.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\script\\task_20260428_002740.py",
+    "task_20260428_003047.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\script\\task_20260428_003047.py",
+    "task_20260428_224910.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\script\\task_20260428_224910.py",
+    "task_20260428_225003.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\script\\task_20260428_225003.py",
+    "task_20260428_225218.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\script\\task_20260428_225218.py",
+    "task_20260428_225301.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\script\\task_20260428_225301.py",
+    "task_20260428_225839.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\script\\task_20260428_225839.py",
+    "task_20260428_225927.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\script\\task_20260428_225927.py",
+    "task_20260428_230218.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\script\\task_20260428_230218.py",
+    "task_20260428_230307.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\script\\task_20260428_230307.py",
+    "task_20260428_230534.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\script\\task_20260428_230534.py",
+    "task_20260428_230658.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\script\\task_20260428_230658.py",
+    "task_20260428_230745.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\script\\task_20260428_230745.py",
+    "task_20260428_230842.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\script\\task_20260428_230842.py",
+    "task_20260429_233932.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\script\\task_20260429_233932.py",
+    "task_20260429_234252.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\script\\task_20260429_234252.py",
+    "task_20260503_193216.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\script\\task_20260503_193216.py",
+    "terminal.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\skills\\script\\terminal.md",
+    "logging_utils.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\utils\\logging_utils.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\utils\\logging_utils.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\utils\\logging_utils.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\utils\\logging_utils.py"
+    ],
+    "validation.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\robot_ai\\utils\\validation.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\utils\\validation.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai_old\\utils\\validation.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\robot_ai\\utils\\validation.py"
+    ],
+    "superpoint2.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\script\\superpoint2.py",
+    "config_utils.py": [
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\utils\\config_utils.py",
+      "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\severus_staging_v2\\severus\\severus\\utils\\config_utils.py"
+    ],
+    "debug.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\viz\\debug.py",
+    "implementa_deepseek.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robopy_controller\\weights\\implementa_deepseek.md",
+    "remote_test_email.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\scratch\\remote_test_email.py",
+    "run_remote_test.sh": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\robot_ai\\scratch\\run_remote_test.sh",
+    "launch_robot.sh": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\scratch\\launch_robot.sh",
+    "test_email_ros.sh": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\scratch\\test_email_ros.sh",
+    "test_tech_doc.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\scratch\\test_tech_doc.py",
+    "check_cameras.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\scripts\\check_cameras.py",
+    "diag_respeaker.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\scripts\\diag_respeaker.py",
+    "flash_respeaker.sh": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\scripts\\flash_respeaker.sh",
+    "record_marcus.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\scripts\\record_marcus.py",
+    "remote_build.sh": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\scripts\\remote_build.sh",
+    "spotify_auth.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\scripts\\spotify_auth.py",
+    "sync_scp.sh": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\scripts\\sync_scp.sh",
+    "test_porcupine_offline.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\scripts\\test_porcupine_offline.py",
+    "verify_env.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\scripts\\verify_env.py",
+    "bluedot_test_pattern.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test\\bluedot_test_pattern.py",
+    "diag_serial_minimal.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test\\diag_serial_minimal.py",
+    "extract_channels.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test\\extract_channels.py",
+    "print_samples.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test\\print_samples.py",
+    "print_samples2.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test\\print_samples2.py",
+    "probe_respeaker.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test\\probe_respeaker.py",
+    "respeaker_diag.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test\\respeaker_diag.py",
+    "test_audio_quality.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test\\test_audio_quality.py",
+    "test_copyright.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test\\test_copyright.py",
+    "test_flake8.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test\\test_flake8.py",
+    "test_identify_firmware.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test\\test_identify_firmware.py",
+    "test_lego_encoder_motor.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test\\test_lego_encoder_motor.py",
+    "test_pep257.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test\\test_pep257.py",
+    "test_respeaker.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test\\test_respeaker.py",
+    "test_respeaker_direct_serial.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test\\test_respeaker_direct_serial.py",
+    "test_respeaker_hat_leds.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test\\test_respeaker_hat_leds.py",
+    "test_respeaker_ros_leds.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test\\test_respeaker_ros_leds.py",
+    "test_deepseek_integration.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test\\unit\\test_deepseek_integration.py",
+    "test_sprint_0_hardening.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\test\\unit\\test_sprint_0_hardening.py",
+    "test_vui_node.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tests\\test_vui_node.py",
+    "test_orchestration.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tests\\test_robot_ai\\test_orchestration.py",
+    "fix_urdf.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\fix_urdf.py",
+    "hotswap.sh": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\hotswap.sh",
+    "list_all_models.sh": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\list_all_models.sh",
+    "prepare_severus_v2.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\prepare_severus_v2.py",
+    "test_real_models.sh": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\tmp\\test_real_models.sh",
+    "Ambiente_test.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\weights\\Ambiente_test.md",
+    "compilazione_ROS2_jazzy.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\weights\\compilazione_ROS2_jazzy.md",
+    "gemini_autocoscienza_robot.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\weights\\gemini_autocoscienza_robot.md",
+    "ingest_knowledge.py": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\weights\\ingest_knowledge.py",
+    "MANUALE_LEAN_SIX_SIGMA.txt": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\weights\\MANUALE_LEAN_SIX_SIGMA.txt",
+    "marcus_AI.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\weights\\marcus_AI.md",
+    "Marcus_architecture.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\weights\\Marcus_architecture.md",
+    "master_prompt_AI_dream_code.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\weights\\master_prompt_AI_dream_code.md",
+    "miglioramento_memoria.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\weights\\miglioramento_memoria.md",
+    "migliorie_a_fast_flow.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\weights\\migliorie_a_fast_flow.md",
+    "requisiti_AI_dream_code.md": "C:\\Users\\lsuffia\\OneDrive - BRUGOLA OEB INDUSTRIALE SPA\\Documents\\robopy\\antigravity\\weights\\requisiti_AI_dream_code.md"
+  }
+}

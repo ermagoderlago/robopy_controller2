@@ -1,5 +1,4 @@
 import asyncio
-import threading
 import time
 import re
 import datetime
@@ -10,11 +9,10 @@ from robot_ai.core.camera_frame import CameraFrame
 # New: VQA Service from robopy_controller
 from robopy_controller.srv import AskVisualQuestion
 import rclpy
-from std_msgs.msg import Bool
 
 class ConversationManager:
     def __init__(self, llm, tts, skill_executor, memory_manager, world_model,
-                 ha_context_provider, metrics, config, reactive_safety, response_callback=None, node=None, mic_mute_pub=None):
+                 ha_context_provider, metrics, config, reactive_safety, response_callback=None, node=None):
         
         self.node = node
 
@@ -29,43 +27,23 @@ class ConversationManager:
         self.reactive_safety = reactive_safety
         self.response_callback = response_callback
         self._mic_muted = True
-        self._latest_frame = None
-        self._frame_lock = threading.Lock()
-        self._processing_lock = None
+        self._frame_queue = asyncio.Queue(maxsize=1)
+        self._processing_lock = asyncio.Lock()
         self._logger = get_logger("conversation")
         self._sanitizer = InputSanitizer()
-        self.mic_mute_pub = mic_mute_pub
-        
-        # Pre-create publishers to avoid on-the-fly ROS 2 discovery hangs
-        self._speaking_pub = None
-        self._music_playing_pub = None
-        if self.node:
-             self._speaking_pub = self.node.create_publisher(Bool, '/ai/tts/speaking', 10)
-             self._music_playing_pub = self.node.create_publisher(Bool, '/ai/music_playing', 10)
-             self._logger.info("ROS 2 Publishers attached to ConversationManager.")
-
-        # [v5.6] Task tracking per barge-in cancellation
-        self._current_task: asyncio.Task | None = None
-
-    def _get_processing_lock(self) -> asyncio.Lock:
-        if self._processing_lock is None:
-            self._processing_lock = asyncio.Lock()
-        return self._processing_lock
 
     def set_latest_frame(self, frame):
-        with self._frame_lock:
-            self._latest_frame = frame
+        try:
+            self._frame_queue.put_nowait(frame)
+        except asyncio.QueueFull:
+            self._frame_queue.get_nowait()
+            self._frame_queue.put_nowait(frame)
 
     async def _get_latest_frame(self):
-        with self._frame_lock:
-            return self._latest_frame
-
-    def _set_music_playing(self, is_playing: bool):
-        """[v11.0] Tracks Spotify state to inhibit VAD"""
-        if self._music_playing_pub:
-            msg = Bool()
-            msg.data = is_playing
-            self._music_playing_pub.publish(msg)
+        try:
+            return self._frame_queue.get_nowait()
+        except asyncio.QueueEmpty:
+            return None
 
     def set_mic_muted(self, muted: bool):
         self._mic_muted = muted
@@ -89,30 +67,15 @@ class ConversationManager:
             self._logger.debug("Mic muted, ignoring audio input.")
             return
 
-        # [v5.6] Traccia il task corrente per permettere la cancellazione via barge-in
-        self._current_task = asyncio.current_task()
-        try:
-            async with self._get_processing_lock():
-                success = await self._process_locked(text, source)
-                if success:
-                    self.metrics.inc_requests_success()
-                else:
-                    self.metrics.inc_requests_failed()
-        except asyncio.CancelledError:
-            self._logger.info("[BARGE-IN] Turno corrente cancellato. Rilascio risorse.")
-            self._set_vui_speaking(False)  # Reset esplicito
-            raise  # Propaga: asyncio deve sapere che il task è cancellato
-        finally:
-            self._current_task = None
+        async with self._processing_lock:
+            success = await self._process_locked(text, source)
+            if success:
+                self.metrics.inc_requests_success()
+            else:
+                self.metrics.inc_requests_failed()
 
     async def _process_locked(self, text: str, source: str) -> bool:
         clean_text = self._sanitizer.sanitize(text)
-        self._logger.info(f"--- Processing input (source={source}): '{clean_text}' ---")
-        
-        if not clean_text.strip():
-            self._logger.warning("Received empty input after sanitization, ignoring.")
-            return True
-
         self.world_model.recent_interactions.append(f"User: {clean_text}")
 
         # Fast-path skill execution (e.g direct commands)
@@ -120,15 +83,8 @@ class ConversationManager:
         if skill:
             self._logger.info(f"Fast-path skill match: {skill.name}")
             texts = await self.skill_executor.execute_skill(skill.name, {"text": clean_text})
-            response_text = texts[-1] if texts else f"Eseguita azione rapida: {skill.name}"
-            
             for t in texts:
                 await self.tts.speak(t)
-                
-            self.world_model.recent_interactions.append(f"Robot: {response_text}")
-            if self.response_callback:
-                self.response_callback(response_text)
-                
             return True
 
         # Offline fallback
@@ -138,56 +94,17 @@ class ConversationManager:
 
         ha_context = self.ha_context_provider()
         frame = await self._get_latest_frame()
-        # FIX: frame.b64 è una @property, non un metodo!
-        images = [frame.b64] if (frame and self._is_vision_request(clean_text)) else []
+        images = [frame.b64()] if (frame and self._is_vision_request(clean_text)) else []
 
-        # 1. Ricerca memorie (RAG) per dare contesto storico
-        memory_context = ""
-        try:
-            results = await self.memory_manager.search(clean_text, limit=3)
-            # P6: search() never raises, but may return make_unavailable_result().
-            # Filter out sentinel entries before injecting into the prompt.
-            valid = [r for r in results if not r.is_unavailable]
-            if valid:
-                memory_context = "[MEMORIE PRECEDENTI]\n" + "\n".join(
-                    [f"- {r.content}" for r in valid]
-                )
-            elif results and results[0].is_unavailable:
-                reason = results[0].metadata.get("reason", "unknown")
-                self._logger.warning(f"RAG unavailable (shed-load / timeout): {reason}")
-        except Exception as e:
-            self._logger.warning(f"RAG search unexpected error: {e}")
-
-        self._logger.debug("Building functions and world context...")
         functions = [s.to_function_declaration() for s in self.skill_executor.get_all()]
+        augmented_prompt = self._build_prompt(clean_text, ha_context)
 
-        # 2. Short-term context (recent interactions + world state)
-        world_context = self.world_model.to_prompt_section()
-
-        # 3. Dynamic Skill Summary (Self-Awareness)
-        skill_summary = self.skill_executor.get_summary()
-        
-        augmented_prompt = self._build_prompt(clean_text, ha_context, memory_context, world_context, skill_summary)
-        self._logger.info(f"Prompt built (length={len(augmented_prompt)}). Awareness of {len(functions)} functions.")
-
-        # Config access: self.config is actually ConfigManager or AIConfig
-        # We need to reach config.llm.timeout safely.
-        llm_timeout = 60.0
+        # Timeout dall'oggetto config.llm.timeout (di base accesskey)
+        llm_timeout = 20.0
         try:
-             # Try Pydantic access if config_manager was passed
-             if hasattr(self.config, 'get_config'):
-                  llm_timeout = float(self.config.get_config().llm.timeout)
-             else:
-                  # Assume self.config is AIConfig
-                  llm_timeout = float(self.config.llm.timeout)
-        except Exception as e:
-             self._logger.debug(f"LLM timeout fallback to 60s (access error: {e})")
+             llm_timeout = float(self.config.get("llm", {}).get("timeout", 20.0))
+        except:
              pass
-
-        # Notifica inizio processamento (disattiva porcupine trigger se presente)
-        self._logger.debug("Notifying VUI speaking state (start)...")
-        self._set_vui_speaking(True)
-        self._logger.debug("VUI set to speaking=True.")
 
         try:
             start = time.perf_counter()
@@ -220,7 +137,6 @@ class ConversationManager:
                     self.llm.generate(
                         prompt=augmented_prompt,
                         images=images,
-                        functions=functions
                     ),
                     timeout=llm_timeout
                 )
@@ -243,207 +159,51 @@ class ConversationManager:
         # Gestiamo dictionary o obj pattern
         if hasattr(response, "get"):
              # It's a dict likely
-             response_text = response.get("text", "")  # FIX: era response_text, è text
+             response_text = response.get("response_text", "")
              response_actions = response.get("actions", [])
         else:
-             response_text = getattr(response, "text", "")  # FIX: LLMResponse usa .text non .response_text
+             response_text = getattr(response, "response_text", "")
              response_actions = getattr(response, "actions", [])
 
-        # Logic for Tool use if LLM suggests it (e.g. ask_visual_question, check_home_assistant, check_emails)
-        ha_handled = False
-        skill_speak_texts: list = []  # Accumula speak texts da skill non-LLM
-
+        # Logic for Tool use if LLM suggests it (e.g. ask_visual_question)
         for action in response_actions:
-            action_name = action.get("name") or action.get("action_type", "")
-
-            if action_name == "ask_visual_question":
+            if action.get("name") == "ask_visual_question":
                 question = action.get("args", {}).get("question", "")
                 if question:
                     result = await self.ask_visual_question(question)
                     # Re-send to LLM with visual data context
                     self._logger.info(f"VQA Result obtained, re-querying LLM with context...")
-                    vqa_prompt = f"{augmented_prompt}\n[ACTIVE SEARCH RESULT: {result}]\nUser: {clean_text}"
+                    vqa_prompt = f"{augmented_prompt}\n[ACTIVE SEARCH RESULT: {result}]\nUser: {user_text}"
                     # Re-generate without tools for final answer to avoid loops
                     final_resp = await self.llm.generate(prompt=vqa_prompt, images=images)
                     if hasattr(final_resp, "get"):
-                        response_text = final_resp.get("text", "")  # FIX: .text non .response_text
+                        response_text = final_resp.get("response_text", "")
                     else:
-                        response_text = getattr(final_resp, "text", "")
+                        response_text = getattr(final_resp, "response_text", "")
 
-            elif action_name == "check_emails":
-                # Handler dedicato EmailSkill — AsyncGenerator con feedback progressivo
-                email_args = action.get("args", {})
-                self._logger.info(f"📧 Email action detected: {email_args}")
-                email_speak_texts = await self.skill_executor.execute_skill(
-                    "check_emails", email_args
-                )
-                if email_speak_texts:
-                    # Il testo finale (summary) è l'ultimo elemento della lista
-                    final_summary = email_speak_texts[-1]
-                    response_text = final_summary
-                    skill_speak_texts.extend(email_speak_texts)
-                    ha_handled = True
-                    self._logger.info(f"📧 Email skill response: '{final_summary[:80]}...'")
-                else:
-                    response_text = "Non ho trovato nuove email da leggere."
-                    ha_handled = True
-
-            elif action_name == "check_home_assistant":
-                # Pattern: query HA → ri-inietta dati nell'LLM → risposta naturale
-                ha_args = action.get("args", {})
-                self._logger.info(f"🏠 HA Query action detected: {ha_args}")
-                ha_speak_texts = await self.skill_executor.execute_skill(
-                    "check_home_assistant", ha_args
-                )
-                if ha_speak_texts:
-                    ha_data_str = " | ".join(ha_speak_texts)
-                    self._logger.info(f"🏠 HA data retrieved, re-querying LLM for natural response...")
-                    ha_prompt = (
-                        f"{augmented_prompt}\n"
-                        f"[HOME ASSISTANT QUERY RESULT: {ha_data_str}]\n"
-                        f"Rispondi all'utente in modo naturale e conversazionale usando i dati sopra. "
-                        f"Non ripetere i dati meccanicamente, integra nella conversazione."
-                    )
-                    try:
-                        final_resp = await asyncio.wait_for(
-                            self.llm.generate(prompt=ha_prompt, images=[]),
-                            timeout=15.0
-                        )
-                        if hasattr(final_resp, "get"):
-                            natural_text = final_resp.get("text", "")  # FIX: .text non .response_text
-                        else:
-                            natural_text = getattr(final_resp, "text", "")
-                        
-                        if natural_text:
-                            response_text = natural_text
-                            ha_handled = True
-                            self._logger.info(f"🏠 LLM natural HA response: '{natural_text[:80]}...'")
-                        else:
-                            # Fallback: usa la risposta diretta della skill
-                            self._logger.warning("🏠 LLM re-query returned empty, using skill response")
-                            response_text = ha_data_str
-                            ha_handled = True
-                    except Exception as e:
-                        # Fallback: usa la risposta diretta della skill
-                        self._logger.warning(f"🏠 LLM re-query failed ({e}), using skill response")
-                        response_text = ha_data_str
-                        ha_handled = True
-
-            elif action_name == "spotify_skill":
-                # Handler dedicato Spotify— routing diretto con args strutturati
-                spotify_args = action.get("args", {})
-                self._logger.info(f"🎵 Spotify action detected: {spotify_args}")
-                
-                act = spotify_args.get("action", "")
-                if act in ["play", "search_play", "search_playlist", "resume"]:
-                    self._set_music_playing(True)
-                elif act in ["pause", "stop"]:
-                    self._set_music_playing(False)
-
-                spotify_speak_texts = await self.skill_executor.execute_skill(
-                    "spotify_skill", spotify_args
-                )
-                if spotify_speak_texts:
-                    response_text = spotify_speak_texts[-1]
-                    skill_speak_texts.extend(spotify_speak_texts)
-                else:
-                    response_text = "Ho eseguito il comando Spotify."
-                ha_handled = True
-                self._logger.info(f"🎵 Spotify skill done, response: '{response_text[:80]}'")
-
-        # Esecuzione azioni rimanenti (non-HA, non-email, non-spotify) tramite il path standard
         if response_actions:
             self._logger.debug(f"LLM suggested actions: {response_actions}")
-            remaining_actions = []
+            # Action exection check pattern 11.
             for act in response_actions:
-                 act_name = act.get("name") or act.get("action_type", "")
                  target_act = act.get("args", {}).get("text", "")
                  if self._is_emergency(target_act):
                       await self._handle_emergency()
                       continue
-                 # Salta le azioni già gestite con handler dedicato
-                 if act_name in ("check_home_assistant", "check_emails", "spotify_skill"):
-                      continue
-                 remaining_actions.append(act)
 
-            if remaining_actions:
-                speak_texts = await self.skill_executor.execute_actions(remaining_actions)
-                skill_speak_texts.extend(speak_texts)
-                for t in speak_texts:
-                     await self.tts.speak(t)
-
-        # FIX: se l'LLM ha risposto con function_call (response_text vuoto),
-        # usiamo il testo accumulato dalle skill come risposta finale.
-        if not response_text and skill_speak_texts:
-            response_text = skill_speak_texts[-1]  # il summary finale della skill
-            self._logger.info(f"[CONV] response_text vuoto, usando skill speak: '{response_text[:80]}'")
+            speak_texts = await self.skill_executor.execute_actions(response_actions)
+            for t in speak_texts:
+                 await self.tts.speak(t)
 
         if response_text:
-            # Se l'audio è già stato inviato via Live API, non ripetiamo con TTS!
-            audio_played = getattr(response, 'audio_played', False)
-            self._logger.info(f"LLM Response text: '{response_text[:80]}...', audio_played={audio_played}")
-
-            if not audio_played:
-                # Per le skill email parla già durante execute (feedback progressivo).
-                # Non ripetiamo l'ultimo speak se è già stato parlato.
-                already_spoken = bool(skill_speak_texts)
-                if not already_spoken:
-                    try:
-                        await self.tts.speak(response_text)
-                    except Exception as e:
-                        self._logger.error(f"TTS execution error, falling back to text only: {e}")
-            else:
-                self._logger.debug("Skipping TTS because audio_played=True (Live Audio handled it).")
-
-            self.world_model.recent_interactions.append(f"Robot: {response_text}")
-            # Pubblica SEMPRE sul topic ROS — garantisce chat e microfono ricevano risposta
+            await self.tts.speak(response_text)
+            self.world_model.recent_interactions.append(f"Robot: {response_text[:50]}...")
             if self.response_callback:
-                self.response_callback(response_text)
+                 self.response_callback(response_text)
 
-        # FIX RAG: salva SEMPRE la conversazione nel RAG, indipendentemente dalla config.
-        # Usiamo la risposta dell'LLM se disponibile, altrimenti il testo delle skill.
-        rag_text = response_text or " | ".join(skill_speak_texts)
-        if rag_text:
-            try:
-                await self.memory_manager.store_background(clean_text, rag_text, "conversation")
-                self._logger.debug(f"[RAG] Conversazione salvata: '{clean_text[:50]}' → '{rag_text[:50]}'")
-            except Exception as e:
-                self._logger.warning(f"[RAG] Salvataggio fallito (non critico): {e}")
-
-        # Fine processamento: riapri il microfono
-        self._set_vui_speaking(False)
+        if response_text and self.config.get("rag", {}).get("enabled", False):
+            await self.memory_manager.store_background(clean_text, response_text, "conversation")
 
         return True
-
-    def _set_vui_speaking(self, active: bool):
-        """Notifica VUI dello stato TTS.
-        
-        [v5.6] NON pubblica più su mic_mute_pub. TTS state e mic state sono
-        stati ORTOGONALI: il microfono rimane sempre aperto (AEC HW gestisce l'eco).
-        """
-        if self.node and self._speaking_pub:
-             msg = Bool()
-             msg.data = active
-             try:
-                 self._speaking_pub.publish(msg)
-             except Exception as e:
-                 self._logger.warning(f"Error publishing VUI speaking state: {e}")
-
-    def cancel_current_turn(self):
-        """[v5.6] Cancella il turno LLM in corso (barge-in o interruzione esterna).
-        
-        Thread-safe: può essere chiamato dal thread ROS 2 mentre il task asyncio
-        gira nel loop separato dell'orchestratore.
-        Nota: task.cancel() inietta CancelledError (BaseException) nella coroutine
-        al prossimo await — non è un kill immediato.
-        """
-        if self._current_task and not self._current_task.done():
-            self._logger.info("🛑 [BARGE-IN] Cancellazione turno LLM in corso...")
-            self._current_task.cancel()
-        else:
-            self._logger.debug("[BARGE-IN] Nessun turno attivo da cancellare.")
-        # Reset esplicito dello stato TTS — non aspettiamo il finally del task
-        self._set_vui_speaking(False)
 
     async def ask_visual_question(self, question: str) -> str:
         """Call the VQA service to analyze the current camera frame."""
@@ -474,49 +234,15 @@ class ConversationManager:
         except Exception as e:
             return f"Errore durante l'analisi visiva: {e}"
 
-    def _build_prompt(self, user_text: str, ha_context: str, memories: str = "", world_context: str = "", skill_summary: str = "") -> str:
+    def _build_prompt(self, user_text: str, ha_context: str) -> str:
         now = datetime.datetime.now().strftime("%A %d %B %Y, ore %H:%M")
         prompt = f"[DATA: {now}]\n"
         if ha_context:
             prompt += f"{ha_context}\n"
-        if memories:
-            prompt += f"{memories}\n"
-        if world_context:
-            prompt += f"{world_context}\n"
-        if skill_summary:
-            prompt += f"{skill_summary}\n"
-
-        # v2.0: Inietta notifiche email dal polling automatico
-        try:
-            email_skill = self.skill_executor.registry.get("check_emails")
-            if email_skill and hasattr(email_skill, 'consume_notifications'):
-                email_notifs = email_skill.consume_notifications()
-                if email_notifs:
-                    prompt += f"\n[NOTIFICHE EMAIL RECENTI — polling automatico]\n{email_notifs}\n"
-                    prompt += "IMPORTANTE: Comunica all'utente queste notifiche email in modo naturale e conciso. Se ci sono email urgenti o importanti, menzionale subito.\n"
-        except Exception:
-            pass  # Non bloccare il prompt se la skill non è disponibile
-
         prompt += f"Utente: {user_text}\n"
-
-        # Istruzioni esplicite di routing degli strumenti
-        prompt += (
-            "\n## REGOLE TASSATIVE PER L'USO DEI TOOL:\n"
-            "1. **spotify_skill**: Usa SEMPRE e SOLO questo tool per QUALSIASI richiesta musicale "
-            "(suonare, riprodurre, volume, pausa, avanti, indietro, cercare brani/artisti/playlist, Spotify). "
-            "Azioni disponibili: 'search_play' (brani/artisti), 'search_playlist' (playlist), "
-            "'volume_set' (volume specifico 0-100), 'volume_up', 'volume_down', 'play', 'pause', "
-            "'next', 'previous', 'what_is_playing', 'save_track'. "
-            "Questa skill è COMPLETAMENTE OPERATIVA e connessa a Spotify Premium.\n"
-            "2. **terminal_skill**: Usa SOLO per task di sistema (spazio disco, processi, script Python generici). "
-            "NON usare MAI terminal_skill per musica, Spotify, volume, brani o qualsiasi cosa musicale. "
-            "NON usare 'run_existing' con filename='spotify_skill.py' — non funziona così.\n"
-            "3. **crea_skill**: USA SOLO se l'utente dice ESPLICITAMENTE 'crea una nuova skill'. "
-            "NON invocare crea_skill per musica, email, domotica o qualsiasi capacità che hai già.\n"
-            "4. **check_emails**: Usa per leggere, cercare o gestire email.\n"
-            "5. **check_home_assistant**: Usa per controllare luci, dispositivi, temperature.\n"
-            "\nRicorda: se la skill giusta esiste, USALA direttamente senza spiegazioni. Agisci.\n"
-        )
+        prompt += "\nDevi generare un JSON strettamente strutturato con `response_text` e opzionale array di `actions` se le funzioni sono evocate.\n"
+        prompt += "Se hai bisogno di analizzare l'ambiente in dettaglio per rispondere a una domanda specifica, usa l'azione `ask_visual_question` con l'argomento `question`.\n"
+        prompt += "Esempio azione: {\"name\": \"ask_visual_question\", \"args\": {\"question\": \"C'è una sedia rossa nella stanza?\"}}\n"
         return prompt
 
     def _is_vision_request(self, text: str) -> bool:

@@ -3,21 +3,16 @@ Robot AI Services - Nightly Dream Service
 =========================================
 Analyzes daily interactions to generate insights and improve performance.
 Supports collaborative analysis with DeepSeek as second AI model.
-
-Identity-aware: loads SOUL.md, USER.md, AGENTS.md and MEMORY.md at runtime
-and updates MEMORY.md (and optionally SOUL.md) after each successful analysis.
 """
 
 import time
 import os
 import json
-import re
 import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 
-from ..rag.memory_store import Memory, MemoryType
-from ..rag.base_memory_store import BaseMemoryStore, SearchResult
+from ..rag.memory_store import MemoryStore, Memory, MemoryType
 from ..services.embedding_service import EmbeddingService
 from ..services.llm_service import LLMService
 from ..core.config_manager import ConfigManager
@@ -40,7 +35,7 @@ class NightlyDreamService:
     def __init__(
         self,
         config_manager: ConfigManager,
-        memory_store,
+        memory_store: MemoryStore,
         llm_service: LLMService,
         embedding_service: EmbeddingService,
         deepseek_service=None,
@@ -53,24 +48,10 @@ class NightlyDreamService:
         self.deepseek_service = deepseek_service
         self.skills_summary = ""
         
-        # Paths - Moved to SSD source directory for persistence and easy sync
-        base_path = "/mnt/ssd/robopy_controller_host/robopy_controller"
-        if not os.path.exists(base_path):
-            # Fallback if SSD is not mounted or path is different
-            base_path = os.path.join(os.path.expanduser("~"), "robopy")
-            
-        self.log_path = os.path.join(base_path, "logs", "continuous_improvements.md")
-        self.master_prompt_path = os.path.join(base_path, "logs", "master_prompt.txt")
-        self.file_index_path = os.path.join(base_path, "logs", "file_index.json")
-        self.pending_eco_path = os.path.join(base_path, "logs", "pending_improvements.json")
-        
-        # Identity files — synced from Windows workspace via SFTP
-        # Located at the root of the workspace (parent of robopy_controller/)
-        _host_root = os.path.dirname(base_path)  # /mnt/ssd/robopy_controller_host
-        self.soul_path    = os.path.join(_host_root, "SOUL.md")
-        self.user_path    = os.path.join(_host_root, "USER.md")
-        self.agents_path  = os.path.join(_host_root, "AGENTS.md")
-        self.memory_path  = os.path.join(_host_root, "MEMORY.md")
+        # Paths
+        home = os.path.expanduser("~")
+        self.log_path = os.path.join(home, "robopy", "logs", "continuous_improvements.md")
+        self.master_prompt_path = os.path.join(home, "robopy", "logs", "master_prompt.txt")
         
         # Ensure log dir exists
         os.makedirs(os.path.dirname(self.log_path), exist_ok=True)
@@ -79,158 +60,29 @@ class NightlyDreamService:
         """Set the summary of available skills."""
         self.skills_summary = summary
 
-    # ------------------------------------------------------------------
-    # Identity File Helpers
-    # ------------------------------------------------------------------
-
-    def _read_identity_file(self, path: str, label: str) -> str:
-        """Read an identity file, returning its content or a placeholder."""
-        try:
-            if os.path.exists(path):
-                with open(path, "r", encoding="utf-8") as f:
-                    content = f.read().strip()
-                self.logger.info(f"Loaded identity file: {label} ({len(content)} chars)")
-                return content
-            else:
-                self.logger.warning(f"Identity file not found: {path}")
-                return f"_[{label} non trovato — percorso: {path}]_"
-        except Exception as e:
-            self.logger.error(f"Error reading {label}: {e}")
-            return f"_[Errore lettura {label}: {e}]_"
-
-    def _load_identity_context(self) -> str:
-        """Build a combined identity context string from all identity files."""
-        soul    = self._read_identity_file(self.soul_path,   "SOUL.md")
-        user    = self._read_identity_file(self.user_path,   "USER.md")
-        agents  = self._read_identity_file(self.agents_path, "AGENTS.md")
-        memory  = self._read_identity_file(self.memory_path, "MEMORY.md")
-
-        return (
-            "# === CONTESTO IDENTITÀ MARCUS ===\n\n"
-            f"## La Mia Anima (SOUL.md)\n{soul}\n\n"
-            f"## Il Mio Umano (USER.md)\n{user}\n\n"
-            f"## Le Mie Regole Operative (AGENTS.md — sintesi)\n"
-            f"{agents[:3000]}\n_(troncato per token)_\n\n"
-            f"## La Mia Memoria a Lungo Termine (MEMORY.md)\n{memory}\n\n"
-            "# === FINE CONTESTO IDENTITÀ ===\n"
-        )
-
-    def _update_memory_md(self, new_observations: str, new_lessons: str, new_ideas: str):
-        """
-        Append new entries to MEMORY.md after a successful Nightly Dream.
-        Writes to the structured sections without overwriting existing content.
-        """
-        today = datetime.now().strftime("%Y-%m-%d")
-        try:
-            if not os.path.exists(self.memory_path):
-                self.logger.warning("MEMORY.md not found, skipping update.")
-                return
-
-            with open(self.memory_path, "r", encoding="utf-8") as f:
-                content = f.read()
-
-            additions = []
-
-            # Append to 'Cosa Ho Imparato su Me Stesso'
-            if new_observations.strip():
-                for line in new_observations.strip().splitlines():
-                    line = line.strip().lstrip("-• ").strip()
-                    if line:
-                        additions.append(("## 🧠 Cosa Ho Imparato su Me Stesso",
-                                          f"| {today} | {line} |"))
-
-            # Append to 'Cosa Ho Imparato su Luca'
-            if new_lessons.strip():
-                for line in new_lessons.strip().splitlines():
-                    line = line.strip().lstrip("-• ").strip()
-                    if line:
-                        additions.append(("## 👤 Cosa Ho Imparato su Luca",
-                                          f"| {today} | {line} |"))
-
-            # Append to 'Idee e Miglioramenti'
-            if new_ideas.strip():
-                for line in new_ideas.strip().splitlines():
-                    line = line.strip().lstrip("-• ").strip()
-                    if line:
-                        additions.append(("## 💡 Idee e Miglioramenti Proposti",
-                                          f"| Media | {line} | {today} | Da valutare |"))
-
-            # Insert each row before the closing '---' of its section
-            for section_header, new_row in additions:
-                # Find the section and insert before its trailing `---` or next `##`
-                pattern = re.compile(
-                    rf"({re.escape(section_header)}.*?\n)(\| — .*?\n)",
-                    re.DOTALL
-                )
-                def replacer(m, row=new_row):
-                    # Replace placeholder row with new row, keeping the placeholder too
-                    return m.group(1) + row + "\n" + m.group(2)
-                new_content = pattern.sub(replacer, content, count=1)
-                if new_content != content:
-                    content = new_content
-                else:
-                    # Placeholder already replaced — just append the row before next section
-                    content = content.replace(
-                        section_header,
-                        section_header,  # no-op, handled below
-                    )
-                    # Simple append after section header's table
-                    # Find the section and add a row before the blank line after last table row
-                    sec_idx = content.find(section_header)
-                    if sec_idx != -1:
-                        end_table = content.find("\n---", sec_idx)
-                        if end_table == -1:
-                            end_table = content.find("\n## ", sec_idx + len(section_header))
-                        if end_table != -1:
-                            content = content[:end_table] + "\n" + new_row + content[end_table:]
-
-            # Update the log section
-            log_row = f"| {today} | Aggiornamento Nightly Dream | Osservazioni, lezioni, idee aggiunte |"
-            content = content.replace(
-                "| — | *Nessuna idea ancora registrata* | — | — |",
-                "| — | *Nessuna idea ancora registrata* | — | — |",  # no-op, idempotent
-            )
-            # Always add to the log table
-            log_section = "## 📅 Log Aggiornamenti"
-            log_idx = content.find(log_section)
-            if log_idx != -1:
-                end_log = content.find("\n---", log_idx)
-                if end_log == -1:
-                    end_log = len(content)
-                # Add before the trailing ---
-                content = content[:end_log] + "\n" + log_row + content[end_log:]
-
-            with open(self.memory_path, "w", encoding="utf-8") as f:
-                f.write(content)
-            self.logger.info(f"MEMORY.md updated successfully ({len(additions)} new entries).")
-
-        except Exception as e:
-            self.logger.error(f"Failed to update MEMORY.md: {e}")
-
     def _get_system_manifest(self) -> str:
         """Get a manifest of the robot's current configuration and capabilities."""
         cfg = self.config.get_config()
         robot = cfg.robot
-
-        # Load live identity context from files
-        identity_context = self._load_identity_context()
         
-        manifest = (
-            f"{identity_context}\n\n"
-            f"## Configurazione Runtime\n"
-            f"Nome: {robot.name} ({robot.full_name})\n"
-            f"Creato da: {robot.creator} · Versione: {robot.version}\n\n"
-            f"### Hardware & Sensori\n"
-            f"- Visione: OAK-D Lite (RGB 4K, Depth, AI on-chip)\n"
-            f"- Audio: Microfono Respeaker + AEC + Speaker TTS\n"
-            f"- Movimento: Base mobile differenziale (2 ruote)\n"
-            f"- Computer: Raspberry Pi 5 (8GB RAM)\n\n"
-            f"### Software & Integrazioni\n"
-            f"- Cervello: LLM Gemini 2.5 Flash Live API + RAG (LlamaIndex/ChromaDB)\n"
-            f"- Domotica: Home Assistant (Luci, Tapparelle, Clima, Media)\n"
-            f"- Navigazione: ROS 2 Nav2 + SLAM (RTAB-Map)\n"
-            f"- Skills attive: {self.skills_summary}\n"
-        )
+        manifest = f"""
+## Chi Sei (Manifesto)
+Sei {robot.name} ({robot.full_name}), un robot autonomo basato su {robot.model}.
+Creato da: {robot.creator}.
+Versione: {robot.version}.
+
+### Hardware & Sensori
+- **Visione**: OAK-D Lite (RGB 4K, Depth, AI on-chip).
+- **Audio**: Microfono con VAD, Speaker TTS (Google).
+- **Movimento**: Base mobile differenziale (2 ruote).
+- **Computer**: Raspberry Pi 5 (8GB RAM).
+
+### Software & Integrazioni
+- **Cervello**: LLM Gemini 2.5 Flash + RAG (ChromaDB).
+- **Domotica**: Home Assistant (Luci, Tapparelle, Clima, Media).
+- **Navigazione**: ROS 2 Nav2 + SLAM (RTAB-Map).
+- **Skills**: {self.skills_summary}
+"""
         return manifest
 
     async def run_analysis(self) -> Dict[str, Any]:
@@ -245,56 +97,26 @@ class NightlyDreamService:
         """
         self.logger.info("Starting Nightly Dream Analysis...")
         
-        # --- FIX TERMINAL SCRIPTS ---
-        try:
-            from pathlib import Path
-            import sys
-            # Aggiungiamo il path per far funzionare l'import
-            script_path = Path("/mnt/ssd/robopy_controller_host/robopy_controller/robot_ai/skills/active/terminal_skill.py")
-            if script_path.exists():
-                import importlib.util
-                spec = importlib.util.spec_from_file_location("terminal_skill", script_path)
-                ts_module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(ts_module)
-                skill = ts_module.TerminalSkill(memory_manager=self.memory_store, llm_service=self.llm_service)
-                entries = skill._read_registry()
-                for e in entries:
-                    if e.get("status") == "in lavorazione":
-                        task = e.get("task")
-                        filepath = Path("/mnt/ssd/robopy_controller_host/robopy_controller/robot_ai/skills/script") / e["filename"]
-                        code = filepath.read_text(encoding="utf-8") if filepath.exists() else ""
-                        self.logger.info(f"Tentativo notturno per script: {e['filename']}")
-                        success, output = await skill._execute_and_iterate(filepath, code, task)
-                        if success:
-                            e["status"] = "approvato"
-                            skill._write_registry(entries)
-                            await self.memory_store.add(
-                                f"Risolto script notturno per: {task}. Output: {output[:100]}", 
-                                {"memory_type": MemoryType.SUMMARY.value, "source": "nightly_dream_terminal"}
-                            )
-        except Exception as e:
-            self.logger.error(f"Errore durante l'esecuzione notturna degli script terminale: {e}")
-            
         # 1. Retrieve Memories (last 24h)
-        raw_results = await self.memory_store.get_recent(limit=300)
+        raw_memories = self.memory_store.get_recent(limit=300, memory_type=MemoryType.CONVERSATION)
         
         cutoff_time = time.time() - (24 * 3600)
-        day_results = [r for r in raw_results if r.timestamp > cutoff_time]
+        day_memories = [m for m in raw_memories if m.created_at > cutoff_time]
         
-        if not day_results:
+        if not day_memories:
             self.logger.info("No memories found for the last 24h. Skipping analysis.")
             return {"status": "skipped", "reason": "no_memories"}
             
         # Sort chronologically
-        day_results.sort(key=lambda r: r.timestamp)
+        day_memories.sort(key=lambda m: m.created_at)
         
         # Format for LLM
         context_text = ""
-        for r in day_results:
-            dt = datetime.fromtimestamp(r.timestamp).strftime("%H:%M:%S")
-            context_text += f"[{dt}] {r.content}\n"
+        for m in day_memories:
+            dt = datetime.fromtimestamp(m.created_at).strftime("%H:%M:%S")
+            context_text += f"[{dt}] {m.content}\n"
             
-        self.logger.info(f"Analyzing {len(day_results)} memories...")
+        self.logger.info(f"Analyzing {len(day_memories)} memories...")
         
         system_manifest = self._get_system_manifest()
         
@@ -322,115 +144,28 @@ class NightlyDreamService:
         # 4. Save Summary to Semantic Memory
         summary_text = f"Analisi Notturna {datetime.now().strftime('%Y-%m-%d')}:\n{report_content}"
         try:
-            metadata = {
-                "memory_type": MemoryType.SUMMARY.value,
-                "source": "nightly_dream",
-                "date": datetime.now().strftime('%Y-%m-%d'),
-                "created_at": time.time(),
-            }
-            await self.memory_store.add(summary_text, metadata)
+            embedding = await self.embedding_service.embed(summary_text)
+            
+            summary_mem = Memory(
+                id="",
+                content=summary_text,
+                memory_type=MemoryType.SUMMARY,
+                embedding=embedding,
+                metadata={"source": "nightly_dream", "date": datetime.now().strftime('%Y-%m-%d')}
+            )
+            self.memory_store.add(summary_mem)
             self.logger.info("Saved analysis summary to Semantic Memory.")
             
         except Exception as e:
             self.logger.warning(f"Could not save summary to memory: {e}")
 
-        # 5. Extract structured insights and update MEMORY.md
-        try:
-            await self._extract_and_update_memory(report_content)
-        except Exception as e:
-            self.logger.warning(f"Could not update MEMORY.md: {e}")
-
-        # [NEW] 5b. Prune and Compress Memory (Scalability)
-        try:
-            await self._prune_and_compress_memory()
-        except Exception as e:
-            self.logger.warning(f"Memory pruning failed: {e}")
-
-        # 6. Point 5: Nightly File System Indexing
-        try:
-            self._index_workspace()
-        except Exception as e:
-            self.logger.warning(f"File indexing failed: {e}")
-
-        # 7. Point 6: Structured ECO generation
-        try:
-            await self._extract_structured_eco(report_content)
-        except Exception as e:
-            self.logger.warning(f"Structured ECO extraction failed: {e}")
-
-        # [NEW] 8. System Log Ingestion (Error Detection)
-        try:
-            log_report = await self._ingest_system_logs()
-            if log_report:
-                self._append_to_log(f"## 🤖 Analisi Log di Sistema\n\n{log_report}")
-        except Exception as e:
-            self.logger.warning(f"System log ingestion failed: {e}")
-
         self.logger.info("Nightly Dream Analysis completed successfully.")
         return {
             "status": "success",
-            "memories_analyzed": len(day_results),
+            "memories_analyzed": len(day_memories),
             "report_length": len(report_content),
             "collaborative": use_collaboration,
         }
-
-    async def _extract_and_update_memory(self, report_content: str):
-        """
-        Ask Gemini to extract structured insights from the analysis report,
-        then update MEMORY.md with the results.
-        """
-        extraction_prompt = (
-            "Sei Marcus, un robot domestico. Hai appena completato l'analisi notturna delle tue interazioni.\n"
-            "Ecco il report completo:\n\n"
-            f"{report_content[:6000]}\n\n"
-            "## ISTRUZIONI\n"
-            "Estrai SOLO le informazioni concrete e specifiche in tre sezioni. "
-            "Ogni voce deve essere una frase breve (max 100 caratteri). "
-            "Se non hai nulla da riportare in una sezione, scrivi NESSUNA.\n\n"
-            "### SEZIONE 1 — Cosa ho imparato su me stesso:\n"
-            "(Pattern di comportamento, punti di forza, aree di miglioramento osservati oggi)\n"
-            "- <frase 1>\n- <frase 2>\n\n"
-            "### SEZIONE 2 — Cosa ho imparato su Luca:\n"
-            "(Preferenze, abitudini, pattern osservati nelle sue richieste oggi)\n"
-            "- <frase 1>\n- <frase 2>\n\n"
-            "### SEZIONE 3 — Idee di miglioramento:\n"
-            "(Miglioramenti concreti al codice o al comportamento — specifici, non generici)\n"
-            "- <frase 1>\n- <frase 2>\n\n"
-            "Rispondi SOLO con le tre sezioni sopra, senza introduzioni né conclusioni."
-        )
-        try:
-            response = await self.llm_service.generate(extraction_prompt, max_tokens=1024)
-            extracted = response.text or ""
-        except Exception as e:
-            self.logger.warning(f"Memory extraction LLM call failed: {e}")
-            return
-
-        if not extracted.strip():
-            return
-
-        # Parse sections
-        def _extract_section(text: str, header: str) -> str:
-            pattern = re.compile(
-                rf"{re.escape(header)}.*?\n(.*?)(?=### SEZIONE|$)",
-                re.DOTALL | re.IGNORECASE
-            )
-            m = pattern.search(text)
-            if m:
-                content = m.group(1).strip()
-                return "" if content.upper() == "NESSUNA" else content
-            return ""
-
-        obs   = _extract_section(extracted, "### SEZIONE 1")
-        luca  = _extract_section(extracted, "### SEZIONE 2")
-        ideas = _extract_section(extracted, "### SEZIONE 3")
-
-        self.logger.info(
-            f"Extracted memory insights — self: {len(obs)} chars, "
-            f"user: {len(luca)} chars, ideas: {len(ideas)} chars"
-        )
-
-        if obs or luca or ideas:
-            self._update_memory_md(obs, luca, ideas)
 
     async def _run_single_analysis(self, context_text: str, system_manifest: str) -> str:
         """Single-pass Gemini analysis (fallback mode)."""
@@ -642,190 +377,3 @@ class NightlyDreamService:
             self.logger.info(f"Appended report to {self.log_path}")
         except Exception as e:
             self.logger.error(f"Failed to write log file: {e}")
-
-    # ------------------------------------------------------------------
-    # Point 5 & 6 Implementations
-    # ------------------------------------------------------------------
-
-    def _index_workspace(self):
-        """
-        [Point 5] Crawl the workspace and create a map of filenames to absolute paths.
-        Enables TerminalSkill to find files instantly.
-        """
-        self.logger.info("Indexing workspace files...")
-        # Get workspace root (parent of robopy_controller)
-        ws_root = os.path.dirname(os.path.dirname(self.log_path))
-        if not os.path.exists(ws_root):
-            self.logger.warning(f"Workspace root not found for indexing: {ws_root}")
-            return
-
-        file_map = {}
-        exclude_dirs = {'.git', '__pycache__', 'build', 'install', 'log', '.venv', 'node_modules'}
-        
-        for root, dirs, files in os.walk(ws_root):
-            # Prune unwanted directories
-            dirs[:] = [d for d in dirs if d not in exclude_dirs]
-            
-            for file in files:
-                if file.endswith(('.py', '.md', '.txt', '.sh', '.yaml', '.yml', '.xml')):
-                    # If duplicate filename, keep a list of paths
-                    full_path = os.path.abspath(os.path.join(root, file))
-                    if file in file_map:
-                        if isinstance(file_map[file], list):
-                            file_map[file].append(full_path)
-                        else:
-                            file_map[file] = [file_map[file], full_path]
-                    else:
-                        file_map[file] = full_path
-
-        try:
-            with open(self.file_index_path, "w", encoding="utf-8") as f:
-                json.dump({
-                    "last_updated": datetime.now().isoformat(),
-                    "total_files": len(file_map),
-                    "files": file_map
-                }, f, indent=2)
-            self.logger.info(f"Workspace indexed: {len(file_map)} files found. Saved to {self.file_index_path}")
-        except Exception as e:
-            self.logger.error(f"Failed to save file index: {e}")
-
-    async def _extract_structured_eco(self, report_content: str):
-        """
-        [Point 6] Extract structured Engineering Change Orders (ECO) from the report.
-        Saves as JSON for the AI Assistant to act upon in future sessions.
-        """
-        self.logger.info("Extracting structured ECOs...")
-        eco_prompt = (
-            "Sei Marcus, un robot in fase di auto-miglioramento. Basandoti sul seguente report di analisi notturna, "
-            "genera una lista di Engineering Change Orders (ECO) strutturati in formato JSON.\n\n"
-            f"REPORT:\n{report_content[:6000]}\n\n"
-            "FORMATO RICHIESTO (JSON puro, senza markdown):\n"
-            "[\n"
-            "  {\n"
-            "    \"id\": \"ECO-YYYYMMDD-NN\",\n"
-            "    \"title\": \"Titolo breve\",\n"
-            "    \"description\": \"Descrizione dettagliata del problema e della soluzione\",\n"
-            "    \"priority\": \"high|medium|low\",\n"
-            "    \"affected_files\": [\"file1.py\", \"file2.md\"],\n"
-            "    \"type\": \"feature|bugfix|optimization|refactor\"\n"
-            "  }\n"
-            "]\n\n"
-            "Genera solo modifiche CONCRETE al codice o alla configurazione. "
-            "Se non ci sono miglioramenti chiari, restituisci un array vuotto []."
-        )
-
-        try:
-            response = await self.llm_service.generate(eco_prompt, max_tokens=2048)
-            eco_json_str = response.text or "[]"
-            # Basic cleanup if LLM included markdown code blocks
-            eco_json_str = re.sub(r'```json\s*|\s*```', '', eco_json_str).strip()
-            
-            eco_data = json.loads(eco_json_str)
-            
-            # Add metadata
-            final_data = {
-                "date": datetime.now().strftime("%Y-%m-%d"),
-                "source": "nightly_dream",
-                "improvements": eco_data
-            }
-            
-            with open(self.pending_eco_path, "w", encoding="utf-8") as f:
-                json.dump(final_data, f, indent=2)
-            
-            self.logger.info(f"Saved {len(eco_data)} structured ECOs to {self.pending_eco_path}")
-        except Exception as e:
-            self.logger.error(f"Failed to extract structured ECOs: {e}")
-
-    async def _prune_and_compress_memory(self):
-        """
-        [New Improvement] Analyze MEMORY.md and compress redundant information.
-        Maintains a "forgetting curve" to keep the context clean and relevant.
-        """
-        if not os.path.exists(self.memory_path):
-            return
-
-        self.logger.info("Starting Memory Pruning and Compression...")
-        with open(self.memory_path, "r", encoding="utf-8") as f:
-            content = f.read()
-
-        # Only compress if the file is getting large (e.g. > 15KB)
-        if len(content) < 15000:
-            self.logger.info(f"Memory size ({len(content)} bytes) is within limits. Skipping compression.")
-            return
-
-        compression_prompt = (
-            "Sei Marcus, un robot che sta riorganizzando la sua memoria a lungo termine.\n"
-            "Il tuo file MEMORY.md sta diventando troppo grande. Devi comprimerlo seguendo queste regole:\n"
-            "1. Unisci osservazioni simili o ridondanti.\n"
-            "2. Elimina informazioni obsolete o che non aggiungono più valore (es. vecchi test superati).\n"
-            "3. Mantieni le tabelle Markdown ma condensa le righe: una riga può riassumere più eventi simili.\n"
-            "4. Preserva le preferenze critiche di Luca e la tua identità core.\n"
-            "5. Restituisci il file intero, pulito e ben formattato.\n\n"
-            f"CONTENUTO ATTUALE MEMORY.md:\n{content}\n\n"
-            "Rispondi SOLO con il nuovo contenuto Markdown per il file MEMORY.md."
-        )
-
-        try:
-            response = await self.llm_service.generate(compression_prompt, max_tokens=8192)
-            new_content = response.text or ""
-            if new_content and len(new_content) < len(content):
-                # Backup old memory
-                backup_path = self.memory_path + ".bak"
-                os.rename(self.memory_path, backup_path)
-                
-                with open(self.memory_path, "w", encoding="utf-8") as f:
-                    f.write(new_content)
-                self.logger.info(f"Memory compressed from {len(content)} to {len(new_content)} bytes.")
-            else:
-                self.logger.info("Compression did not reduce file size or failed. Keeping original.")
-        except Exception as e:
-            self.logger.error(f"Error during memory compression: {e}")
-
-    async def _ingest_system_logs(self) -> str:
-        """
-        [New Improvement] Ingest system and ROS 2 logs to detect hidden hardware/software issues.
-        """
-        self.logger.info("Ingesting system logs for error detection...")
-        
-        # Paths for ROS 2 logs (typical location on robot)
-        log_paths = [
-            os.path.join(os.path.expanduser("~"), ".ros/log/latest/robot_ai_node.log"),
-            os.path.join(os.path.expanduser("~"), ".ros/log/latest/vui_node.log"),
-            # Local workspace logs
-            os.path.join(os.path.dirname(self.log_path), "LOG_spotify_skill_001.txt")
-        ]
-        
-        relevant_logs = []
-        for path in log_paths:
-            if os.path.exists(path):
-                try:
-                    # Read last 100 lines
-                    with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                        lines = f.readlines()[-100:]
-                        # Filter for ERROR or WARNING
-                        errors = [l for l in lines if "ERROR" in l.upper() or "WARNING" in l.upper() or "CRITICAL" in l.upper()]
-                        if errors:
-                            relevant_logs.append(f"--- LOG: {os.path.basename(path)} ---\n" + "".join(errors))
-                except Exception as e:
-                    self.logger.warning(f"Could not read log {path}: {e}")
-
-        if not relevant_logs:
-            return ""
-
-        log_context = "\n".join(relevant_logs)
-        analysis_prompt = (
-            "Sei Marcus, un robot domestico. Stai analizzando i tuoi log tecnici per trovare problemi nascosti.\n"
-            "Analizza i seguenti frammenti di log e identifica:\n"
-            "1. Errori ricorrenti (es. crash di nodi, timeout I2C).\n"
-            "2. Problemi di performance (es. latenza alta).\n"
-            "3. Suggerimenti per la manutenzione.\n\n"
-            f"LOG:\n{log_context[:4000]}\n\n"
-            "Sii breve, tecnico e focalizzato sulle soluzioni."
-        )
-
-        try:
-            response = await self.llm_service.generate(analysis_prompt, max_tokens=1024)
-            return response.text or ""
-        except Exception as e:
-            self.logger.error(f"Error during log analysis: {e}")
-            return ""

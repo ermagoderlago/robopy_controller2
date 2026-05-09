@@ -1,0 +1,198 @@
+1777843309.4756935 [INFO] [launch]: All log files can be found below /home/robopy/.ros/log/2026-05-03-23-21-49-471468-raspberrypi-143085
+1777843309.4758770 [INFO] [launch]: Default logging verbosity is set to INFO
+1777843309.6667185 [ERROR] [respeaker_interface_node-5]: exception occurred while executing process:
+Traceback (most recent call last):
+  File "/mnt/ssd/ros2_jazzy/build/launch/launch/actions/execute_local.py", line 569, in __execute_process
+    transport, self._subprocess_protocol = await async_execute_process(
+                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/ssd/ros2_jazzy/build/osrf_pycommon/osrf_pycommon/process_utils/async_execute_process_asyncio/impl.py", line 139, in async_execute_process
+    transport, protocol = await _async_execute_process_nopty(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/ssd/ros2_jazzy/build/osrf_pycommon/osrf_pycommon/process_utils/async_execute_process_asyncio/impl.py", line 45, in _async_execute_process_nopty
+    transport, protocol = await loop.subprocess_exec(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/asyncio/base_events.py", line 1694, in subprocess_exec
+    transport = await self._make_subprocess_transport(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/asyncio/unix_events.py", line 207, in _make_subprocess_transport
+    transp = _UnixSubprocessTransport(self, protocol, args, shell,
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/asyncio/base_subprocess.py", line 36, in __init__
+    self._start(args=args, shell=shell, stdin=stdin, stdout=stdout,
+  File "/usr/lib/python3.11/asyncio/unix_events.py", line 810, in _start
+    self._proc = subprocess.Popen(
+                 ^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/subprocess.py", line 1024, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File "/usr/lib/python3.11/subprocess.py", line 1789, in _execute_child
+    self._posix_spawn(args, executable, env, restore_signals,
+  File "/usr/lib/python3.11/subprocess.py", line 1733, in _posix_spawn
+    self.pid = os.posix_spawn(executable, args, env, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+OSError: [Errno 8] Exec format error: '/mnt/ssd/robopy_controller_host/install/robopy_controller/lib/robopy_controller/respeaker_interface_node'
+
+1777843309.6807537 [ERROR] [servo_coda_node-8]: exception occurred while executing process:
+Traceback (most recent call last):
+  File "/mnt/ssd/ros2_jazzy/build/launch/launch/actions/execute_local.py", line 569, in __execute_process
+    transport, self._subprocess_protocol = await async_execute_process(
+                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/ssd/ros2_jazzy/build/osrf_pycommon/osrf_pycommon/process_utils/async_execute_process_asyncio/impl.py", line 139, in async_execute_process
+    transport, protocol = await _async_execute_process_nopty(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/ssd/ros2_jazzy/build/osrf_pycommon/osrf_pycommon/process_utils/async_execute_process_asyncio/impl.py", line 45, in _async_execute_process_nopty
+    transport, protocol = await loop.subprocess_exec(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/asyncio/base_events.py", line 1694, in subprocess_exec
+    transport = await self._make_subprocess_transport(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/asyncio/unix_events.py", line 207, in _make_subprocess_transport
+    transp = _UnixSubprocessTransport(self, protocol, args, shell,
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/asyncio/base_subprocess.py", line 36, in __init__
+    self._start(args=args, shell=shell, stdin=stdin, stdout=stdout,
+  File "/usr/lib/python3.11/asyncio/unix_events.py", line 810, in _start
+    self._proc = subprocess.Popen(
+                 ^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/subprocess.py", line 1024, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File "/usr/lib/python3.11/subprocess.py", line 1789, in _execute_child
+    self._posix_spawn(args, executable, env, restore_signals,
+  File "/usr/lib/python3.11/subprocess.py", line 1733, in _posix_spawn
+    self.pid = os.posix_spawn(executable, args, env, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+OSError: [Errno 8] Exec format error: '/mnt/ssd/robopy_controller_host/install/robopy_controller/lib/robopy_controller/servo_coda_node'
+
+1777843309.6948302 [ERROR] [ultrasonic_sensor-9]: exception occurred while executing process:
+Traceback (most recent call last):
+  File "/mnt/ssd/ros2_jazzy/build/launch/launch/actions/execute_local.py", line 569, in __execute_process
+    transport, self._subprocess_protocol = await async_execute_process(
+                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/ssd/ros2_jazzy/build/osrf_pycommon/osrf_pycommon/process_utils/async_execute_process_asyncio/impl.py", line 139, in async_execute_process
+    transport, protocol = await _async_execute_process_nopty(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/ssd/ros2_jazzy/build/osrf_pycommon/osrf_pycommon/process_utils/async_execute_process_asyncio/impl.py", line 45, in _async_execute_process_nopty
+    transport, protocol = await loop.subprocess_exec(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/asyncio/base_events.py", line 1694, in subprocess_exec
+    transport = await self._make_subprocess_transport(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/asyncio/unix_events.py", line 207, in _make_subprocess_transport
+    transp = _UnixSubprocessTransport(self, protocol, args, shell,
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/asyncio/base_subprocess.py", line 36, in __init__
+    self._start(args=args, shell=shell, stdin=stdin, stdout=stdout,
+  File "/usr/lib/python3.11/asyncio/unix_events.py", line 810, in _start
+    self._proc = subprocess.Popen(
+                 ^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/subprocess.py", line 1024, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File "/usr/lib/python3.11/subprocess.py", line 1789, in _execute_child
+    self._posix_spawn(args, executable, env, restore_signals,
+  File "/usr/lib/python3.11/subprocess.py", line 1733, in _posix_spawn
+    self.pid = os.posix_spawn(executable, args, env, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+OSError: [Errno 8] Exec format error: '/mnt/ssd/robopy_controller_host/install/robopy_controller/lib/robopy_controller/ultrasonic_sensor'
+
+1777843309.6972446 [INFO] [robot_ai_node-6]: process started with pid [143101]
+1777843309.6982238 [INFO] [robot_state_publisher-1]: process started with pid [143088]
+1777843309.7020643 [INFO] [static_transform_publisher-2]: process started with pid [143090]
+1777843309.7022898 [INFO] [foxglove_bridge-3]: process started with pid [143092]
+1777843309.7024138 [INFO] [respeaker_vui_node-4]: process started with pid [143094]
+1777843309.7025406 [INFO] [homeassistant_node-7]: process started with pid [143104]
+1777843309.7287989 [foxglove_bridge-3] [WARN] [1777843309.728257644] [rcl]: ROS_LOCALHOST_ONLY is deprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_RANGE and ROS_STATIC_PEERS instead.
+1777843309.7338521 [foxglove_bridge-3] [WARN] [1777843309.728299867] [rcl]: 'localhost_only' is disabled, 'automatic_discovery_range' and 'static_peers' will be used.
+1777843309.7805257 [static_transform_publisher-2] [WARN] [1777843309.780050738] [rcl]: ROS_LOCALHOST_ONLY is deprecated but still honored if it is enabled. Use ROS_AUTOMATIC_DISCOVERY_RANGE and ROS_STATIC_PEERS instead.
+1777843309.7807701 [static_transform_publisher-2] [WARN] [1777843309.780084498] [rcl]: 'localhost_only' is disabled, 'automatic_discovery_range' and 'static_peers' will be used.
+1777843309.7820501 [static_transform_publisher-2] [WARN] [1777843309.781672570] []: Old-style arguments are deprecated; see --help for new-style arguments
+1777843309.8219113 [foxglove_bridge-3] [INFO] [1777843309.821421390] [foxglove_bridge]: Starting foxglove_bridge (jazzy, 3.2.2@releases/typescript/v0.7.1-592-gcf6d7a3)
+1777843309.8258815 [foxglove_bridge-3] [INFO] [1777843309.825366598] [foxglove_bridge]: Server listening on port 8765
+1777843309.8822951 [foxglove_bridge-3] [INFO] [1777843309.878729930] [foxglove_bridge]: Advertising new channel 1 for topic "/rosout"
+1777843309.8982511 [static_transform_publisher-2] [INFO] [1777843309.894387426] [base_to_ultrasonic_tf]: Spinning until stopped - publishing transform
+1777843309.8986611 [static_transform_publisher-2] translation: ('0.120000', '0.000000', '0.050000')
+1777843309.8988197 [static_transform_publisher-2] rotation: ('0.000000', '0.000000', '0.000000', '1.000000')
+1777843309.8989236 [static_transform_publisher-2] from 'base_link' to 'ultrasonic_sensor'
+1777843309.9195666 [foxglove_bridge-3] [INFO] [1777843309.919152739] [foxglove_bridge]: Advertising new channel 2 for topic "/parameter_events"
+1777843310.3288767 [foxglove_bridge-3] [INFO] [1777843310.328439213] [foxglove_bridge]: Advertising new channel 3 for topic "/tf"
+1777843310.3371441 [foxglove_bridge-3] [INFO] [1777843310.336652928] [foxglove_bridge]: Advertising new channel 4 for topic "/robot_description"
+1777843310.3373845 [foxglove_bridge-3] [INFO] [1777843310.336803078] [foxglove_bridge]: Advertising new channel 5 for topic "/tf_static"
+1777843310.3440938 [foxglove_bridge-3] [INFO] [1777843310.343677094] [foxglove_bridge]: Advertising new channel 6 for topic "/joint_states"
+1777843310.7822635 [foxglove_bridge-3] [INFO] [1777843310.781871610] [foxglove_bridge]: received connection graph subscribe request
+1777843310.7862377 [foxglove_bridge-3] [INFO] [1777843310.782686322] [foxglove_bridge]: received subscribe request for channel 1 from client 1 (sink 1)
+1777843310.7864277 [foxglove_bridge-3] [WARN] [1777843310.783230346] [foxglove_bridge]: Limiting history depth for topic '/rosout' to 25 (was 3000). You may want to increase the max_qos_depth parameter value.
+1777843310.7917511 [foxglove_bridge-3] [INFO] [1777843310.791387301] [foxglove_bridge]: created ROS subscription on /rosout (rcl_interfaces/msg/Log) successfully for channel 1 (client 1, sink 1)
+1777843310.7927616 [foxglove_bridge-3] [INFO] [1777843310.792458534] [foxglove_bridge]: received subscribe request for channel 3 from client 1 (sink 1)
+1777843310.7980351 [foxglove_bridge-3] [WARN] [1777843310.795933645] [foxglove_bridge]: Limiting history depth for topic '/tf' to 25 (was 100). You may want to increase the max_qos_depth parameter value.
+1777843310.8107743 [foxglove_bridge-3] [INFO] [1777843310.810108496] [foxglove_bridge]: created ROS subscription on /tf (tf2_msgs/msg/TFMessage) successfully for channel 3 (client 1, sink 1)
+1777843310.8140068 [foxglove_bridge-3] [INFO] [1777843310.811269267] [foxglove_bridge]: received subscribe request for channel 5 from client 1 (sink 1)
+1777843310.8189471 [foxglove_bridge-3] [INFO] [1777843310.818570528] [foxglove_bridge]: created ROS subscription on /tf_static (tf2_msgs/msg/TFMessage) successfully for channel 5 (client 1, sink 1)
+1777843310.8262403 [foxglove_bridge-3] [INFO] [1777843310.821734653] [foxglove_bridge]: received subscribe request for channel 4 from client 1 (sink 1)
+1777843310.8324344 [foxglove_bridge-3] [INFO] [1777843310.832074557] [foxglove_bridge]: created ROS subscription on /robot_description (std_msgs/msg/String) successfully for channel 4 (client 1, sink 1)
+1777843310.8474717 [foxglove_bridge-3] [INFO] [1777843310.846406687] [foxglove_bridge]: publishing connection graph
+1777843311.3604748 [foxglove_bridge-3] [INFO] [1777843311.360056635] [foxglove_bridge]: Advertising new channel 7 for topic "/system/performance"
+1777843311.3685000 [foxglove_bridge-3] [INFO] [1777843311.368010736] [foxglove_bridge]: Advertising new channel 8 for topic "/sensors/temperature"
+1777843311.3698413 [foxglove_bridge-3] [INFO] [1777843311.368195479] [foxglove_bridge]: Advertising new channel 9 for topic "/robot/state"
+1777843311.3757968 [foxglove_bridge-3] [INFO] [1777843311.375391461] [foxglove_bridge]: Advertising new channel 10 for topic "/ha/switches"
+1777843311.3766522 [foxglove_bridge-3] [INFO] [1777843311.375709835] [foxglove_bridge]: Advertising new channel 11 for topic "/ha/lights"
+1777843311.3767815 [foxglove_bridge-3] [INFO] [1777843311.375786854] [foxglove_bridge]: Advertising new channel 12 for topic "/ha/buttons"
+1777843311.3838727 [foxglove_bridge-3] [INFO] [1777843311.383236209] [foxglove_bridge]: Advertising new channel 13 for topic "/cmd_vel"
+1777843311.4614782 [foxglove_bridge-3] [INFO] [1777843311.460722218] [foxglove_bridge]: publishing connection graph
+1777843311.9658809 [foxglove_bridge-3] [INFO] [1777843311.963456497] [foxglove_bridge]: publishing connection graph
+1777843318.1660306 [foxglove_bridge-3] [INFO] [1777843318.165374535] [foxglove_bridge]: publishing connection graph
+1777843318.6739600 [foxglove_bridge-3] [INFO] [1777843318.670495486] [foxglove_bridge]: Advertising new channel 14 for topic "/wake_word"
+1777843318.6758988 [foxglove_bridge-3] [INFO] [1777843318.675585057] [foxglove_bridge]: Advertising new channel 15 for topic "/respeaker/speaker_audio"
+1777843318.6768095 [foxglove_bridge-3] [INFO] [1777843318.676537456] [foxglove_bridge]: Advertising new channel 16 for topic "/respeaker/led_command"
+1777843318.6775455 [foxglove_bridge-3] [INFO] [1777843318.677313631] [foxglove_bridge]: Advertising new channel 17 for topic "/ai/tts/speaking"
+1777843318.6783881 [foxglove_bridge-3] [INFO] [1777843318.678089176] [foxglove_bridge]: Advertising new channel 18 for topic "/ai/input/mic_mute"
+1777843318.6800103 [foxglove_bridge-3] [INFO] [1777843318.678561014] [foxglove_bridge]: Advertising new channel 19 for topic "/ai/input/audio_chunk"
+1777843318.6802626 [foxglove_bridge-3] [INFO] [1777843318.678703182] [foxglove_bridge]: Advertising new channel 20 for topic "/ai/barge_in"
+1777843318.6916544 [foxglove_bridge-3] [INFO] [1777843318.691273239] [foxglove_bridge]: received subscribe request for channel 17 from client 1 (sink 1)
+1777843318.7038450 [foxglove_bridge-3] [INFO] [1777843318.703216678] [foxglove_bridge]: created ROS subscription on /ai/tts/speaking (std_msgs/msg/Bool) successfully for channel 17 (client 1, sink 1)
+1777843318.7574017 [foxglove_bridge-3] [INFO] [1777843318.756901458] [foxglove_bridge]: publishing connection graph
+1777843319.2615957 [foxglove_bridge-3] [INFO] [1777843319.261154418] [foxglove_bridge]: publishing connection graph
+1777843320.3152440 [foxglove_bridge-3] [INFO] [1777843320.313768777] [foxglove_bridge]: publishing connection graph
+1777843320.8159111 [foxglove_bridge-3] [INFO] [1777843320.815411395] [foxglove_bridge]: Advertising new channel 21 for topic "/respeaker/audio_control"
+1777843320.8181620 [foxglove_bridge-3] [INFO] [1777843320.816067920] [foxglove_bridge]: Advertising new channel 22 for topic "/bluedot_input"
+1777843320.8185613 [foxglove_bridge-3] [INFO] [1777843320.816134458] [foxglove_bridge]: Advertising new channel 23 for topic "/ai/conversation/response"
+1777843320.8186474 [foxglove_bridge-3] [INFO] [1777843320.816170866] [foxglove_bridge]: Advertising new channel 24 for topic "/ai/conversation/status"
+1777843320.8298359 [foxglove_bridge-3] [INFO] [1777843320.829339966] [foxglove_bridge]: received subscribe request for channel 23 from client 1 (sink 1)
+1777843320.8353598 [foxglove_bridge-3] [INFO] [1777843320.834905801] [foxglove_bridge]: created ROS subscription on /ai/conversation/response (std_msgs/msg/String) successfully for channel 23 (client 1, sink 1)
+1777843320.8902318 [foxglove_bridge-3] [INFO] [1777843320.889182569] [foxglove_bridge]: publishing connection graph
+1777843321.3907194 [foxglove_bridge-3] [INFO] [1777843321.390213865] [foxglove_bridge]: Advertising new channel 25 for topic "/robot_ai_orchestrator/stats"
+1777843321.3910904 [foxglove_bridge-3] [INFO] [1777843321.390405978] [foxglove_bridge]: Advertising new channel 26 for topic "/ai/conversation/audio_chunk"
+1777843321.4106319 [foxglove_bridge-3] [INFO] [1777843321.409984552] [foxglove_bridge]: publishing connection graph
+1777843321.9142630 [foxglove_bridge-3] [INFO] [1777843321.913782674] [foxglove_bridge]: publishing connection graph
+1777843326.7293472 [foxglove_bridge-3] [INFO] [1777843326.728095619] [foxglove_bridge]: publishing connection graph
+1777843327.2331135 [foxglove_bridge-3] [INFO] [1777843327.232731545] [foxglove_bridge]: publishing connection graph
+1777843331.7386439 [foxglove_bridge-3] [ERROR] [1777843331.738186684] [foxglove_bridge]: Failed to retrieve parameters from node '/robot_ai_orchestrator': Failed to retrieve parameter names for node '/robot_ai_orchestrator'
+1777843331.7399223 [foxglove_bridge-3] [WARN] [1777843331.738340722] [foxglove_bridge]: Adding node /robot_ai_orchestrator to the ignore list to prevent repeated timeouts or failures in future parameter requests.
+1777843331.7613471 [foxglove_bridge-3] [INFO] [1777843331.760818734] [foxglove_bridge]: publishing connection graph
+1777843332.2674351 [foxglove_bridge-3] [INFO] [1777843332.266546763] [foxglove_bridge]: publishing connection graph
+1777843345.5640562 [foxglove_bridge-3] [INFO] [1777843345.563587776] [foxglove_bridge]: Advertising new channel 27 for topic "/scan"
+1777843345.5693235 [foxglove_bridge-3] [INFO] [1777843345.568860516] [foxglove_bridge]: publishing connection graph
+1777843345.5893316 [foxglove_bridge-3] [INFO] [1777843345.587624081] [foxglove_bridge]: received subscribe request for channel 27 from client 1 (sink 1)
+1777843345.5992854 [foxglove_bridge-3] [INFO] [1777843345.598830771] [foxglove_bridge]: created ROS subscription on /scan (sensor_msgs/msg/LaserScan) successfully for channel 27 (client 1, sink 1)
+1777843346.0755653 [foxglove_bridge-3] [INFO] [1777843346.075075474] [foxglove_bridge]: publishing connection graph
+1777843346.6232269 [foxglove_bridge-3] [INFO] [1777843346.622592379] [foxglove_bridge]: Advertising new channel 28 for topic "/vo/odom"
+1777843346.6239309 [foxglove_bridge-3] [INFO] [1777843346.623155200] [foxglove_bridge]: Advertising new channel 29 for topic "/odom"
+1777843346.6322799 [foxglove_bridge-3] [INFO] [1777843346.631405193] [foxglove_bridge]: Advertising new channel 30 for topic "/oak/stereo/image_raw"
+1777843346.6479514 [foxglove_bridge-3] [INFO] [1777843346.647234024] [foxglove_bridge]: Advertising new channel 31 for topic "/camera/camera_info"
+1777843346.6714664 [foxglove_bridge-3] [INFO] [1777843346.671033475] [foxglove_bridge]: received subscribe request for channel 31 from client 1 (sink 1)
+1777843346.6979735 [foxglove_bridge-3] [INFO] [1777843346.697485805] [foxglove_bridge]: Advertising new channel 32 for topic "/ai/visual_memory/markers"
+1777843346.7054188 [foxglove_bridge-3] [INFO] [1777843346.705025346] [foxglove_bridge]: Advertising new channel 33 for topic "/rtabmap/user_data"
+1777843346.7061028 [foxglove_bridge-3] [INFO] [1777843346.705189681] [foxglove_bridge]: Advertising new channel 34 for topic "/oak/stereo/image_depth"
+1777843346.7201059 [foxglove_bridge-3] [INFO] [1777843346.719693869] [foxglove_bridge]: Advertising new channel 35 for topic "/visual_objects_pc"
+1777843346.7288735 [foxglove_bridge-3] [INFO] [1777843346.727238317] [foxglove_bridge]: created ROS subscription on /camera/camera_info (sensor_msgs/msg/CameraInfo) successfully for channel 31 (client 1, sink 1)
+1777843346.7399247 [foxglove_bridge-3] [INFO] [1777843346.739485111] [foxglove_bridge]: received subscribe request for channel 32 from client 1 (sink 1)
+1777843346.7523196 [foxglove_bridge-3] [INFO] [1777843346.750683246] [foxglove_bridge]: created ROS subscription on /ai/visual_memory/markers (visualization_msgs/msg/MarkerArray) successfully for channel 32 (client 1, sink 1)
+1777843346.7525687 [foxglove_bridge-3] [INFO] [1777843346.751378272] [foxglove_bridge]: publishing connection graph
+1777843347.2536876 [foxglove_bridge-3] [INFO] [1777843347.252976978] [foxglove_bridge]: Advertising new channel 36 for topic "/robopy/conversation_rx"
+1777843347.2628808 [foxglove_bridge-3] [INFO] [1777843347.262267371] [foxglove_bridge]: Advertising new channel 37 for topic "/rgb/image/compressed"
+1777843347.2797077 [foxglove_bridge-3] [INFO] [1777843347.279157194] [foxglove_bridge]: Advertising new channel 38 for topic "/diagnostics"
+1777843347.2865887 [foxglove_bridge-3] [INFO] [1777843347.285547501] [foxglove_bridge]: received subscribe request for channel 37 from client 1 (sink 1)
+1777843347.2950289 [foxglove_bridge-3] [INFO] [1777843347.294316667] [foxglove_bridge]: created ROS subscription on /rgb/image/compressed (sensor_msgs/msg/CompressedImage) successfully for channel 37 (client 1, sink 1)
+1777843347.3001950 [foxglove_bridge-3] [INFO] [1777843347.299617259] [foxglove_bridge]: publishing connection graph
+1777843347.8073704 [foxglove_bridge-3] [INFO] [1777843347.806912765] [foxglove_bridge]: publishing connection graph
+1777843384.4009507 [foxglove_bridge-3] [INFO] [1777843384.400506194] [foxglove_bridge]: publishing connection graph
+1777843384.9079046 [foxglove_bridge-3] [INFO] [1777843384.907254412] [foxglove_bridge]: publishing connection graph
+1777843385.4146440 [foxglove_bridge-3] [INFO] [1777843385.413869184] [foxglove_bridge]: publishing connection graph
+1777843385.9205205 [foxglove_bridge-3] [INFO] [1777843385.920113137] [foxglove_bridge]: publishing connection graph

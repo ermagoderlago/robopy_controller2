@@ -9,7 +9,7 @@
 
   <!-- Dipendenze di runtime -->
   <exec_depend>geometry_msgs</exec_depend>
-  <!-- <exec_depend>buildhat</exec_depend> -->
+  <exec_depend>buildhat</exec_depend>
   <exec_depend>bluedot</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>cv_bridge</exec_depend>
@@ -17,8 +17,7 @@
   <exec_depend>audio_capture</exec_depend>
   <exec_depend>audio_common_msgs</exec_depend>
   <exec_depend>rclpy</exec_depend>
-  <!-- <exec_depend>picamera2</exec_depend> -->
-  <exec_depend>v4l2_camera</exec_depend>
+  <exec_depend>picamera2</exec_depend>
   <exec_depend>robot_localization</exec_depend>
   <depend>rclcpp</depend>
   <depend>tf2</depend>

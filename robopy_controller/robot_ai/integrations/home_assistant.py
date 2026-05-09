@@ -286,7 +286,7 @@ class HomeAssistantClient:
         while not self._shutdown and not self._is_connected:
             try:
                 self.logger.info("Attempting to reconnect to Home Assistant...")
-                await asyncio.sleep(60)
+                await asyncio.sleep(5)
                 await self.connect()
                 break
             except Exception as e:
