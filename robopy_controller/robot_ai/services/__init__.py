@@ -9,6 +9,7 @@ from .llm_service import (
     LLMResponse,
     FunctionDeclaration,
 )
+from .llm_circuit_breaker import CircuitBreaker
 from .embedding_service import (
     EmbeddingService,
 )
