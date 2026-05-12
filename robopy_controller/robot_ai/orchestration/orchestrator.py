@@ -33,6 +33,7 @@ from robot_ai.skills.builtin.search_skill import SearchSkill
 from robot_ai.skills.builtin.nightly_dream_skill import NightlyDreamSkill
 from robot_ai.skills.builtin.visual_exploration_skill import VisualExplorationSkill
 from robot_ai.skills.builtin.calibration_skill import CalibrationSkill
+from robot_ai.skills.builtin.alarm_skill import AlarmSkill
 
 from robot_ai.core.camera_frame import CameraFrame
 
@@ -61,6 +62,7 @@ class AIOrchestrator(Node):
         # Instanziamo i ROS Publisher base
         self.cmd_vel_pub = self.create_publisher(Twist, '/bluedot_input', 10)
         self.response_pub = self.create_publisher(String, '/ai/conversation/response', 10)
+        self.document_pub = self.create_publisher(String, '/ai/conversation/document', 10)
         self.status_pub = self.create_publisher(String, '/ai/conversation/status', 10)
         # ReSpeaker LED feedback
         self.respeaker_led_pub = self.create_publisher(String, '/respeaker/led_command', 10)
@@ -120,6 +122,12 @@ class AIOrchestrator(Node):
             move_handler=self._skill_move_handler
         ))
         self.skill_registry.register(CalibrationSkill(self))
+        
+        # Inseriamo la sveglia passando lo scheduler configurato
+        if hasattr(self, 'scheduler'):
+             self.skill_registry.register(AlarmSkill(self.scheduler))
+        else:
+             self.skill_registry.register(AlarmSkill())
 
         self.skill_executor = SkillExecutor(self.skill_registry, self.nav_client, self.reactive_safety)
         self.conversation_manager = ConversationManager(
@@ -135,6 +143,7 @@ class AIOrchestrator(Node):
             response_callback=self._on_ai_response,
             node=self
         )
+        self.conversation_manager.document_callback = self._on_ai_document
 
         self._loop = asyncio.new_event_loop()
         
@@ -151,6 +160,7 @@ class AIOrchestrator(Node):
         self.create_subscription(CompressedImage, '/rgb/image/compressed', self._camera_callback, 1)
         self.create_subscription(DiagnosticArray, '/diagnostics', self._diagnostics_callback, 10)
         self.create_subscription(String, 'ai/input/text', self._text_input_callback, 10)
+        self.create_subscription(String, 'ai/input/document', self._document_input_callback, 10)
         self.create_subscription(String, 'ai/input/voice_test', self._voice_test_callback, 10)
         self.create_subscription(Bool, 'ai/input/mic_mute', self._mute_callback, 10)
         self.create_subscription(AudioData, '/llm_service_node/audio_chunk', self._audio_chunk_callback, 10)
@@ -164,6 +174,14 @@ class AIOrchestrator(Node):
         # Se deepseek c'è
         from datetime import time as dtime
         try:
+             from apscheduler.schedulers.asyncio import AsyncIOScheduler
+             # Assicuriamo che lo scheduler usi il fuso orario locale (Roma) per evitare l'offset di 3 ore
+             self.scheduler = AsyncIOScheduler(event_loop=self._loop, timezone='Europe/Rome')
+             self.scheduler.add_job(self._run_nightly_dream, 'cron', hour=3, minute=0)
+             self.scheduler.start()
+             self.ai_logger.info("Scheduler avviato con timezone Europe/Rome (Dream alle 03:00 locale)")
+        except Exception as e:
+             self.ai_logger.warning(f"APScheduler init failed or timezone not found: {e}. Usando local system time.")
              from apscheduler.schedulers.asyncio import AsyncIOScheduler
              self.scheduler = AsyncIOScheduler(event_loop=self._loop)
              self.scheduler.add_job(self._run_nightly_dream, 'cron', hour=3, minute=0)
@@ -225,6 +243,26 @@ class AIOrchestrator(Node):
             self.conversation_manager.process_input(msg.data, source="text"), self._loop
         )
 
+    def _document_input_callback(self, msg):
+        """Riceve un file in formato JSON: {filename, data: base64, mime_type, text}"""
+        if self._shutdown_flag:
+            return
+        try:
+            import json
+            data = json.loads(msg.data)
+            filename = data.get("filename", "document.pdf")
+            doc_data = data.get("data")
+            mime_type = data.get("mime_type", "application/pdf")
+            text = data.get("text", "Analizza questo documento.")
+            
+            if doc_data:
+                asyncio.run_coroutine_threadsafe(
+                    self.conversation_manager.process_document(text, doc_data, mime_type, filename), 
+                    self._loop
+                )
+        except Exception as e:
+            self.ai_logger.error(f"Errore parsing documento in input: {e}")
+
     def _voice_test_callback(self, msg):
         if self._shutdown_flag:
             return
@@ -278,6 +316,13 @@ class AIOrchestrator(Node):
         status_msg.data = "READY"
         self.status_pub.publish(status_msg)
 
+    def _on_ai_document(self, markdown_text: str):
+        """Callback chiamata quando l'AI genera un documento formattato."""
+        msg = String()
+        msg.data = markdown_text
+        self.document_pub.publish(msg)
+        self.ai_logger.info("Documento formattato inviato su /ai/conversation/document")
+
     async def _async_init(self):
         try:
             await asyncio.wait_for(self._init_resources(), timeout=15.0)
@@ -318,7 +363,7 @@ class AIOrchestrator(Node):
             if connected:
                 await self.ha_context_updater.update()
         except Exception as e:
-            self.ai_logger.error(f"Home Assistant background init failed: {e}")
+            self.ai_logger.debug(f"Home Assistant background init failed (silent): {e}")
 
 
     async def shutdown(self):

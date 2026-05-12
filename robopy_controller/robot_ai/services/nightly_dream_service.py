@@ -142,7 +142,9 @@ Versione: {robot.version}.
         self._append_to_log(report_content)
         
         # 4. Save Summary to Semantic Memory
-        summary_text = f"Analisi Notturna {datetime.now().strftime('%Y-%m-%d')}:\n{report_content}"
+        # Usiamo datetime.now() che riflette l'ora locale del sistema
+        local_date = datetime.now().strftime('%Y-%m-%d')
+        summary_text = f"Analisi Notturna {local_date} (Local Time):\n{report_content}"
         try:
             embedding = await self.embedding_service.embed(summary_text)
             

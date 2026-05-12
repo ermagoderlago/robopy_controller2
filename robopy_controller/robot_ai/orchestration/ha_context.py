@@ -45,4 +45,4 @@ class HAContextUpdater:
             self._logger.debug("HA Context updated.")
             
         except Exception as e:
-            self._logger.error(f"Errore aggiornamento contesto HA: {e}")
+            self._logger.debug(f"Errore aggiornamento contesto HA: {e}")
