@@ -101,7 +101,7 @@ class HomeAssistantClient:
             recovery_timeout=self.ai_config.circuit_breaker.recovery_timeout
         )
         
-        self.logger.info("Home Assistant client initialized")
+        self.logger.debug("Home Assistant client initialized")
     
     @property
     def is_connected(self) -> bool:
@@ -130,7 +130,7 @@ class HomeAssistantClient:
             return False
         
         try:
-            self.logger.info(f"Connecting to Home Assistant: {self.url}")
+            self.logger.debug(f"Connecting to Home Assistant: {self.url}")
             
             self._websocket = await websockets.connect(
                 self.url,
@@ -285,7 +285,7 @@ class HomeAssistantClient:
         """Attempt to reconnect."""
         while not self._shutdown and not self._is_connected:
             try:
-                self.logger.info("Attempting to reconnect to Home Assistant...")
+                self.logger.debug("Attempting to reconnect to Home Assistant...")
                 await asyncio.sleep(5)
                 await self.connect()
                 break
