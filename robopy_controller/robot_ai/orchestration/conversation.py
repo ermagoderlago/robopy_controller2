@@ -31,6 +31,7 @@ class ConversationManager:
         self._processing_lock = asyncio.Lock()
         self._logger = get_logger("conversation")
         self._sanitizer = InputSanitizer()
+        self.document_callback = None
 
     def set_latest_frame(self, frame):
         try:
@@ -74,7 +75,24 @@ class ConversationManager:
             else:
                 self.metrics.inc_requests_failed()
 
-    async def _process_locked(self, text: str, source: str) -> bool:
+    async def process_document(self, text: str, document_data: str, mime_type: str, filename: str):
+        """Process an incoming document (PDF, TIFF, etc.)"""
+        self.metrics.inc_requests_total()
+        
+        doc_info = {
+            "data": document_data,
+            "mime_type": mime_type,
+            "filename": filename
+        }
+
+        async with self._processing_lock:
+            success = await self._process_locked(text, source="document", documents=[doc_info])
+            if success:
+                self.metrics.inc_requests_success()
+            else:
+                self.metrics.inc_requests_failed()
+
+    async def _process_locked(self, text: str, source: str, documents: list = None) -> bool:
         clean_text = self._sanitizer.sanitize(text)
         self.world_model.recent_interactions.append(f"User: {clean_text}")
 
@@ -95,6 +113,9 @@ class ConversationManager:
         ha_context = self.ha_context_provider()
         frame = await self._get_latest_frame()
         images = [frame.b64()] if (frame and self._is_vision_request(clean_text)) else []
+        
+        # Merge incoming documents if any
+        llm_docs = documents or []
 
         functions = [s.to_function_declaration() for s in self.skill_executor.get_all()]
         augmented_prompt = self._build_prompt(clean_text, ha_context)
@@ -116,7 +137,8 @@ class ConversationManager:
                             prompt=augmented_prompt,
                             context=self.world_model.to_prompt_section(),
                             functions=functions,
-                            images=images
+                            images=images,
+                            documents=llm_docs
                         ),
                         timeout=llm_timeout
                     )
@@ -127,6 +149,7 @@ class ConversationManager:
                         self.llm.generate(
                             prompt=augmented_prompt,
                             images=images,
+                            documents=llm_docs
                         ),
                         timeout=llm_timeout
                     )
@@ -137,6 +160,7 @@ class ConversationManager:
                     self.llm.generate(
                         prompt=augmented_prompt,
                         images=images,
+                        documents=llm_docs
                     ),
                     timeout=llm_timeout
                 )
@@ -164,6 +188,10 @@ class ConversationManager:
         else:
              response_text = getattr(response, "response_text", "")
              response_actions = getattr(response, "actions", [])
+        
+        formatted_doc = getattr(response, "formatted_document", None)
+        if formatted_doc and self.document_callback:
+            self.document_callback(formatted_doc)
 
         # Logic for Tool use if LLM suggests it (e.g. ask_visual_question)
         for action in response_actions:
@@ -235,12 +263,14 @@ class ConversationManager:
             return f"Errore durante l'analisi visiva: {e}"
 
     def _build_prompt(self, user_text: str, ha_context: str) -> str:
+        # Usiamo l'ora locale del sistema (che deve essere sincronizzata su Europe/Rome)
         now = datetime.datetime.now().strftime("%A %d %B %Y, ore %H:%M")
-        prompt = f"[DATA: {now}]\n"
+        prompt = f"[DATA LOCALE: {now} (fuso orario: Europe/Rome)]\n"
         if ha_context:
             prompt += f"{ha_context}\n"
         prompt += f"Utente: {user_text}\n"
         prompt += "\nDevi generare un JSON strettamente strutturato con `response_text` e opzionale array di `actions` se le funzioni sono evocate.\n"
+        prompt += "Se l'utente ti chiede di generare un rapporto, un documento, una tabella o una risposta formattata, usa il campo `formatted_document` nel JSON inserendo il contenuto in formato Markdown.\n"
         prompt += "Se hai bisogno di analizzare l'ambiente in dettaglio per rispondere a una domanda specifica, usa l'azione `ask_visual_question` con l'argomento `question`.\n"
         prompt += "Esempio azione: {\"name\": \"ask_visual_question\", \"args\": {\"question\": \"C'è una sedia rossa nella stanza?\"}}\n"
         return prompt

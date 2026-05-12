@@ -94,6 +94,7 @@ except ImportError:
 class LLMResponse:
     text:          str
     actions:       List[Dict[str, Any]] = field(default_factory=list)
+    formatted_document: Optional[str]   = None
     reasoning:     Optional[str]        = None
     tokens_used:   int                  = 0
     latency_ms:    float                = 0.0
@@ -445,17 +446,18 @@ class LLMServiceNode(Node):
             self.get_logger().info("System prompt cambiato, riconnessione Live scheduled.")
             asyncio.run_coroutine_threadsafe(self._reconnect_live(), self._loop)
 
-    async def generate(self, prompt: str, images=None, max_tokens=None):
+    async def generate(self, prompt: str, images=None, documents=None, max_tokens=None):
         """
         Bridge verso _async_generate per compatibilità con VisualMemoryService.
         """
         class TempRequest:
-            def __init__(self, p, img, mt):
+            def __init__(self, p, img, docs, mt):
                 self.prompt = p
                 self.images = img or []
+                self.documents = docs or []
                 self.max_tokens = mt or 2048
 
-        coro = self._async_generate(TempRequest(prompt, images, max_tokens))
+        coro = self._async_generate(TempRequest(prompt, images, documents, max_tokens))
         future = asyncio.run_coroutine_threadsafe(coro, self._loop)
         return await asyncio.wrap_future(future)
 
@@ -467,11 +469,11 @@ class LLMServiceNode(Node):
         self.get_logger().info("Persistent Live session enabled.")
         return True
 
-    async def generate_live(self, prompt: str, context=None, functions=None, images=None):
+    async def generate_live(self, prompt: str, context=None, functions=None, images=None, documents=None):
         """
         Bridge verso _async_generate_live con supporto cross-loop.
         """
-        coro = self._async_generate_live(prompt, context, functions, images)
+        coro = self._async_generate_live(prompt, context, functions, images, documents)
 
         future = asyncio.run_coroutine_threadsafe(coro, self._loop)
         return await asyncio.wrap_future(future)
@@ -636,6 +638,7 @@ class LLMServiceNode(Node):
             request.prompt,
             context,
             images=getattr(request, 'images', None),
+            documents=getattr(request, 'documents', None),
         )
         req_max_tokens = getattr(request, 'max_tokens', None)
 
@@ -852,10 +855,10 @@ class LLMServiceNode(Node):
                 )
             self._current_live_response = {"text": "", "actions": []}
 
-    async def _async_generate_live(self, prompt: str, context=None, functions=None, images=None) -> LLMResponse:
+    async def _async_generate_live(self, prompt: str, context=None, functions=None, images=None, documents=None) -> LLMResponse:
         """
         Invia un prompt testuale alla Live API e attende la risposta completa.
-        Supporta anche immagini e funzioni.
+        Supporta anche immagini, documenti e funzioni.
         """
 
         self._assert_live_lock()
@@ -890,10 +893,18 @@ class LLMServiceNode(Node):
 
             try:
                 content_parts = [types.Part.from_text(text=prompt)]
-                if images:
-                    for img in images:
-                        data = base64.b64decode(img) if isinstance(img, str) else bytes(img)
-                        content_parts.append(types.Part.from_bytes(data=data, mime_type="image/jpeg"))
+                if images or documents:
+                    if images:
+                        for img in images:
+                            data = base64.b64decode(img) if isinstance(img, str) else bytes(img)
+                            content_parts.append(types.Part.from_bytes(data=data, mime_type="image/jpeg"))
+                    if documents:
+                        for doc in documents:
+                            # doc expected as {"data": base64 or bytes, "mime_type": "..."}
+                            d_data = doc.get("data")
+                            d_mime = doc.get("mime_type", "application/pdf")
+                            data_bytes = base64.b64decode(d_data) if isinstance(d_data, str) else bytes(d_data)
+                            content_parts.append(types.Part.from_bytes(data=data_bytes, mime_type=d_mime))
 
                     await session.send(
                         input=types.LiveClientContent(
@@ -969,7 +980,8 @@ class LLMServiceNode(Node):
         self,
         prompt:  str,
         context: Optional[List[Dict[str, str]]],
-        images:  Optional[List[bytes]],
+        images:  Optional[List[bytes]] = None,
+        documents: Optional[List[Dict[str, Any]]] = None,
     ) -> List:
         """
         Costruisce la lista di Content nativa Gemini rispettando i ruoli.
@@ -1012,6 +1024,14 @@ class LLMServiceNode(Node):
             for img in images:
                 data = base64.b64decode(img) if isinstance(img, str) else bytes(img)
                 parts.append(types.Part.from_bytes(data=data, mime_type="image/jpeg"))
+        
+        if documents:
+            for doc in documents:
+                d_data = doc.get("data")
+                d_mime = doc.get("mime_type", "application/pdf")
+                data_bytes = base64.b64decode(d_data) if isinstance(d_data, str) else bytes(d_data)
+                parts.append(types.Part.from_bytes(data=data_bytes, mime_type=d_mime))
+
         parts.append(types.Part.from_text(text=prompt))
 
         contents.append(types.Content(role="user", parts=parts))
@@ -1028,7 +1048,28 @@ class LLMServiceNode(Node):
 
         try:
             if hasattr(response, 'text') and response.text:
-                text = response.text
+                full_text = response.text
+                # Try to parse as JSON to extract formatted_document
+                try:
+                    # Clean potential markdown code blocks if the model wrapped JSON
+                    clean_json = full_text
+                    if "```json" in clean_json:
+                        clean_json = clean_json.split("```json")[1].split("```")[0].strip()
+                    elif "```" in clean_json:
+                        clean_json = clean_json.split("```")[1].split("```")[0].strip()
+                    
+                    data = json.loads(clean_json)
+                    if isinstance(data, dict):
+                        text = data.get("response_text", full_text)
+                        formatted_doc = data.get("formatted_document", None)
+                        if formatted_doc:
+                            # It's a special field
+                            pass
+                        else:
+                            # If no formatted_doc, check if the whole text is markdown-ish
+                            pass
+                except:
+                    text = full_text
 
             if hasattr(response, 'candidates') and response.candidates:
                 candidate = response.candidates[0]
@@ -1049,6 +1090,7 @@ class LLMServiceNode(Node):
         return LLMResponse(
             text=text,
             actions=actions,
+            formatted_document=formatted_doc if 'formatted_doc' in locals() else None,
             tokens_used=tokens,
             latency_ms=latency_ms,
             model=model,

@@ -162,7 +162,7 @@ class HomeAssistantClient:
             return True
             
         except Exception as e:
-            self.logger.error(f"Failed to connect to Home Assistant: {e}")
+            self.logger.debug(f"Failed to connect to Home Assistant: {e}")
             self._is_connected = False
             raise HomeAssistantError(f"Connection failed: {str(e)}")
     
@@ -223,7 +223,7 @@ class HomeAssistantClient:
                 break
             except Exception as e:
                 if not self._shutdown:
-                    self.logger.error(f"Error in message listener: {e}")
+                    self.logger.debug(f"Error in message listener: {e}")
                 break
         
         # Try to reconnect
@@ -290,7 +290,7 @@ class HomeAssistantClient:
                 await self.connect()
                 break
             except Exception as e:
-                self.logger.error(f"Reconnection failed: {e}")
+                self.logger.debug(f"Reconnection failed: {e}")
     
     async def _send_request(self, data: Dict[str, Any], timeout: float = None) -> Dict[str, Any]:
         """Send request and wait for response."""
