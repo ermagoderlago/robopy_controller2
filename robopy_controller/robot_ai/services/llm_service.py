@@ -38,7 +38,7 @@ from robopy_controller.msg import AudioData
 from example_interfaces.srv import Trigger
 
 # Moduli interni estratti
-from .llm_models import (
+from robopy_controller.robot_ai.services.llm_models import (
     LLMResponse,
     FunctionDeclaration,
     GenerateText,
@@ -47,8 +47,8 @@ from .llm_models import (
     genai,
     types,
 )
-from .llm_circuit_breaker import CircuitBreaker, retry_with_backoff
-from .llm_live_api import LiveAPIMixin
+from robopy_controller.robot_ai.services.llm_circuit_breaker import CircuitBreaker, retry_with_backoff
+from robopy_controller.robot_ai.services.llm_live_api import LiveAPIMixin
 
 
 # ---------------------------------------------------------------------------
@@ -69,7 +69,7 @@ class LLMServiceNode(LiveAPIMixin, Node):
         # 1. Parametri ROS 2
         # ------------------------------------------------------------------
         self.declare_parameter('gemini_api_key',           '')
-        self.declare_parameter('model_name',               'gemini-3.1-flash-lite-preview')
+        self.declare_parameter('model_name',               'gemini-3.1-flash-lite')
         self.declare_parameter('live_model_name',          'gemini-2.5-flash-native-audio-latest')
 
         self.declare_parameter('temperature',              0.7)
@@ -79,7 +79,8 @@ class LLMServiceNode(LiveAPIMixin, Node):
         self.declare_parameter('timeout_standard',         60.0)
         self.declare_parameter('timeout_live',             30.0)
         self.declare_parameter('system_prompt',
-            'Sei un robot autonomo amichevole, conciso e preciso. Rispondi in italiano.')
+            'Sei Marcus, un assistente robotico avanzato (ispirato ai Siloni). Sei amichevole, conciso e preciso. Parla SEMPRE e SOLO in lingua italiana.')
+        self.declare_parameter('voice_name',               'Charon')
 
         # ------------------------------------------------------------------
         # 2. Cache thread-safe dei parametri
@@ -92,6 +93,7 @@ class LLMServiceNode(LiveAPIMixin, Node):
         self._timeout_std     = self.get_parameter('timeout_standard').value
         self._timeout_live    = self.get_parameter('timeout_live').value
         self._system_prompt   = self.get_parameter('system_prompt').value
+        self._voice_name      = self.get_parameter('voice_name').value
 
         self.add_on_set_parameters_callback(self._parameter_callback)
 
@@ -215,6 +217,9 @@ class LLMServiceNode(LiveAPIMixin, Node):
                 elif p.name == 'system_prompt':
                     self._system_prompt = p.value
                     needs_reconnect     = True
+                elif p.name == 'voice_name':
+                    self._voice_name    = p.value
+                    needs_reconnect     = True
 
         if needs_reconnect and self._loop and self._loop.is_running():
             asyncio.run_coroutine_threadsafe(self._reconnect_live(), self._loop)
@@ -236,18 +241,19 @@ class LLMServiceNode(LiveAPIMixin, Node):
             self.get_logger().info("System prompt cambiato, riconnessione Live scheduled.")
             asyncio.run_coroutine_threadsafe(self._reconnect_live(), self._loop)
 
-    async def generate(self, prompt: str, images=None, documents=None, max_tokens=None):
+    async def generate(self, prompt: str, images=None, documents=None, max_tokens=None, functions=None):
         """
         Bridge verso _async_generate per compatibilità con VisualMemoryService.
         """
         class TempRequest:
-            def __init__(self, p, img, docs, mt):
+            def __init__(self, p, img, docs, mt, funcs):
                 self.prompt = p
                 self.images = img or []
                 self.documents = docs or []
                 self.max_tokens = mt or 2048
+                self.functions = funcs or []
 
-        coro = self._async_generate(TempRequest(prompt, images, documents, max_tokens))
+        coro = self._async_generate(TempRequest(prompt, images, documents, max_tokens, functions))
         future = asyncio.run_coroutine_threadsafe(coro, self._loop)
         return await asyncio.wrap_future(future)
 
@@ -274,11 +280,11 @@ class LLMServiceNode(LiveAPIMixin, Node):
 
     def _create_publishers(self):
         self.pub_text_response = self.create_publisher(String,    '~/text_response', 10)
-        self.pub_audio_chunk   = self.create_publisher(AudioData, '~/audio_chunk',   10)
+        self.pub_audio_chunk   = self.create_publisher(AudioData, '/ai/conversation/audio_chunk',   10)
 
     def _create_subscriptions(self):
         self.sub_audio = self.create_subscription(
-            AudioData, '/audio/audio', self.audio_callback_ros, 10)
+            AudioData, '/ai/input/audio_chunk', self.audio_callback_ros, 10)
 
     # -----------------------------------------------------------------------
     # Callback ROS 2 sincrone
@@ -396,17 +402,19 @@ class LLMServiceNode(LiveAPIMixin, Node):
         )
         req_max_tokens = getattr(request, 'max_tokens', None)
 
+        req_functions  = getattr(request, 'functions', None)
+
         try:
             # Tentativo primario con soglia latenza 20s (come indicato in lesson_learned.md)
             raw = await asyncio.wait_for(
                 self._breaker.call_async(
                     self._generate_internal,
-                    contents, req_max_tokens, model_used, sys_prompt,
+                    contents, req_max_tokens, model_used, sys_prompt, req_functions
                 ),
                 timeout=20.0
             )
         except (asyncio.TimeoutError, Exception) as e:
-            fallback_model = "gemini-1.5-flash-latest"
+            fallback_model = "gemini-2.0-flash"
             if model_used != fallback_model:
                 self.get_logger().warning(
                     f"Criticità rilevata su {model_used} (latenza >20s o errore: {e}). "
@@ -415,7 +423,7 @@ class LLMServiceNode(LiveAPIMixin, Node):
                 model_used = fallback_model
                 raw = await self._breaker.call_async(
                     self._generate_internal,
-                    contents, req_max_tokens, model_used, sys_prompt,
+                    contents, req_max_tokens, model_used, sys_prompt, req_functions
                 )
             else:
                 raise e
@@ -428,6 +436,15 @@ class LLMServiceNode(LiveAPIMixin, Node):
             self._total_tokens   += llm_response.tokens_used
 
         self.pub_text_response.publish(String(data=llm_response.text))
+
+        # Sincronizza la cronologia per il bidi-streaming
+        user_msg = request.prompt.strip() if hasattr(request, 'prompt') else ""
+        model_msg = llm_response.text.strip()
+        if user_msg and model_msg:
+            self._live_conversation_history.append((user_msg, model_msg))
+            if len(self._live_conversation_history) > 30:
+                self._live_conversation_history.pop(0)
+
         return llm_response
 
     @retry_with_backoff(max_retries=3)
@@ -437,6 +454,7 @@ class LLMServiceNode(LiveAPIMixin, Node):
         max_tokens: Optional[int],
         model_used: str,
         sys_prompt: str,
+        functions: Optional[List[Dict[str, Any]]] = None,
     ):
         with self._cfg_lock:
             temp   = self._cfg_temperature
@@ -446,10 +464,17 @@ class LLMServiceNode(LiveAPIMixin, Node):
             types.Content(parts=[types.Part.from_text(text=sys_prompt)])
             if sys_prompt else None
         )
+        
+        tools = None
+        if functions:
+            # The new SDK expects `tools` to be a list of dictionaries with function_declarations
+            tools = [{"function_declarations": functions}]
+
         config = types.GenerateContentConfig(
             temperature=temp,
             max_output_tokens=tokens,
             system_instruction=sys_content,
+            tools=tools
         )
 
         def _blocking():
@@ -537,22 +562,7 @@ class LLMServiceNode(LiveAPIMixin, Node):
 
         try:
             if hasattr(response, 'text') and response.text:
-                full_text = response.text
-                # Try to parse as JSON to extract formatted_document
-                try:
-                    # Clean potential markdown code blocks if the model wrapped JSON
-                    clean_json = full_text
-                    if "```json" in clean_json:
-                        clean_json = clean_json.split("```json")[1].split("```")[0].strip()
-                    elif "```" in clean_json:
-                        clean_json = clean_json.split("```")[1].split("```")[0].strip()
-                    
-                    data = json.loads(clean_json)
-                    if isinstance(data, dict):
-                        text = data.get("response_text", full_text)
-                        formatted_doc = data.get("formatted_document", None)
-                except Exception:
-                    text = full_text
+                text = response.text
 
             if hasattr(response, 'candidates') and response.candidates:
                 candidate = response.candidates[0]
