@@ -40,19 +40,24 @@ Questo documento raccoglie gli errori riscontrati, le cause identificate e le so
 - **Causa**: Il nuovo SDK `google.genai` (v1.x) utilizza Pydantic per la validazione delle configurazioni. Passare i dizionari dei tool del sistema Marcus (che contengono campi extra come `callable`) direttamente a `GenerateContentConfig.tools` genera un errore di validazione immediato.
 - **Risoluzione**: Implementata la funzione helper `_format_tools_for_google` che filtra solo i campi ammessi (`name`, `description`, `parameters`) e li incapsula in oggetti `types.FunctionDeclaration` dentro `types.Tool(function_declarations=[...])`.
 
-### Blocco della Sessione Live, Errore 'language_codes' e Perdita del Contesto Conversazionale (v15.0 - Maggio 2026)
+### Blocco della Sessione Live, Errore 'language_codes', Perdita del Contesto e Mancata Esecuzione delle Skill Vocali (v15.0/v15.1 - Maggio 2026)
 - **Problemi riscontrati**:
     1. *Turno Singolo*: Marcus rispondeva esattamente una sola volta all'avvio, dopodiché rimaneva in ascolto ma non rispondeva più alle domande successive.
     2. *Connessione Fallita*: Errore `language_codes parameter is not supported in Gemini API.` che faceva fallire la connessione in loop.
     3. *Perdita del Contesto*: Marcus dimenticava tutto il contesto a ogni turno vocale successivo, comportandosi come se parlasse per la prima volta.
+    4. *Mancata Esecuzione delle Skill*: Marcus ignorava o non eseguiva le skill custom dell'utente (es. "leggi le mail" o "suona musica") durante la conversazione vocale, rispondendo che non aveva la capacità tecnica per farlo.
 - **Cause**:
     1. Quando il WebSocket si disconnetteva pulitamente (`code 1000`), l'assenza di eccezione non azzerava `self._live_session`, lasciando il connection manager bloccato.
     2. Il nuovo SDK `google-genai` rifiuta esplicitamente `language_codes=["it-IT"]` dentro `AudioTranscriptionConfig`.
     3. Poiché la Live API invia solo flussi audio in uscita (PCM), la variabile di testo della risposta di Marcus era vuota, per cui non registravamo alcuna trascrizione delle sue risposte vocali nella cronologia `_live_conversation_history`.
+    4. All'avvio del robot, `orchestrator.py` chiamava `start_persistent_live()` prima di scoprire e registrare le abilità (`SkillRegistry`), per cui la connessione WebSocket iniziale veniva stabilita con `tools=None`.
+    5. Anche dopo aver passato i tool corretti, la Live API (WebSocket) riceve le richieste di esecuzione dei tool asincrone tramite messaggi top-level `tool_call`. La nostra implementazione non intercettava `msg.tool_call`, non eseguiva le funzioni tramite il registro e non inviava a Gemini il messaggio di risposta `tool_response` (richiesto dal protocollo bidirezionale), bloccando l'esecuzione.
 - **Risoluzione**:
     1. Avvolto il ciclo di ricezione in un blocco `try...finally` per azzerare `self._live_session = None` e garantire la riconnessione istantanea.
     2. Rimosso `language_codes` da `AudioTranscriptionConfig()` lasciandolo vuoto. Gemini rileva automaticamente la lingua parlata e la trascrive perfettamente in italiano.
     3. Abilitato `output_audio_transcription` nella configurazione e catturata la trascrizione in tempo reale del parlato del modello (`sc.output_transcription.text`) per popolare e salvare i turni in memoria (fino a 30 scambi di contesto continuo) iniettati nel prompt di sistema delle sessioni successive.
+    4. Modificato `start_persistent_live` in `llm_live_api.py` per accettare le `functions` e innescare una riconnessione automatica (`self._reconnect_live()`) per iniettare i tool aggiornati. Modificato `_init_resources` in `orchestrator.py` per estrarre `self.skill_registry.get_function_declarations()` e passarle durante l'avvio.
+    5. Implementata la gestione asincrona completa dei `tool_call` ricevuti via WebSocket in `llm_live_api.py`. Creato un task in background che invoca il callback registrato dall'orchestratore, esegue in modo sicuro la skill (`skill.safe_execute()`), formatta il risultato in un oggetto `types.FunctionResponse` e lo reinvia su WebSocket a Gemini usando `session.send_tool_response(function_responses=...)`. Hookato l'orchestratore all'avvio con `self.llm_service.register_tool_executor(self._execute_tool_live)`.
 
 > [!IMPORTANT]
 > Il modello **Native Audio** non deve mai essere forzato in modalità TEXT, altrimenti restituirà `Invalid Argument (1007)`.
