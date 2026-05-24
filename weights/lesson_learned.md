@@ -422,3 +422,48 @@ Questo documento raccoglie gli errori riscontrati, le cause identificate e le so
 - **Causa**: La protezione del microfono (drop di `stt_gain` a 0.1x per evitare l'eco) dipendeva ESCLUSIVAMENTE dal topic ROS `/ai/tts/speaking` (`_is_tts_speaking`). Le risposte audio provenienti dalla Live API venivano iniettate direttamente nel buffer (`_is_playing_out=True`), bypassando l'aggiornamento del topic. Il microfono restava così al 100% della sensibilità, ascoltando l'audio in uscita e innescando loop.
 - **Risoluzione (v12.0)**: In `respeaker_vui_node.py` lo stato è stato unificato creando la variabile `ai_speaking_now = self._is_tts_speaking or self._is_playing_out`. Nel loop audio è stato aggiunto `tts_now = ai_speaking_now` per garantire che la soppressione hardware (guadagno ridotto) si attivi correttamente per entrambe le fonti vocali.
 - **Lezione (Regola Permanente)**: Qualsiasi sorgente che produce output audio dal robot (TTS offline o stream Live) DEVE triggerare le protezioni VAD nel nodo VUI unificando lo stato. Non dipendere unicamente dai topic ROS se l'audio è inserito anche tramite playback diretto I/O.
+
+## 10. ReSpeaker Lite WS2812 LED non Funzionante (Maggio 2026)
+- **Problema**: Il microfono e l'audio funzionano correttamente, ma l'addressable LED RGB WS2812 a bordo del ReSpeaker Lite non si accende mai per fornire feedback visivo degli stati (Listening, Thinking, IDLE).
+- **Causa**: Nelle precedenti configurazioni di ESPHome (`respeaker.yaml` e `respeaker_lite_firmware.yaml`), il LED era mappato su `GPIO21`. Tuttavia, sul modulo Seeed Studio XIAO ESP32S3 integrato nella scheda ReSpeaker 2-Mic Lite, il pin fisico collegato al chipset WS2812 è **GPIO1**.
+- **Soluzione di Sicurezza (Zero Regressioni)**:
+  1. Per evitare qualsiasi rischio di regressione del microfono I2S/DMA (che causerebbe il blocco dei dati a 32743), si è scelto di mantenere intatto il firmware originale `respeaker_lite_firmware.yaml`.
+  2. È stata creata una copia isolata denominata `respeaker_lite_firmware_led_v13.yaml` contenente la modifica del pin a `GPIO1`:
+     ```yaml
+     light:
+       - platform: esp32_rmt_led_strip
+         chipset: WS2812
+         rgb_order: GRB
+         pin: GPIO1
+         num_leds: 1
+         id: respeaker_led
+         name: "ReSpeaker LED"
+         restore_mode: ALWAYS_OFF
+     ```
+- **Istruzioni per la Compilazione (WSL locale)**:
+  ```bash
+  cd "/mnt/c/Users/lsuffia/OneDrive - BRUGOLA OEB INDUSTRIALE SPA/Documents/robopy/antigravity"
+  esphome compile robopy_controller/files_utili/respeaker_lite_firmware_led_v13.yaml
+  ```
+- **Istruzioni per il Flashing (SSH sul Pi)**:
+  1. Da **WSL locale**, copia il file binario compilato sul Raspberry Pi:
+     ```bash
+     scp .esphome/build/respeaker-lite/.pioenvs/respeaker-lite/firmware.factory.bin robopy@marcus:/tmp/firmware_led_v13.factory.bin
+     ```
+  2. Da **SSH sul Pi**, esegui il flash:
+     ```bash
+     source /home/robopy/esphome_venv/bin/activate
+     esptool --port /dev/ttyACM0 --baud 115200 write_flash 0x0 /tmp/firmware_led_v13.factory.bin
+     ```
+- **Istruzioni di Ripristino (Rollback Immediato in caso di problemi al microfono)**:
+  In caso di freeze o malfunzionamento del microfono I2S, ripristina all'istante l'ultimo firmware funzionante compilando e flashando `respeaker_lite_firmware.yaml`:
+  1. Da **WSL locale**, ricompila il vecchio firmware:
+     ```bash
+     esphome compile robopy_controller/files_utili/respeaker_lite_firmware.yaml
+     scp .esphome/build/respeaker-lite/.pioenvs/respeaker-lite/firmware.factory.bin robopy@marcus:/tmp/firmware_safe.factory.bin
+     ```
+  2. Da **SSH sul Pi**, esegui il flash del vecchio firmware:
+     ```bash
+     source /home/robopy/esphome_venv/bin/activate
+     esptool --port /dev/ttyACM0 --baud 115200 write_flash 0x0 /tmp/firmware_safe.factory.bin
+     ```
