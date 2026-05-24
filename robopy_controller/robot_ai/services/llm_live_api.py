@@ -25,7 +25,7 @@ from typing import Any, Dict, List, Optional
 
 import rclpy
 
-from .llm_models import LLMResponse, types
+from robopy_controller.robot_ai.services.llm_models import LLMResponse, types
 from robopy_controller.msg import AudioData
 
 
@@ -45,6 +45,8 @@ class LiveAPIMixin:
         self._resumption_token:      Optional[str]            = None
         self._live_response_future:  Optional[asyncio.Future] = None
         self._current_live_response: Dict[str, Any]           = {"text": "", "actions": []}
+        self._live_functions:        Optional[List[Dict[str, Any]]] = None
+        self._activity_started:      bool                     = False
 
     # -----------------------------------------------------------------------
     # Bridge methods per l'orchestratore
@@ -100,19 +102,38 @@ class LiveAPIMixin:
                 with self._cfg_lock:
                     model_used = self._live_model
                     sys_prompt = self._system_prompt
+                    live_functions = self._live_functions
+                    voice_name = self._voice_name
 
                 modalities = ["AUDIO"] if "native-audio" in model_used else ["TEXT", "AUDIO"]
                 
-                # Google SDK v0.3 compatibility check:
-                # If sys_prompt is empty or None, omit the field, otherwise 1007 can happen
                 ws_kwargs = {"response_modalities": modalities}
                 if sys_prompt:
-                    ws_kwargs["system_instruction"] = sys_prompt
+                    ws_kwargs["system_instruction"] = types.Content(parts=[types.Part.from_text(text=sys_prompt)])
+                
+                if live_functions:
+                    ws_kwargs["tools"] = [{"function_declarations": live_functions}]
                 
                 # Attivazione compressione per permettere sessioni audio/testuali prolungate all'infinito
                 ws_kwargs["context_window_compression"] = types.ContextWindowCompressionConfig(
                     sliding_window=types.SlidingWindow()
                 )
+
+                # Disabilita il VAD automatico di Gemini: usiamo il VAD locale del VUI node
+                # e segnaliamo manualmente activity_start / activity_end
+                ws_kwargs["realtime_input_config"] = types.RealtimeInputConfig(
+                    automatic_activity_detection=types.AutomaticActivityDetection(disabled=True)
+                )
+
+                # Configura il tipo e il nome della voce desiderata
+                speech_config = types.SpeechConfig(
+                    voice_config=types.VoiceConfig(
+                        prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                            voice_name=voice_name
+                        )
+                    )
+                )
+                ws_kwargs["speech_config"] = speech_config
                     
                 ws_config = types.LiveConnectConfig(**ws_kwargs)
 
@@ -121,23 +142,33 @@ class LiveAPIMixin:
                         handle=self._resumption_token,
                     )
                     
-                self.get_logger().info(f"Connecting to {model_used} with modalities {modalities} ...")
+                was_connected = False
+                try:
+                    async with self._client.aio.live.connect(
+                        model=model_used,
+                        config=ws_config,
+                    ) as session:
+                        async with self._live_lock:
+                            self._live_session = session
+                            self._live_connecting = False
+                            self._activity_started = False
+                            was_connected = True
 
-                async with self._client.aio.live.connect(
-                    model=model_used,
-                    config=ws_config,
-                ) as session:
+                        self.get_logger().info("Live API connessa con successo.")
+                        backoff = 2.0      # reset backoff on success
+                        fail_count = 0
+
+                        async for msg in session.receive():
+                            await self._handle_live_message(msg)
+                finally:
                     async with self._live_lock:
-                        self._live_session = session
+                        self._live_session = None
                         self._live_connecting = False
-
-                    self.get_logger().info("Live API connessa con successo.")
-                    backoff = 2.0      # reset backoff on success
-                    fail_count = 0
-
-                    async for msg in session.receive():
-                        await self._handle_live_message(msg)
-
+                        self._activity_started = False
+                        if self._live_response_future and not self._live_response_future.done():
+                            self._live_response_future.cancel()
+                        if was_connected:
+                            self.get_logger().info("Sessione Live disconnessa o conclusa, pulizia completata.")
             except Exception as e:
                 err_str = str(e)
                 # 1000 = chiusura pulita (normale per native-audio dopo ogni turn)
@@ -171,17 +202,36 @@ class LiveAPIMixin:
             session = self._live_session
 
         if not session:
+            self.get_logger().warning("⚠️ [LLM Live] Tentato invio audio, ma _live_session è None!")
+            return
+
+        if len(msg.data) == 0:
+            # Empty chunk = VUI segnala fine parlato.
+            # Invia activity_end per segnalare fine turno utente → Gemini inizia a rispondere.
+            self.get_logger().info("🎤 [LLM Live] Ricevuto END OF SPEECH da VUI. Invio activity_end a Gemini...")
+            try:
+                await session.send_realtime_input(activity_end=types.ActivityEnd())
+                self._activity_started = False
+                self.get_logger().info("✅ [LLM Live] activity_end inviato con successo. Gemini dovrebbe rispondere ora.")
+            except Exception as e:
+                self.get_logger().error(f"❌ Errore invio activity_end: {e}", exc_info=True)
             return
 
         try:
+            # Invia activity_start prima del primo chunk di ogni turno vocale
+            if not self._activity_started:
+                await session.send_realtime_input(activity_start=types.ActivityStart())
+                self._activity_started = True
+                self.get_logger().info("🎤 [LLM Live] activity_start inviato — inizio turno vocale utente.")
+
             await session.send_realtime_input(
-                media=types.Blob(
-                    data=msg.data,
+                audio=types.Blob(
+                    data=bytes(msg.data),
                     mime_type="audio/pcm;rate=16000"
                 )
             )
         except Exception as e:
-            self.get_logger().debug(f"Errore invio audio stream: {e}")
+            self.get_logger().error(f"❌ Errore invio audio stream alla Live API: {e}", exc_info=True)
 
     # -----------------------------------------------------------------------
     # Gestione messaggi Live in ingresso
@@ -191,11 +241,27 @@ class LiveAPIMixin:
         Gestisce un messaggio in arrivo dalla Live API.
         Pubblica chunk audio, accumula testo/actions, segnala turn_complete.
         """
+        # Log OGNI messaggio in arrivo per diagnostica
+        msg_fields = []
+        if getattr(msg, 'server_content', None):
+            msg_fields.append('server_content')
+        if getattr(msg, 'session_resumption_update', None):
+            msg_fields.append('session_resumption_update')
+        if getattr(msg, 'tool_call', None):
+            msg_fields.append('tool_call')
+        if getattr(msg, 'tool_call_cancellation', None):
+            msg_fields.append('tool_call_cancellation')
+        if getattr(msg, 'setup_complete', None):
+            msg_fields.append('setup_complete')
+        if not msg_fields:
+            msg_fields.append('unknown/empty')
+        self.get_logger().info(f"📩 [Live] Messaggio ricevuto: [{', '.join(msg_fields)}]")
+
         # Handle session resumption update (top-level, outside server_content)
         sru = getattr(msg, 'session_resumption_update', None)
         if sru and getattr(sru, 'resumable', False) and getattr(sru, 'new_handle', None):
             self._resumption_token = sru.new_handle
-            self.get_logger().info("Ricevuto nuovo token di ripresa sessione The handle will be retained.")
+            self.get_logger().info("Ricevuto nuovo token di ripresa sessione. The handle will be retained.")
 
         if not msg.server_content:
             return
@@ -207,6 +273,9 @@ class LiveAPIMixin:
                     audio_msg      = AudioData()
                     audio_msg.data = part.inline_data.data
                     self.pub_audio_chunk.publish(audio_msg)
+                    self.get_logger().info(
+                        f"🔊 Gemini Live audio chunk received & published ({len(part.inline_data.data)} bytes)"
+                    )
 
                 if hasattr(part, 'text') and part.text:
                     self._current_live_response["text"] += part.text
@@ -240,6 +309,17 @@ class LiveAPIMixin:
         """
 
         self._assert_live_lock()
+
+        with self._cfg_lock:
+            # Se le funzioni sono cambiate, dobbiamo forzare una riconnessione per inviare il nuovo tool schema
+            reconnect_required = False
+            if functions and functions != self._live_functions:
+                self._live_functions = functions
+                reconnect_required = True
+
+        if reconnect_required:
+            self.get_logger().info("Funzioni Live API aggiornate, disconnessione e riconnessione in corso...")
+            await self._reconnect_live()
 
         max_attempts = 3
         last_error = None
