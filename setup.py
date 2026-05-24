@@ -13,8 +13,12 @@ def safe_glob(pattern):
     - evita crash durante colcon --dry-run
     """
     files = []
+    exclude_dirs = {"__pycache__", "build", "install", "log", ".git"}
     for f in glob(pattern, recursive=True):
-        if os.path.isfile(f) and "__pycache__" not in f:
+        if os.path.isfile(f):
+            path_parts = f.replace("\\", "/").split("/")
+            if any(part in exclude_dirs for part in path_parts):
+                continue
             files.append(f)
     return files
 
@@ -168,6 +172,7 @@ setup(
             "smart_buildhat_driver = robopy_controller.nodes.smart_buildhat_driver:main",
             "foxglove_nav2_bridge = robopy_controller.nodes.foxglove_nav2_bridge:main",
             "wake_word_node = robopy_controller.nodes.wake_word_node:main",
+            "respeaker_vui_node = robopy_controller.nodes.respeaker_vui_node:main",
             "ai_chat = scripts.ai_chat:main",
         ],
     },
