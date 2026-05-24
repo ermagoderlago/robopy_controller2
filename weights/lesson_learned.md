@@ -40,6 +40,11 @@ Questo documento raccoglie gli errori riscontrati, le cause identificate e le so
 - **Causa**: Il nuovo SDK `google.genai` (v1.x) utilizza Pydantic per la validazione delle configurazioni. Passare i dizionari dei tool del sistema Marcus (che contengono campi extra come `callable`) direttamente a `GenerateContentConfig.tools` genera un errore di validazione immediato.
 - **Risoluzione**: Implementata la funzione helper `_format_tools_for_google` che filtra solo i campi ammessi (`name`, `description`, `parameters`) e li incapsula in oggetti `types.FunctionDeclaration` dentro `types.Tool(function_declarations=[...])`.
 
+### Blocco della Sessione Live su Connessione Chiusa (Turno Singolo) (v14.0 - Maggio 2026)
+- **Problema**: Marcus rispondeva esattamente una sola volta all'avvio, dopodiché rimaneva in ascolto (parola marcus rilevata e beep emesso) ma non rispondeva più alle domande vocali successive.
+- **Causa**: Quando il WebSocket di Gemini Live veniva chiuso pulitamente dal server (es. dopo il completamento di una risposta), l'iteratore asincrono `session.receive()` terminava normalmente senza lanciare eccezioni. Di conseguenza, il flusso saltava il blocco `except Exception as e:` e la variabile `self._live_session` non veniva azzerata. Al ciclo successivo, il connection manager vedeva `self._live_session` come truthy e rimaneva in un loop continuo di sleep(0.5) senza mai tentare una nuova connessione. I tentativi di inviare audio sui turni successivi avvenivano quindi su un socket chiuso.
+- **Risoluzione**: Avvolto il ciclo di connessione ed elaborazione in un blocco `try...finally` all'interno di `_live_connection_manager` in `llm_live_api.py` per azzerare tassativamente `self._live_session = None`, `self._live_connecting = False` e `self._activity_started = False` all'uscita dal contesto, garantendo la riconnessione istantanea e il corretto recupero nei turni successivi.
+
 > [!IMPORTANT]
 > Il modello **Native Audio** non deve mai essere forzato in modalità TEXT, altrimenti restituirà `Invalid Argument (1007)`.
 
