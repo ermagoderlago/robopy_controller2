@@ -1,0 +1,185 @@
+################################################################################
+#  ReSpeaker Lite — Firmware ESPHome v13.0-LED-Exp (USB JTAG + LED Control)
+#  Hardware: Seeed XIAO ESP32S3 + ReSpeaker 2-Mic Lite
+#
+#  Comunicazione via USB Serial JTAG (/dev/ttyACM0 sul Pi)
+#  Il flusso audio è gestito in modo indipendente dall'XMOS via USB.
+################################################################################
+
+esphome:
+  name: respeaker-lite
+  friendly_name: ReSpeaker Lite del Robot
+  includes:
+    - respeaker_helper.h
+
+  on_boot:
+    - priority: 800
+      then:
+        - lambda: |-
+            // Setup Driver USB Serial JTAG
+            id(usb_mutex) = xSemaphoreCreateMutex();
+            if (id(usb_mutex) != NULL) {
+              usb_serial_jtag_driver_config_t usb_cfg = {
+                .tx_buffer_size = 4096,
+                .rx_buffer_size = 1024,
+              };
+              if (usb_serial_jtag_driver_install(&usb_cfg) == ESP_OK) {
+                id(usb_ready) = true;
+                ESP_LOGI("usb", "USB JTAG driver installato");
+              }
+            }
+        - delay: 100ms
+        - lambda: |-
+            if (id(usb_ready) && id(usb_mutex) != NULL) {
+              if (xSemaphoreTake(id(usb_mutex), pdMS_TO_TICKS(50)) == pdTRUE) {
+                usb_serial_jtag_write_bytes((const uint8_t*)"READY\n", 6, 10);
+                xSemaphoreGive(id(usb_mutex));
+              }
+            }
+
+esp32:
+  board: seeed_xiao_esp32s3
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_ESP_CONSOLE_UART_DEFAULT: n
+      CONFIG_ESP_CONSOLE_NONE: y
+      COMPILER_OPTIMIZATION_SIZE: y
+      COMPILER_CXX_EXCEPTIONS: y
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  enable_on_boot: false
+
+api:
+  reboot_timeout: 0s
+
+ota:
+  platform: esphome
+
+logger:
+  level: INFO
+  baud_rate: 0
+
+# ── LED WS2812 con Effetti ─────────────────────────────────────────────
+light:
+  - platform: esp32_rmt_led_strip
+    chipset: WS2812
+    rgb_order: GRB
+    pin: GPIO1
+    num_leds: 1
+    id: respeaker_led
+    name: "ReSpeaker LED"
+    restore_mode: ALWAYS_OFF
+    effects:
+      - pulse:
+          name: "Respiro"
+          transition_length: 800ms
+          update_interval: 800ms
+          min_brightness: 5%
+          max_brightness: 100%
+      - flicker:
+          name: "Flicker"
+          alpha: 0.95
+          intensity: 1.5%
+      - strobe:
+          name: "Lampeggio"
+          colors:
+            - state: true
+              brightness: 100%
+              duration: 150ms
+            - state: false
+              duration: 100ms
+
+globals:
+  - id: usb_mutex
+    type: SemaphoreHandle_t
+    initial_value: 'NULL'
+  - id: usb_ready
+    type: bool
+    initial_value: 'false'
+  - id: uart_rx_buf
+    type: std::string
+  - id: cmd_queue
+    type: std::vector<std::string>
+
+script:
+  - id: script_process_cmd
+    mode: queued
+    then:
+      - lambda: |-
+          if (id(cmd_queue).empty()) return;
+          std::string cmd = id(cmd_queue).front();
+          id(cmd_queue).erase(id(cmd_queue).begin());
+          auto usb_write = [](const char* s) {
+            if (id(usb_ready) && xSemaphoreTake(id(usb_mutex), pdMS_TO_TICKS(10)) == pdTRUE) {
+              usb_serial_jtag_write_bytes((const uint8_t*)s, strlen(s), 0);
+              xSemaphoreGive(id(usb_mutex));
+            }
+          };
+
+          if (cmd=="HEARTBEAT_REQ") usb_write("HEARTBEAT\n");
+          else if (cmd=="AUDIO_START") { usb_write("STREAM:ON\n"); }
+          else if (cmd=="AUDIO_STOP") { usb_write("STREAM:OFF\n"); }
+          else if (cmd=="LED_OFF") {
+            id(respeaker_led).turn_off().perform();
+            usb_write("LED:OK\n");
+          }
+          else if (cmd.rfind("LED_EFFECT:", 0) == 0) {
+            std::string eff = cmd.substr(11);
+            if (eff == "IDLE") {
+              auto call = id(respeaker_led).turn_on();
+              call.set_effect("Respiro");
+              call.set_rgb(1.0f, 1.0f, 1.0f);
+              call.perform();
+            } else if (eff == "LISTENING") {
+              auto call = id(respeaker_led).turn_on();
+              call.set_effect("Respiro");
+              call.set_rgb(0.0f, 1.0f, 0.2f);
+              call.perform();
+            } else if (eff == "THINKING") {
+              auto call = id(respeaker_led).turn_on();
+              call.set_effect("Flicker");
+              call.set_rgb(0.0f, 0.4f, 1.0f);
+              call.perform();
+            } else if (eff == "SUCCESS") {
+              auto call = id(respeaker_led).turn_on();
+              call.set_rgb(0.0f, 1.0f, 0.3f);
+              call.set_brightness(1.0f);
+              call.set_transition_length(0);
+              call.perform();
+            } else if (eff == "ERROR") {
+              auto call = id(respeaker_led).turn_on();
+              call.set_effect("Lampeggio");
+              call.set_rgb(1.0f, 0.0f, 0.0f);
+              call.perform();
+            } else if (eff == "OFF") {
+              id(respeaker_led).turn_off().perform();
+            }
+            usb_write("LED:OK\n");
+          }
+
+interval:
+  - interval: 5s
+    then:
+      - lambda: |-
+          if (id(usb_ready) && xSemaphoreTake(id(usb_mutex), pdMS_TO_TICKS(10)) == pdTRUE) {
+            usb_serial_jtag_write_bytes((const uint8_t*)"HEARTBEAT\n", 10, 0);
+            xSemaphoreGive(id(usb_mutex));
+          }
+  - interval: 20ms
+    then:
+      - lambda: |-
+          if (!id(usb_ready)) return;
+          uint8_t byte;
+          for (int i=0; i<128; i++) {
+            if (usb_serial_jtag_read_bytes(&byte, 1, 0) <= 0) break;
+            if (byte == '\n' || byte == '\r') {
+              if (!id(uart_rx_buf).empty()) {
+                id(cmd_queue).push_back(id(uart_rx_buf));
+                id(script_process_cmd).execute();
+                id(uart_rx_buf) = "";
+              }
+            } else if (byte >= 32 && byte < 128) id(uart_rx_buf) += (char)byte;
+          }
