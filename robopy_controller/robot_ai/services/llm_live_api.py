@@ -47,6 +47,8 @@ class LiveAPIMixin:
         self._current_live_response: Dict[str, Any]           = {"text": "", "actions": []}
         self._live_functions:        Optional[List[Dict[str, Any]]] = None
         self._activity_started:      bool                     = False
+        self._live_conversation_history: List[tuple]          = []
+        self._current_user_text:     str                      = ""
 
     # -----------------------------------------------------------------------
     # Bridge methods per l'orchestratore
@@ -105,11 +107,22 @@ class LiveAPIMixin:
                     live_functions = self._live_functions
                     voice_name = self._voice_name
 
+                # Costruiamo il prompt di sistema includendo la cronologia recente per la persistenza del contesto
+                full_sys_prompt = sys_prompt
+                if self._live_conversation_history:
+                    history_str = (
+                        "\n\n[CRONOLOGIA RECENTE DELLA CONVERSAZIONE (FONDAMENTALE)]\n"
+                        "Di seguito trovi gli ultimi scambi della conversazione in corso. Usali come contesto per rispondere coerentemente:\n"
+                    )
+                    for usr, bot in self._live_conversation_history:
+                        history_str += f"Utente: {usr}\nMarcus: {bot}\n"
+                    full_sys_prompt = sys_prompt + history_str
+
                 modalities = ["AUDIO"] if "native-audio" in model_used else ["TEXT", "AUDIO"]
                 
                 ws_kwargs = {"response_modalities": modalities}
-                if sys_prompt:
-                    ws_kwargs["system_instruction"] = types.Content(parts=[types.Part.from_text(text=sys_prompt)])
+                if full_sys_prompt:
+                    ws_kwargs["system_instruction"] = types.Content(parts=[types.Part.from_text(text=full_sys_prompt)])
                 
                 if live_functions:
                     ws_kwargs["tools"] = [{"function_declarations": live_functions}]
@@ -118,6 +131,10 @@ class LiveAPIMixin:
                 ws_kwargs["context_window_compression"] = types.ContextWindowCompressionConfig(
                     sliding_window=types.SlidingWindow()
                 )
+
+                # Abilita trascrizione audio in ingresso e in uscita per ricostruire la memoria
+                ws_kwargs["input_audio_transcription"] = types.AudioTranscriptionConfig()
+                ws_kwargs["output_audio_transcription"] = types.AudioTranscriptionConfig()
 
                 # Disabilita il VAD automatico di Gemini: usiamo il VAD locale del VUI node
                 # e segnaliamo manualmente activity_start / activity_end
@@ -267,6 +284,18 @@ class LiveAPIMixin:
             return
         sc = msg.server_content
 
+        # Rileva la trascrizione del parlato dell'utente
+        if getattr(sc, 'input_transcription', None) and sc.input_transcription.text:
+            transcription = sc.input_transcription.text
+            self._current_user_text += " " + transcription
+            self.get_logger().info(f"🎤 [Live ASR] Trascrizione utente: {transcription}")
+
+        # Rileva la trascrizione del parlato del modello (Marcus)
+        if getattr(sc, 'output_transcription', None) and sc.output_transcription.text:
+            transcription = sc.output_transcription.text
+            self._current_live_response["text"] += transcription
+            self.get_logger().info(f"🔊 [Live Model ASR] Trascrizione Marcus: {transcription}")
+
         if sc.model_turn:
             for part in sc.model_turn.parts:
                 if hasattr(part, 'inline_data') and part.inline_data:
@@ -297,7 +326,18 @@ class LiveAPIMixin:
                     "Risposta Live ricevuta su future già cancellato — scartata. "
                     "Possibile timeout lato ROS o richiesta abbandonata."
                 )
+            
+            # Salva il turno nella cronologia della conversazione
+            user_msg = self._current_user_text.strip() or "[Ascolto Vocale]"
+            model_msg = self._current_live_response["text"].strip()
+            if model_msg:
+                self.get_logger().info(f"💾 [CRONOLOGIA] Salvato turno in memoria -> Utente: '{user_msg}' | Marcus: '{model_msg}'")
+                self._live_conversation_history.append((user_msg, model_msg))
+                if len(self._live_conversation_history) > 30:
+                    self._live_conversation_history.pop(0)
+
             self._current_live_response = {"text": "", "actions": []}
+            self._current_user_text = ""
 
     # -----------------------------------------------------------------------
     # Generate Live (testo → Live API → risposta completa)
