@@ -80,7 +80,16 @@ per attivare la chiave IA devi usare:
 
 source /home/robopy/robopy/robopi_controller/robopy_controller_host/setup_keys.sh
 
-prima di lanciare og
+prima di lanciare ogni nodo ROS 2 o il robot.
+
+## 🔄 Sincronizzazione ed Esecuzione Rapida (Hot-Swap)
+Durante lo sviluppo sul PC Windows, puoi sincronizzare ed eseguire il codice a caldo (senza dover ricostruire il workspace completo `colcon` per modifiche puramente Python):
+1. Esegui `.\sync_marcus.bat` da PowerShell sul PC Windows. Questo script usa SSH ControlMaster e rsync per copiare i file modificati sia nei sorgenti sia direttamente in `install/` sul Raspberry Pi in pochissimi secondi.
+2. Per riavviare i nodi AI e VUI sul robot, esegui:
+   ```bash
+   ssh robopy@marcus
+   bash /mnt/ssd/robopy_controller_host/restart.sh
+   ```
 
 ## ⚠️ IMPORTANTE: Aggiungere un nuovo Nodo Python a robopy_controller
 Poiché `robopy_controller` è un pacchetto misto C++/Python compilato con `ament_cmake`, aggiungere un nodo Python al `console_scripts` del `setup.py` **NON BASTA**. La macro `ament_python_install_package` non genererà automaticamente gli eseguibili nella cartella `libexec` durante una build `ament_cmake` in ROS 2 Jazzy.

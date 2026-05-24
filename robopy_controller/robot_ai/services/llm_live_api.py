@@ -49,16 +49,30 @@ class LiveAPIMixin:
         self._activity_started:      bool                     = False
         self._live_conversation_history: List[tuple]          = []
         self._current_user_text:     str                      = ""
+        self._tool_executor_callback: Optional[Any]           = None
 
     # -----------------------------------------------------------------------
     # Bridge methods per l'orchestratore
     # -----------------------------------------------------------------------
-    async def start_persistent_live(self):
+    def register_tool_executor(self, callback):
+        """
+        Registra un callback per l'esecuzione delle abilità (tools) richiamate 
+        dal modello durante le sessioni vocali Live WebSocket.
+        """
+        self._tool_executor_callback = callback
+        self.get_logger().info("Callback di esecuzione Live Tool registrato con successo.")
+
+    async def start_persistent_live(self, functions=None):
         """
         Metodo richiesto dall'orchestratore per segnalare l'avvio della sessione.
         Il loop di connessione è già gestito internamente.
         """
         self.get_logger().info("Persistent Live session enabled.")
+        if functions:
+            with self._cfg_lock:
+                self._live_functions = functions
+            self.get_logger().info(f"Caricate {len(functions)} funzioni per la Live API. Riconnessione in corso...")
+            asyncio.run_coroutine_threadsafe(self._reconnect_live(), self._loop)
         return True
 
     async def generate_live(self, prompt: str, context=None, functions=None, images=None, documents=None):
@@ -280,6 +294,12 @@ class LiveAPIMixin:
             self._resumption_token = sru.new_handle
             self.get_logger().info("Ricevuto nuovo token di ripresa sessione. The handle will be retained.")
 
+        # Gestione delle richieste di Tool Call dal modello (WebSocket Function Calling)
+        if getattr(msg, 'tool_call', None):
+            self.get_logger().info("🛠️ [Live] Ricevuta richiesta di Tool Call dal modello!")
+            # Creiamo un task in background asincrono per non bloccare il loop di ricezione principale
+            asyncio.create_task(self._execute_and_respond_tool_call(msg.tool_call))
+
         if not msg.server_content:
             return
         sc = msg.server_content
@@ -473,3 +493,54 @@ class LiveAPIMixin:
                 finally:
                     self._live_session    = None
                     self._live_connecting = False
+
+    # -----------------------------------------------------------------------
+    # Background execution and response for Tool Calls
+    # -----------------------------------------------------------------------
+    async def _execute_and_respond_tool_call(self, tool_call):
+        """
+        Esegue i tool/skill in background e rimanda i risultati (tool response)
+        a Gemini tramite la connessione WebSocket Live persistente.
+        """
+        function_responses = []
+        
+        for call in getattr(tool_call, 'function_calls', []):
+            name = call.name
+            call_id = call.id
+            args = dict(call.args) if call.args else {}
+            
+            self.get_logger().info(f"🛠️ [Live Tool] Esecuzione di '{name}' con args: {args} (ID: {call_id})")
+            
+            result = None
+            if self._tool_executor_callback:
+                try:
+                    result = await self._tool_executor_callback(name, args)
+                except Exception as e:
+                    self.get_logger().error(f"❌ Errore esecuzione live skill '{name}': {e}", exc_info=True)
+                    result = {"success": False, "error": str(e)}
+            else:
+                self.get_logger().warning(f"⚠️ Nessun tool executor registrato per la Live API. Salto tool '{name}'.")
+                result = {"success": False, "error": "No tool executor registered"}
+                
+            self.get_logger().info(f"✅ [Live Tool] '{name}' completato. Output: {result}")
+            
+            # Crea la risposta per Gemini
+            f_resp = types.FunctionResponse(
+                name=name,
+                id=call_id,
+                response={"result": result}
+            )
+            function_responses.append(f_resp)
+            
+        if function_responses:
+            async with self._live_lock:
+                session = self._live_session
+                
+            if session:
+                try:
+                    await session.send_tool_response(function_responses=function_responses)
+                    self.get_logger().info("✅ [Live Tool] Risposta/e inviate con successo alla sessione Live.")
+                except Exception as e:
+                    self.get_logger().error(f"❌ Errore invio tool response: {e}", exc_info=True)
+            else:
+                self.get_logger().warning("⚠️ [Live Tool] Sessione chiusa, impossibile inviare la risposta del tool.")

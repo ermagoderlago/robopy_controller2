@@ -75,7 +75,7 @@ class AIOrchestrator(Node):
 
         # Servizi Core
         self.llm_service = LLMService(self.config_manager)
-        self.tts_service = TTSService(self.config_manager)
+        self.tts_service = TTSService(self.config_manager, ros_node=self)
         self.asr_service = ASRService(self.config_manager)
         self.embedding_service = EmbeddingService(self.config_manager)
         self.nav_client = NavigationClient(self, self.config_manager)
@@ -129,7 +129,30 @@ class AIOrchestrator(Node):
         else:
              self.skill_registry.register(AlarmSkill())
 
+        # Caricamento dinamico delle skill attive (Spotify, Terminale, Web Search, ecc.)
+        try:
+             from pathlib import Path
+             skills_active_dir = Path(__file__).parent.parent / "skills" / "active"
+             context = {
+                 "orchestrator": self,
+                 "memory_manager": self.memory_manager,
+                 "llm_service": self.llm_service,
+                 "event_bus": self.event_bus,
+                 "nav_client": self.nav_client,
+                 "deepseek_service": self.deepseek_service,
+                 "nightly_dream_service": self.nightly_dream_service,
+                 "visual_memory_service": self.visual_memory_service,
+             }
+             self.skill_registry.discover_active(str(skills_active_dir), context=context)
+        except Exception as e:
+             self.ai_logger.error(f"Errore durante il caricamento dinamico delle skill attive: {e}")
+
+
         self.skill_executor = SkillExecutor(self.skill_registry, self.nav_client, self.reactive_safety)
+        
+        # Registrazione del callback executor per la Live API di Gemini (WebSocket Function Calling)
+        if hasattr(self.llm_service, 'register_tool_executor'):
+             self.llm_service.register_tool_executor(self._execute_tool_live)
         self.conversation_manager = ConversationManager(
             llm=self.llm_service,
             tts=self.tts_service,
@@ -163,7 +186,7 @@ class AIOrchestrator(Node):
         self.create_subscription(String, 'ai/input/document', self._document_input_callback, 10)
         self.create_subscription(String, 'ai/input/voice_test', self._voice_test_callback, 10)
         self.create_subscription(Bool, 'ai/input/mic_mute', self._mute_callback, 10)
-        self.create_subscription(AudioData, '/llm_service_node/audio_chunk', self._audio_chunk_callback, 10)
+        self.create_subscription(AudioData, '/ai/conversation/audio_chunk', self._audio_chunk_callback, 10)
 
         # Timer reattivi
         t1 = self.create_timer(0.02, self._reactive_loop_callback)
@@ -212,6 +235,9 @@ class AIOrchestrator(Node):
         if self._shutdown_flag:
             return
         if self.tts_service:
+            data_len = len(msg.data) if msg.data else 0
+            if data_len > 0:
+                self.get_logger().info(f"🔊 Audio chunk from Gemini Live ({data_len} bytes) → TTS play_raw_pcm")
             self.tts_service.play_raw_pcm(msg.data)
 
     def _camera_callback(self, msg):
@@ -342,7 +368,8 @@ class AIOrchestrator(Node):
     async def _init_resources(self):
         # 1. LLM Live (Essenziale per la conversazione)
         try:
-            await self.llm_service.start_persistent_live()
+            funcs = self.skill_registry.get_function_declarations()
+            await self.llm_service.start_persistent_live(functions=funcs)
         except Exception as e:
             self.ai_logger.warning(f"LLM Live session failed to start: {e}")
 
@@ -365,6 +392,47 @@ class AIOrchestrator(Node):
         except Exception as e:
             self.ai_logger.debug(f"Home Assistant background init failed (silent): {e}")
 
+
+    async def _execute_tool_live(self, name: str, args: dict) -> dict:
+        """
+        Esegue un tool (skill) richiesto dalla Live API di Gemini in tempo reale.
+        Richiamato da llm_live_api.py in background asincrono.
+        """
+        self.ai_logger.info(f"🛠️ [Live Tool Call] Richiesta esecuzione per: {name} con argomenti {args}")
+        # Cerchiamo la skill registrata nel registry
+        skill = self.skill_registry.get(name)
+        if not skill:
+            self.ai_logger.warning(f"⚠️ Skill '{name}' non trovata nel registry per esecuzione Live.")
+            return {"success": False, "error": f"Skill '{name}' not found"}
+        
+        try:
+            # Eseguiamo la skill passando gli argomenti strutturati direttamente come context.
+            # safe_execute gestisce internamente il corretto thread context e asincronia.
+            result = await skill.safe_execute("", context=args)
+            
+            # Se la skill fornisce un feedback vocale immediato, lo logghiamo per tracciabilità
+            if result.speak:
+                 self.ai_logger.info(f"💬 Live Tool Speak feedback: '{result.speak}'")
+            
+            # [v15.1] Salva le preferenze utente nel RAG se è stata avviata musica su Spotify
+            if result.success and name == "spotify_skill" and args.get("action") in ["search_play", "search_playlist"]:
+                 try:
+                     from datetime import datetime
+                     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                     query = args.get("query", "musica")
+                     await self.memory_manager.store_background(
+                         f"L'utente ha chiesto di ascoltare: '{query}' via Live API il {now_str}",
+                         result.speak or f"In riproduzione {query}.",
+                         "preference"
+                     )
+                     self.ai_logger.info(f"🎵 Preferenza Spotify salvata con successo nel RAG: '{query}'")
+                 except Exception as mem_e:
+                     self.ai_logger.warning(f"⚠️ Errore salvataggio preferenza Spotify Live nel RAG: {mem_e}")
+
+            return result.to_dict()
+        except Exception as e:
+            self.ai_logger.error(f"❌ Errore durante l'esecuzione Live della skill '{name}': {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
 
     async def shutdown(self):
         self._shutdown_flag = True
