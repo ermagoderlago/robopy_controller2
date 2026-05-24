@@ -40,10 +40,19 @@ Questo documento raccoglie gli errori riscontrati, le cause identificate e le so
 - **Causa**: Il nuovo SDK `google.genai` (v1.x) utilizza Pydantic per la validazione delle configurazioni. Passare i dizionari dei tool del sistema Marcus (che contengono campi extra come `callable`) direttamente a `GenerateContentConfig.tools` genera un errore di validazione immediato.
 - **Risoluzione**: Implementata la funzione helper `_format_tools_for_google` che filtra solo i campi ammessi (`name`, `description`, `parameters`) e li incapsula in oggetti `types.FunctionDeclaration` dentro `types.Tool(function_declarations=[...])`.
 
-### Blocco della Sessione Live su Connessione Chiusa (Turno Singolo) (v14.0 - Maggio 2026)
-- **Problema**: Marcus rispondeva esattamente una sola volta all'avvio, dopodiché rimaneva in ascolto (parola marcus rilevata e beep emesso) ma non rispondeva più alle domande vocali successive.
-- **Causa**: Quando il WebSocket di Gemini Live veniva chiuso pulitamente dal server (es. dopo il completamento di una risposta), l'iteratore asincrono `session.receive()` terminava normalmente senza lanciare eccezioni. Di conseguenza, il flusso saltava il blocco `except Exception as e:` e la variabile `self._live_session` non veniva azzerata. Al ciclo successivo, il connection manager vedeva `self._live_session` come truthy e rimaneva in un loop continuo di sleep(0.5) senza mai tentare una nuova connessione. I tentativi di inviare audio sui turni successivi avvenivano quindi su un socket chiuso.
-- **Risoluzione**: Avvolto il ciclo di connessione ed elaborazione in un blocco `try...finally` all'interno di `_live_connection_manager` in `llm_live_api.py` per azzerare tassativamente `self._live_session = None`, `self._live_connecting = False` e `self._activity_started = False` all'uscita dal contesto, garantendo la riconnessione istantanea e il corretto recupero nei turni successivi.
+### Blocco della Sessione Live, Errore 'language_codes' e Perdita del Contesto Conversazionale (v15.0 - Maggio 2026)
+- **Problemi riscontrati**:
+    1. *Turno Singolo*: Marcus rispondeva esattamente una sola volta all'avvio, dopodiché rimaneva in ascolto ma non rispondeva più alle domande successive.
+    2. *Connessione Fallita*: Errore `language_codes parameter is not supported in Gemini API.` che faceva fallire la connessione in loop.
+    3. *Perdita del Contesto*: Marcus dimenticava tutto il contesto a ogni turno vocale successivo, comportandosi come se parlasse per la prima volta.
+- **Cause**:
+    1. Quando il WebSocket si disconnetteva pulitamente (`code 1000`), l'assenza di eccezione non azzerava `self._live_session`, lasciando il connection manager bloccato.
+    2. Il nuovo SDK `google-genai` rifiuta esplicitamente `language_codes=["it-IT"]` dentro `AudioTranscriptionConfig`.
+    3. Poiché la Live API invia solo flussi audio in uscita (PCM), la variabile di testo della risposta di Marcus era vuota, per cui non registravamo alcuna trascrizione delle sue risposte vocali nella cronologia `_live_conversation_history`.
+- **Risoluzione**:
+    1. Avvolto il ciclo di ricezione in un blocco `try...finally` per azzerare `self._live_session = None` e garantire la riconnessione istantanea.
+    2. Rimosso `language_codes` da `AudioTranscriptionConfig()` lasciandolo vuoto. Gemini rileva automaticamente la lingua parlata e la trascrive perfettamente in italiano.
+    3. Abilitato `output_audio_transcription` nella configurazione e catturata la trascrizione in tempo reale del parlato del modello (`sc.output_transcription.text`) per popolare e salvare i turni in memoria (fino a 30 scambi di contesto continuo) iniettati nel prompt di sistema delle sessioni successive.
 
 > [!IMPORTANT]
 > Il modello **Native Audio** non deve mai essere forzato in modalità TEXT, altrimenti restituirà `Invalid Argument (1007)`.
