@@ -90,6 +90,17 @@ Durante lo sviluppo sul PC Windows, puoi sincronizzare ed eseguire il codice a c
    ssh robopy@marcus
    bash /mnt/ssd/robopy_controller_host/restart.sh
    ```
+3. **Watchdog Cognitivo (Systemd)**:
+   Il robot è protetto dal servizio di monitoraggio automatico `marcus-watchdog.service`. In caso di 3 crash consecutivi in 60s, il demone esegue automaticamente lo swap del symlink di produzione puntandolo alla versione precedente stabile `install_v15` (rollback A/B a caldo).
+   Per controllare e gestire il servizio systemd sul Raspberry Pi:
+   ```bash
+   # Controlla lo stato del servizio di sopravvivenza
+   sudo systemctl status marcus-watchdog.service
+   # Riavvia il servizio watchdog
+   sudo systemctl restart marcus-watchdog.service
+   # Visualizza il log delle anomalie e dei crash
+   cat /home/robopy/logs/watchdog.log
+   ```
 
 ## ⚠️ IMPORTANTE: Aggiungere un nuovo Nodo Python a robopy_controller
 Poiché `robopy_controller` è un pacchetto misto C++/Python compilato con `ament_cmake`, aggiungere un nodo Python al `console_scripts` del `setup.py` **NON BASTA**. La macro `ament_python_install_package` non genererà automaticamente gli eseguibili nella cartella `libexec` durante una build `ament_cmake` in ROS 2 Jazzy.

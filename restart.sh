@@ -2,6 +2,12 @@
 # restart.sh — Riavvio rapido AI + VUI node
 # [v12.0] Aggiunto restart VUI con parametri auto-calibrazione microfono
 
+# --- Gestione Watchdog di Sopravvivenza ---
+if [ -z "$FROM_WATCHDOG" ]; then
+    echo "🛑 Disattivazione temporanea del Watchdog per riavvio manuale..."
+    sudo systemctl stop marcus-watchdog.service || true
+fi
+
 # --- Setup ambiente ---
 source /home/robopy/ros2_jazzy/install/setup.bash
 source /home/robopy/ros2_venv/bin/activate
@@ -48,7 +54,7 @@ echo "🎤 Starting respeaker_vui_node (v12.0 adaptive)..."
 nohup ros2 run robopy_controller respeaker_vui_node --ros-args \
     -r __node:=respeaker_vui_node \
     -p use_sim_time:=False \
-    -p stt_gain:=4.0 \
+    -p stt_gain:=25.0 \
     -p noise_gate_threshold:=100.0 \
     -p wakeword_sensitivity:=0.92 \
     -p enable_barge_in:=true \
@@ -72,4 +78,9 @@ echo "✅ Nodi riavviati!"
 echo "   Interface log: tail -f /home/robopy/robopy/logs/respeaker_interface_node.log"
 echo "   VUI log:       tail -f /home/robopy/robopy/logs/respeaker_vui_node.log"
 echo "   AI  log:       tail -f /home/robopy/robopy/logs/robot_ai_node_debug_TEST4.log"
+
+if [ -z "$FROM_WATCHDOG" ]; then
+    echo "🟢 Riattivazione del Watchdog..."
+    sudo systemctl start marcus-watchdog.service || true
+fi
 

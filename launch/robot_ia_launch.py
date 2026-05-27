@@ -100,8 +100,8 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'wakeword_sensitivity': 0.92,
-            # [v5.6] Guadagno 4.0x per VAD — Accoppiato con ALSA Capture al 65% per segnale pulito
-            'stt_gain': 4.0,
+            # [v16.0] Guadagno 25.0x per VAD e wake-word affidabile
+            'stt_gain': 25.0,
             # [v12.0] Threshold iniziale bassa: verrà auto-calcolata dall'EMA ambientale
             'noise_gate_threshold': 100.0,
             # --- Barge-In (v5.7) ---

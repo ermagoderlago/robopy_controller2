@@ -1,0 +1,13 @@
+[Unit]
+Description=Marcus AI Surviving Watchdog
+After=network.target
+
+[Service]
+Type=simple
+User=robopy
+ExecStart=/bin/bash /mnt/ssd/robopy_controller_host/scripts/watchdog.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -248,11 +248,16 @@ This file lists the ROS 2 nodes and their topics (auto-generated).
   - `/ai/input/mic_mute`
   - `/ai/tts/speaking`
   - `/respeaker/speaker_audio`
+  - `/ai/music_playing`
+  - `/ai/conversation/mood`
+  - `/ai/conversation/interrupt`
 - **Transmits (Publishes) to:**
   - `/ai/input/audio_chunk`
   - `/ai/input/mic_mute`
   - `/respeaker/led_command`
   - `/wake_word`
+  - `/ai/barge_in`
+  - `/ai/ambient_noise`
 
 ## robopy_controller\nodes\rtabmap_node.py
 - **Subscribes to:**
@@ -426,10 +431,13 @@ This file lists the ROS 2 nodes and their topics (auto-generated).
 ## robopy_controller\robot_ai\services\llm_service.py
 - **Subscribes to:**
   - `/ai/input/audio_chunk`
+  - `/wake_word`
 - **Transmits (Publishes) to:**
   - `/ai/conversation/audio_chunk`
-  - `/ai/conversation/response`
-  - `~/stats`
+  - `/ai/input/mic_mute`
+  - `/ai/conversation/mood`
+  - `/ai/conversation/interrupt`
+  - `~/text_response`
 - **Service Servers:**
   - `~/generate`
   - `~/generate_live`

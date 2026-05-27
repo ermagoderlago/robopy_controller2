@@ -21,7 +21,7 @@ from robot_ai.services.nightly_dream_service import NightlyDreamService
 from robot_ai.services.visual_memory_service import VisualMemoryService
 
 from robot_ai.rag.memory_store import MemoryStore, Memory, MemoryType
-from robot_ai.rag.llama_index_store import LlamaIndexMemoryStore
+from robot_ai.rag.chroma_native_store import ChromaNativeStore
 from robot_ai.integrations import HomeAssistantClient, NavigationClient
 from robot_ai.core.state_machine import StateMachine, SystemState
 
@@ -85,8 +85,8 @@ class AIOrchestrator(Node):
         if self.config and hasattr(self.config, "memory"):
              db_path = getattr(self.config.memory, 'persist_dir_llama', "/home/robopy/ChromaDB_Llama")
         
-        # Sostituiamo il MemoryStore base con LlamaIndex per l'architettura State of the Art
-        self.memory_store = LlamaIndexMemoryStore(
+        # Sostituiamo il MemoryStore base con ChromaNativeStore per alta efficienza e prevenzione crash asincroni
+        self.memory_store = ChromaNativeStore(
             persist_dir=db_path,
             embedding_service=self.embedding_service
         )

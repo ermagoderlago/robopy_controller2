@@ -501,4 +501,30 @@ Questo documento raccoglie gli errori riscontrati, le cause identificate e le so
       ```
       Una volta completato il flashing, è possibile rieseguire `restart.sh` in totale sicurezza.
 
+## Rimozione LlamaIndex, ChromaDB Nativo e Watchdog Cognitivo: Marcus AI v16.0 (AI_ver3 - Maggio 2026)
+
+- **Scenario e Obiettivo**: Migrazione completa del sistema RAG eliminando LlamaIndex per implementare una connessione nativa ultra-efficiente con ChromaDB (`ChromaNativeStore`), evitando crash asincroni e overhead, e introducendo un watchdog cognitivo per la resilienza automatica del robot con rollback A/B.
+- **Lezioni Apprese su LlamaIndex vs ChromaDB Nativo**:
+    1. **Conflitto di Metadati e Schema (object of type 'int' has no len())**: La transizione da LlamaIndex (che scrive propri metadati specifici nel DB) a un'integrazione ChromaDB nativa causa il fallimento dell'inizializzazione con l'eccezione `❌ Inizializzazione ChromaNativeStore fallita: object of type 'int' has no len()`. Questo accade perché ChromaDB non riesce a fondere o leggere lo schema ereditato da LlamaIndex nella stessa cartella di persistenza.
+       * *Risoluzione*: Eseguire il backup e la rinomina della directory del vecchio database (`mv /home/robopy/ChromaDB_Llama /home/robopy/ChromaDB_Llama_backup`) per consentire a ChromaDB nativo di inizializzare una collezione pulita con lo schema aggiornato.
+    2. **Thread-Safety nel Multi-Threaded Executor**: Poiché il nodo AI gira in un ROS 2 `MultiThreadedExecutor`, il client di ChromaDB nativo deve essere un singleton thread-safe gestito da un lock globale (`threading.Lock`), ed ogni operazione di scrittura/lettura della collezione deve essere protetta da lock rientranti (`self._lock = threading.RLock()`).
+    3. **Prevenzione Corruzione Spazio Vettoriale**: Per evitare crash o risposte incoerenti del database vettoriale, è fondamentale validare la dimensione di ogni embedding prima di eseguire `add()`, scartando sul nascere qualsiasi record con dimensione diversa da 768.
+- **Lezioni Apprese sulla Live API e Gestione Code Audio (GIL)**:
+    1. **Mitigazione Contesa del GIL**: La migrazione da `LiveAPIMixin` a un gestore composto `LiveConnectionManager` richiede code asincrone FIFO per gestire i pacchetti audio PCM. Impostare una dimensione massima (`maxsize=50`) con logica oldest-drop (scarto del pacchetto più vecchio) previene i colli di bottiglia indotti dal Global Interpreter Lock (GIL) sul Raspberry Pi 5 e mantiene fluida la conversazione.
+- **Lezioni Apprese sulla Resilienza e il Watchdog Cognitivo**:
+    1. **Rollback A/B via Symlink**: Il watchdog bash (`watchdog.sh`) fornisce un meccanismo di emergenza A/B: se rileva 3 crash del nodo AI in 60 secondi, esegue lo swap istantaneo del symlink di produzione (`install` puntato a `/home/robopy/robopy/install_v15` stabile), zittisce l'audio e riavvia i nodi, garantendo la continuità operativa del robot senza intervento manuale.
+    2. **Integrazione Systemd**: Registrare il watchdog come servizio systemd (`marcus-watchdog.service`) garantisce che il monitoraggio di Marcus sia avviato automaticamente all'accensione del Raspberry Pi e sia in grado di riavviarsi in caso di guasto.
+
+## Accesso Audio Diretto a ReSpeaker e Risoluzione Conflitti Watchdog (v16.1, Maggio 2026)
+
+- **Prioritarizzazione Dispositivi Audio (ReSpeaker Direct Access)**:
+  - *Problema*: Il microfono in idle presentava un volume incredibilmente basso (`L_RMS ~40`), rendendo insensibile il VAD adattivo di Gemini che ignorava sistematicamente ogni frase con `🔇 [Live] Turno ignorato: rilevato solo silenzio o rumore ('')`.
+  - *Causa*: La logica originaria di `_find_audio_devices()` cercava prioritariamente stringhe come `"pulse"`, `"default"`, o `"pipewire"` per facilitare il multiplexing. Tuttavia, la presenza del plug-in ALSA `sysdefault` portava il nodo ad auto-configurarsi su `Index 1: sysdefault` anziché sul reale hardware `Index 0: ReSpeaker Lite`. Questo causava un bypass dannoso dell'acquisizione pura, con perdita di guadagno e dinamica.
+  - *Risoluzione*: Invertita la priorità in `respeaker_vui_node.py` per cercare ed agganciare anzitutto la stringa `device_name_target` (es. "ReSpeaker"). In questo modo la cattura è vincolata al reale hardware `hw:0,0` (Idx=0), garantendo una calibrazione eccellente (`Ambient_EMA ~55.7`, `Gate ~1821.3`) che lascia ampio margine al parlato (~3000+ RMS) per attivare all'istante l'ascolto.
+- **Risoluzione dei Conflitti di Riavvio ed Interlock (Watchdog Race Condition)**:
+  - *Problema*: Quando si lanciava un riavvio manuale via `/mnt/ssd/robopy_controller_host/restart.sh`, il demone `marcus-watchdog.service` percepiva la temporanea uccisione del nodo `robot_ai_node` come un crash improvviso e scatenava un secondo riavvio concorrente. Questa sovrapposizione generava crash DDS catastrofici (`rcl node's context is invalid`) e fallimenti di occupazione del bus seriale USB e dell'audio.
+  - *Risoluzione*: Implementato un meccanismo di interlock a livello di variabili d'ambiente.
+    1. In `watchdog.sh`, tutte le chiamate a `restart.sh` sono state marcate con `FROM_WATCHDOG=1`.
+    2. In `restart.sh`, si verifica la presenza di tale variabile. Se è vuota (riavvio manuale dell'operatore), lo script provvede anzitutto ad arrestare in modo pulito il watchdog via systemd (`sudo systemctl stop marcus-watchdog.service`), uccide i nodi, riavvia lo stack e riattiva il watchdog al termine. Se invece `FROM_WATCHDOG=1`, salta la chiamata a systemctl per evitare la ricorsione e il deadlock della cgroup systemd.
+
 

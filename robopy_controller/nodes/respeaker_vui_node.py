@@ -1087,21 +1087,21 @@ class ReSpeakerVUINode(Node):
             n_out = dev.get('maxOutputChannels')
             self.get_logger().info(f"  [{i}] {name} (in:{n_in}, out:{n_out})")
 
-            # Primo tentativo: cerca PipeWire/PulseAudio/Default per multiplexing condiviso
-            if "pulse" in name.lower() or "default" in name.lower() or "pipewire" in name.lower():
+            # Primo tentativo: cerca il dispositivo target (es. ReSpeaker)
+            if self.device_name_target.lower() in name.lower():
                 if n_in > 0 and in_idx is None:
                     in_idx = i
                 if n_out > 0 and out_idx is None:
                     out_idx = i
 
-        # Secondo tentativo fallback: se non trovati, cerca il dispositivo target (es. ReSpeaker)
+        # Secondo tentativo fallback: se non trovati, cerca PipeWire/PulseAudio/Default per multiplexing condiviso
         if in_idx is None or out_idx is None:
             for i in range(numdevices):
                 dev   = self.pa.get_device_info_by_host_api_device_index(0, i)
                 name  = dev.get('name')
                 n_in  = dev.get('maxInputChannels')
                 n_out = dev.get('maxOutputChannels')
-                if self.device_name_target.lower() in name.lower():
+                if "pulse" in name.lower() or "default" in name.lower() or "pipewire" in name.lower():
                     if n_in > 0 and in_idx is None:
                         in_idx = i
                     if n_out > 0 and out_idx is None:

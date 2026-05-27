@@ -10,7 +10,7 @@
 
 set -e  # Esci subito in caso di errore
 
-TARGET_HOST="100.84.212.61"
+TARGET_HOST="marcus"
 TARGET_DIR="/mnt/ssd/robopy_controller_host"
 
 # --- Configurazione SSH ControlMaster ---

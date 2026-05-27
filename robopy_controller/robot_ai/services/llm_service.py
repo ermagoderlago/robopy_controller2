@@ -48,13 +48,13 @@ from robopy_controller.robot_ai.services.llm_models import (
     types,
 )
 from robopy_controller.robot_ai.services.llm_circuit_breaker import CircuitBreaker, retry_with_backoff
-from robopy_controller.robot_ai.services.llm_live_api import LiveAPIMixin
+from robopy_controller.robot_ai.services.live_connection_manager import LiveConnectionManager
 
 
 # ---------------------------------------------------------------------------
 # Nodo ROS 2 Principale
 # ---------------------------------------------------------------------------
-class LLMServiceNode(LiveAPIMixin, Node):
+class LLMServiceNode(Node):
     """
     Nodo ROS 2 per l'integrazione con Google Gemini API.
     Gestisce sia il motore Asyncio per il Live API che il motore ROS 2 sincrono.
@@ -135,9 +135,12 @@ class LLMServiceNode(LiveAPIMixin, Node):
         )
 
         # ------------------------------------------------------------------
-        # 6. Stato Live API (delegato al mixin)
+        # 6. Stato LLMService
         # ------------------------------------------------------------------
-        self._init_live_state()
+        self._live_conversation_history = []
+        self._tool_executor_callback = None
+        self._last_interaction_time = time.time() - 15000.0  # > 4 ore fa per simulare LONELY all'avvio!
+        self._morning_greeting_done = False
 
         # ------------------------------------------------------------------
         # 7. ThreadPool per le chiamate bloccanti all'API standard
@@ -165,40 +168,39 @@ class LLMServiceNode(LiveAPIMixin, Node):
         self._async_thread.start()
 
         # ------------------------------------------------------------------
-        # 10. Inizializzazione risorse async (blocca finché non sono pronte)
+        # 10. Inizializzazione risorse async e LiveConnectionManager
         # ------------------------------------------------------------------
+        self._live_mgr = None
         if self._client:
             init_future = asyncio.run_coroutine_threadsafe(
                 self._init_async_resources(), self._loop)
             init_future.result(timeout=10.0)
 
-            asyncio.run_coroutine_threadsafe(
-                self._live_connection_manager(), self._loop)
-
-    # -----------------------------------------------------------------------
-    # Guard: verifica che _live_lock sia disponibile
-    # -----------------------------------------------------------------------
-    def _assert_live_lock(self):
-        """
-        Trasforma un errore criptico (TypeError su NoneType async context manager)
-        in un messaggio diagnostico chiaro e azionabile.
-        """
-        if self._live_lock is None:
-            raise RuntimeError(
-                "_live_lock non inizializzato: "
-                "_init_async_resources() non è stata completata correttamente."
+            # Composed LiveConnectionManager
+            self._live_mgr = LiveConnectionManager(
+                client=self._client,
+                loop=self._loop,
+                logger=self.get_logger(),
+                model_getter=self._get_live_model,
+                system_prompt_getter=self._get_active_system_prompt,
+                voice_name_getter=self._get_voice_name,
+                timeout_live_getter=self._get_timeout_live,
+                on_audio_received=self._on_live_audio_received,
+                on_tool_call=self._execute_tool_live,
+                on_turn_complete=self._on_live_turn_complete,
+                on_mic_mute=self._on_live_mic_mute,
+                on_interrupt=self._on_live_interrupt,
+                history_getter=self._get_live_history
             )
+            
+            # Avvia il loop di connessione persistente
+            asyncio.run_coroutine_threadsafe(self._live_mgr.start_loop(), self._loop)
 
     # -----------------------------------------------------------------------
     # Inizializzazione risorse asincrone
     # -----------------------------------------------------------------------
     async def _init_async_resources(self):
-        """
-        Crea asyncio.Lock nel thread dell'event loop dedicato.
-        Necessario per evitare il bug di associazione al loop sbagliato
-        presente in Python < 3.10.
-        """
-        self._live_lock     = asyncio.Lock()
+        """Crea il lock del circuit breaker nel thread corretto."""
         self._breaker._lock = asyncio.Lock()
 
     # -----------------------------------------------------------------------
@@ -225,8 +227,8 @@ class LLMServiceNode(LiveAPIMixin, Node):
                     self._voice_name    = p.value
                     needs_reconnect     = True
 
-        if needs_reconnect and self._loop and self._loop.is_running():
-            asyncio.run_coroutine_threadsafe(self._reconnect_live(), self._loop)
+        if needs_reconnect and self._loop and self._loop.is_running() and self._live_mgr:
+            asyncio.run_coroutine_threadsafe(self._live_mgr._reconnect(), self._loop)
 
         return SetParametersResult(successful=True)
 
@@ -241,9 +243,9 @@ class LLMServiceNode(LiveAPIMixin, Node):
                 self._system_prompt = prompt
                 reconnect_needed = True
         
-        if reconnect_needed and self._loop and self._loop.is_running():
+        if reconnect_needed and self._loop and self._loop.is_running() and self._live_mgr:
             self.get_logger().info("System prompt cambiato, riconnessione Live scheduled.")
-            asyncio.run_coroutine_threadsafe(self._reconnect_live(), self._loop)
+            asyncio.run_coroutine_threadsafe(self._live_mgr._reconnect(), self._loop)
 
     async def generate(self, prompt: str, images=None, documents=None, max_tokens=None, functions=None):
         """
@@ -300,13 +302,13 @@ class LLMServiceNode(LiveAPIMixin, Node):
     # -----------------------------------------------------------------------
     def wakeword_callback_ros(self, msg: String):
         self.get_logger().info(f"⏰ [LLM Service] Wake word rilevato: '{msg.data}'. Aggiorno timestamp.")
-        self._last_wakeword_time = time.time()
+        if self._live_mgr:
+            self._live_mgr.last_wakeword_time = time.time()
 
     def audio_callback_ros(self, msg: AudioData):
-        if not self._client:
+        if not self._client or not self._live_mgr:
             return
-        asyncio.run_coroutine_threadsafe(
-            self._async_audio_handler(msg), self._loop)
+        self._live_mgr.send_audio_chunk(msg.data)
 
     def generate_callback_ros(self, request, response):
         if not self._client:
@@ -337,16 +339,16 @@ class LLMServiceNode(LiveAPIMixin, Node):
         return response
 
     def generate_live_callback_ros(self, request, response):
-        if not self._client:
+        if not self._client or not self._live_mgr:
             response.success       = False
-            response.error_message = "Client non configurato"
+            response.error_message = "Client o Live Connection Manager non pronto"
             return response
 
         with self._cfg_lock:
             timeout_val = self._timeout_live
 
         ros_future = asyncio.run_coroutine_threadsafe(
-            self._async_generate_live(request), self._loop)
+            self._live_mgr.generate_live(request), self._loop)
         try:
             llm_resp = ros_future.result(timeout=timeout_val)
             response.success    = True
@@ -368,8 +370,8 @@ class LLMServiceNode(LiveAPIMixin, Node):
 
     def reconnect_live_callback_ros(self, request, response):
         """Forza disconnessione e riconnessione della Live API."""
-        if self._loop and self._loop.is_running():
-            asyncio.run_coroutine_threadsafe(self._reconnect_live(), self._loop)
+        if self._loop and self._loop.is_running() and self._live_mgr:
+            asyncio.run_coroutine_threadsafe(self._live_mgr._reconnect(), self._loop)
         response.success = True
         response.message = "Riconnessione Live API schedulata."
         return response
@@ -732,10 +734,11 @@ class LLMServiceNode(LiveAPIMixin, Node):
           3. Ferma l'event loop
         """
         self.get_logger().info("Shutdown asincrono: chiusura sessione Live...")
-        try:
-            await self._reconnect_live()
-        except Exception as e:
-            self.get_logger().warning(f"Errore chiusura Live durante shutdown: {e}")
+        if self._live_mgr:
+            try:
+                await self._live_mgr._reconnect()
+            except Exception as e:
+                self.get_logger().warning(f"Errore chiusura Live durante shutdown: {e}")
 
         tasks = [
             t for t in asyncio.all_tasks(self._loop)
@@ -745,6 +748,82 @@ class LLMServiceNode(LiveAPIMixin, Node):
             t.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
         self._loop.stop()
+
+    # -----------------------------------------------------------------------
+    # Getters e Callbacks per LiveConnectionManager Composition (Fase 2)
+    # -----------------------------------------------------------------------
+    def _get_live_model(self) -> str:
+        with self._cfg_lock:
+            return self._live_model
+            
+    def _get_voice_name(self) -> str:
+        with self._cfg_lock:
+            return self._voice_name
+            
+    def _get_timeout_live(self) -> float:
+        with self._cfg_lock:
+            return self._timeout_live
+
+    def _get_live_history(self) -> List[tuple]:
+        return self._live_conversation_history
+
+    def _on_live_audio_received(self, data: bytes):
+        audio_msg = AudioData()
+        audio_msg.data = data
+        self.pub_audio_chunk.publish(audio_msg)
+
+    def _on_live_mic_mute(self, mute: bool):
+        msg_mute = Bool()
+        msg_mute.data = mute
+        self.pub_mic_mute.publish(msg_mute)
+
+    def _on_live_interrupt(self, interrupted: bool):
+        if interrupted:
+            msg_interrupt = Bool()
+            msg_interrupt.data = True
+            self.pub_interrupt.publish(msg_interrupt)
+
+    def _on_live_turn_complete(self, user_text: str, model_text: str):
+        if model_text:
+            self.get_logger().info(f"💾 [CRONOLOGIA] Salvato turno in memoria -> Utente: '{user_text}' | Marcus: '{model_text}'")
+            self._live_conversation_history.append((user_text, model_text))
+            if len(self._live_conversation_history) > 30:
+                self._live_conversation_history.pop(0)
+            self._last_interaction_time = time.time()
+            if self._live_mgr:
+                self._live_mgr.last_successful_turn_time = time.time()
+
+    async def _execute_tool_live(self, name: str, args: dict) -> dict:
+        if self._tool_executor_callback:
+            return await self._tool_executor_callback(name, args)
+        return {"success": False, "error": "No tool executor registered"}
+
+    def register_tool_executor(self, callback):
+        """
+        Registra un callback per l'esecuzione delle abilità (tools) richiamate 
+        dal modello durante le sessioni vocali Live WebSocket.
+        """
+        self._tool_executor_callback = callback
+        self.get_logger().info("Callback di esecuzione Live Tool registrato con successo.")
+
+    async def start_persistent_live(self, functions=None):
+        if self._live_mgr:
+            return await self._live_mgr.start_persistent_live(functions)
+        return False
+
+    async def generate_live(self, prompt: str, context=None, functions=None, images=None, documents=None):
+        """
+        Bridge verso il Live Connection Manager con supporto cross-loop.
+        """
+        if self._live_mgr:
+            coro = self._live_mgr.generate_live(prompt, context, functions, images, documents)
+            future = asyncio.run_coroutine_threadsafe(coro, self._loop)
+            return await asyncio.wrap_future(future)
+        raise RuntimeError("Live connection manager non configurato.")
+
+    async def send_audio_chunk(self, audio_data: bytes):
+        if self._live_mgr:
+            self._live_mgr.send_audio_chunk(audio_data)
 
     def destroy_node(self):
         self.get_logger().info("Inizio shutdown grazioso del nodo LLM...")
