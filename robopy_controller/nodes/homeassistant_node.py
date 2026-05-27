@@ -153,7 +153,7 @@ class AdvancedHAWebSocketBridge(Node):
         """Verifica se stiamo ricevendo dati di performance"""
         time_since_last_update = (datetime.now() - self.last_performance_time).total_seconds()
         if time_since_last_update > 60:
-            self.get_logger().warning(f"⚠️  Nessun dato di performance ricevuto da {time_since_last_update:.0f} secondi")
+            self.get_logger().debug(f"⚠️  Nessun dato di performance ricevuto da {time_since_last_update:.0f} secondi")
 
     async def update_performance_sensors(self):
         """Aggiorna i sensori di performance in Home Assistant"""
@@ -187,7 +187,7 @@ class AdvancedHAWebSocketBridge(Node):
     def check_connection_status(self):
         """Verifica periodicamente lo stato della connessione"""
         if not self.is_connected and not self.shutdown_requested:
-            self.get_logger().warning("🔌 Connessione HA persa - tentativo di riconnessione...")
+            self.get_logger().debug("🔌 Connessione HA persa - tentativo di riconnessione...")
 
     def connection_manager(self):
         """Gestisce la connessione in thread separato"""
@@ -209,7 +209,7 @@ class AdvancedHAWebSocketBridge(Node):
         while rclpy.ok() and not self.shutdown_requested:
             try:
                 uri = f"ws://{self.ha_config['url']}:{self.ha_config['port']}/api/websocket"
-                self.get_logger().info(f"🔄 Tentativo di connessione a {uri}")
+                self.get_logger().debug(f"🔄 Tentativo di connessione a {uri}")
                 
                 # Timeout più lungo per la connessione iniziale
                 self.websocket = await websockets.connect(
@@ -241,8 +241,8 @@ class AdvancedHAWebSocketBridge(Node):
             except Exception as e:
                 self.is_connected = False
                 if not self.shutdown_requested:
-                    self.get_logger().error(f"❌ Errore connessione: {str(e)}")
-                    self.get_logger().info(f"🔄 Ritento connessione in {self.ha_config['reconnect_delay']} secondi...")
+                    self.get_logger().debug(f"❌ Errore connessione: {str(e)}")
+                    self.get_logger().debug(f"🔄 Ritento connessione in {self.ha_config['reconnect_delay']} secondi...")
                     await asyncio.sleep(self.ha_config['reconnect_delay'])
 
     async def authenticate(self):

@@ -1,27 +1,30 @@
 #!/usr/bin/env python3
-"""
-respeaker_interface_node.py
+"""respeaker_interface_node.py
 ===========================
 Bridge bidirezionale tra il ReSpeaker Lite (XIAO ESP32S3 via ESPHome)
 e il sistema ROS 2 del robot.
 
 Comunicazione:
-  /dev/ttyACM0 (o configurabile) @ 115200 baud  ←→  ROS 2
+  /dev/ttyACM0 (USB JTAG/serial debug unit) ←→ ROS 2
 
-Messaggi ricevuti dalla UART (ESP32S3 → Pi):
-  TRIGGER_JARVIS\\n  → pubblica False su /ai/input/mic_mute (sblocca il microfono)
-  HEARTBEAT\\n       → pubblica True su /respeaker/heartbeat
-  STATO:ww=1,led=0:0:0\\n → log informativo
-  AUDIO_LEVEL:N\\n   → pubblica su /respeaker/audio_level
+Protocollo firmware (respeaker_lite_firmware.yaml v11.0):
+  Comandi accettati dal firmware:
+    HEARTBEAT_REQ\n    → firmware risponde HEARTBEAT\n
+    AUDIO_START\n      → firmware risponde STREAM:ON\n
+    AUDIO_STOP\n       → firmware risponde STREAM:OFF\n
+    DIAG_ON/OFF\n      → firmware risponde DIAG:ON/OFF\n
+    SPEAKER_STOP\n     → firmware risponde SPEAKER:OFF\n
+    LED_EFFECT:X\n     → X = IDLE|LISTENING|THINKING|SUCCESS|ERROR|OFF
+    LED_RGB:R,G,B\n    → colore diretto (0-255)
+    LED_OFF\n          → spegni LED
+    AUDIO_OUT:<size>\n → firmware riceve <size> bytes PCM per speaker
 
-Comandi inviati sulla UART (Pi → ESP32S3):
-  /respeaker/led_command (String) → viene inviato direttamente (es. "LED_EFFECT:THINKING")
-  /ai/tts/speaking (Bool)         → True = LED_EFFECT:THINKING, False = LED_EFFECT:IDLE
+  Messaggi inviati dal firmware:
+    READY\n, HEARTBEAT\n, STREAM:ON/OFF\n, AUDIO_LEVEL:N\n
+    LED:OK\n, SPEAKER:CHUNK_DONE\n
 """
 
-import os
 import serial
-import serial.tools.list_ports
 import threading
 import queue
 import rclpy
@@ -31,13 +34,13 @@ from std_msgs.msg import Bool, String, Int32
 UART_PORT_DEFAULT = '/dev/ttyACM0'
 UART_BAUD_DEFAULT = 115200
 RECONNECT_DELAY_S = 3.0
-HEARTBEAT_TIMEOUT_S = 15.0  # Se non riceviamo heartbeat per N secondi → warning
+HEARTBEAT_TIMEOUT_S = 15.0
 
 
 class ReSpeakerInterfaceNode(Node):
     """
     Nodo ROS 2 che gestisce la comunicazione seriale con il ReSpeaker Lite.
-    Thread-safe tramite una queue di comandi TX.
+    Thread-safe tramite Lock sulla porta seriale e queue di comandi TX.
     """
 
     def __init__(self):
@@ -57,9 +60,11 @@ class ReSpeakerInterfaceNode(Node):
             return
 
         self._serial: serial.Serial | None = None
+        self._serial_lock = threading.Lock()
         self._tx_queue: queue.Queue = queue.Queue()
         self._shutdown = False
         self._last_heartbeat = self.get_clock().now()
+        self._firmware_ready = False
 
         # ── Publishers ─────────────────────────────────────────
         self._mic_mute_pub = self.create_publisher(
@@ -95,34 +100,41 @@ class ReSpeakerInterfaceNode(Node):
 
     # ── Connessione seriale ─────────────────────────────────────
     def _connect(self) -> bool:
-        try:
-            if self._serial and self._serial.is_open:
-                self._serial.close()
-            self._serial = serial.Serial(
-                port=self._port,
-                baudrate=self._baud,
-                timeout=1.0,
-                write_timeout=1.0
-            )
-            self.get_logger().info(f"✅ Porta seriale aperta: {self._port}")
-            # Invia LED idle all'avvio
-            self._enqueue_command("LED_EFFECT:IDLE\n")
-            return True
-        except serial.SerialException as e:
-            self.get_logger().warning(f"⚠️ Impossibile aprire {self._port}: {e}")
-            self._serial = None
-            return False
+        with self._serial_lock:
+            try:
+                if self._serial and self._serial.is_open:
+                    self._serial.close()
+                self._serial = serial.Serial(
+                    port=self._port,
+                    baudrate=self._baud,
+                    timeout=1.0,
+                    write_timeout=2.0
+                )
+                self._serial.reset_input_buffer()
+                self._serial.reset_output_buffer()
+                self._firmware_ready = False
+                self.get_logger().info(f"✅ Porta seriale aperta: {self._port}")
+                return True
+            except serial.SerialException as e:
+                self.get_logger().warning(f"⚠️ Impossibile aprire {self._port}: {e}")
+                self._serial = None
+                return False
 
     # ── RX loop (thread) ───────────────────────────────────────
     def _rx_loop(self):
         import time
         while not self._shutdown:
-            if not self._serial or not self._serial.is_open:
+            with self._serial_lock:
+                ser = self._serial
+                is_open = ser is not None and ser.is_open
+
+            if not is_open:
                 time.sleep(RECONNECT_DELAY_S)
                 self._connect()
                 continue
+
             try:
-                raw = self._serial.readline()
+                raw = ser.readline()
                 if not raw:
                     continue
                 line = raw.decode('utf-8', errors='replace').strip()
@@ -130,7 +142,14 @@ class ReSpeakerInterfaceNode(Node):
                     self._handle_rx(line)
             except serial.SerialException as e:
                 self.get_logger().warning(f"❌ Errore seriale RX: {e}")
-                self._serial = None
+                with self._serial_lock:
+                    if self._serial is ser:
+                        try:
+                            self._serial.close()
+                        except Exception:
+                            pass
+                        self._serial = None
+                        self._firmware_ready = False
             except Exception as e:
                 self.get_logger().warning(f"RX eccezione: {e}")
 
@@ -138,16 +157,22 @@ class ReSpeakerInterfaceNode(Node):
         """Processa una riga ricevuta dall'ESP32S3."""
         self.get_logger().debug(f"← UART: {line}")
 
-        if line == "TRIGGER_JARVIS":
+        if line == "READY":
+            self._firmware_ready = True
+            self._last_heartbeat = self.get_clock().now()
+            self.get_logger().info("🟢 Firmware ESP32 READY — comunicazione USB attiva")
+
+        elif line == "TRIGGER_JARVIS":
             self.get_logger().info("🔔 Wake Word rilevato dal ReSpeaker! Apro microfono...")
             msg = Bool()
             msg.data = False  # False = microfono APERTO
             self._mic_mute_pub.publish(msg)
-            # Feedback LED: stiamo ascoltando
-            self._enqueue_command("LED_EFFECT:LISTENING\n")
 
-        elif line == "HEARTBEAT":
+        elif line == "HEARTBEAT" or line == "PONG":
             self._last_heartbeat = self.get_clock().now()
+            if not self._firmware_ready:
+                self._firmware_ready = True
+                self.get_logger().info("🟢 Firmware ESP32 attivo (primo heartbeat)")
             hb_msg = Bool()
             hb_msg.data = True
             self._heartbeat_pub.publish(hb_msg)
@@ -167,11 +192,17 @@ class ReSpeakerInterfaceNode(Node):
             except ValueError:
                 pass
 
+        elif line.startswith("STREAM:") or line.startswith("DIAG:") or line.startswith("SPEAKER:"):
+            self.get_logger().info(f"ESP32 ack: {line}")
+
+        elif line == "LED:OK":
+            self.get_logger().debug("LED comando confermato")
+
         elif line.startswith("WIFI_ON") or line.startswith("WIFI_OFF"):
             self.get_logger().info(f"WiFi ESP32: {line}")
 
         else:
-            self.get_logger().warning(f"⚠️ Messaggio UART non gestito: '{line}'")
+            self.get_logger().debug(f"UART non gestito: '{line}'")
 
     # ── TX loop (thread) ───────────────────────────────────────
     def _tx_loop(self):
@@ -179,15 +210,34 @@ class ReSpeakerInterfaceNode(Node):
         while not self._shutdown:
             try:
                 cmd = self._tx_queue.get(timeout=1.0)
-                if self._serial and self._serial.is_open:
-                    self._serial.write(cmd.encode('utf-8'))
-                    self.get_logger().debug(f"→ UART: {cmd.strip()}")
-                else:
-                    self.get_logger().warning("TX: porta non aperta, scarto comando.")
             except queue.Empty:
-                pass
+                continue
+
+            with self._serial_lock:
+                ser = self._serial
+                is_open = ser is not None and ser.is_open
+
+            if not is_open:
+                self.get_logger().debug("TX: porta non aperta, scarto comando.")
+                continue
+
+            try:
+                ser.write(cmd.encode('utf-8'))
+                self.get_logger().debug(f"→ UART: {cmd.strip()}")
+            except serial.SerialTimeoutException:
+                # Write timeout è transitorio — NON chiudere la seriale
+                self.get_logger().debug(
+                    f"TX timeout (comando: {cmd.strip()}) — firmware potrebbe non essere pronto")
             except serial.SerialException as e:
                 self.get_logger().warning(f"❌ Errore seriale TX: {e}")
+                with self._serial_lock:
+                    if self._serial is ser:
+                        try:
+                            self._serial.close()
+                        except Exception:
+                            pass
+                        self._serial = None
+                        self._firmware_ready = False
 
     def _enqueue_command(self, cmd: str):
         """Accoda un comando da inviare all'ESP32S3."""
@@ -195,17 +245,14 @@ class ReSpeakerInterfaceNode(Node):
 
     # ── Callbacks subscribers ───────────────────────────────────
     def _led_command_cb(self, msg: String):
-        """Invia direttamente il comando LED ricevuto dal topic."""
+        """Invia comando LED al firmware via USB serial."""
         cmd = msg.data.strip()
         if not cmd.endswith('\n'):
             cmd += '\n'
         self._enqueue_command(cmd)
 
     def _tts_speaking_cb(self, msg: Bool):
-        """
-        Quando l'AI sta parlando → LED cyan pulsante.
-        Quando finisce → torna IDLE.
-        """
+        """Quando l'AI sta parlando → LED blu, quando finisce → IDLE."""
         if msg.data:
             self._enqueue_command("LED_EFFECT:THINKING\n")
         else:
@@ -213,20 +260,41 @@ class ReSpeakerInterfaceNode(Node):
 
     # ── Heartbeat monitor ──────────────────────────────────────
     def _check_heartbeat(self):
-        elapsed = (self.get_clock().now() - self._last_heartbeat).nanoseconds / 1e9
+        """Monitora se il firmware sta ancora rispondendo."""
+        now = self.get_clock().now()
+        elapsed = (now - self._last_heartbeat).nanoseconds / 1e9
+
         if elapsed > HEARTBEAT_TIMEOUT_S:
             self.get_logger().warning(
-                f"⚠️ Nessun heartbeat dal ReSpeaker da {elapsed:.0f}s! "
+                f"⚠️ Nessun heartbeat dal ReSpeaker da {int(elapsed)}s! "
                 "Verifica connessione USB."
             )
+            # Usa il comando corretto del firmware
+            self._enqueue_command("HEARTBEAT_REQ\n")
+
+            # Hard reset dopo 60s senza risposta
+            if elapsed > 60.0:
+                self.get_logger().error(
+                    "Heartbeat perso da troppo tempo. Forzo riapertura porta seriale...")
+                with self._serial_lock:
+                    if self._serial:
+                        try:
+                            self._serial.close()
+                        except Exception:
+                            pass
+                        self._serial = None
+                        self._firmware_ready = False
+        else:
+            # Sollecita heartbeat con il comando corretto
+            self._enqueue_command("HEARTBEAT_REQ\n")
 
     # ── Shutdown ───────────────────────────────────────────────
     def destroy_node(self):
         self._shutdown = True
-        self._enqueue_command("LED_OFF\n")
         import time; time.sleep(0.2)
-        if self._serial and self._serial.is_open:
-            self._serial.close()
+        with self._serial_lock:
+            if self._serial and self._serial.is_open:
+                self._serial.close()
         super().destroy_node()
 
 

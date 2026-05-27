@@ -1,0 +1,39 @@
+{
+  "date": "2026-05-08",
+  "source": "nightly_dream",
+  "improvements": [
+    {
+      "id": "ECO-20260507-01",
+      "title": "Implementazione Decoratore Error-Handling",
+      "description": "Creazione di un decoratore @error_logger per tutte le funzioni delle Skill. Il decoratore deve intercettare le eccezioni, registrarle in un log dedicato e restituire un messaggio d'errore leggibile dall'LLM per una comunicazione trasparente con l'utente.",
+      "priority": "high",
+      "affected_files": [
+        "src/utils/decorators.py",
+        "src/skills/base_skill.py"
+      ],
+      "type": "feature"
+    },
+    {
+      "id": "ECO-20260507-02",
+      "title": "Sviluppo Modulo Health Check Proattivo",
+      "description": "Implementazione della funzione check_services() per verificare lo stato di connettivit\u00e0 (Home Assistant, Gmail API, ROS 2). La funzione verr\u00e0 invocata preventivamente in caso di fallimento di una richiesta utente.",
+      "priority": "high",
+      "affected_files": [
+        "src/system/health_monitor.py",
+        "src/main.py"
+      ],
+      "type": "feature"
+    },
+    {
+      "id": "ECO-20260507-03",
+      "title": "Integrazione Retry Logic con Backoff Esponenziale",
+      "description": "Aggiunta di un meccanismo di retry automatico (3 tentativi) per le operazioni di I/O critiche, garantendo una maggiore resilienza prima di notificare un fallimento all'utente.",
+      "priority": "medium",
+      "affected_files": [
+        "src/utils/network.py",
+        "src/skills/io_handler.py"
+      ],
+      "type": "optimization"
+    }
+  ]
+}

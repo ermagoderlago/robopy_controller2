@@ -116,6 +116,10 @@ class SkillRegistry:
     def get(self, name: str) -> Optional[BaseSkill]:
         """Get a skill by name."""
         return self._skills.get(name)
+
+    def get_skill(self, name: str) -> Optional[BaseSkill]:
+        """Alias for get to ensure compatibility with callers using get_skill."""
+        return self.get(name)
     
     def get_all(self, enabled_only: bool = True) -> List[BaseSkill]:
         """Get all registered skills."""
@@ -124,17 +128,21 @@ class SkillRegistry:
             skills = [s for s in skills if s.enabled]
         return skills
     
-    def discover(self, directory: str, recursive: bool = True) -> int:
+    def discover(self, directory: str, recursive: bool = True, context: Dict[str, Any] = None) -> int:
         """
         Discover and load skills from a directory.
         
         Args:
             directory: Path to skills directory
             recursive: Whether to search subdirectories
+            context: Context dictionary containing dependencies
             
         Returns:
             Number of skills discovered
         """
+        if context is not None:
+            self._context = context
+            
         skills_dir = Path(directory)
         if not skills_dir.exists():
             self.logger.warning(f"Skills directory not found: {directory}")
@@ -155,7 +163,7 @@ class SkillRegistry:
                 continue
             
             try:
-                loaded = self._load_skill_file(file_path)
+                loaded = self._load_skill_file(file_path, context)
                 count += loaded
             except Exception as e:
                 self.logger.error(f"Failed to load skill from {file_path}: {e}")
@@ -163,13 +171,16 @@ class SkillRegistry:
         self.logger.info(f"Discovered {count} skills from {directory}")
         return count
     
-    def _load_skill_file(self, file_path: Path) -> int:
+    def _load_skill_file(self, file_path: Path, context: Dict[str, Any] = None) -> int:
         """
         Load skills from a Python file.
         
         Returns:
             Number of skills loaded
         """
+        if context is None:
+            context = getattr(self, '_context', None)
+            
         module_name = f"robot_ai_skill_{file_path.stem}"
         
         try:
@@ -180,18 +191,34 @@ class SkillRegistry:
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
             
-            # Find skill classes
+            # Find skill classes using a robust duck-typing check on __mro__
             count = 0
             for name in dir(module):
                 obj = getattr(module, name)
                 
                 if (isinstance(obj, type) and 
-                    issubclass(obj, BaseSkill) and 
-                    obj is not BaseSkill):
+                    obj.__name__ != 'BaseSkill' and 
+                    'BaseSkill' in [base.__name__ for base in getattr(obj, '__mro__', [])]):
                     
                     # Instantiate and register
                     try:
-                        skill = obj()
+                        import inspect
+                        sig = inspect.signature(obj)
+                        kwargs = {}
+                        for param_name, param in sig.parameters.items():
+                            if param_name == 'self':
+                                continue
+                            if context and param_name in context:
+                                kwargs[param_name] = context[param_name]
+                            elif param.default is not inspect.Parameter.empty:
+                                continue
+                            else:
+                                kwargs[param_name] = None
+                                self.logger.warning(
+                                    f"Parametro obbligatorio '{param_name}' per '{name}' non trovato nel contesto."
+                                )
+                        
+                        skill = obj(**kwargs)
                         self.register(skill)
                         self._skill_paths[skill.name] = file_path
                         self._skill_mtimes[str(file_path)] = file_path.stat().st_mtime
@@ -388,3 +415,65 @@ class SkillRegistry:
             md = skill.get_metadata()
             summary += f"- **{md.name}**: {md.description} (Keywords: {', '.join(md.keywords)})\n"
         return summary
+
+    def discover_active(self, active_dir: str = None, context: Dict[str, Any] = None) -> int:
+        """
+        Carica le skill generate dalla directory active/ basandosi sul manifest.
+
+        Legge skills_manifest.json e carica solo le skill con enabled=true.
+
+        Args:
+            active_dir: Path alla directory active/ (default: calcolo automatico)
+            context: Context dictionary containing dependencies
+
+        Returns:
+            Numero di skill caricate
+        """
+        if context is not None:
+            self._context = context
+            
+        if active_dir is None:
+            active_dir = str(Path(__file__).parent / "active")
+
+        active_path = Path(active_dir)
+        manifest_path = active_path / "skills_manifest.json"
+
+        if not manifest_path.exists():
+            self.logger.info("Nessun manifest trovato, nessuna skill attiva da caricare.")
+            return 0
+
+        try:
+            import json
+            with open(manifest_path, 'r', encoding='utf-8') as f:
+                manifest = json.load(f)
+        except (json.JSONDecodeError, FileNotFoundError) as e:
+            self.logger.warning(f"Errore lettura manifest: {e}")
+            return 0
+
+        count = 0
+        for skill_name, entry in manifest.items():
+            if not entry.get("enabled", False):
+                self.logger.debug(f"Skill '{skill_name}' non abilitata, skip.")
+                continue
+
+            skill_file = active_path / entry.get("file", "")
+            if not skill_file.exists():
+                self.logger.warning(
+                    f"Skill '{skill_name}' abilitata ma file {skill_file} non trovato."
+                )
+                continue
+
+            try:
+                loaded = self._load_skill_file(skill_file, context)
+                count += loaded
+                if loaded > 0:
+                    self.logger.info(
+                        f"Skill attiva caricata: {skill_name} da {skill_file.name}"
+                    )
+            except Exception as e:
+                self.logger.error(
+                    f"Errore caricamento skill attiva '{skill_name}': {e}"
+                )
+
+        self.logger.info(f"Caricate {count} skill attive dal manifest.")
+        return count

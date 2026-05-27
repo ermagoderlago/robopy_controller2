@@ -18,7 +18,7 @@ def check_gemini_key(api_key: str) -> bool:
         import google.generativeai as genai
         genai.configure(api_key=api_key)
         # Una semplice chiamata per testare la validità
-        genai.get_model("models/gemini-pro")
+        genai.get_model("models/gemini-2.0-flash")
         return True
     except Exception:
         return False
@@ -97,7 +97,7 @@ class LlamaIndexMemoryStore:
                     model_name="models/embedding-001",
                     api_key=api_key
                 )
-                Settings.llm = Gemini(model_name="models/gemini-1.5-flash", api_key=api_key)
+                Settings.llm = Gemini(model_name="models/gemini-2.0-flash", api_key=api_key)
                 
                 # Initialize the index from existing vector store
                 try:
@@ -184,3 +184,38 @@ class LlamaIndexMemoryStore:
             return False
         res = self.chroma_collection.get(ids=[doc_id])
         return len(res['ids']) > 0
+
+    def get_recent(self, limit: int = 10, memory_type: MemoryType = None) -> List[Memory]:
+        """Get most recent memories from ChromaDB collection."""
+        if not self._enabled:
+            return []
+            
+        where_filter = {}
+        if memory_type:
+            where_filter["memory_type"] = memory_type.value if hasattr(memory_type, "value") else memory_type
+            
+        try:
+            results = self.chroma_collection.get(
+                where=where_filter if where_filter else None,
+                include=["metadatas", "documents"]
+            )
+            
+            if not results.get("ids"):
+                return []
+                
+            memories = []
+            for i, memory_id in enumerate(results["ids"]):
+                meta = results["metadatas"][i] or {}
+                memories.append(Memory(
+                    id=memory_id,
+                    content=results["documents"][i],
+                    memory_type=MemoryType(meta.get("memory_type", "conversation")),
+                    metadata=meta,
+                    created_at=meta.get("created_at", time.time())
+                ))
+                
+            memories.sort(key=lambda m: m.created_at, reverse=True)
+            return memories[:limit]
+        except Exception as e:
+            self.logger.error(f"Error getting recent memories: {e}")
+            return []

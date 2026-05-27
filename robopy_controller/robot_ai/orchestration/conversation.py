@@ -32,6 +32,7 @@ class ConversationManager:
         self._logger = get_logger("conversation")
         self._sanitizer = InputSanitizer()
         self.document_callback = None
+        self._recent_inputs = []
 
     def set_latest_frame(self, frame):
         try:
@@ -96,13 +97,37 @@ class ConversationManager:
         clean_text = self._sanitizer.sanitize(text)
         self.world_model.recent_interactions.append(f"User: {clean_text}")
 
+        # --- Contextual Memory Filter (Repeated Queries) ---
+        now_ts = time.time()
+        self._recent_inputs = [item for item in self._recent_inputs if now_ts - item["timestamp"] < 300.0]
+        normalized_text = re.sub(r'[^\w\s]', '', clean_text.lower()).strip()
+        repeat_count = sum(1 for item in self._recent_inputs if item["normalized"] == normalized_text)
+        self._recent_inputs.append({
+            "normalized": normalized_text,
+            "timestamp": now_ts
+        })
+        
+        repeated_prompt_note = ""
+        if repeat_count >= 2:
+            repeated_prompt_note = (
+                "\n[NOTE: L'utente ti sta ponendo questa domanda per la terza (o successiva) volta consecutiva "
+                "negli ultimi 5 minuti. Non rispondere in modo robotico o ripetitivo. Sii molto spontaneo, "
+                "empatico o gentilmente ironico sul fatto che si sta ripetendo, chiedendogli in modo amichevole "
+                "se c'è un problema di connessione o se non ti ha sentito bene.]\n"
+            )
+
         # Fast-path skill execution (e.g direct commands)
         skill = self.skill_executor.find_best_match(clean_text, min_confidence=0.95)
         if skill:
             self._logger.info(f"Fast-path skill match: {skill.name}")
-            texts = await self.skill_executor.execute_skill(skill.name, {"text": clean_text})
-            for t in texts:
-                await self.tts.speak(t)
+            try:
+                texts = await self.skill_executor.execute_skill(skill.name, {"text": clean_text})
+                for t in texts:
+                    await self.tts.speak(t)
+            except Exception as e:
+                self._logger.error(f"Errore fast-path skill execution: {e}")
+                self.llm.flag_tool_failure()
+                await self.tts.speak("Uhm... Dunque, scusami, ho avuto un piccolo intoppo nel comando rapido.")
             return True
 
         # Offline fallback
@@ -118,7 +143,38 @@ class ConversationManager:
         llm_docs = documents or []
 
         functions = [s.to_function_declaration() for s in self.skill_executor.get_all()]
-        augmented_prompt = self._build_prompt(clean_text, ha_context)
+        
+        # Inject implicit tools
+        functions.append({
+            "name": "generate_formatted_document",
+            "description": "Genera un documento, report o tabella dettagliata in formato Markdown da mostrare a schermo su Foxglove. Usa questo strumento INVECE di rispondere testualmente se l'utente chiede un documento formattato.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "content": {
+                        "type": "STRING",
+                        "description": "Il contenuto del documento formattato in Markdown."
+                    }
+                },
+                "required": ["content"]
+            }
+        })
+        functions.append({
+            "name": "ask_visual_question",
+            "description": "Richiede un'analisi visiva della telecamera per rispondere a una domanda specifica sull'ambiente visivo.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "question": {
+                        "type": "STRING",
+                        "description": "La domanda da porre sulla scena visiva."
+                    }
+                },
+                "required": ["question"]
+            }
+        })
+
+        augmented_prompt = self._build_prompt(clean_text, ha_context, repeated_prompt_note)
 
         # Timeout dall'oggetto config.llm.timeout (di base accesskey)
         llm_timeout = 20.0
@@ -149,7 +205,8 @@ class ConversationManager:
                         self.llm.generate(
                             prompt=augmented_prompt,
                             images=images,
-                            documents=llm_docs
+                            documents=llm_docs,
+                            functions=functions
                         ),
                         timeout=llm_timeout
                     )
@@ -160,7 +217,8 @@ class ConversationManager:
                     self.llm.generate(
                         prompt=augmented_prompt,
                         images=images,
-                        documents=llm_docs
+                        documents=llm_docs,
+                        functions=functions
                     ),
                     timeout=llm_timeout
                 )
@@ -178,49 +236,54 @@ class ConversationManager:
             return False
 
         # Post LLM validation -> prevent emergency action
-        response_actions = getattr(response, 'actions', [])
-        # Controlliamo che l'LLM non abbia tradimentato la regex emergency stop se aveva solo lo scopo della chat
-        # Gestiamo dictionary o obj pattern
-        if hasattr(response, "get"):
-             # It's a dict likely
-             response_text = response.get("response_text", "")
-             response_actions = response.get("actions", [])
-        else:
-             response_text = getattr(response, "response_text", "")
-             response_actions = getattr(response, "actions", [])
+        response_text = getattr(response, "text", "")
+        response_actions = getattr(response, "actions", [])
         
-        formatted_doc = getattr(response, "formatted_document", None)
+        # Extract formatted document from actions
+        formatted_doc = None
+        for action in response_actions:
+            name = action.get("action_type", action.get("name", ""))
+            if name == "generate_formatted_document":
+                formatted_doc = action.get("args", {}).get("content", None)
+                break
+
         if formatted_doc and self.document_callback:
             self.document_callback(formatted_doc)
 
         # Logic for Tool use if LLM suggests it (e.g. ask_visual_question)
         for action in response_actions:
-            if action.get("name") == "ask_visual_question":
+            name = action.get("action_type", action.get("name", ""))
+            if name == "ask_visual_question":
                 question = action.get("args", {}).get("question", "")
                 if question:
                     result = await self.ask_visual_question(question)
-                    # Re-send to LLM with visual data context
                     self._logger.info(f"VQA Result obtained, re-querying LLM with context...")
-                    vqa_prompt = f"{augmented_prompt}\n[ACTIVE SEARCH RESULT: {result}]\nUser: {user_text}"
-                    # Re-generate without tools for final answer to avoid loops
+                    vqa_prompt = f"{augmented_prompt}\n[ACTIVE SEARCH RESULT: {result}]\nUser: {clean_text}"
                     final_resp = await self.llm.generate(prompt=vqa_prompt, images=images)
-                    if hasattr(final_resp, "get"):
-                        response_text = final_resp.get("response_text", "")
-                    else:
-                        response_text = getattr(final_resp, "response_text", "")
+                    response_text = getattr(final_resp, "text", "")
 
-        if response_actions:
-            self._logger.debug(f"LLM suggested actions: {response_actions}")
-            # Action exection check pattern 11.
-            for act in response_actions:
+        # Remove implicit tools before sending to standard skill executor
+        explicit_actions = [a for a in response_actions if a.get("action_type", a.get("name", "")) not in ["generate_formatted_document", "ask_visual_question"]]
+
+        if explicit_actions:
+            self._logger.debug(f"LLM suggested actions: {explicit_actions}")
+            for act in explicit_actions:
                  target_act = act.get("args", {}).get("text", "")
                  if self._is_emergency(target_act):
                       await self._handle_emergency()
                       continue
 
-            speak_texts = await self.skill_executor.execute_actions(response_actions)
-            for t in speak_texts:
-                 await self.tts.speak(t)
+            try:
+                speak_texts = await self.skill_executor.execute_actions(explicit_actions)
+                for t in speak_texts:
+                     await self.tts.speak(t)
+            except Exception as e:
+                self._logger.error(f"Errore durante l'esecuzione delle skill: {e}", exc_info=True)
+                self.llm.flag_tool_failure()
+                await self.tts.speak("Uhm... Dunque, scusami, ho avuto un piccolo intoppo nell'eseguire questa azione.")
+                 
+        if not response_text and (formatted_doc or any(a.get("action_type", a.get("name", "")) == "ask_visual_question" for a in response_actions)):
+            response_text = "Ho analizzato l'hardware visivamente e prodotto un report a schermo."
 
         if response_text:
             await self.tts.speak(response_text)
@@ -262,17 +325,15 @@ class ConversationManager:
         except Exception as e:
             return f"Errore durante l'analisi visiva: {e}"
 
-    def _build_prompt(self, user_text: str, ha_context: str) -> str:
+    def _build_prompt(self, user_text: str, ha_context: str, repeated_note: str = "") -> str:
         # Usiamo l'ora locale del sistema (che deve essere sincronizzata su Europe/Rome)
         now = datetime.datetime.now().strftime("%A %d %B %Y, ore %H:%M")
         prompt = f"[DATA LOCALE: {now} (fuso orario: Europe/Rome)]\n"
+        if repeated_note:
+            prompt += f"{repeated_note}\n"
         if ha_context:
             prompt += f"{ha_context}\n"
         prompt += f"Utente: {user_text}\n"
-        prompt += "\nDevi generare un JSON strettamente strutturato con `response_text` e opzionale array di `actions` se le funzioni sono evocate.\n"
-        prompt += "Se l'utente ti chiede di generare un rapporto, un documento, una tabella o una risposta formattata, usa il campo `formatted_document` nel JSON inserendo il contenuto in formato Markdown.\n"
-        prompt += "Se hai bisogno di analizzare l'ambiente in dettaglio per rispondere a una domanda specifica, usa l'azione `ask_visual_question` con l'argomento `question`.\n"
-        prompt += "Esempio azione: {\"name\": \"ask_visual_question\", \"args\": {\"question\": \"C'è una sedia rossa nella stanza?\"}}\n"
         return prompt
 
     def _is_vision_request(self, text: str) -> bool:

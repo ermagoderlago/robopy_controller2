@@ -467,3 +467,38 @@ Questo documento raccoglie gli errori riscontrati, le cause identificate e le so
      source /home/robopy/esphome_venv/bin/activate
      esptool --port /dev/ttyACM0 --baud 115200 write_flash 0x0 /tmp/firmware_safe.factory.bin
      ```
+
+## Bug: Marcus non Risponde al Primo Turno e Secondo Beep Troppo Ravvicinato (v14.1, Maggio 2026)
+- **Problema**: Dopo il flash del firmware dei LED, Marcus emetteva il primo beep (wake word) e quasi istantaneamente il secondo beep (fine ascolto), senza dare tempo all'utente di parlare. Inoltre, Marcus non rispondeva ai comandi.
+- **Cause**:
+    1. **Noise gate adattivo minimo a 1200**: In ambiente silenzioso, con un segnale boosted in idle di ~100-150, la soglia minima a 1200 impediva al VAD di percepire la voce umana debole/normale.
+    2. **Silence timeout adattivo a 440ms (22 frames)**: Troppo breve in ambiente silenzioso.
+    3. **Gating logic in `llm_live_api.py`**: Il primo turno assoluto della conversazione veniva silenziato perché `_last_successful_turn_time = 0.0` faceva fallire la finestra di conversazione attiva, e il wake word `/wake_word` non era sottoscritto da `llm_service.py`, impedendo a `_last_wakeword_time` di essere aggiornato.
+- **Risoluzione (v14.1)**:
+    1. Abbassata la soglia di noise gate minima da 1200 a 300 in `respeaker_vui_node.py`.
+    2. Aumentato il silence timeout minimo da 22 a 40 frames (~800ms) in ambiente silenzioso.
+    3. Sottoscritto il topic `/wake_word` in `llm_service.py` per aggiornare `self._last_wakeword_time = time.time()`.
+    4. Aggiornata la logica di gating in `llm_live_api.py` per abilitare la risposta se il wake word è stato rilevato negli ultimi 60s o se la conversazione era attiva negli ultimi 30s.
+    5. Integrati i LED per mostrare `THINKING` (blu flicker) alla fine del parlato e `SUCCESS` (verde fisso) allo start del TTS.
+
+## Bug Critico ed Evoluzione Emotiva: Marcus AI v14.2 (Anima Robotica - Maggio 2026)
+
+- **Scenario e Obiettivo**: Introduzione di una sincronizzazione dinamica visiva LED basata sull'umore cognitivo ed emozionale elaborato dal LLM (Gemini 2.5 Flash), espandendo il firmware ESPHome con 4 stati emotivi (`HAPPY` giallo oro, `TIRED` viola indaco, `APOLOGETIC` arancione, `LONELY` turchese).
+- **Lezioni Apprese sull'Ambiente di Compilazione ESPHome & PlatformIO**:
+    1. **Version Checking Mismatch in ESP-IDF v5.5.2**: ESP-IDF solleva un errore `FATAL_ERROR` se la versione della toolchain locale (`toolchain-xtensa-esp-elf` v14.2.0+20251107 scaricata da PlatformIO) differisce da quella dichiarata nel manifest `tools.json` (`esp-14.2.0_20260121`).
+       * **Risoluzione**: Abbiamo scoperto che esportando `IDF_MAINTAINER=1` nel compilatore, ESP-IDF declassa il mismatch a warning non-blocking, permettendo la compilazione fluida del firmware.
+    2. **Isolamento SCons e PEP 668 (Virtualenv Sandbox)**: Nelle distribuzioni Linux moderne (es. Ubuntu 24.04+ in WSL), SCons isola i sottoprocessi ed esegue l'interprete di sistema `/usr/bin/python3` che non ha accesso all'ambiente virtuale python locale, fallendo l'import della libreria `platformio` a causa del blocco PEP 668.
+       * **Risoluzione**: Creare un link `.pth` all'interno della directory site-packages dell'utente (`~/.local/lib/python3.12/site-packages/esphome_venv.pth`) che punta direttamente al path site-packages dell'ambiente virtuale (`esphome_venv`). In questo modo, l'interprete di sistema eredita le dipendenze in modo pulito e non intrusivo.
+    3. **Bootstrapping di .espidf-5.5.2**: L'ambiente virtuale interno autogenerato per ESP-IDF v5.5.2 può nascere vuoto, causando errori come `ModuleNotFoundError: No module named 'kconfgen'`.
+       * **Risoluzione**: Installare forzatamente il pacchetto `esp-idf-kconfig` (e le altre 59 dipendenze) utilizzando `uv` e puntando esplicitamente all'interprete interno: `uv pip install --python /home/robopy/.platformio/penv/.espidf-5.5.2/bin/python -r requirements.core.txt`.
+- **Lezioni Apprese sul Flashing e Conflitti sulla porta Seriale JTAG**:
+    - **Blocco Seriale su /dev/ttyACM0**: Qualsiasi tentativo di flashare il firmware sul ReSpeaker tramite `esptool` fallirà bruscamente con `A fatal error occurred: The chip stopped responding. StopIteration` o simili se il device seriale USB è monopolizzato in lettura/scrittura da un altro nodo ROS in background (come `respeaker_interface_node` o `respeaker_vui_node`).
+    - **Procedura di Sicurezza obbligatoria**: Prima di avviare il flashing, è **tassativo** arrestare tutti i nodi concorrenti con un segnale di terminazione forzata:
+      ```bash
+      pkill -9 -f respeaker_interface_node || true
+      pkill -9 -f respeaker_vui_node || true
+      pkill -9 -f robot_ai_node || true
+      ```
+      Una volta completato il flashing, è possibile rieseguire `restart.sh` in totale sicurezza.
+
+

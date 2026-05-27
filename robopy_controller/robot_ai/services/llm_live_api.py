@@ -27,6 +27,7 @@ import rclpy
 
 from robopy_controller.robot_ai.services.llm_models import LLMResponse, types
 from robopy_controller.msg import AudioData
+from std_msgs.msg import Bool
 
 
 class LiveAPIMixin:
@@ -50,6 +51,32 @@ class LiveAPIMixin:
         self._live_conversation_history: List[tuple]          = []
         self._current_user_text:     str                      = ""
         self._tool_executor_callback: Optional[Any]           = None
+        self._last_successful_turn_time: float                = 0.0
+        # [v14.1] Timestamp dell'ultimo wake word rilevato, usato per la finestra di conversazione
+        self._last_wakeword_time: float                      = 0.0
+
+    def _is_text_noise_or_empty(self, text: str) -> bool:
+        """
+        Controlla se il testo è vuoto, solo spazi o parole tipiche di rumore/respirazione.
+        """
+        clean = text.strip().lower().replace(".", "").replace(",", "").replace("?", "").replace("!", "")
+        if not clean:
+            return True
+        # Lista di parole corte e interiezioni di rumore tipiche dell'ASR per rumore di fondo
+        noise_words = {
+            "ah", "eh", "oh", "uh", "hm", "m", "he", "um", "uhm", "mh", "er", "o", "a",
+            "sì", "no", "ciao", "ok", "ma", "e", "di", "per"
+        }
+        words = clean.split()
+        if len(words) == 0:
+            return True
+        # Se c'è solo una parola ed è nella lista del rumore, o se ha lunghezza < 2 ed è singola
+        if len(words) == 1 and (words[0] in noise_words or len(words[0]) < 2):
+            return True
+        # Se ci sono solo due parole e sono entrambe interiezioni/rumori
+        if len(words) == 2 and all(w in noise_words for w in words):
+            return True
+        return False
 
     # -----------------------------------------------------------------------
     # Bridge methods per l'orchestratore
@@ -117,12 +144,19 @@ class LiveAPIMixin:
 
                 with self._cfg_lock:
                     model_used = self._live_model
-                    sys_prompt = self._system_prompt
+                    sys_prompt = self._get_active_system_prompt()
                     live_functions = self._live_functions
                     voice_name = self._voice_name
 
                 # Costruiamo il prompt di sistema includendo la cronologia recente per la persistenza del contesto
-                full_sys_prompt = sys_prompt
+                # Regole speciali di gating vocale e soppressione del rumore di fondo
+                voice_gating_instructions = (
+                    "\n\n[REGOLE DI INTERAZIONE VOCALE E GATING (CRITICHE)]\n"
+                    "1. Se l'input dell'utente sembra essere rumore di fondo, silenzio, un frammento di discorso origliato o conversazione tra terzi non rivolta a te, e non c'è una chiara correlazione con il contesto recente della nostra conversazione, NON rispondere normalmente.\n"
+                    "In questo caso, rispondi ESCLUSIVAMENTE con la parola chiave speciale '<IGNORE_TURN>' e nient'altro (nessun parlato, nessun suono, nessun testo).\n"
+                    "2. Rispondi normalmente solo se l'utente ti chiama direttamente per nome ('Marcus') o se la frase è una continuazione coerente, diretta e logica della conversazione recente.\n"
+                )
+                full_sys_prompt = sys_prompt + voice_gating_instructions
                 if self._live_conversation_history:
                     history_str = (
                         "\n\n[CRONOLOGIA RECENTE DELLA CONVERSAZIONE (FONDAMENTALE)]\n"
@@ -130,7 +164,7 @@ class LiveAPIMixin:
                     )
                     for usr, bot in self._live_conversation_history:
                         history_str += f"Utente: {usr}\nMarcus: {bot}\n"
-                    full_sys_prompt = sys_prompt + history_str
+                    full_sys_prompt = full_sys_prompt + history_str
 
                 modalities = ["AUDIO"] if "native-audio" in model_used else ["TEXT", "AUDIO"]
                 
@@ -238,8 +272,51 @@ class LiveAPIMixin:
 
         if len(msg.data) == 0:
             # Empty chunk = VUI segnala fine parlato.
-            # Invia activity_end per segnalare fine turno utente → Gemini inizia a rispondere.
-            self.get_logger().info("🎤 [LLM Live] Ricevuto END OF SPEECH da VUI. Invio activity_end a Gemini...")
+            self.get_logger().info("🎤 [LLM Live] Ricevuto END OF SPEECH da VUI. Eseguo controlli di gating...")
+            
+            user_text = self._current_user_text.strip().lower()
+            is_noise = self._is_text_noise_or_empty(user_text)
+            has_direct_address = "marcus" in user_text
+            
+            # [v14.1 FIX] Finestra di conversazione attiva: si apre anche dopo wake word recente.
+            # Prima: solo _last_successful_turn_time → bloccava il PRIMO turno assoluto (= 0.0).
+            # Ora: è attiva se:
+            #   a) il wake word è stato rilevato negli ultimi 60s, OPPURE
+            #   b) c'è stato un turno riuscito negli ultimi 30s, OPPURE
+            #   c) è il primissimo turno di sempre (_last_successful_turn_time == 0.0 non conta).
+            last_turn_ago   = time.time() - getattr(self, "_last_successful_turn_time", 0.0)
+            last_wakeword_ago = time.time() - getattr(self, "_last_wakeword_time", 0.0)
+            is_active = (
+                last_wakeword_ago < 60.0 or   # Wake word recente → sempre rispondo
+                last_turn_ago < 30.0           # Conversazione attiva negli ultimi 30s
+            )
+            self.get_logger().debug(
+                f"[LLM Gate] wakeword_ago={last_wakeword_ago:.1f}s | turn_ago={last_turn_ago:.1f}s | "
+                f"is_active={is_active} | is_noise={is_noise} | has_address={has_direct_address}")
+            
+            should_ignore = False
+            if is_noise:
+                self.get_logger().info(f"🔇 [LLM Live] Turno ignorato: rilevato solo silenzio o rumore ('{user_text}').")
+                should_ignore = True
+            elif not is_active and not has_direct_address:
+                self.get_logger().info(f"🔇 [LLM Live] Turno ignorato: nessun indirizzo diretto ('marcus') fuori dalla finestra di conversazione attiva.")
+                should_ignore = True
+                
+            if should_ignore:
+                # Forza lo spegnimento della sessione di ascolto
+                if hasattr(self, "pub_mic_mute") and self.pub_mic_mute:
+                    msg_mute = Bool()
+                    msg_mute.data = True
+                    self.pub_mic_mute.publish(msg_mute)
+                
+                # Svuota e riconnetti in background per cancellare ogni buffer parziale
+                self._current_user_text = ""
+                self._current_live_response = {"text": "", "actions": []}
+                asyncio.create_task(self._reconnect_live())
+                return
+
+            # Se supera i controlli, invia activity_end a Gemini
+            self.get_logger().info(f"🎤 [LLM Live] Turno valido ('{user_text}'). Invio activity_end a Gemini...")
             try:
                 await session.send_realtime_input(activity_end=types.ActivityEnd())
                 self._activity_started = False
@@ -304,11 +381,36 @@ class LiveAPIMixin:
             return
         sc = msg.server_content
 
+        # [v14.3] Rileva se il server segnala un'interruzione (l'utente ha parlato durante il parlato di Marcus)
+        if getattr(sc, 'interrupted', False):
+            self.get_logger().warning("🤫 [Live] Interruzione rilevata dal server (interrupted=True)! Invio segnale di interrupt...")
+            self._current_user_text = ""
+            self._current_live_response = {"text": "", "actions": []}
+            if hasattr(self, "pub_interrupt") and self.pub_interrupt:
+                msg_interrupt = Bool()
+                msg_interrupt.data = True
+                self.pub_interrupt.publish(msg_interrupt)
+
         # Rileva la trascrizione del parlato dell'utente
         if getattr(sc, 'input_transcription', None) and sc.input_transcription.text:
             transcription = sc.input_transcription.text
             self._current_user_text += " " + transcription
             self.get_logger().info(f"🎤 [Live ASR] Trascrizione utente: {transcription}")
+
+            # Controlla se l'utente ha pronunciato una frase di uscita/spegnimento
+            user_speech = self._current_user_text.lower()
+            exit_phrases = ["stai zitto", "basta parlare", "fermati di parlare", "smetti di parlare", "taci", "silenzio", "zitto marcus", "marcus zitto", "basta marcus", "marcus basta"]
+            if any(cmd in user_speech for cmd in exit_phrases):
+                self.get_logger().info(f"🤫 [Live ASR] Rilevato comando di silenzio dell'utente: '{user_speech}'! Disattivazione...")
+                if hasattr(self, "pub_mic_mute") and self.pub_mic_mute:
+                    msg_mute = Bool()
+                    msg_mute.data = True
+                    self.pub_mic_mute.publish(msg_mute)
+                
+                self._current_user_text = ""
+                self._current_live_response = {"text": "", "actions": []}
+                asyncio.create_task(self._reconnect_live())
+                return
 
         # Rileva la trascrizione del parlato del modello (Marcus)
         if getattr(sc, 'output_transcription', None) and sc.output_transcription.text:
@@ -317,6 +419,27 @@ class LiveAPIMixin:
             self.get_logger().info(f"🔊 [Live Model ASR] Trascrizione Marcus: {transcription}")
 
         if sc.model_turn:
+            # 1. Controlla prima se contiene la direttiva <IGNORE_TURN>
+            ignore_detected = False
+            for part in sc.model_turn.parts:
+                if hasattr(part, 'text') and part.text:
+                    if "<ignore_turn>" in part.text.lower() or "ignore_turn" in part.text.lower():
+                        ignore_detected = True
+                        break
+            
+            if ignore_detected or "<ignore_turn>" in self._current_live_response["text"].lower():
+                self.get_logger().info("🤫 [Live Model] Rilevato <IGNORE_TURN>! Soppressione risposta ed uscita da ascolto...")
+                if hasattr(self, "pub_mic_mute") and self.pub_mic_mute:
+                    msg_mute = Bool()
+                    msg_mute.data = True
+                    self.pub_mic_mute.publish(msg_mute)
+                
+                self._current_user_text = ""
+                self._current_live_response = {"text": "", "actions": []}
+                asyncio.create_task(self._reconnect_live())
+                return
+
+            # 2. Elaborazione normale delle parti
             for part in sc.model_turn.parts:
                 if hasattr(part, 'inline_data') and part.inline_data:
                     audio_msg      = AudioData()
@@ -355,6 +478,8 @@ class LiveAPIMixin:
                 self._live_conversation_history.append((user_msg, model_msg))
                 if len(self._live_conversation_history) > 30:
                     self._live_conversation_history.pop(0)
+                # Aggiorna il timestamp dell'ultimo turno completato con successo
+                self._last_successful_turn_time = time.time()
 
             self._current_live_response = {"text": "", "actions": []}
             self._current_user_text = ""

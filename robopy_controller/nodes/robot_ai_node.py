@@ -4,8 +4,11 @@ Robot AI Node
 =============
 Entry point ROS 2 per l'AI Orchestrator.
 Il codice di orchestrazione e gestione è stato diviso in moduli dentro robot_ai/orchestration/
+
+Version: 01.00.00 (ECO00003)
 """
 
+__version__ = "01.00.00"
 import sys
 import os
 import signal

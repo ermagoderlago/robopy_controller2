@@ -143,6 +143,7 @@ install(PROGRAMS
   scripts/wake_word_node
   scripts/ultrasonic_sensor
   scripts/respeaker_interface_node
+  scripts/respeaker_vui_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

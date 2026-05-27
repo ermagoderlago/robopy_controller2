@@ -18,6 +18,12 @@ except ImportError:
     HAS_GOOGLE_TTS = False
 
 try:
+    from dotenv import load_dotenv
+    load_dotenv("/mnt/ssd/robopy_controller_host/.env", override=True)
+except ImportError:
+    pass
+
+try:
     import pygame
     HAS_PYGAME = True
 except ImportError:
@@ -51,53 +57,62 @@ class TTSService:
         await tts.speak("Ciao, come stai?")
     """
     
-    def __init__(self, config_manager: ConfigManager = None):
+    def __init__(self, config_manager: ConfigManager = None, ros_node=None):
         self.logger = get_logger("tts_service")
         self.config = config_manager or ConfigManager()
         self.ai_config = self.config.get_config()
         self.event_bus = EventBus()
+        self.ros_node = ros_node
+        self.speaker_pub = None
         
-        # Audio playback init
-        if HAS_PYGAME:
-            try:
-                pygame.mixer.init()
-            except Exception as e:
-                self.logger.error(f"Failed to init pygame mixer: {e}")
-        
-        # PyAudio output for raw streams
-        self._pyaudio_interface = None
-        self._output_stream = None
-        self._respeaker_device_index = None
-        if HAS_PYAUDIO:
-            try:
-                self._pyaudio_interface = pyaudio.PyAudio()
-                self._respeaker_device_index = self._find_respeaker_device_index()
-                if self._respeaker_device_index is not None:
-                    self.logger.info(
-                        f"🔊 ReSpeaker speaker trovato (PyAudio device #{self._respeaker_device_index}). "
-                        "Uscita audio instradata sul ReSpeaker."
+        if self.ros_node:
+            from robopy_controller.msg import AudioData
+            from std_msgs.msg import Bool
+            self.speaker_pub = self.ros_node.create_publisher(AudioData, '/respeaker/speaker_audio', 10)
+            self.speaking_pub = self.ros_node.create_publisher(Bool, '/ai/tts/speaking', 10)
+            self.logger.info("🔊 ROS Publisher created for /respeaker/speaker_audio and /ai/tts/speaking. Skipping local PyGame/PyAudio init.")
+        else:
+            # Audio playback init
+            if HAS_PYGAME:
+                try:
+                    pygame.mixer.init()
+                except Exception as e:
+                    self.logger.error(f"Failed to init pygame mixer: {e}")
+            
+            # PyAudio output for raw streams
+            self._pyaudio_interface = None
+            self._output_stream = None
+            self._respeaker_device_index = None
+            if HAS_PYAUDIO:
+                try:
+                    self._pyaudio_interface = pyaudio.PyAudio()
+                    self._respeaker_device_index = self._find_respeaker_device_index()
+                    if self._respeaker_device_index is not None:
+                        self.logger.info(
+                            f"🔊 ReSpeaker speaker trovato (PyAudio device #{self._respeaker_device_index}). "
+                            "Uscita audio instradata sul ReSpeaker."
+                        )
+                    self._output_stream = self._pyaudio_interface.open(
+                        format=pyaudio.paInt16,
+                        channels=1,
+                        rate=16000,
+                        output=True,
+                        output_device_index=self._respeaker_device_index  # None = default
                     )
-                self._output_stream = self._pyaudio_interface.open(
-                    format=pyaudio.paInt16,
-                    channels=1,
-                    rate=16000,
-                    output=True,
-                    output_device_index=self._respeaker_device_index  # None = default
-                )
-            except Exception as e:
-                self.logger.error(f"Failed to init pyaudio output: {e}")
+                except Exception as e:
+                    self.logger.error(f"Failed to init pyaudio output: {e}")
 
-        # Pygame: re-init su device ALSA ReSpeaker se disponibile
-        if HAS_PYGAME:
-            try:
-                respeaker_alsa = self._find_respeaker_alsa_card()
-                if respeaker_alsa is not None:
-                    os.environ['SDL_AUDIODRIVER'] = 'alsa'
-                    os.environ['AUDIODEV'] = respeaker_alsa
-                    self.logger.info(f"🔊 Pygame SDL audio → ReSpeaker ALSA ({respeaker_alsa})")
-                pygame.mixer.init()
-            except Exception as e:
-                self.logger.error(f"Failed to init pygame mixer: {e}")
+            # Pygame: re-init su device ALSA ReSpeaker se disponibile
+            if HAS_PYGAME:
+                try:
+                    respeaker_alsa = self._find_respeaker_alsa_card()
+                    if respeaker_alsa is not None:
+                        os.environ['SDL_AUDIODRIVER'] = 'alsa'
+                        os.environ['AUDIODEV'] = respeaker_alsa
+                        self.logger.info(f"🔊 Pygame SDL audio → ReSpeaker ALSA ({respeaker_alsa})")
+                    pygame.mixer.init()
+                except Exception as e:
+                    self.logger.error(f"Failed to init pygame mixer: {e}")
 
         
         # Google TTS Client
@@ -166,10 +181,6 @@ class TTSService:
             self.logger.warning("google-cloud-texttospeech not installed")
             return
             
-        # Check for credentials
-        # Ideally, GOOGLE_APPLICATION_CREDENTIALS should be set
-        # If not, we might check for API key (though Google Cloud usually prefers service account json)
-        # For this implementation, we assume environment is set up or we can construct client specific ways
         try:
             self._client = texttospeech.TextToSpeechClient()
         except Exception as e:
@@ -202,15 +213,20 @@ class TTSService:
             
             self._is_speaking = True
             self.event_bus.publish(EventType.TTS_STARTED, {"text": text})
+            if self.speaking_pub:
+                from std_msgs.msg import Bool
+                msg = Bool()
+                msg.data = True
+                self.speaking_pub.publish(msg)
             
             try:
                 # 1. Check cache or Synthesize
-                audio_file = await self._breaker.call_async(
+                audio_data = await self._breaker.call_async(
                     self._synthesize, text, language
                 )
                 
                 # 2. Play
-                await self._play_audio(audio_file)
+                await self._play_audio(audio_data)
                 
                 self.event_bus.publish(EventType.TTS_COMPLETED, {"text": text})
                 return True
@@ -222,18 +238,24 @@ class TTSService:
                 
             finally:
                 self._is_speaking = False
+                if self.speaking_pub:
+                    from std_msgs.msg import Bool
+                    msg = Bool()
+                    msg.data = False
+                    self.speaking_pub.publish(msg)
     
-    async def _synthesize(self, text: str, language: str = None) -> str:
-        """Synthesize text to audio file."""
+    async def _synthesize(self, text: str, language: str = None) -> bytes:
+        """Synthesize text to audio data."""
         import hashlib
         
         lang = language or self.ai_config.tts.language
         text_hash = hashlib.md5(f"{text}_{lang}".encode()).hexdigest()
-        filename = os.path.join(self._cache_dir, f"{text_hash}.mp3")
+        filename = os.path.join(self._cache_dir, f"{text_hash}.raw")
         
         # Return cached if exists
         if os.path.exists(filename):
-            return filename
+            with open(filename, "rb") as f:
+                return f.read()
         
         if self._client:
             # Perform Google Cloud TTS request
@@ -246,7 +268,8 @@ class TTSService:
                 )
                 
                 audio_config = texttospeech.AudioConfig(
-                    audio_encoding=texttospeech.AudioEncoding.MP3,
+                    audio_encoding=texttospeech.AudioEncoding.LINEAR16,
+                    sample_rate_hertz=24000,
                     speaking_rate=self.ai_config.tts.speaking_rate,
                     pitch=self.ai_config.tts.pitch
                 )
@@ -258,10 +281,14 @@ class TTSService:
                     audio_config=audio_config
                 )
                 
-                with open(filename, "wb") as out:
-                    out.write(response.audio_content)
+                audio_bytes = response.audio_content
+                if audio_bytes.startswith(b'RIFF'):
+                    audio_bytes = audio_bytes[44:]
                     
-                return filename
+                with open(filename, "wb") as out:
+                    out.write(audio_bytes)
+                    
+                return audio_bytes
                 
             except Exception as e:
                 self.logger.error(f"Google TTS synthesis error: {e}")
@@ -269,19 +296,33 @@ class TTSService:
         else:
             # Console fallback
             self.logger.info(f"[CONSOLE TTS] {text}")
-            return "CONSOLE_TTS"
+            return b"CONSOLE_TTS"
     
-    async def _play_audio(self, filename: str) -> None:
-        """Play audio file."""
-        if filename == "CONSOLE_TTS":
+    async def _play_audio(self, audio_data: bytes) -> None:
+        """Play audio data."""
+        if audio_data == b"CONSOLE_TTS":
+            return
+
+        if self.speaker_pub:
+            from robopy_controller.msg import AudioData
+            msg = AudioData()
+            msg.data = list(audio_data) # bytes to list of ints for ROS byte[]
+            self.speaker_pub.publish(msg)
+            duration = len(audio_data) / 48000.0  # 24000Hz, 16-bit mono = 48000 bytes/sec
+            await asyncio.sleep(duration)
             return
 
         if not HAS_PYGAME:
-            self.logger.warning("Cannot play audio: pygame not installed")
+            self.logger.warning("Cannot play audio: pygame not installed and no ROS publisher")
             return
         
         try:
-            pygame.mixer.music.load(filename)
+            # Salva temporaneamente per pygame fallback locale (senza header WAV, pygame potrebbe non farcela se si aspetta wav, ma non rompiamo il flow per l'host robot)
+            tmp = os.path.join(tempfile.gettempdir(), "fallback.raw")
+            with open(tmp, "wb") as f:
+                f.write(audio_data)
+                
+            pygame.mixer.music.load(tmp)
             pygame.mixer.music.play()
             
             # Wait for completion
@@ -296,14 +337,33 @@ class TTSService:
         """
         Play raw PCM chunks (16kHz, mono, s16le).
         Used for Gemini Live ultra-low latency audio.
+        Routes through the ROS speaker topic when running on the robot,
+        or through the local PyAudio stream for desktop testing.
         """
+        if not data:
+            return
+
+        # Priority 1: ROS publisher (robot deployment)
+        if self.speaker_pub:
+            try:
+                from robopy_controller.msg import AudioData
+                audio_msg = AudioData()
+                audio_msg.data = data  # raw bytes
+                self.speaker_pub.publish(audio_msg)
+                self.logger.debug(f"🔊 Raw PCM chunk published via ROS ({len(data)} bytes)")
+            except Exception as e:
+                self.logger.error(f"Failed to publish raw PCM chunk via ROS: {e}")
+            return
+
+        # Priority 2: Local PyAudio stream (desktop/testing)
         if self._output_stream:
             try:
                 self._output_stream.write(data)
             except Exception as e:
                 self.logger.error(f"Failed to play raw PCM chunk: {e}")
-        else:
-            self.logger.debug("Raw PCM ignored: no audio output stream available")
+            return
+
+        self.logger.warning("Raw PCM ignored: no audio output stream and no ROS publisher available")
 
     
     def stop(self) -> None:

@@ -4,8 +4,11 @@ Nodo Sentinella: Wake Word Detector
 ===================================
 Ascolta il topic audio ROS 2 in background e, quando rileva la parola chiave,
 pubblica 'False' sul topic /ai/input/mic_mute per svegliare l'Orchestrator.
+
+Version: 01.00.00 (ECO00003)
 """
 
+__version__ = "01.00.00"
 import os
 import struct
 import rclpy

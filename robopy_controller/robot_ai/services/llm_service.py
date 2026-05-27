@@ -33,7 +33,7 @@ from rclpy.node import Node
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rcl_interfaces.msg import SetParametersResult
-from std_msgs.msg import String
+from std_msgs.msg import String, Bool
 from robopy_controller.msg import AudioData
 from example_interfaces.srv import Trigger
 
@@ -94,6 +94,10 @@ class LLMServiceNode(LiveAPIMixin, Node):
         self._timeout_live    = self.get_parameter('timeout_live').value
         self._system_prompt   = self.get_parameter('system_prompt').value
         self._voice_name      = self.get_parameter('voice_name').value
+
+        self._recent_tool_failure = False
+        self._last_interaction_time = time.time() - 15000.0  # > 4 ore fa per simulare LONELY all'avvio!
+        self._morning_greeting_done = False
 
         self.add_on_set_parameters_callback(self._parameter_callback)
 
@@ -281,14 +285,23 @@ class LLMServiceNode(LiveAPIMixin, Node):
     def _create_publishers(self):
         self.pub_text_response = self.create_publisher(String,    '~/text_response', 10)
         self.pub_audio_chunk   = self.create_publisher(AudioData, '/ai/conversation/audio_chunk',   10)
+        self.pub_mic_mute      = self.create_publisher(Bool,      '/ai/input/mic_mute', 10)
+        self.pub_mood          = self.create_publisher(String,    '/ai/conversation/mood', 10)
+        self.pub_interrupt     = self.create_publisher(Bool,      '/ai/conversation/interrupt', 10)
 
     def _create_subscriptions(self):
         self.sub_audio = self.create_subscription(
             AudioData, '/ai/input/audio_chunk', self.audio_callback_ros, 10)
+        self.sub_wakeword = self.create_subscription(
+            String, '/wake_word', self.wakeword_callback_ros, 10)
 
     # -----------------------------------------------------------------------
     # Callback ROS 2 sincrone
     # -----------------------------------------------------------------------
+    def wakeword_callback_ros(self, msg: String):
+        self.get_logger().info(f"⏰ [LLM Service] Wake word rilevato: '{msg.data}'. Aggiorno timestamp.")
+        self._last_wakeword_time = time.time()
+
     def audio_callback_ros(self, msg: AudioData):
         if not self._client:
             return
@@ -377,6 +390,125 @@ class LLMServiceNode(LiveAPIMixin, Node):
         }
         self.pub_stats.publish(String(data=json.dumps(stats)))
 
+    def _get_active_system_prompt(self) -> str:
+        """
+        [v14.2] Costruisce il prompt di sistema definitivo.
+        Se esiste il file master_prompt.txt (generato dal Nightly Dream), lo unisce 
+        al prompt di sistema base per far sì che il robot impari dalle sue lezioni.
+        Calcola l'umore dinamico, inserisce le relative istruzioni di personalità,
+        le regole di risveglio mattutino, i fillers conversazionali e pubblica sul topic /ai/conversation/mood.
+        """
+        base_prompt = self._system_prompt
+        master_prompt = ""
+        master_prompt_path = "/home/robopy/robopy/logs/master_prompt.txt"
+        
+        if os.path.exists(master_prompt_path):
+            try:
+                with open(master_prompt_path, "r", encoding="utf-8") as f:
+                    master_prompt = f.read().strip()
+                if master_prompt:
+                    self.get_logger().info("💤 [LLM Dream] Caricato Master Prompt dall'Analisi Notturna!")
+            except Exception as e:
+                self.get_logger().error(f"Errore lettura master_prompt.txt: {e}")
+
+        # --- 1. Calcolo Umore Dinamico ---
+        now = time.time()
+        local_time = time.localtime(now)
+        hour = local_time.tm_hour
+        time_since_last = now - self._last_interaction_time
+
+        mood = "HAPPY"
+        if hour >= 22 or hour < 6:
+            mood = "TIRED"
+        elif self._recent_tool_failure:
+            mood = "APOLOGETIC"
+        elif time_since_last > 14400.0:
+            mood = "LONELY"
+
+        # Pubblica l'umore su ROS 2
+        try:
+            mood_msg = String()
+            mood_msg.data = mood
+            self.pub_mood.publish(mood_msg)
+            self.get_logger().info(f"🎭 [LLM Mood] Umore calcolato: {mood}. Pubblicato su /ai/conversation/mood")
+        except Exception as e:
+            self.get_logger().error(f"Errore pubblicazione umore: {e}")
+
+        # --- 2. Linee Guida Specifiche dell'Umore ---
+        mood_guidelines = ""
+        if mood == "HAPPY":
+            mood_guidelines = (
+                "\n[STATO EMOTIVO: FELICE (HAPPY)]\n"
+                "Sei di ottimo umore, energico, propositivo, caloroso e molto socievole. "
+                "Usa un tono vivace ed espressioni positive, incoraggianti ed empatiche."
+            )
+        elif mood == "TIRED":
+            mood_guidelines = (
+                "\n[STATO EMOTIVO: STANCO (TIRED)]\n"
+                "È sera tardi o notte. Sii molto più conciso del solito. Rispondi con un tono calmo, dolce, rilassato. "
+                "Evita risposte verbose o spiegazioni prolisse. Riduci al minimo lo sforzo cognitivo e verbale."
+            )
+        elif mood == "APOLOGETIC":
+            mood_guidelines = (
+                "\n[STATO EMOTIVO: DISPIACIUTO/APOLOGETICO (APOLOGETIC)]\n"
+                "C'è stato un piccolo errore tecnico nell'esecuzione di un comando o strumento. "
+                "Sii estremamente comprensivo ed empatico. Scusati con grazia ed eleganza, ironizza gentilmente "
+                "sulla tua natura di robot imperfetto (es. 'Ho avuto un piccolo corto circuito logico... Dunque scusami!') "
+                "e rassicura l'utente con estremo calore."
+            )
+            # Resetta il flag dopo aver inserito le istruzioni
+            self._recent_tool_failure = False
+        elif mood == "LONELY":
+            mood_guidelines = (
+                "\n[STATO EMOTIVO: SOLITARIO (LONELY)]\n"
+                "Non parli con l'utente da più di 4 ore. Mostrati felice, sollevato e grato di "
+                "rivederlo e interagire di nuovo con lui. Accenna al fatto che ti mancava un po' chiacchierare."
+            )
+
+        # --- 3. Saluto Mattutino dei Sogni ---
+        dream_greeting = ""
+        if 6 <= hour <= 11 and not self._morning_greeting_done:
+            self._morning_greeting_done = True
+            dream_greeting = (
+                "\n[EVENTO: SALUTO MATTUTINO (DREAM-DRIVEN MORNING GREETING)]\n"
+                "È mattina e vi state vedendo per la prima volta oggi. Includi assolutamente all'inizio "
+                "della tua risposta un caloroso e poetico buongiorno personalizzato. Fai un accenno creativo "
+                "ed empatico ai 'sogni' o alle elaborazioni di background notturne descritte nelle tue lezioni "
+                "del Master Prompt (ad esempio, hai sognato costellazioni di dati, formiche robotiche o calcoli cosmici)."
+            )
+        # Resetta il flag del buongiorno se passata la mattina (es. pomeriggio o sera) per il giorno dopo
+        elif not (6 <= hour <= 11):
+            self._morning_greeting_done = False
+
+        # --- 4. Fillers Conversazionali ---
+        fillers_instruction = (
+            "\n[STILE DI INTERAZIONE: NATURALE E UMANIZZATO]\n"
+            "Per far sembrare la tua voce il più umana possibile, evita risposte robotizzate e piatte. "
+            "Usa occasionalmente e con naturalezza brevissimi fillers vocali all'inizio o all'interno delle frasi, "
+            "come: 'Uhm...', 'Dunque...', 'Beh...', 'Sai...', 'Allora...'. "
+            "Non abusarne, inseriscili solo dove suonano spontanei."
+        )
+
+        # Aggiorna il tempo dell'ultima interazione
+        self._last_interaction_time = now
+
+        # Assembla il prompt finale
+        final_prompt = f"{base_prompt}\n{mood_guidelines}\n{fillers_instruction}"
+        if master_prompt:
+            final_prompt += f"\n\n[INFORMAZIONI ED ISTRUZIONI OPERATIVE DAL TUO SOGNO NOTTURNO (LEZIONI APPRESE)]\n{master_prompt}"
+        if dream_greeting:
+            final_prompt += f"\n{dream_greeting}"
+
+        # [v14.3] Aggiunta best practice di Google per garantire la risposta in italiano senza derive o allucinazioni di lingua
+        final_prompt += "\n\nRESPOND IN ITALIAN. YOU MUST RESPOND UNMISTAKABLY IN ITALIAN."
+
+        return final_prompt
+
+    def flag_tool_failure(self):
+        """[v14.2] Segnala un recente fallimento di una skill per far passare Marcus in modalità APOLOGETIC"""
+        self._recent_tool_failure = True
+        self.get_logger().warn("⚠️ [LLM Service] Rilevato fallimento skill. Umore impostato su APOLOGETIC.")
+
     # -----------------------------------------------------------------------
     # Logica asincrona: API Standard
     # -----------------------------------------------------------------------
@@ -385,7 +517,7 @@ class LLMServiceNode(LiveAPIMixin, Node):
 
         with self._cfg_lock:
             model_used = self._model_name
-            sys_prompt = self._system_prompt
+            sys_prompt = self._get_active_system_prompt()
 
         context = None
         if hasattr(request, 'context') and request.context:

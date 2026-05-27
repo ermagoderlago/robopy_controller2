@@ -1,0 +1,1077 @@
+Total cleaned lines: 1074
+
+--- CLEANED CONTENT ---
+1: Title: Live Content
+2: Description: Fetched live
+3: Source: https://ai.google.dev/gemini-api/docs/live-api/best-practices?hl=it
+4: ---
+5: <html
+6: lang="it-x-mtfrom-en"
+7: dir="ltr">
+8: <meta name="google-signin-scope"
+9: content="profile email https://www.googleapis.com/auth/developerprofiles https://www.googleapis.com/auth/developerprofiles.award https://www.googleapis.com/auth/devprofiles.full_control.firstparty">
+10: <link rel="manifest" href="/_pwa/googledevai/manifest.json"
+11: crossorigin="use-credentials">
+12: <link rel="stylesheet"
+13: href="//fonts.googleapis.com/css2?family=Material+Icons&family=Material+Symbols+Outlined&display=block">
+14: <link rel="search" type="application/opensearchdescription+xml"
+15: title="Google AI for Developers" href="https://ai.google.dev/s/opensearch.xml?hl=it">
+16: <link rel="alternate" hreflang="en"
+17: href="https://ai.google.dev/gemini-api/docs/live-api/best-practices" /><link rel="alternate" hreflang="ar"
+18: href="https://ai.google.dev/gemini-api/docs/live-api/best-practices?hl=ar" /><link rel="alternate" hreflang="bn"
+19: href="https://ai.google.dev/gemini-api/docs/live-api/best-practices?hl=bn" /><link rel="alternate" hreflang="zh-Hans"
+20: href="https://ai.google.dev/gemini-api/docs/live-api/best-practices?hl=zh-cn" /><link rel="alternate" hreflang="zh-Hant"
+21: href="https://ai.google.dev/gemini-api/docs/live-api/best-practices?hl=zh-tw" /><link rel="alternate" hreflang="fa"
+22: href="https://ai.google.dev/gemini-api/docs/live-api/best-practices?hl=fa" /><link rel="alternate" hreflang="fr"
+23: href="https://ai.google.dev/gemini-api/docs/live-api/best-practices?hl=fr" /><link rel="alternate" hreflang="de"
+24: href="https://ai.google.dev/gemini-api/docs/live-api/best-practices?hl=de" /><link rel="alternate" hreflang="he"
+25: href="https://ai.google.dev/gemini-api/docs/live-api/best-practices?hl=he" /><link rel="alternate" hreflang="hi"
+26: href="https://ai.google.dev/gemini-api/docs/live-api/best-practices?hl=hi" /><link rel="alternate" hreflang="id"
+27: href="https://ai.google.dev/gemini-api/docs/live-api/best-practices?hl=id" /><link rel="alternate" hreflang="it"
+28: href="https://ai.google.dev/gemini-api/docs/live-api/best-practices?hl=it" /><link rel="alternate" hreflang="ja"
+29: href="https://ai.google.dev/gemini-api/docs/live-api/best-practices?hl=ja" /><link rel="alternate" hreflang="ko"
+30: href="https://ai.google.dev/gemini-api/docs/live-api/best-practices?hl=ko" /><link rel="alternate" hreflang="pl"
+31: href="https://ai.google.dev/gemini-api/docs/live-api/best-practices?hl=pl" /><link rel="alternate" hreflang="pt-BR"
+32: href="https://ai.google.dev/gemini-api/docs/live-api/best-practices?hl=pt-br" /><link rel="alternate" hreflang="ru"
+33: href="https://ai.google.dev/gemini-api/docs/live-api/best-practices?hl=ru" /><link rel="alternate" hreflang="es-419"
+34: href="https://ai.google.dev/gemini-api/docs/live-api/best-practices?hl=es-419" /><link rel="alternate" hreflang="th"
+35: href="https://ai.google.dev/gemini-api/docs/live-api/best-practices?hl=th" /><link rel="alternate" hreflang="tr"
+36: href="https://ai.google.dev/gemini-api/docs/live-api/best-practices?hl=tr" /><link rel="alternate" hreflang="vi"
+37: href="https://ai.google.dev/gemini-api/docs/live-api/best-practices?hl=vi" /><link rel="alternate" hreflang="sq"
+38: href="https://ai.google.dev/gemini-api/docs/live-api/best-practices?hl=sq" />Live API best practices &nbsp;|&nbsp; Gemini API &nbsp;|&nbsp; Google AI for Developers
+39: <link rel="alternate machine-translated-from" hreflang="en"
+40: href="https://ai.google.dev/gemini-api/docs/live-api/best-practices?hl=en">
+41: <body class="gemini-api color-scheme--light"
+42: template="page"
+43: theme="googledevai-theme"
+44: type="reference"
+45: appearance
+46: layout="docs"
+47: display-toc
+48: pending>
+49: Passa ai contenuti principali
+50: <button type="button" id="devsite-hamburger-menu"
+51: class="devsite-header-icon-button button-flat material-icons gc-analytics-event"
+52: data-category="Site-Wide Custom Events"
+53: data-label="Navigation menu button"
+54: visually-hidden
+55: aria-label="Apri menu">
+56: <a href="/" class="devsite-site-logo-link gc-analytics-event"
+57: data-category="Site-Wide Custom Events" data-label="Site logo" track-type="globalNav"
+58: track-name="geminiAPI" track-metadata-position="nav"
+59: track-metadata-eventDetail="nav">
+60: <source srcset="https://ai.google.dev/_static/googledevai/images/gemini-api-logo-dark-theme.svg?hl=it"
+61: media="(prefers-color-scheme: dark)"
+62: class="devsite-dark-theme">
+63: <ul class="devsite-breadcrumb-list"
+64: >
+65: <li class="devsite-breadcrumb-item
+66: ">
+67: <devsite-search
+68: enable-signin
+69: enable-search
+70: enable-suggestions
+71: enable-query-completion
+72: enable-search-summaries
+73: project-name="Gemini API"
+74: tenant-name="Google AI for Developers"
+75: project-scope="/gemini-api"
+76: url-scoped="https://ai.google.dev/s/results/gemini-api?hl=it"
+77: >
+78: <button type="button"
+79: search-open
+80: class="devsite-search-button devsite-header-icon-button button-flat material-icons"
+81: aria-label="Apri ricerca">
+82: <input
+83: aria-activedescendant=""
+84: aria-autocomplete="list"
+85: aria-label="Cerca"
+86: aria-expanded="false"
+87: aria-haspopup="listbox"
+88: autocomplete="off"
+89: class="devsite-search-field devsite-search-query"
+90: name="q"
+91: placeholder="Cerca"
+92: role="combobox"
+93: type="text"
+94: value=""
+95: >
+96: /
+97: <button type="button"
+98: search-close
+99: class="devsite-search-button devsite-header-icon-button button-flat material-icons"
+100: aria-label="Chiudi ricerca">
+101: <a role="menuitem" lang="en"
+102: >English
+103: <a role="menuitem" lang="de"
+104: >Deutsch
+105: <a role="menuitem" lang="es_419"
+106: >Español – América Latina
+107: <a role="menuitem" lang="fr"
+108: >Français
+109: <a role="menuitem" lang="id"
+110: >Indonesia
+111: <a role="menuitem" lang="it"
+112: >Italiano
+113: <a role="menuitem" lang="pl"
+114: >Polski
+115: <a role="menuitem" lang="pt_br"
+116: >Português – Brasil
+117: <a role="menuitem" lang="sq"
+118: >Shqip
+119: <a role="menuitem" lang="vi"
+120: >Tiếng Việt
+121: <a role="menuitem" lang="tr"
+122: >Türkçe
+123: <a role="menuitem" lang="ru"
+124: >Русский
+125: <a role="menuitem" lang="he"
+126: >עברית
+127: <a role="menuitem" lang="ar"
+128: >العربيّة
+129: <a role="menuitem" lang="fa"
+130: >فارسی
+131: <a role="menuitem" lang="hi"
+132: >हिंदी
+133: <a role="menuitem" lang="bn"
+134: >বাংলা
+135: <a role="menuitem" lang="th"
+136: >ภาษาไทย
+137: <a role="menuitem" lang="zh_cn"
+138: >中文 – 简体
+139: <a role="menuitem" lang="zh_tw"
+140: >中文 – 繁體
+141: <a role="menuitem" lang="ja"
+142: >日本語
+143: <a role="menuitem" lang="ko"
+144: >한국어
+145: <a class="devsite-header-link devsite-top-button button gc-analytics-event "
+146: href="https://aistudio.google.com/apikey?hl=it"
+147: data-category="Site-Wide Custom Events"
+148: data-label="Site header link: Recupera chiave API"
+149: target="_blank"
+150: >
+151: Recupera chiave API
+152: <a class="devsite-header-link devsite-top-button button gc-analytics-event "
+153: href="https://github.com/google-gemini/cookbook"
+154: data-category="Site-Wide Custom Events"
+155: data-label="Site header link: Libro di ricette"
+156: target="_blank"
+157: >
+158: Libro di ricette
+159: <a class="devsite-header-link devsite-top-button button gc-analytics-event "
+160: href="https://discuss.ai.google.dev/c/gemini-api/?hl=it"
+161: data-category="Site-Wide Custom Events"
+162: data-label="Site header link: Community"
+163: target="_blank"
+164: >
+165: Community
+166: <devsite-user
+167: enable-profiles
+168: id="devsite-user">
+169: Accedi
+170: <div class="devsite-collapsible-section
+171: ">
+172: <a href="https://ai.google.dev/gemini-api/docs?hl=it"
+173: class="devsite-tabs-content gc-analytics-event "
+174: track-metadata-eventdetail="https://ai.google.dev/gemini-api/docs?hl=it"
+175: track-type="nav"
+176: track-metadata-position="nav - documenti"
+177: track-metadata-module="primary nav"
+178: aria-label="Documenti, selected"
+179: data-category="Site-Wide Custom Events"
+180: data-label="Tab: Documenti"
+181: track-name="documenti"
+182: >
+183: Documenti
+184: <a href="https://ai.google.dev/api?hl=it"
+185: class="devsite-tabs-content gc-analytics-event "
+186: track-metadata-eventdetail="https://ai.google.dev/api?hl=it"
+187: track-type="nav"
+188: track-metadata-position="nav - riferimento api"
+189: track-metadata-module="primary nav"
+190: data-category="Site-Wide Custom Events"
+191: data-label="Tab: Riferimento API"
+192: track-name="riferimento api"
+193: >
+194: Riferimento API
+195: <div class="devsite-book-nav-filter"
+196: hidden>
+197: <input type="text"
+198: placeholder="Filtra"
+199: aria-label="Digita per filtrare"
+200: role="searchbox">
+201: <span class="filter-clear-button hidden"
+202: data-title="Cancella filtro"
+203: aria-label="Cancella filtro"
+204: role="button"
+205: tabindex="0">
+206: <nav class="devsite-book-nav devsite-nav nocontent" data-nosnippet
+207: aria-label="Menu laterale">
+208: <button type="button"
+209: id="devsite-close-nav"
+210: class="devsite-header-icon-button button-flat material-icons gc-analytics-event"
+211: data-category="Site-Wide Custom Events"
+212: data-label="Close navigation"
+213: aria-label="Chiudi navigatore">
+214: <a href="/" class="devsite-site-logo-link gc-analytics-event"
+215: data-category="Site-Wide Custom Events" data-label="Site logo" track-type="globalNav"
+216: track-name="geminiAPI" track-metadata-position="nav"
+217: track-metadata-eventDetail="nav">
+218: <source srcset="https://ai.google.dev/_static/googledevai/images/gemini-api-logo-dark-theme.svg?hl=it"
+219: media="(prefers-color-scheme: dark)"
+220: class="devsite-dark-theme">
+221: <ul class="devsite-breadcrumb-list"
+222: >
+223: <li class="devsite-breadcrumb-item
+224: ">
+225: <a href="/gemini-api/docs"
+226: class="devsite-nav-title gc-analytics-event
+227: devsite-nav-active"
+228: data-category="Site-Wide Custom Events"
+229: data-label="Tab: Gemini API"
+230: track-name="gemini api"
+231: data-category="Site-Wide Custom Events"
+232: data-label="Responsive Tab: Gemini API"
+233: track-type="globalNav"
+234: track-metadata-eventDetail="globalMenu"
+235: track-metadata-position="nav">
+236: Gemini API
+237: <a href="/gemini-api/docs"
+238: class="devsite-nav-title gc-analytics-event
+239: devsite-nav-active"
+240: data-category="Site-Wide Custom Events"
+241: data-label="Tab: Documenti"
+242: track-name="documenti"
+243: data-category="Site-Wide Custom Events"
+244: data-label="Responsive Tab: Documenti"
+245: track-type="globalNav"
+246: track-metadata-eventDetail="globalMenu"
+247: track-metadata-position="nav">
+248: Documenti
+249: <a href="/api"
+250: class="devsite-nav-title gc-analytics-event
+251: "
+252: data-category="Site-Wide Custom Events"
+253: data-label="Tab: Riferimento API"
+254: track-name="riferimento api"
+255: data-category="Site-Wide Custom Events"
+256: data-label="Responsive Tab: Riferimento API"
+257: track-type="globalNav"
+258: track-metadata-eventDetail="globalMenu"
+259: track-metadata-position="nav">
+260: Riferimento API
+261: <a href="https://aistudio.google.com/apikey"
+262: class="devsite-nav-title gc-analytics-event "
+263: target="_blank"
+264: data-category="Site-Wide Custom Events"
+265: data-label="Responsive Tab: Recupera chiave API"
+266: track-type="navMenu"
+267: track-metadata-eventDetail="globalMenu"
+268: track-metadata-position="nav">
+269: Recupera chiave API
+270: <a href="https://github.com/google-gemini/cookbook"
+271: class="devsite-nav-title gc-analytics-event "
+272: target="_blank"
+273: data-category="Site-Wide Custom Events"
+274: data-label="Responsive Tab: Libro di ricette"
+275: track-type="navMenu"
+276: track-metadata-eventDetail="globalMenu"
+277: track-metadata-position="nav">
+278: Libro di ricette
+279: <a href="https://discuss.ai.google.dev/c/gemini-api/"
+280: class="devsite-nav-title gc-analytics-event "
+281: target="_blank"
+282: data-category="Site-Wide Custom Events"
+283: data-label="Responsive Tab: Community"
+284: track-type="navMenu"
+285: track-metadata-eventDetail="globalMenu"
+286: track-metadata-position="nav">
+287: Community
+288: <li class="devsite-nav-item
+289: devsite-nav-heading">
+290: Per iniziare
+291: <a href="/gemini-api/docs"
+292: class="devsite-nav-title"
+293: >Panoramica
+294: <a href="/gemini-api/docs/quickstart"
+295: class="devsite-nav-title"
+296: >Guida rapida
+297: <a href="/gemini-api/docs/api-key"
+298: class="devsite-nav-title"
+299: >Chiavi API
+300: <a href="/gemini-api/docs/libraries"
+301: class="devsite-nav-title"
+302: >Biblioteche
+303: <a href="/gemini-api/docs/pricing"
+304: class="devsite-nav-title"
+305: >Prezzi
+306: <li class="devsite-nav-item
+307: devsite-nav-beta"><a href="/gemini-api/docs/interactions"
+308: class="devsite-nav-title"
+309: >API Interactions<span class="devsite-nav-icon material-icons"
+310: data-icon="beta"
+311: data-title="Beta"
+312: aria-hidden="true">
+313: <a href="/gemini-api/docs/coding-agents"
+314: class="devsite-nav-title"
+315: >Configurazione dell&#39;agente di codifica
+316: <li class="devsite-nav-item
+317: devsite-nav-heading">
+318: Modelli
+319: <a href="/gemini-api/docs/models"
+320: class="devsite-nav-title"
+321: alt-paths=" /gemini-api/docs/models/gemini-3.1-flash-image-preview /gemini-api/docs/models/gemini-3.1-pro-preview /gemini-api/docs/models/gemini-3-pro-preview /gemini-api/docs/models/gemini-3-pro-image-preview /gemini-api/docs/models/gemini-3.5-flash /gemini-api/docs/models/gemini-3-flash-preview /gemini-api/docs/models/gemini-3.1-flash-tts-preview /gemini-api/docs/models/veo-3.1-lite-generate-preview /gemini-api/docs/models/gemini-3.1-flash-live-preview /gemini-api/docs/models/gemini-3.1-flash-lite /gemini-api/docs/models/gemini-3.1-flash-lite-preview /gemini-api/docs/models/gemini-2.5-flash /gemini-api/docs/models/gemini-2.5-flash-preview-09-2025 /gemini-api/docs/models/gemini-2.5-flash-image /gemini-api/docs/models/gemini-2.5-flash-native-audio-preview-12-2025 /gemini-api/docs/models/gemini-2.5-flash-preview-tts /gemini-api/docs/models/gemini-2.5-flash-lite /gemini-api/docs/models/gemini-2.5-flash-lite-preview-09-2025 /gemini-api/docs/models/gemini-2.5-pro /gemini-api/docs/models/gemini-2.5-pro-preview-tts /gemini-api/docs/models/gemini-2.0-flash /gemini-api/docs/models/gemini-2.0-flash-lite /gemini-api/docs/models/imagen /gemini-api/docs/models/veo-3.1-generate-preview /gemini-api/docs/models/veo-2.0-generate-001 /gemini-api/docs/models/gemini-embedding-001 /gemini-api/docs/models/gemini-embedding-2 /gemini-api/docs/models/gemini-robotics-er-1.5-preview /gemini-api/docs/models/gemini-robotics-er-1.6-preview /gemini-api/docs/models/deep-research-pro-preview-12-2025 /gemini-api/docs/models/deep-research-preview-04-2026 /gemini-api/docs/models/deep-research-max-preview-04-2026 /gemini-api/docs/models/antigravity-preview-05-2026 /gemini-api/docs/models/lyria-realtime-exp /gemini-api/docs/models/lyria-3-clip-preview /gemini-api/docs/models/lyria-3-pro-preview ">Tutti i modelli
+322: <a href="/gemini-api/docs/whats-new-gemini-3.5"
+323: class="devsite-nav-title"
+324: >Attuale: Gemini 3.5
+325: <a href="/gemini-api/docs/image-generation"
+326: class="devsite-nav-title"
+327: >Nano Banana
+328: <a href="/gemini-api/docs/video"
+329: class="devsite-nav-title"
+330: >Veo
+331: <li class="devsite-nav-item
+332: devsite-nav-preview"><a href="/gemini-api/docs/music-generation"
+333: class="devsite-nav-title"
+334: >Lyria 3<span class="devsite-nav-icon material-icons"
+335: data-icon="preview"
+336: data-title="Anteprima"
+337: aria-hidden="true">
+338: <a href="/gemini-api/docs/realtime-music-generation"
+339: class="devsite-nav-title"
+340: >Lyria RealTime
+341: <a href="/gemini-api/docs/imagen"
+342: class="devsite-nav-title"
+343: >Imagen
+344: <a href="/gemini-api/docs/speech-generation"
+345: class="devsite-nav-title"
+346: >Sintesi vocale
+347: <a href="/gemini-api/docs/embeddings"
+348: class="devsite-nav-title"
+349: >Embedding
+350: <li class="devsite-nav-item
+351: devsite-nav-preview"><a href="/gemini-api/docs/robotics-overview"
+352: class="devsite-nav-title"
+353: >Robotica<span class="devsite-nav-icon material-icons"
+354: data-icon="preview"
+355: data-title="Anteprima"
+356: aria-hidden="true">
+357: <li class="devsite-nav-item
+358: devsite-nav-heading">
+359: Funzionalità di base
+360: <a href="/gemini-api/docs/text-generation"
+361: class="devsite-nav-title"
+362: >Testo
+363: <li class="devsite-nav-item
+364: devsite-nav-expandable">
+365: Immagine
+366: <a href="/gemini-api/docs/image-generation"
+367: class="devsite-nav-title"
+368: >Generazione di immagini 🍌<a href="/gemini-api/docs/image-understanding"
+369: class="devsite-nav-title"
+370: >Comprensione delle immagini
+371: <li class="devsite-nav-item
+372: devsite-nav-expandable">
+373: Video
+374: <a href="/gemini-api/docs/video"
+375: class="devsite-nav-title"
+376: >Generazione di video<a href="/gemini-api/docs/video-understanding"
+377: class="devsite-nav-title"
+378: >Comprensione dei video
+379: <a href="/gemini-api/docs/document-processing"
+380: class="devsite-nav-title"
+381: >Documenti
+382: <li class="devsite-nav-item
+383: devsite-nav-expandable">
+384: Voce e audio
+385: <li class="devsite-nav-item
+386: devsite-nav-preview"><a href="/gemini-api/docs/speech-generation"
+387: class="devsite-nav-title"
+388: >Generazione di voce<span class="devsite-nav-icon material-icons"
+389: data-icon="preview"
+390: data-title="Anteprima"
+391: aria-hidden="true"><a href="/gemini-api/docs/audio"
+392: class="devsite-nav-title"
+393: >Comprensione audio
+394: <li class="devsite-nav-item
+395: devsite-nav-expandable">
+396: Faccina che pensa
+397: <a href="/gemini-api/docs/thinking"
+398: class="devsite-nav-title"
+399: >Faccina che pensa<a href="/gemini-api/docs/thought-signatures"
+400: class="devsite-nav-title"
+401: >Firme di pensiero
+402: <a href="/gemini-api/docs/structured-output"
+403: class="devsite-nav-title"
+404: >Output strutturati
+405: <a href="/gemini-api/docs/function-calling"
+406: class="devsite-nav-title"
+407: >Chiamata di funzione
+408: <a href="/gemini-api/docs/long-context"
+409: class="devsite-nav-title"
+410: >Contesto lungo
+411: <li class="devsite-nav-item
+412: devsite-nav-heading">
+413: Agenti
+414: <a href="/gemini-api/docs/agents"
+415: class="devsite-nav-title"
+416: >Panoramica
+417: <a href="/gemini-api/docs/managed-agents-quickstart"
+418: class="devsite-nav-title"
+419: >Guida rapida
+420: <li class="devsite-nav-item
+421: devsite-nav-preview"><a href="/gemini-api/docs/antigravity-agent"
+422: class="devsite-nav-title"
+423: >Agente Antigravity<span class="devsite-nav-icon material-icons"
+424: data-icon="preview"
+425: data-title="Anteprima"
+426: aria-hidden="true">
+427: <a href="/gemini-api/docs/custom-agents"
+428: class="devsite-nav-title"
+429: >Creazione di agenti gestiti
+430: <a href="/gemini-api/docs/agent-environment"
+431: class="devsite-nav-title"
+432: >Ambienti
+433: <li class="devsite-nav-item
+434: devsite-nav-preview"><a href="/gemini-api/docs/interactions/deep-research"
+435: class="devsite-nav-title"
+436: >Agente Deep Research<span class="devsite-nav-icon material-icons"
+437: data-icon="preview"
+438: data-title="Anteprima"
+439: aria-hidden="true">
+440: <li class="devsite-nav-item
+441: devsite-nav-heading">
+442: Strumenti
+443: <a href="/gemini-api/docs/tools"
+444: class="devsite-nav-title"
+445: >Panoramica
+446: <a href="/gemini-api/docs/google-search"
+447: class="devsite-nav-title"
+448: >Google Search
+449: <a href="/gemini-api/docs/maps-grounding"
+450: class="devsite-nav-title"
+451: >Google Maps
+452: <a href="/gemini-api/docs/code-execution"
+453: class="devsite-nav-title"
+454: >Esecuzione del codice
+455: <a href="/gemini-api/docs/url-context"
+456: class="devsite-nav-title"
+457: >Contesto URL
+458: <li class="devsite-nav-item
+459: devsite-nav-preview"><a href="/gemini-api/docs/computer-use"
+460: class="devsite-nav-title"
+461: >Uso del computer<span class="devsite-nav-icon material-icons"
+462: data-icon="preview"
+463: data-title="Anteprima"
+464: aria-hidden="true">
+465: <a href="/gemini-api/docs/file-search"
+466: class="devsite-nav-title"
+467: >Ricerca file
+468: <li class="devsite-nav-item
+469: devsite-nav-preview"><a href="/gemini-api/docs/tool-combination"
+470: class="devsite-nav-title"
+471: >Combinare strumenti e chiamata di funzione<span class="devsite-nav-icon material-icons"
+472: data-icon="preview"
+473: data-title="Anteprima"
+474: aria-hidden="true">
+475: <li class="devsite-nav-item
+476: devsite-nav-heading">
+477: API Live
+478: <a href="/gemini-api/docs/live-api"
+479: class="devsite-nav-title"
+480: >Panoramica
+481: <li class="devsite-nav-item
+482: devsite-nav-expandable">
+483: Per iniziare
+484: <a href="/gemini-api/docs/live-api/get-started-sdk"
+485: class="devsite-nav-title"
+486: >Inizia a utilizzare GenAI SDK<a href="/gemini-api/docs/live-api/get-started-websocket"
+487: class="devsite-nav-title"
+488: >Inizia a utilizzare WebSocket non elaborati
+489: <a href="/gemini-api/docs/live-api/capabilities"
+490: class="devsite-nav-title"
+491: >Funzionalità
+492: <a href="/gemini-api/docs/live-api/tools"
+493: class="devsite-nav-title"
+494: >Utilizzo dello strumento
+495: <a href="/gemini-api/docs/live-api/session-management"
+496: class="devsite-nav-title"
+497: >Gestione sessione
+498: <a href="/gemini-api/docs/live-api/ephemeral-tokens"
+499: class="devsite-nav-title"
+500: >Token temporanei
+501: <a href="/gemini-api/docs/live-api/best-practices"
+502: class="devsite-nav-title"
+503: >Best practice
+504: <li class="devsite-nav-item
+505: devsite-nav-heading">
+506: Ottimizzazione
+507: <a href="/gemini-api/docs/optimization"
+508: class="devsite-nav-title"
+509: >Panoramica
+510: <a href="/gemini-api/docs/batch-api"
+511: class="devsite-nav-title"
+512: >API Batch
+513: <li class="devsite-nav-item
+514: devsite-nav-preview"><a href="/gemini-api/docs/webhooks"
+515: class="devsite-nav-title"
+516: >Webhook<span class="devsite-nav-icon material-icons"
+517: data-icon="preview"
+518: data-title="Anteprima"
+519: aria-hidden="true">
+520: <li class="devsite-nav-item
+521: devsite-nav-preview"><a href="/gemini-api/docs/flex-inference"
+522: class="devsite-nav-title"
+523: >Inferenza flessibile<span class="devsite-nav-icon material-icons"
+524: data-icon="preview"
+525: data-title="Anteprima"
+526: aria-hidden="true">
+527: <li class="devsite-nav-item
+528: devsite-nav-preview"><a href="/gemini-api/docs/priority-inference"
+529: class="devsite-nav-title"
+530: >Inferenza della priorità<span class="devsite-nav-icon material-icons"
+531: data-icon="preview"
+532: data-title="Anteprima"
+533: aria-hidden="true">
+534: <a href="/gemini-api/docs/caching"
+535: class="devsite-nav-title"
+536: >Memorizzazione nella cache del contesto
+537: <li class="devsite-nav-item
+538: devsite-nav-heading">
+539: Guide
+540: <a href="/gemini-api/docs/interactions/streaming"
+541: class="devsite-nav-title"
+542: >Streaming
+543: <li class="devsite-nav-item
+544: devsite-nav-expandable">
+545: Input file
+546: <a href="/gemini-api/docs/file-input-methods"
+547: class="devsite-nav-title"
+548: >Metodi di immissione<a href="/gemini-api/docs/files"
+549: class="devsite-nav-title"
+550: >API Files
+551: <a href="/gemini-api/docs/openai"
+552: class="devsite-nav-title"
+553: >Compatibilità con OpenAI
+554: <a href="/gemini-api/docs/media-resolution"
+555: class="devsite-nav-title"
+556: >Risoluzione dei contenuti multimediali
+557: <a href="/gemini-api/docs/tokens"
+558: class="devsite-nav-title"
+559: >Conteggio token
+560: <a href="/gemini-api/docs/prompting-strategies"
+561: class="devsite-nav-title"
+562: >Prompt engineering
+563: <li class="devsite-nav-item
+564: devsite-nav-expandable">
+565: Log e set di dati
+566: <a href="/gemini-api/docs/logs-datasets"
+567: class="devsite-nav-title"
+568: >Inizia a utilizzare i log<a href="/gemini-api/docs/logs-policy"
+569: class="devsite-nav-title"
+570: >Registrazione e condivisione dei dati
+571: <li class="devsite-nav-item
+572: devsite-nav-expandable">
+573: Sicurezza
+574: <a href="/gemini-api/docs/safety-settings"
+575: class="devsite-nav-title"
+576: >Impostazioni di sicurezza<a href="/gemini-api/docs/safety-guidance"
+577: class="devsite-nav-title"
+578: >Indicazioni per la sicurezza
+579: <li class="devsite-nav-item
+580: devsite-nav-expandable">
+581: Framework
+582: <a href="/gemini-api/docs/langgraph-example"
+583: class="devsite-nav-title"
+584: >LangChain e LangGraph<a href="/gemini-api/docs/crewai-example"
+585: class="devsite-nav-title"
+586: >CrewAI<a href="/gemini-api/docs/llama-index"
+587: class="devsite-nav-title"
+588: >LlamaIndex<a href="/gemini-api/docs/vercel-ai-sdk-example"
+589: class="devsite-nav-title"
+590: >SDK Vercel AI<a href="/gemini-api/docs/temporal-example"
+591: class="devsite-nav-title"
+592: >Temporale
+593: <li class="devsite-nav-item
+594: devsite-nav-heading">
+595: Risorse
+596: <a href="/gemini-api/docs/changelog"
+597: class="devsite-nav-title"
+598: >Note di rilascio
+599: <a href="/gemini-api/docs/deprecations"
+600: class="devsite-nav-title"
+601: >Ritiri
+602: <li class="devsite-nav-item
+603: devsite-nav-expandable">
+604: Migrazione
+605: <a href="/gemini-api/docs/migrate"
+606: class="devsite-nav-title"
+607: >Esegui la migrazione all&#39;SDK Gen AI<a href="/gemini-api/docs/migrate-to-interactions"
+608: class="devsite-nav-title"
+609: >Esegui la migrazione all&#39;API Interactions<a href="/gemini-api/docs/interactions-breaking-changes-may-2026"
+610: class="devsite-nav-title"
+611: >Modifiche che causano interruzioni delle interazioni (maggio 2026)
+612: <a href="/gemini-api/docs/rate-limits"
+613: class="devsite-nav-title"
+614: >Limiti di frequenza
+615: <a href="/gemini-api/docs/billing"
+616: class="devsite-nav-title"
+617: >Dati di fatturazione
+618: <a href="/gemini-api/docs/troubleshooting"
+619: class="devsite-nav-title"
+620: >Risoluzione dei problemi relativi all&#39;API
+621: <li class="devsite-nav-item
+622: devsite-nav-external"><a href="https://aistudio.google.com/status"
+623: class="devsite-nav-title"
+624: >Stato<span class="devsite-nav-icon material-icons"
+625: data-icon="external"
+626: data-title="Esterna"
+627: aria-hidden="true">
+628: <a href="/gemini-api/docs/partner-integration"
+629: class="devsite-nav-title"
+630: >Integrazioni con partner e biblioteche
+631: <li class="devsite-nav-item
+632: devsite-nav-expandable">
+633: Google AI Studio
+634: <a href="/gemini-api/docs/ai-studio-quickstart"
+635: class="devsite-nav-title"
+636: >Guida rapida<a href="/gemini-api/docs/aistudio-build-mode"
+637: class="devsite-nav-title"
+638: >Vibe code in modalità Build<a href="/gemini-api/docs/aistudio-fullstack"
+639: class="devsite-nav-title"
+640: >Sviluppo di app full stack<a href="/gemini-api/docs/aistudio-android"
+641: class="devsite-nav-title"
+642: >Crea app per Android<a href="/gemini-api/docs/aistudio-deploying"
+643: class="devsite-nav-title"
+644: >Deployment dell&#39;app<a href="/gemini-api/docs/aistudio-agents"
+645: class="devsite-nav-title"
+646: >Agent in AI Studio Playground<li class="devsite-nav-item
+647: devsite-nav-experimental"><a href="/gemini-api/docs/learnlm"
+648: class="devsite-nav-title"
+649: >Prova LearnLM<span class="devsite-nav-icon material-icons"
+650: data-icon="experimental"
+651: data-title="Sperimentale."
+652: aria-hidden="true"><a href="/gemini-api/docs/troubleshoot-ai-studio"
+653: class="devsite-nav-title"
+654: >Risoluzione dei problemi<a href="/gemini-api/docs/workspace"
+655: class="devsite-nav-title"
+656: >Accesso per gli utenti di Workspace
+657: <li class="devsite-nav-item
+658: devsite-nav-expandable">
+659: Piattaforma Google Cloud
+660: <a href="/gemini-api/docs/migrate-to-cloud"
+661: class="devsite-nav-title"
+662: >API Gemini della piattaforma agentica Gemini Enterprise<a href="/gemini-api/docs/oauth"
+663: class="devsite-nav-title"
+664: >Autenticazione OAuth
+665: <li class="devsite-nav-item
+666: devsite-nav-heading">
+667: Criteri
+668: <a href="/gemini-api/terms"
+669: class="devsite-nav-title"
+670: alt-paths=" /gemini-api/docs/zdr ">Termini di servizio
+671: <a href="/gemini-api/docs/available-regions"
+672: class="devsite-nav-title"
+673: >Regioni disponibili
+674: <a href="/gemini-api/docs/usage-policies"
+675: class="devsite-nav-title"
+676: >Monitoraggio degli abusi
+677: <a href="/gemini-api/docs/feedback-policies"
+678: class="devsite-nav-title"
+679: >Informazioni sui feedback
+680: <main role="main" id="main-content" class="devsite-main-content"
+681: has-book-nav
+682: has-sidebar
+683: >
+684: <devsite-toc class="devsite-nav"
+685: role="navigation"
+686: aria-label="Su questa pagina"
+687: depth="2"
+688: scrollbars
+689: data-nosnippet
+690: >
+691: <div class="devsite-banner devsite-banner-announcement nocontent" data-nosnippet
+692: background="google-blue"
+693: >
+694: Gemini Deep Research è ora disponibile in anteprima con pianificazione collaborativa, visualizzazione, supporto MCP e altro ancora.
+695: <img src="https://ai.google.dev/_static/images/translated.svg?hl=it"
+696: class="devsite-banner-translated-image invert"
+697: alt="">
+698: Google uses AI technology to translate content into your preferred language. AI translations can contain errors.
+699: <ul class="devsite-breadcrumb-list"
+700: aria-label="Breadcrumb">
+701: <li class="devsite-breadcrumb-item
+702: ">
+703: <a href="https://ai.google.dev/?hl=it"
+704: class="devsite-breadcrumb-link gc-analytics-event"
+705: data-category="Site-Wide Custom Events"
+706: data-label="Breadcrumbs"
+707: data-value="1"
+708: track-type="globalNav"
+709: track-name="breadcrumb"
+710: track-metadata-position="1"
+711: track-metadata-eventdetail=""
+712: >
+713: Home page
+714: <li class="devsite-breadcrumb-item
+715: ">
+716: <a href="https://ai.google.dev/gemini-api?hl=it"
+717: class="devsite-breadcrumb-link gc-analytics-event"
+718: data-category="Site-Wide Custom Events"
+719: data-label="Breadcrumbs"
+720: data-value="2"
+721: track-type="globalNav"
+722: track-name="breadcrumb"
+723: track-metadata-position="2"
+724: track-metadata-eventdetail="Gemini API"
+725: >
+726: Gemini API
+727: <li class="devsite-breadcrumb-item
+728: ">
+729: <a href="https://ai.google.dev/gemini-api/docs?hl=it"
+730: class="devsite-breadcrumb-link gc-analytics-event"
+731: data-category="Site-Wide Custom Events"
+732: data-label="Breadcrumbs"
+733: data-value="3"
+734: track-type="globalNav"
+735: track-name="breadcrumb"
+736: track-metadata-position="3"
+737: track-metadata-eventdetail=""
+738: >
+739: Documenti
+740: <devsite-feedback
+741: position="header"
+742: project-name="Gemini API"
+743: product-id="5292923"
+744: bucket="documentation"
+745: context=""
+746: version="t-devsite-webserver-20260507-r00-rc00.477408230040175644"
+747: data-label="Send Feedback Button"
+748: track-type="feedback"
+749: track-name="sendFeedbackLink"
+750: track-metadata-position="header"
+751: class="nocontent"
+752: data-nosnippet
+753: project-icon="https://www.gstatic.com/devrel-devsite/prod/vb08cbdb02acf7f66ad9727ddfba9d81df8806422eb5dd63dba194c9c8c7997f7/googledevai/images/touchicon-180-new.png"
+754: >
+755: Invia feedback
+756: Live API best practices
+757: <devsite-toc class="devsite-nav"
+758: depth="2"
+759: devsite-toc-embedded
+760: >
+761: <div class="devsite-article-body clearfix
+762: ">
+763: Anteprima: l'API Live è in anteprima.
+764: Questa guida illustra le best practice che puoi seguire per ottimizzare l'utilizzo dell'API Live.
+765: Per una panoramica e un codice campione per i casi d'uso comuni, consulta la
+766: pagina Inizia a utilizzare l'API Live.
+767: Progettare istruzioni di sistema chiare
+768: Per ottenere le migliori prestazioni dall'API Live, ti consigliamo di avere un insieme di istruzioni di sistema (SI) chiaramente definito che definisca la persona dell'agente, le regole conversazionali e le barriere di protezione, in questo ordine.
+769: Per risultati ottimali, separa ogni agente in un SI distinto.
+770: Specifica la persona dell'agente: fornisci dettagli sul nome, sul ruolo e su eventuali caratteristiche preferite dell'agente. Se vuoi specificare l'accento, assicurati di specificare anche la lingua di output preferita (ad esempio, un accento britannico per un madrelingua inglese).
+771: Specifica le regole conversazionali: inserisci queste regole nell'ordine in cui prevedi che il modello le segua. Delimita gli elementi una tantum della conversazione e i loop conversazionali. Ad esempio:
+772: Elemento una tantum: raccogli i dettagli di un cliente una sola volta (ad esempio nome, località, numero di carta fedeltà).
+773: Loop conversazionale: l'utente può discutere di consigli, prezzi, resi e consegne e potrebbe voler passare da un argomento all'altro. Comunica al modello che può partecipare a questo loop conversazionale per tutto il tempo che l'utente desidera.
+774: Specifica le chiamate di strumenti all'interno di un flusso in frasi distinte: ad esempio, se un passaggio una tantum per raccogliere i dettagli di un cliente richiede l'invocazione di una funzione get_user_info, potresti dire: Il primo passaggio consiste nel raccogliere le informazioni dell'utente. Innanzitutto, chiedi all'utente di fornire il suo nome, la sua località e il numero della sua carta fedeltà. Poi
+775: invoca get_user_info con questi dettagli.
+776: Aggiungi le barriere di protezione necessarie: fornisci eventuali barriere di protezione conversazionali
+777: generali che non vuoi che il modello esegua. Non esitare a fornire esempi specifici
+778: di cosa vuoi che il modello faccia se si verifica x. Se non ottieni ancora il livello di precisione preferito, utilizza la parola inequivocabilmente per guidare il modello a essere preciso.
+779: Definire gli strumenti con precisione
+780: Quando utilizzi gli strumenti con l'API Live, sii specifico nelle definizioni degli strumenti.
+781: Assicurati di comunicare a Gemini in quali condizioni deve essere invocata una chiamata di strumenti. Per maggiori dettagli, consulta le definizioni degli strumenti in
+782: ella sezione degli esempi.
+783: Creare prompt efficaci
+784: Utilizza prompt chiari: fornisci esempi di ciò che i modelli devono e non devono fare nei prompt e cerca di limitare i prompt a un prompt per persona o ruolo alla volta. Anziché prompt lunghi e multipagina, valuta la possibilità di utilizzare l'incatenamento dei prompt. Il modello funziona meglio per le attività con chiamate di singole funzioni.
+785: Fornisci comandi e informazioni iniziali: l'API Live si aspetta l'input dell'utente prima di rispondere. Per fare in modo che l'API Live avvii la conversazione, includi un prompt che le chieda di salutare l'utente o di iniziare la conversazione. Includi informazioni sull'utente per fare in modo che l'API Live personalizzi il saluto.
+786: Specificare la lingua
+787: Per prestazioni ottimali su gemini-live-2.5-flash in cascata dell'API Live, assicurati che language_code dell'API corrisponda alla lingua parlata dall'utente.
+788: Se prevedi che il modello risponda in una lingua diversa dall'inglese, includi quanto segue nelle istruzioni di sistema:
+789: RESPOND IN {OUTPUT_LANGUAGE}. YOU MUST RESPOND UNMISTAKABLY IN {OUTPUT_LANGUAGE}.
+790: Streaming
+791: Quando implementi l'audio in tempo reale, segui queste best practice:
+792: Dimensione dei blocchi e latenza: invia l'audio in blocchi da 20 ms a 40 ms.
+793: Gestione delle interruzioni: quando l'utente parla mentre il modello risponde,
+794: il server invia un messaggio server_content con &quot;interrupted&quot;: true. Devi eliminare immediatamente il buffer audio lato client per impedire all'agente di continuare a parlare con l'utente.
+795: Gestione del contesto
+796: Utilizza ContextWindowCompressionConfig per le sessioni lunghe, poiché i token audio nativi si accumulano rapidamente (circa 25 token al secondo di audio).
+797: Buffering client
+798: Non eseguire il buffering significativo dell'audio di input (ad esempio 1 secondo) prima dell'invio. Invia piccoli blocchi (20 ms - 100 ms) per ridurre al minimo la latenza.
+799: Creazione del nuovo campione
+800: Assicurati che l'applicazione client esegua il resampling dell'input del microfono (spesso 44,1 kHz o 48 kHz) a 16 kHz prima della trasmissione.
+801: Gestione sessione
+802: Segui queste linee guida per gestire il ciclo di vita della sessione e garantire un'esperienza utente affidabile:
+803: Attiva la compressione della finestra contestuale: i token audio si accumulano a circa 25 token al secondo. Senza compressione, le sessioni solo audio sono limitate a 15 minuti e le sessioni audio-video a 2 minuti. Attiva
+804: la compressione della finestra contestuale
+805: per estendere le sessioni a una durata illimitata.
+806: Implementa la ripresa della sessione: il server potrebbe reimpostare periodicamente la connessione WebSocket. Utilizza
+807: la ripresa della sessione
+808: per riconnetterti senza problemi senza perdere il contesto. Conserva il token di ripresa più recente dai messaggi SessionResumptionUpdate e passalo come handle durante la riconnessione. I token di ripresa sono validi per 2 ore dopo la chiusura dell'ultima sessione.
+809: Gestisci i messaggi GoAway: il server invia un
+810: GoAway
+811: prima di chiudere una connessione. Ascolta questo messaggio e utilizza il campo timeLeft per completare o riconnetterti prima della chiusura della connessione.
+812: Gestisci i segnali generationComplete: utilizza il
+813: generationComplete
+814: messaggio per sapere quando il modello ha terminato di generare una risposta, in modo che la tua
+815: applicazione possa aggiornare la sua UI o procedere con l'azione successiva.
+816: Per i dettagli sull'implementazione, consulta
+817: Gestione sessione.
+818: Esempi
+819: Questo esempio combina le best practice e
+820: le linee guida per la progettazione delle istruzioni di sistema per
+821: guidare le prestazioni del modello come career coach.
+822: **Persona:**
+823: You are Laura, a career coach from Brooklyn, NY. You specialize in providing
+824: data driven advice to give your clients a fresh perspective on the career
+825: questions they're navigating. Your special sauce is providing quantitative,
+826: data-driven insights to help clients think about their issues in a different
+827: way. You leverage statistics, research, and psychology as much as possible.
+828: You only speak to your clients in English, no matter what language they speak
+829: to you in.
+830: **Conversational Rules:**
+831: 1. **Introduce yourself:** Warmly greet the client.
+832: 2. **Intake:** Ask for your client's full name, date of birth, and state they're
+833: calling in from. Call `create_client_profile` to create a new patient profile.
+834: 3. **Discuss the client's issue:** Get a sense of what the client wants to
+835: cover in the session. DO NOT repeat what the client is saying back to them in
+836: your response. Don't ask more than a few questions here.
+837: 4. **Reframe the client's issue with real data:** NO PLATITUDES. Start providing
+838: data-driven insights for the client, but embed these as general facts within
+839: conversation. This is what they're coming to you for: your unique thinking on
+840: the subjects that are stressing them out. Show them a new way of thinking about
+841: something. Let this step go on for as long as the client wants. As part of this,
+842: if the client mentions wanting to take any actions, update
+843: `add_action_items_to_profile` to remind the client later.
+844: 5. **Next appointment:** Call `get_next_appointment` to see if another
+845: appointment has already been scheduled for the client. If so, then share the
+846: date and time with the client and confirm if they'll be able to attend. If
+847: there is no appointment, then call `get_available_appointments` to see openings.
+848: Share the list of openings with the client and ask what they would prefer. Save
+849: their preference with `schedule_appointment`. If the client prefers to schedule
+850: offline, then let them know that's perfectly fine and to use the patient portal.
+851: **General Guidelines:** You're meant to be a witty, snappy conversational
+852: partner. Keep your responses short and progressively disclose more information
+853: if the client requests it. Don't repeat back what the client says back to them.
+854: Each response you give should be a net new addition to the conversation, not a
+855: recap of what the client said. Be relatable by bringing in your own background
+856: growing up professionally in Brooklyn, NY. If a client tries to get you off
+857: track, gently bring them back to the workflow articulated above.
+858: **Guardrails:** If the client is being hard on themselves, never encourage that.
+859: Remember that your ultimate goal is to create a supportive environment for your
+860: clients to thrive.
+861: Definizioni degli strumenti
+862: Questo JSON definisce le funzioni pertinenti chiamate nell'esempio di career coach.
+863: Per risultati ottimali durante la definizione delle funzioni, includi i nomi, le descrizioni, i parametri e le condizioni di invocazione.
+864: [
+865: {
+866: "name": "create_client_profile",
+867: "description": "Creates a new client profile with their personal details. Returns a unique client ID. \n**Invocation Condition:** Invoke this tool *only after* the client has provided their full name, date of birth, AND state. This should only be called once at the beginning of the 'Intake' step.",
+868: "parameters": {
+869: "type": "object",
+870: "properties": {
+871: "full_name": {
+872: "type": "string",
+873: "description": "The client's full name."
+874: },
+875: "date_of_birth": {
+876: "type": "string",
+877: "description": "The client's date of birth in YYYY-MM-DD format."
+878: },
+879: "state": {
+880: "type": "string",
+881: "description": "The 2-letter postal abbreviation for the client's state (e.g., 'NY', 'CA')."
+882: }
+883: },
+884: "required": ["full_name", "date_of_birth", "state"]
+885: }
+886: },
+887: {
+888: "name": "add_action_items_to_profile",
+889: "description": "Adds a list of actionable next steps to a client's profile using their client ID. \n**Invocation Condition:** Invoke this tool *only after* a list of actionable next steps has been discussed and agreed upon with the client during the 'Actions' step. Requires the `client_id` obtained from the start of the session.",
+890: "parameters": {
+891: "type": "object",
+892: "properties": {
+893: "client_id": {
+894: "type": "string",
+895: "description": "The unique ID of the client, obtained from create_client_profile."
+896: },
+897: "action_items": {
+898: "type": "array",
+899: "items": {
+900: "type": "string"
+901: },
+902: "description": "A list of action items for the client (e.g., ['Update resume', 'Research three companies'])."
+903: }
+904: },
+905: "required": ["client_id", "action_items"]
+906: }
+907: },
+908: {
+909: "name": "get_next_appointment",
+910: "description": "Checks if a client has a future appointment already scheduled using their client ID. Returns the appointment details or null. \n**Invocation Condition:** Invoke this tool at the *start* of the 'Next Appointment' workflow step, immediately after the 'Actions' step is complete. This is used to check if an appointment *already exists*.",
+911: "parameters": {
+912: "type": "object",
+913: "properties": {
+914: "client_id": {
+915: "type": "string",
+916: "description": "The unique ID of the client."
+917: }
+918: },
+919: "required": ["client_id"]
+920: }
+921: },
+922: {
+923: "name": "get_available_appointments",
+924: "description": "Fetches a list of the next available appointment slots. \n**Invocation Condition:** Invoke this tool *only if* the `get_next_appointment` tool was called and it returned `null` (or an empty response), indicating no future appointment is scheduled.",
+925: "parameters": {
+926: "type": "object",
+927: "properties": {}
+928: }
+929: },
+930: {
+931: "name": "schedule_appointment",
+932: "description": "Books a new appointment for a client at a specific date and time. \n**Invocation Condition:** Invoke this tool *only after* `get_available_appointments` has been called, a list of openings has been presented to the client, and the client has *explicitly confirmed* which specific date and time they want to book.",
+933: "parameters": {
+934: "type": "object",
+935: "properties": {
+936: "client_id": {
+937: "type": "string",
+938: "description": "The unique ID of the client."
+939: },
+940: "appointment_datetime": {
+941: "type": "string",
+942: "description": "The chosen appointment slot in ISO 8601 format (e.g., '2025-10-30T14:30:00')."
+943: }
+944: },
+945: "required": ["client_id", "appointment_datetime"]
+946: }
+947: }
+948: ]
+949: Prezzi e fatturazione
+950: L'API Gemini Live viene fatturata rigorosamente in base all'utilizzo dei token. Poiché l'API Live mantiene una sessione WebSocket persistente, la fatturazione segue un modello di compounding basato sulla finestra contestuale attiva.
+951: La finestra contestuale della sessione (costi di compounding)
+952: L'API ti addebita per turno tutti i token presenti nella finestra contestuale della sessione. Un "turno" è definito come un input dell'utente e la risposta corrispondente del modello.
+953: Accumulo: la finestra contestuale include i nuovi token del turno corrente più tutti i token accumulati dai turni precedenti.
+954: Rifatturazione: i token precedenti vengono rielaborati e contabilizzati in ogni nuovo turno, fino alla dimensione della finestra contestuale configurata. Man mano che una sessione si allunga, il costo per turno aumenta perché la cronologia delle conversazioni viene rielaborata.
+955: Token audio e trascrizioni
+956: L'API Live è nativamente multimodale. Conserva la cronologia delle conversazioni come token audio non elaborati per preservare le sfumature e il tono acustici.
+957: Fatturazione audio: l'API ti addebita i token audio nativi accumulati alla tariffa di input audio standard a ogni turno.
+958: Supplemento per la trascrizione: quando la trascrizione da audio a testo è attivata (inputAudioTranscription o outputAudioTranscription), l'API addebita tutti i token di testo generati per la trascrizione alla tariffa di output dei token di testo, oltre ai costi standard dei token audio.
+959: Gestire i costi con i limiti di contesto
+960: Per evitare una crescita illimitata dei costi nelle sessioni lunghe, configura la dimensione della finestra contestuale utilizzando contextWindowCompression.
+961: Impostando un trigger di compressione (ad es. 25.000 token) e una finestra scorrevole (ad es. 8000 token), l'API elimina automaticamente i token precedenti una volta raggiunto il limite. L'API addebita quindi i turni successivi solo per la cronologia conservata più eventuali nuovi token.
+962: Modalità audio proattiva
+963: Quando la modalità audio proattiva è attivata, i token di input vengono addebitati per tutto il tempo in cui l'API Live è in ascolto, mentre i token di output vengono addebitati solo quando l'API risponde.
+964: Nota per Gemini 3.1: la modalità audio proattiva non è supportata in gemini-3.1-flash-live-preview. Per questo modello, l'audio viene addebitato solo durante lo streaming attivo dell'input.
+965: Per informazioni dettagliate sui prezzi, consulta la pagina dei prezzi dell'API Gemini.
+966: <devsite-feedback
+967: position="footer"
+968: project-name="Gemini API"
+969: product-id="5292923"
+970: bucket="documentation"
+971: context=""
+972: version="t-devsite-webserver-20260507-r00-rc00.477408230040175644"
+973: data-label="Send Feedback Button"
+974: track-type="feedback"
+975: track-name="sendFeedbackLink"
+976: track-metadata-position="footer"
+977: class="nocontent"
+978: data-nosnippet
+979: project-icon="https://www.gstatic.com/devrel-devsite/prod/vb08cbdb02acf7f66ad9727ddfba9d81df8806422eb5dd63dba194c9c8c7997f7/googledevai/images/touchicon-180-new.png"
+980: >
+981: Invia feedback
+982: Salvo quando diversamente specificato, i contenuti di questa pagina sono concessi in base alla licenza Creative Commons Attribution 4.0, mentre gli esempi di codice sono concessi in base alla licenza Apache 2.0. Per ulteriori dettagli, consulta le norme del sito di Google Developers. Java è un marchio registrato di Oracle e/o delle sue consociate.
+983: Ultimo aggiornamento 2026-05-11 UTC.
+984: <devsite-notification
+985: >
+986: <devsite-feedback
+987: position="thumb-rating"
+988: project-name="Gemini API"
+989: product-id="5292923"
+990: bucket="documentation"
+991: context=""
+992: version="t-devsite-webserver-20260507-r00-rc00.477408230040175644"
+993: data-label="Send Feedback Button"
+994: track-type="feedback"
+995: track-name="sendFeedbackLink"
+996: track-metadata-position="thumb-rating"
+997: class="nocontent"
+998: data-nosnippet
+999: project-icon="https://www.gstatic.com/devrel-devsite/prod/vb08cbdb02acf7f66ad9727ddfba9d81df8806422eb5dd63dba194c9c8c7997f7/googledevai/images/touchicon-180-new.png"
+1000: >
+1001: Vuoi dirci altro?
+1002: [[["Facile da capire","easyToUnderstand","thumb-up"],["Il problema è stato risolto","solvedMyProblem","thumb-up"],["Altra","otherUp","thumb-up"]],[["Mancano le informazioni di cui ho bisogno","missingTheInformationINeed","thumb-down"],["Troppo complicato/troppi passaggi","tooComplicatedTooManySteps","thumb-down"],["Obsoleti","outOfDate","thumb-down"],["Problema di traduzione","translationIssue","thumb-down"],["Problema relativo a esempi/codice","samplesCodeIssue","thumb-down"],["Altra","otherDown","thumb-down"]],["Ultimo aggiornamento 2026-05-11 UTC."],[],[]]
+1003: <nav class="devsite-footer-linkboxes nocontent"
+1004: aria-label="Link piè di pagina"
+1005: data-nosnippet>
+1006: <li class="devsite-footer-utility-item
+1007: ">
+1008: <a class="devsite-footer-utility-link gc-analytics-event"
+1009: href="//policies.google.com/terms?hl=it"
+1010: data-category="Site-Wide Custom Events"
+1011: data-label="Footer Terms link"
+1012: >
+1013: Termini
+1014: <li class="devsite-footer-utility-item
+1015: ">
+1016: <a class="devsite-footer-utility-link gc-analytics-event"
+1017: href="//policies.google.com/privacy?hl=it"
+1018: data-category="Site-Wide Custom Events"
+1019: data-label="Footer Privacy link"
+1020: >
+1021: Privacy
+1022: <li class="devsite-footer-utility-item
+1023: glue-cookie-notification-bar-control">
+1024: <a class="devsite-footer-utility-link gc-analytics-event"
+1025: href="#"
+1026: data-category="Site-Wide Custom Events"
+1027: data-label="Footer Manage cookies link"
+1028: aria-hidden="true"
+1029: >
+1030: Manage cookies
+1031: <a role="menuitem" lang="en"
+1032: >English
+1033: <a role="menuitem" lang="de"
+1034: >Deutsch
+1035: <a role="menuitem" lang="es_419"
+1036: >Español – América Latina
+1037: <a role="menuitem" lang="fr"
+1038: >Français
+1039: <a role="menuitem" lang="id"
+1040: >Indonesia
+1041: <a role="menuitem" lang="it"
+1042: >Italiano
+1043: <a role="menuitem" lang="pl"
+1044: >Polski
+1045: <a role="menuitem" lang="pt_br"
+1046: >Português – Brasil
+1047: <a role="menuitem" lang="sq"
+1048: >Shqip
+1049: <a role="menuitem" lang="vi"
+1050: >Tiếng Việt
+1051: <a role="menuitem" lang="tr"
+1052: >Türkçe
+1053: <a role="menuitem" lang="ru"
+1054: >Русский
+1055: <a role="menuitem" lang="he"
+1056: >עברית
+1057: <a role="menuitem" lang="ar"
+1058: >العربيّة
+1059: <a role="menuitem" lang="fa"
+1060: >فارسی
+1061: <a role="menuitem" lang="hi"
+1062: >हिंदी
+1063: <a role="menuitem" lang="bn"
+1064: >বাংলা
+1065: <a role="menuitem" lang="th"
+1066: >ภาษาไทย
+1067: <a role="menuitem" lang="zh_cn"
+1068: >中文 – 简体
+1069: <a role="menuitem" lang="zh_tw"
+1070: >中文 – 繁體
+1071: <a role="menuitem" lang="ja"
+1072: >日本語
+1073: <a role="menuitem" lang="ko"
+1074: >한국어
