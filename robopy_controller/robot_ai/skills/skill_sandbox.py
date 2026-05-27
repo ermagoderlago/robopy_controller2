@@ -240,7 +240,7 @@ class SkillSandbox:
 
     def _find_skill_class(self, module):
         """Trova la prima classe che eredita da BaseSkill nel modulo."""
-        from severus.robot_ai.skills.base_skill import BaseSkill
+        from robopy_controller.robot_ai.skills.base_skill import BaseSkill
 
         for name in dir(module):
             obj = getattr(module, name)

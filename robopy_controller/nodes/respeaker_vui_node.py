@@ -284,6 +284,12 @@ class ReSpeakerVUINode(Node):
             target=self._playback_worker, daemon=True, name='vui_playback')
         self._playback_thread.start()
 
+        # Coda audio input thread-safe (Ring Buffer) per la callback microfonica
+        self._audio_in_queue = queue.Queue(maxsize=100)
+        self._worker_thread = threading.Thread(
+            target=self._audio_processing_worker, daemon=True, name='vui_audio_worker')
+
+
         # ------------------------------------------------------------------ #
         # Publisher / Subscriber
         # ------------------------------------------------------------------ #
@@ -366,6 +372,7 @@ class ReSpeakerVUINode(Node):
 
         if self.in_stream:
             self.in_stream.start_stream()
+        self._worker_thread.start()
         self.set_led('IDLE')
 
         # [v6.0] Registra callback per parametri dinamici (hot-swap)
@@ -793,296 +800,276 @@ class ReSpeakerVUINode(Node):
 
     # ------------------------------------------------------------------ #
     # Callback audio di input — eseguita dal thread interno PyAudio
-    #
-    # Target Pi5: ZERO allocazioni heap per frame.
-    # Lettura stato via Event.is_set(): lock-free, ~10ns sul Pi5.
+    # Si limita ad accodare i byte raw nella coda thread-safe
     # ------------------------------------------------------------------ #
     def _audio_input_callback(self, in_data, frame_count, time_info, status):
-        if self._shutdown or self.porcupine is None:
-            return (None, pyaudio.paContinue)
+        if not self._shutdown and in_data:
+            try:
+                self._audio_in_queue.put_nowait(in_data)
+            except queue.Full:
+                pass
+        return (None, pyaudio.paContinue)
 
-        try:
-            # ---------------------------------------------------------- #
-            # Mix L+R → mono int16 (stereo → CHUNK_SIZE campioni mono)
-            # ---------------------------------------------------------- #
-            # [DSP-HOT] frombuffer senza copia
-            audio_stereo = np.frombuffer(in_data, dtype=np.int16)    # [DSP-HOT]
-            # [v5.5] Usa il valore del parametro stt_gain (30.0x per ReSpeaker Lite)
-            stt_gain_to_use = self.stt_gain
-            
-            # Stereo interleaved → Usiamo solo il canale sinistro (Left)
-            # Questo evita la "Phase Cancellation".
-            l_ch = audio_stereo[::2]
-            n    = min(len(l_ch), CHUNK_SIZE)
-            
-            # [v11.0] Calcolo continuo RMS per Auto-Volume Ambientale
-            rms_current = np.sqrt(np.mean(l_ch[:n].astype(np.float32)**2))
-            if not hasattr(self, '_is_speech_active'):
-                self._is_speech_active = False
-            
-            # Calcolo continuo EMA rumore ambientale (aggiornato anche durante ascolto se sotto la soglia dei transienti)
-            if not self._is_tts_speaking and not self._is_music_playing and not getattr(self, '_is_playing_out', False) and rms_current < self._ambient_noise_ema * 1.5:
-                alpha = 0.05
-                self._ambient_noise_ema = (alpha * float(rms_current)) + ((1.0 - alpha) * self._ambient_noise_ema)
-                # Cap fisico del rumore di fondo tra 50 e 2000 per evitare clip (il filtro transitori fa il resto)
-                self._ambient_noise_ema = float(np.clip(self._ambient_noise_ema, 50.0, 2000.0))
+    # ------------------------------------------------------------------ #
+    # Worker thread di processamento audio in background
+    # Esegue tutta la logica pesante di VAD e Porcupine
+    # ------------------------------------------------------------------ #
+    def _audio_processing_worker(self):
+        self.get_logger().info("Worker thread di processamento audio VUI avviato.")
+        while not self._shutdown:
+            try:
+                in_data = self._audio_in_queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
+
+            if self.porcupine is None:
+                continue
+
+            try:
+                # ---------------------------------------------------------- #
+                # Mix L+R → mono int16 (stereo → CHUNK_SIZE campioni mono)
+                # ---------------------------------------------------------- #
+                audio_stereo = np.frombuffer(in_data, dtype=np.int16)
+                stt_gain_to_use = self.stt_gain
                 
-                self._ambient_noise_chunks += 1
-                if self._ambient_noise_chunks >= 16:  # Ogni ~1 sec (@16000Hz / 960)
-                    self._ambient_noise_chunks = 0
-                    msg = Float32()
-                    msg.data = self._ambient_noise_ema
-                    self.ambient_noise_pub.publish(msg)
+                # Stereo interleaved → Usiamo solo il canale sinistro (Left)
+                # Questo evita la "Phase Cancellation".
+                l_ch = audio_stereo[::2]
+                n    = min(len(l_ch), CHUNK_SIZE)
+                
+                # [v11.0] Calcolo continuo RMS per Auto-Volume Ambientale
+                rms_current = np.sqrt(np.mean(l_ch[:n].astype(np.float32)**2))
+                if not hasattr(self, '_is_speech_active'):
+                    self._is_speech_active = False
+                
+                # Calcolo continuo EMA rumore ambientale (aggiornato anche durante ascolto se sotto la soglia dei transienti)
+                if not self._is_tts_speaking and not self._is_music_playing and not getattr(self, '_is_playing_out', False) and rms_current < self._ambient_noise_ema * 1.5:
+                    alpha = 0.05
+                    self._ambient_noise_ema = (alpha * float(rms_current)) + ((1.0 - alpha) * self._ambient_noise_ema)
+                    # Cap fisico del rumore di fondo tra 50 e 2000 per evitare clip (il filtro transitori fa il resto)
+                    self._ambient_noise_ema = float(np.clip(self._ambient_noise_ema, 50.0, 2000.0))
+                    
+                    self._ambient_noise_chunks += 1
+                    if self._ambient_noise_chunks >= 16:  # Ogni ~1 sec (@16000Hz / 960)
+                        self._ambient_noise_chunks = 0
+                        msg = Float32()
+                        msg.data = self._ambient_noise_ema
+                        self.ambient_noise_pub.publish(msg)
 
-            # A. Auto-regolazione soglia noise gate (se abilitata)
-            if self.enable_adaptive_threshold:
-                boosted_ambient = self._ambient_noise_ema * self.stt_gain
-                # Ricarica dinamica: 1.20x + offset 150, protetta tra [300.0, 32000.0]
-                # [v14.1 FIX] Abbassato il minimo da 1200 a 300: il segnale boosted in idle è ~100-150,
-                # ma la voce boosted è ~2000-8000. Con 1200 si rischia di tagliare voci deboli.
-                self.noise_gate_threshold = float(np.clip(boosted_ambient * 1.20 + 150.0, 300.0, 32000.0))
+                # A. Auto-regolazione soglia noise gate (se abilitata)
+                if self.enable_adaptive_threshold:
+                    boosted_ambient = self._ambient_noise_ema * self.stt_gain
+                    # Ricarica dinamica: 1.20x + offset 150, protetta tra [300.0, 32000.0]
+                    self.noise_gate_threshold = float(np.clip(boosted_ambient * 1.20 + 150.0, 300.0, 32000.0))
 
-            # B. Taratura adattiva del timeout silenzio (se abilitato)
-            if self.enable_adaptive_silence:
-                raw_ambient = self._ambient_noise_ema
-                if raw_ambient < 150.0:
-                    # [v14.1 FIX] Aumentato da 22 (440ms) a 40 (800ms) in ambiente silenzioso.
-                    # Con 440ms l'utente non aveva tempo di iniziare a parlare dopo il beep.
-                    self._cfg_max_silence = 40  # ~800ms (silenzio perfetto: stabile ma reattivo)
-                elif raw_ambient < 300.0:
-                    self._cfg_max_silence = 28  # ~560ms (moderato rumore di fondo)
-                elif raw_ambient < 600.0:
-                    self._cfg_max_silence = 35  # ~700ms (rumore Pi ventola o background rumoroso)
+                # B. Taratura adattiva del timeout silenzio (se abilitato)
+                if self.enable_adaptive_silence:
+                    raw_ambient = self._ambient_noise_ema
+                    if raw_ambient < 150.0:
+                        self._cfg_max_silence = 40  # ~800ms (silenzio perfetto)
+                    elif raw_ambient < 300.0:
+                        self._cfg_max_silence = 28  # ~560ms
+                    elif raw_ambient < 600.0:
+                        self._cfg_max_silence = 35  # ~700ms
+                    else:
+                        self._cfg_max_silence = 45  # ~900ms
+
+                # Diagnostica Volume MIC (RMS ogni ~1s @ 960 chunks)
+                self._rms_chunk_count += 1
+                rms_l = rms_current
+                rms_r = 0.0
+                rms_boosted = 0.0
+                if self._rms_chunk_count % 16 == 0:
+                    r_ch   = audio_stereo[1::2]  # Canale destro
+                    rms_r  = np.sqrt(np.mean(r_ch[:n].astype(np.float32)**2))
+                
+                # Dynamic Gain Control: riduciamo il guadagno durante il TTS per evitare eco
+                stt_gain_to_use = self.stt_gain
+                if self._is_tts_speaking:
+                    # Se l'AI parla, abbassiamo il boost drasticamente (0.1x) per proteggere il VAD dall'eco
+                    stt_gain_to_use = 0.1
+
+                if self._cfg_diag_mode and self._rms_chunk_count % 16 == 0:
+                    rms_boosted = rms_l * stt_gain_to_use
+                    self.get_logger().info(
+                        f"🎤 [MIC] Volume: L_RMS={rms_l:.1f} | FORCED_BOOSTED={rms_boosted:.1f} | "
+                        f"Ambient_EMA={self._ambient_noise_ema:.1f} | Gate={self.noise_gate_threshold:.1f} | "
+                        f"MaxSilence={self._cfg_max_silence} frames (Gain: {stt_gain_to_use}x)")
+                
+                # ---------------------------------------------------------- #
+                # Applica stt_gain_to_use al segnale d'ingresso per VAD e Porcupine
+                # ---------------------------------------------------------- #
+                if stt_gain_to_use != 1.0:
+                    boosted_l = l_ch[:n].astype(np.float32) * stt_gain_to_use
+                    np.copyto(self._int16_vad_buf[:n], np.clip(boosted_l, -32768, 32767).astype(np.int16))
                 else:
-                    self._cfg_max_silence = 45  # ~900ms (molto rumoroso: allunga timeout per sicurezza)
+                    np.copyto(self._int16_vad_buf[:n], l_ch[:n])
 
-            # Diagnostica Volume MIC (RMS ogni ~1s @ 960 chunks)
-            self._rms_chunk_count += 1
-            # [FIX v11.1] rms_l/rms_r devono essere SEMPRE definiti qui (anche fuori dal %16)
-            # per evitare UnboundLocalError nei blocchi cfg_diag_mode e barge-in che li usano.
-            rms_l = rms_current
-            rms_r = 0.0
-            rms_boosted = 0.0
-            if self._rms_chunk_count % 16 == 0:
-                r_ch   = audio_stereo[1::2]  # Canale destro
-                rms_r  = np.sqrt(np.mean(r_ch[:n].astype(np.float32)**2))
-            # [v10.1] Dynamic Gain Control: riduciamo il guadagno durante il TTS per evitare eco
-            stt_gain_to_use = self.stt_gain
-            if self._is_tts_speaking:
-                # Se l'AI parla, abbassiamo il boost drasticamente (0.1x) per proteggere il VAD dall'eco [v10.4]
-                stt_gain_to_use = 0.1
+                # ---------------------------------------------------------- #
+                # Controllo Parlato AI (TTS o Gemini Live playback)
+                # ---------------------------------------------------------- #
+                ai_speaking_now = self._ev_tts.is_set() or getattr(self, '_is_playing_out', False)
+                ai_speaking_was = self._tts_active
+                tts_now = ai_speaking_now
 
-            if self._cfg_diag_mode and self._rms_chunk_count % 16 == 0:
-                # Calcola RMS dopo il boost (quello che vede Porcupine)
-                rms_boosted = rms_l * stt_gain_to_use
-                self.get_logger().info(
-                    f"🎤 [MIC] Volume: L_RMS={rms_l:.1f} | FORCED_BOOSTED={rms_boosted:.1f} | "
-                    f"Ambient_EMA={self._ambient_noise_ema:.1f} | Gate={self.noise_gate_threshold:.1f} | "
-                    f"MaxSilence={self._cfg_max_silence} frames (Gain: {stt_gain_to_use}x)")
-            
-            # ---------------------------------------------------------- #
-            # [v5.2] Applica stt_gain_to_use al segnale d'ingresso per VAD e Porcupine
-            # ---------------------------------------------------------- #
-            if stt_gain_to_use != 1.0:
-                boosted_l = l_ch[:n].astype(np.float32) * stt_gain_to_use
-                np.copyto(self._int16_vad_buf[:n], np.clip(boosted_l, -32768, 32767).astype(np.int16))
-            else:
-                np.copyto(self._int16_vad_buf[:n], l_ch[:n])
+                # Transizione False→True: registra timestamp di inizio parlato AI
+                if ai_speaking_now and not ai_speaking_was:
+                    self._tts_start_time      = time.monotonic()
+                    self._barge_in_triggered  = False
+                    self._barge_in_frame_count = 0
 
-            # ---------------------------------------------------------- #
-            # [v5.6] Controllo Parlato AI (TTS o Gemini Live playback)
-            # L'AEC hardware gestisce l'eco. Porcupine e VAD girano sempre.
-            # ---------------------------------------------------------- #
-            ai_speaking_now = self._ev_tts.is_set() or getattr(self, '_is_playing_out', False)
-            ai_speaking_was = self._tts_active
-            tts_now = ai_speaking_now
+                self._tts_active = ai_speaking_now
+                self._is_tts_speaking = ai_speaking_now
 
-            # Transizione False→True: registra timestamp di inizio parlato AI
-            if ai_speaking_now and not ai_speaking_was:
-                self._tts_start_time      = time.monotonic()
-                self._barge_in_triggered  = False
-                self._barge_in_frame_count = 0
+                # Transizione True→False: AI ha terminato di parlare — reset VAD
+                if ai_speaking_was and not ai_speaking_now:
+                    self._speech_frame_count  = 0
+                    self._silence_frame_count = 0
+                    self._is_speech_active    = False
+                    self._vad_residual_len    = 0
+                    self._ring_write_idx      = 0
+                    self._barge_in_triggered  = False
+                    self._barge_in_frame_count = 0
 
-            self._tts_active = ai_speaking_now
-            self._is_tts_speaking = ai_speaking_now
-
-            # Transizione True→False: AI ha terminato di parlare — reset VAD per nuovo turno
-            if ai_speaking_was and not ai_speaking_now:
-                self._speech_frame_count  = 0
-                self._silence_frame_count = 0
-                self._is_speech_active    = False
-                self._vad_residual_len    = 0
-                self._ring_write_idx      = 0
-                self._barge_in_triggered  = False
-                self._barge_in_frame_count = 0
-            # RIMOSSO: early return durante TTS — il flusso audio continua sempre
-
-            # ---------------------------------------------------------- #
-            # Porcupine — wake word detection su segnale int16 grezzo
-            # ---------------------------------------------------------- #
-            is_listening = self._ev_listening.is_set()
-
-            if not is_listening:
-                # [v10.3] Permettiamo a Porcupine di ascoltare sempre (rimossa soppressione TTS)
-                # Questo permette di usare la keyword (es. 'zitto marcus') per fermarlo.
-                # L'eco è mitigato dal drop del gain a 0.5x durante il TTS.
-                porc_idx = 0
-
-                # A. Gestione residuo dal callback precedente
-                if self._porcupine_residual_len > 0:
-                    needed = self.frame_length - self._porcupine_residual_len
-                    if needed <= CHUNK_SIZE:
-                        np.copyto(self._porcupine_assembly_buf[:self._porcupine_residual_len],
-                                  self._porcupine_residual_buf[:self._porcupine_residual_len])
-                        np.copyto(self._porcupine_assembly_buf[self._porcupine_residual_len:],
-                                  self._int16_vad_buf[:needed])
-
-                        pcm = self._porcupine_assembly_buf.tolist()
-                        result = self.porcupine.process(pcm)
-                        if result >= 0:
-                            self.get_logger().info("!!! PORCUPINE MATCH DETECTED (Pre-roll loop) !!!")
-                            self._on_wakeword_detected()
-
-                        porc_idx = needed
-                        self._porcupine_residual_len = 0
-
-                # B. Processa i blocchi interi nel chunk corrente
-                while porc_idx + self.frame_length <= CHUNK_SIZE:
-                    porcupine_frame = self._int16_vad_buf[porc_idx : porc_idx + self.frame_length]
-
-                    pcm = porcupine_frame.tolist()
-                    result = self.porcupine.process(pcm)
-                    if result >= 0:
-                        self.get_logger().info("!!! PORCUPINE MATCH DETECTED (Main loop) !!!")
-                        self._on_wakeword_detected()
-                    porc_idx += self.frame_length
-
-                # C. Conserva il residuo finale
-                rest = CHUNK_SIZE - porc_idx
-                if rest > 0:
-                    np.copyto(self._porcupine_residual_buf[:rest], self._int16_vad_buf[porc_idx:])
-                    self._porcupine_residual_len = rest
-
-                # Aggiorna is_listening se è stata rilevata la wake word nel loop
+                # ---------------------------------------------------------- #
+                # Porcupine — wake word detection su segnale int16 grezzo
+                # ---------------------------------------------------------- #
                 is_listening = self._ev_listening.is_set()
 
-            # ---------------------------------------------------------- #
-            # [v5.6] Barge-In Detection: voce sostenuta durante TTS
-            # Il gate VAD sotto gestirà l'invio audio al LLM naturalmente
-            # ---------------------------------------------------------- #
-            if (tts_now
-                    and self._cfg_enable_barge_in
-                    and not self._barge_in_triggered
-                    and (time.monotonic() - self._tts_start_time) > self._barge_in_min_tts_s):
+                if not is_listening:
+                    porc_idx = 0
 
-                # Conta i frame di voce sostenuta durante TTS
-                if self._is_speech_active:
-                    self._barge_in_frame_count += 1
-                else:
-                    self._barge_in_frame_count = 0  # Reset se il segnale si interrompe
+                    # A. Gestione residuo dal callback precedente
+                    if self._porcupine_residual_len > 0:
+                        needed = self.frame_length - self._porcupine_residual_len
+                        if needed <= CHUNK_SIZE:
+                            np.copyto(self._porcupine_assembly_buf[:self._porcupine_residual_len],
+                                      self._porcupine_residual_buf[:self._porcupine_residual_len])
+                            np.copyto(self._porcupine_assembly_buf[self._porcupine_residual_len:],
+                                      self._int16_vad_buf[:needed])
 
-                # [v5.7] Diagnostica eco residua: logga RMS durante TTS per il tuning del barge-in
-                if self._is_speech_active and self._barge_in_frame_count % 2 == 0:
-                     self.get_logger().info(
-                          f"🕵️ [DEBUG-AEC] TTS Echo Alert | Frame: {self._barge_in_frame_count} | "
-                          f"Raw RMS: {rms_l:.1f} | Boosted: {rms_boosted:.1f}"
-                     )
+                            pcm = self._porcupine_assembly_buf.tolist()
+                            result = self.porcupine.process(pcm)
+                            if result >= 0:
+                                self.get_logger().info("!!! PORCUPINE MATCH DETECTED (Pre-roll loop) !!!")
+                                self._on_wakeword_detected()
 
-                if self._barge_in_frame_count >= self._barge_in_min_frames:
-                    self._barge_in_triggered = True
-                    self.get_logger().warning(
-                        f"🎤 [BARGE-IN] Interruzione rilevata dopo {self._barge_in_frame_count} frames di voce sostenuta "
-                        f"(Grace period > {self._barge_in_min_tts_s}s). Interrompo Marcus..."
-                    )
-                    # 1. Svuota la coda di playback — interrompe Marcus immediatamente
-                    drained = 0
-                    while not self._audio_out_queue.empty():
-                        try:
-                            self._audio_out_queue.get_nowait()
-                            drained += 1
-                        except queue.Empty:
-                            break
-                    self.get_logger().info(f"🔇 [BARGE-IN] Svuotati {drained} chunk dalla coda")
+                            porc_idx = needed
+                            self._porcupine_residual_len = 0
 
-                    # 2. Segnala barge-in all'orchestratore
-                    bi_msg = Bool()
-                    bi_msg.data = True
-                    self.barge_in_pub.publish(bi_msg)
+                    # B. Processa i blocchi interi nel chunk corrente
+                    while porc_idx + self.frame_length <= CHUNK_SIZE:
+                        porcupine_frame = self._int16_vad_buf[porc_idx : porc_idx + self.frame_length]
 
-                    # 3. Apre la sessione di ascolto per la nuova richiesta
-                    self._ev_listening.set()
-                    self._start_listen_timer()
-                    is_listening = True
+                        pcm = porcupine_frame.tolist()
+                        result = self.porcupine.process(pcm)
+                        if result >= 0:
+                            self.get_logger().info("!!! PORCUPINE MATCH DETECTED (Main loop) !!!")
+                            self._on_wakeword_detected()
+                        porc_idx += self.frame_length
 
-            # ---------------------------------------------------------- #
-            # [v3.0 — STEP C] VAD gate — solo se in ascolto
-            # ---------------------------------------------------------- #
-            if is_listening:
-                # Parametro debug: se VAD gate disabilitato, pubblica direttamente
-                if not self._cfg_enable_vad_gate:
-                    self._publish_audio_frame(self._int16_vad_buf[:FRAME_SIZE])
-                    self._consecutive_errors = 0
-                    return (None, pyaudio.paContinue)
+                    # C. Conserva il residuo finale
+                    rest = CHUNK_SIZE - porc_idx
+                    if rest > 0:
+                        np.copyto(self._porcupine_residual_buf[:rest], self._int16_vad_buf[porc_idx:])
+                        self._porcupine_residual_len = rest
 
-                # Gestione residuo inter-callback (attiva SEMPRE)
-                start_idx = 0
+                    # Aggiorna is_listening se è stata rilevata la wake word nel loop
+                    is_listening = self._ev_listening.is_set()
 
-                if self._vad_residual_len > 0:
-                    needed = FRAME_SIZE - self._vad_residual_len
-                    # [DSP-HOT] compone frame da residuo + inizio chunk corrente (BOOSTED)
-                    np.copyto(self._assembly_buf[:self._vad_residual_len],
-                              self._vad_residual_buf[:self._vad_residual_len])        # [DSP-HOT]
-                    np.copyto(self._assembly_buf[self._vad_residual_len:],
-                              self._int16_vad_buf[:needed])                            # [DSP-HOT]
-                              
-                    # compone frame da residuo + inizio chunk corrente (RAW)
-                    np.copyto(self._assembly_raw_buf[:self._vad_residual_len],
-                              self._vad_residual_raw_buf[:self._vad_residual_len])
-                    np.copyto(self._assembly_raw_buf[self._vad_residual_len:],
-                              l_ch[:needed])
-                              
-                    self._process_vad_frame(self._assembly_buf, self._assembly_raw_buf)
-                    start_idx = needed
-                    self._vad_residual_len = 0
+                # ---------------------------------------------------------- #
+                # Barge-In Detection: voce sostenuta durante TTS
+                # ---------------------------------------------------------- #
+                if (tts_now
+                        and self._cfg_enable_barge_in
+                        and not self._barge_in_triggered
+                        and (time.monotonic() - self._tts_start_time) > self._barge_in_min_tts_s):
 
-                i = start_idx
-                while i + FRAME_SIZE <= CHUNK_SIZE:
-                    self._process_vad_frame(
-                        self._int16_vad_buf[i:i + FRAME_SIZE],
-                        l_ch[i:i + FRAME_SIZE]
-                    )   # [DSP-HOT]
-                    i += FRAME_SIZE
+                    if self._is_speech_active:
+                        self._barge_in_frame_count += 1
+                    else:
+                        self._barge_in_frame_count = 0
 
-                residuo = CHUNK_SIZE - i
-                if residuo > 0:
-                    np.copyto(self._vad_residual_buf[:residuo],
-                              self._int16_vad_buf[i:])                                # [DSP-HOT]
-                    np.copyto(self._vad_residual_raw_buf[:residuo],
-                              l_ch[i:])
-                    self._vad_residual_len = residuo
+                    if self._is_speech_active and self._barge_in_frame_count % 2 == 0:
+                         self.get_logger().info(
+                              f"🕵️ [DEBUG-AEC] TTS Echo Alert | Frame: {self._barge_in_frame_count} | "
+                              f"Raw RMS: {rms_l:.1f} | Boosted: {rms_boosted:.1f}"
+                         )
 
-                # Heartbeat rimosso o reso silenzioso — sostituito da VOICE START/END
-                    pass
+                    if self._barge_in_frame_count >= self._barge_in_min_frames:
+                        self._barge_in_triggered = True
+                        self.get_logger().warning(
+                            f"🎤 [BARGE-IN] Interruzione rilevata dopo {self._barge_in_frame_count} frames di voce sostenuta. Interrompo Marcus..."
+                        )
+                        drained = 0
+                        while not self._audio_out_queue.empty():
+                            try:
+                                self._audio_out_queue.get_nowait()
+                                drained += 1
+                            except queue.Empty:
+                                break
+                        self.get_logger().info(f"🔇 [BARGE-IN] Svuotati {drained} chunk dalla coda")
 
-            # [v2.5 #3] Frame elaborato correttamente: azzera contatore errori
-            self._consecutive_errors = 0
+                        bi_msg = Bool()
+                        bi_msg.data = True
+                        self.barge_in_pub.publish(bi_msg)
 
-        except Exception as e:
-            self._consecutive_errors += 1
+                        self._ev_listening.set()
+                        self._start_listen_timer()
+                        is_listening = True
 
-            if self._consecutive_errors == 1:
-                self.get_logger().warning(f"Errore callback audio: {e}")
-            elif self._consecutive_errors == _CALLBACK_ERROR_THRESHOLD:
-                self.get_logger().fatal(
-                    f"Errore callback audio ax persistente dopo "
-                    f"{_CALLBACK_ERROR_THRESHOLD} frame consecutivi: {e}. "
-                    f"Il nodo VUI potrebbe non funzionare correttamente."
-                )
-            elif self._consecutive_errors % 100 == 0:
-                self.get_logger().error(
-                    f"Errore callback audio #{self._consecutive_errors}: {e}")
+                # ---------------------------------------------------------- #
+                # VAD gate — solo se in ascolto
+                # ---------------------------------------------------------- #
+                if is_listening:
+                    if not self._cfg_enable_vad_gate:
+                        self._publish_audio_frame(self._int16_vad_buf[:FRAME_SIZE])
+                        self._consecutive_errors = 0
+                        continue
 
-        return (None, pyaudio.paContinue)
+                    start_idx = 0
+
+                    if self._vad_residual_len > 0:
+                        needed = FRAME_SIZE - self._vad_residual_len
+                        np.copyto(self._assembly_buf[:self._vad_residual_len],
+                                  self._vad_residual_buf[:self._vad_residual_len])
+                        np.copyto(self._assembly_buf[self._vad_residual_len:],
+                                  self._int16_vad_buf[:needed])
+                                  
+                        np.copyto(self._assembly_raw_buf[:self._vad_residual_len],
+                                  self._vad_residual_raw_buf[:self._vad_residual_len])
+                        np.copyto(self._assembly_raw_buf[self._vad_residual_len:],
+                                  l_ch[:needed])
+                                  
+                        self._process_vad_frame(self._assembly_buf, self._assembly_raw_buf)
+                        start_idx = needed
+                        self._vad_residual_len = 0
+
+                    i = start_idx
+                    while i + FRAME_SIZE <= CHUNK_SIZE:
+                        self._process_vad_frame(
+                            self._int16_vad_buf[i:i + FRAME_SIZE],
+                            l_ch[i:i + FRAME_SIZE]
+                        )
+                        i += FRAME_SIZE
+
+                    residuo = CHUNK_SIZE - i
+                    if residuo > 0:
+                        np.copyto(self._vad_residual_buf[:residuo],
+                                  self._int16_vad_buf[i:])
+                        np.copyto(self._vad_residual_raw_buf[:residuo],
+                                  l_ch[i:])
+                        self._vad_residual_len = residuo
+
+                self._consecutive_errors = 0
+
+            except Exception as e:
+                self._consecutive_errors += 1
+                if self._consecutive_errors == 1:
+                    self.get_logger().warning(f"Errore worker audio: {e}")
+                elif self._consecutive_errors % 100 == 0:
+                    self.get_logger().error(f"Errore worker audio #{self._consecutive_errors}: {e}")
+
 
     # ------------------------------------------------------------------ #
     # Device discovery
@@ -1100,13 +1087,25 @@ class ReSpeakerVUINode(Node):
             n_out = dev.get('maxOutputChannels')
             self.get_logger().info(f"  [{i}] {name} (in:{n_in}, out:{n_out})")
 
-            # Cerchiamo esplicitamente 'pulse' o 'default' per usare il server PulseAudio/PipeWire
-            # In questo modo non blocchiamo l'hardware ALSA hw:0 e Raspotify può mixare l'audio!
-            if "pulse" in name.lower() or "default" in name.lower():
+            # Primo tentativo: cerca PipeWire/PulseAudio/Default per multiplexing condiviso
+            if "pulse" in name.lower() or "default" in name.lower() or "pipewire" in name.lower():
                 if n_in > 0 and in_idx is None:
                     in_idx = i
                 if n_out > 0 and out_idx is None:
                     out_idx = i
+
+        # Secondo tentativo fallback: se non trovati, cerca il dispositivo target (es. ReSpeaker)
+        if in_idx is None or out_idx is None:
+            for i in range(numdevices):
+                dev   = self.pa.get_device_info_by_host_api_device_index(0, i)
+                name  = dev.get('name')
+                n_in  = dev.get('maxInputChannels')
+                n_out = dev.get('maxOutputChannels')
+                if self.device_name_target.lower() in name.lower():
+                    if n_in > 0 and in_idx is None:
+                        in_idx = i
+                    if n_out > 0 and out_idx is None:
+                        out_idx = i
 
         return in_idx, out_idx
 
@@ -1122,6 +1121,8 @@ class ReSpeakerVUINode(Node):
         self._stop_listen_timer()
         if hasattr(self, '_playback_thread'):
             self._playback_thread.join(timeout=2.0)
+        if hasattr(self, '_worker_thread'):
+            self._worker_thread.join(timeout=2.0)
             
         if hasattr(self, 'in_stream') and self.in_stream:
             self.in_stream.stop_stream()

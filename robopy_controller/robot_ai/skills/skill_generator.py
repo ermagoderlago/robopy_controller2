@@ -244,12 +244,12 @@ Hash contesto: sha256:{rak_hash}
 6. Logging via logging (non self.get_logger(), dato che la skill non è un nodo ROS).
 7. La classe DEVE ereditare da BaseSkill.
 8. DEVE implementare: get_metadata() -> SkillMetadata, match(text, context) -> float, async execute(text, context) -> SkillResult
-9. L'import di BaseSkill deve essere: from severus.robot_ai.skills.base_skill import BaseSkill, SkillMetadata, SkillResult, SkillErrorCode, Capability
+9. L'import di BaseSkill deve essere: from robopy_controller.robot_ai.skills.base_skill import BaseSkill, SkillMetadata, SkillResult, SkillErrorCode, Capability
 10. Nessun print() — usare logging.
 
 ### Template da seguire
 ```python
-from severus.robot_ai.skills.base_skill import BaseSkill, SkillMetadata, SkillResult, SkillErrorCode, Capability
+from robopy_controller.robot_ai.skills.base_skill import BaseSkill, SkillMetadata, SkillResult, SkillErrorCode, Capability
 from typing import Any, Dict, List
 import asyncio
 import logging
@@ -509,7 +509,7 @@ Il codice generato ha fallito il Quality Gate. Correggi gli errori seguenti.
                 content = topic_map_path.read_text(encoding='utf-8')
 
                 # Aggiungi sezione per la nuova skill
-                new_section = f"\n## severus\\robot_ai\\skills\\active\\{request.snake_name}.py\n"
+                new_section = f"\n## robopy_controller\\robot_ai\\skills\\active\\{request.snake_name}.py\n"
                 if request.topics_sub:
                     new_section += "- **Subscribes to:**\n"
                     for topic in request.topics_sub:
@@ -525,7 +525,7 @@ Il codice generato ha fallito il Quality Gate. Correggi gli errori seguenti.
                     new_section += "- **Transmits (Publishes) to:** None\n"
 
                 # Evita duplicati
-                check_header = f"## severus\\robot_ai\\skills\\active\\{request.snake_name}.py"
+                check_header = f"## robopy_controller\\robot_ai\\skills\\active\\{request.snake_name}.py"
                 if check_header not in content:
                     content += new_section
                     topic_map_path.write_text(content, encoding='utf-8')
