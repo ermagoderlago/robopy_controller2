@@ -4,7 +4,8 @@
 
 set -e
 
-cd /home/robopy/robopy/robopi_controller/robopy_controller_host
+# Change to the script's directory so it works regardless of installation path
+cd "$(dirname "$0")"
 
 # Clean old build to avoid generator conflicts
 rm -rf build/robopy_controller install/robopy_controller

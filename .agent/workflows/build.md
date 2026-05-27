@@ -116,6 +116,111 @@ ATTENZIONE MAI CANCELLARE I FILE COMPILATI DI ROS2 NELLA CARTELLA  ~/ros2_jazzy!
 - Monitora lo spazio con: `df -h /mnt/ssd`.
 - Le build ora usano lo **stripping dei simboli** (`-Wl,--strip-all`) per ridurre l'impronta su disco e RAM.
 
+## 🔌 Compilazione e Flash del Firmware ESPHome (ReSpeaker Lite)
+
+Il microcontrollore del ReSpeaker Lite (XIAO ESP32S3) gestisce il controllo dei LED e la sincronizzazione hardware. Per evitare crash o rallentamenti sul Raspberry Pi, segui rigorosamente questa procedura di compilazione in WSL e flashing sul Pi:
+
+> [!WARNING]
+> **ATTENZIONE AGLI SPAZI NEL PATH (PlatformIO Limitation)**:
+> La cartella del progetto locale su Windows si trova all'interno di OneDrive (`OneDrive - BRUGOLA OEB INDUSTRIALE SPA`), il cui percorso contiene spazi. Il compilatore di ESPHome (PlatformIO/GCC) **fallirà sistematicamente** se eseguito direttamente dentro una cartella con spazi nel percorso.
+>
+> Per aggirare questo limite, è stato predisposto lo script di automazione **`./compile_wsl.sh`** che copia i sorgenti del firmware in una cartella di build pulita e priva di spazi (`/home/robopy/respeaker_build`), compila in sicurezza e trasferisce il binario sul Pi.
+
+### 1. Compilazione Standard (In WSL locale)
+La compilazione richiede risorse significative ed è configurata in WSL.
+1. Accedi a WSL dal PC Windows:
+   ```bash
+   ssh wsl
+   ```
+2. Spostati nella directory di lavoro ed esegui lo script di compilazione:
+   ```bash
+   cd "/mnt/c/Users/lsuffia/OneDrive - BRUGOLA OEB INDUSTRIALE SPA/Documents/robopy/antigravity"
+   bash ./compile_wsl.sh
+   ```
+   *Nota: Lo script esporta automaticamente `IDF_MAINTAINER=1` per convertire la discrepanza di versione tra la toolchain `pioarduino` e il `framework-espidf` (versione 5.5.2) da errore fatale a semplice warning non-blocking.*
+
+### 2. Flashing del Firmware sul Robot (Via SSH sul Pi)
+1. Connettiti via SSH al Raspberry Pi:
+   ```bash
+   ssh robopy@marcus
+   ```
+2. **IMPORTANTE: Sblocca la porta seriale prima di flashare!** Se i nodi ROS 2 sono attivi, tengono `/dev/ttyACM0` bloccato in esclusiva. Forza il loro arresto:
+   ```bash
+   pkill -9 -f respeaker_interface_node || true
+   pkill -9 -f respeaker_vui_node || true
+   pkill -9 -f robot_ai_node || true
+   ```
+3. Attiva l'ambiente virtuale ed esegui il flashing tramite `esptool`:
+   ```bash
+   source /home/robopy/esphome_venv/bin/activate
+   esptool --port /dev/ttyACM0 --baud 115200 write-flash 0x0 /tmp/firmware_led_v14.factory.bin
+   ```
+4. Riavvia la brain di Marcus:
+   ```bash
+   bash /mnt/ssd/robopy_controller_host/restart.sh
+   ```
+
+---
+
+### 🛠️ Ricostruzione ed Installazione dell'Ambiente da Zero (Bootstrap & Troubleshooting)
+
+Se l'ambiente WSL o PlatformIO dovesse corrompersi o se volessi reinstallarlo completamente da zero su un nuovo PC, segui questi passaggi architetturali precisi:
+
+#### STEP 1: Installazione dell'Ambiente Virtuale di ESPHome
+Crea e attiva l'ambiente virtuale python isolato per installare ESPHome in WSL:
+```bash
+python3 -m venv /home/robopy/esphome_venv
+source /home/robopy/esphome_venv/bin/activate
+pip install esphome tornado esptool
+```
+
+#### STEP 2: Risoluzione dell'Isolamento SCons (PEP 668 Link)
+SCons esegue i sottoprocessi di compilazione con il Python di sistema (`/usr/bin/python3`), che in Ubuntu 24.04+ è bloccato (PEP 668) e manca delle librerie di PlatformIO. Per permettere a SCons di importare `platformio` senza inquinare il sistema:
+1. Crea un link `.pth` locale all'interno della cartella site-packages dell'utente `/home/robopy/.local`:
+   ```bash
+   mkdir -p ~/.local/lib/python3.12/site-packages
+   echo "/home/robopy/esphome_venv/lib/python3.12/site-packages" > ~/.local/lib/python3.12/site-packages/esphome_venv.pth
+   ```
+   Questo permette a qualsiasi esecuzione del Python di sistema di accedere alle dipendenze PlatformIO dell'ambiente virtuale.
+
+#### STEP 3: Configurazione e Bootstrap del compilatore
+Durante la prima esecuzione di `esphome compile respeaker.yaml`, PlatformIO inizializza i pacchetti sotto `~/.platformio/packages/`. A causa di dipendenze vuote o bootstrap interrotti, segui questi passaggi per sanare l'ambiente:
+1. **Zero-Byte File templates**: Se l'installatore lamenta file `tools.json` corrotti, ripristina i template di base:
+   - File template 1: `/home/robopy/.platformio/packages/framework-espidf/tools/tools.json`
+   - File template 2: `/home/robopy/.platformio/packages/tool-esp_install/tools/tools.json`
+2. **Installazione Dipendenze ESP-IDF**:
+   Usa `uv` per popolare velocemente l'ambiente virtuale interno di ESP-IDF (`.espidf-5.5.2`) con le dipendenze core (tra cui `esp-idf-kconfig` per generare `kconfgen`):
+   ```bash
+   pip install uv
+   uv pip install --python /home/robopy/.platformio/penv/.espidf-5.5.2/bin/python -r /home/robopy/.platformio/packages/framework-espidf/tools/requirements/requirements.core.txt
+   ```
+3. **Purge della Piattaforma 'win-arm64'**:
+   Gli installer legacy di espressif v5.3 falliscono sistematicamente se rilevano la presenza di `"win-arm64"` nei file `tools.json` degli altri pacchetti scaricati. Rimuovi ricorsivamente ogni stringa `"win-arm64"` o riferimenti ad essa in tutti i `tools.json` sotto `/home/robopy/.platformio/packages/`.
+
+---
+
+### 3. Rollback in caso di Emergenza
+Se riscontri problemi o freeze al microfono I2S/DMA, ripristina istantaneamente il firmware sicuro e collaudato:
+1. In WSL locale, compila la versione standard sicura:
+   ```bash
+   mkdir -p /home/robopy/respeaker_build
+   cp robopy_controller/files_utili/respeaker_lite_firmware.yaml /home/robopy/respeaker_build/respeaker.yaml
+   cp robopy_controller/files_utili/respeaker_helper.h /home/robopy/respeaker_build/
+   cp secrets.yaml /home/robopy/respeaker_build/
+   
+   cd /home/robopy/respeaker_build
+   source /home/robopy/esphome_venv/bin/activate
+   export IDF_MAINTAINER=1
+   esphome compile respeaker.yaml
+   scp .esphome/build/respeaker-lite/.pioenvs/respeaker-lite/firmware.factory.bin robopy@marcus:/tmp/firmware_safe.factory.bin
+   ```
+2. Sul Pi:
+   ```bash
+   source /home/robopy/esphome_venv/bin/activate
+   esptool --port /dev/ttyACM0 --baud 115200 write-flash 0x0 /tmp/firmware_safe.factory.bin
+   ```
+
+
 ## Collegamenti a frammenti correlati
 
 - `./weights/Marcus_architecture.md` — Descrizione dell'architettura neurale e logica di Marcus

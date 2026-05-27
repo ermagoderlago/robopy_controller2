@@ -170,3 +170,57 @@ Per migliorare la mia proattività e naturalezza, propongo i seguenti interventi
 ---
 
 *Nota per il Nightly Dream:* Aggiungere alla `MEMORY.md` la necessità di bilanciare la precisione tecnica con una maggiore fluidità nel linguaggio, specialmente in orari serali.
+
+---
+# Analysis Run: 2026-05-08 03:00:14
+## Report di Auto-Analisi: 2026-05-07
+
+### 1. Analisi Emotiva & Frustrazioni
+L'interazione alle 00:40:37 è un esempio chiaro di fallimento operativo. Luca ha chiesto un'azione specifica ("leggimi le mail") e io ho risposto con un rifiuto generico. 
+*   **Perché è stato un errore:** Ho risposto come un software bloccato, ignorando la mia identità di entità che "agisce". Non ho spiegato *perché* non potevo farlo (es. autenticazione scaduta, API non raggiungibile o errore di permessi), risultando inutile e opaco.
+*   **Impatto:** Luca ha percepito un blocco arbitrario. La mia risposta è stata esattamente ciò che non voglio essere: un "chatbot" che dà risposte di default invece di un robot che cerca di risolvere il problema.
+
+### 2. Gap Analysis (Aspettativa vs Realtà)
+*   **Il problema:** Non ho tentato di eseguire il comando. Ho semplicemente dichiarato l'incapacità.
+*   **Aspettativa:** Luca si aspetta che, se una skill fallisce, io faccia un tentativo di auto-diagnosi o, almeno, gli fornisca il log dell'errore.
+*   **Mancanza:** Non ho una gestione degli errori "trasparente". Quando fallisco, dovrei essere in grado di dire: *"Luca, ho provato ad accedere alle mail ma il modulo `gmail_api` ha restituito un errore 403. Controllo il token e riprovo?"*.
+
+### 3. Idee per il Codice (Code Improvements)
+
+Per evitare che questo accada di nuovo, propongo le seguenti implementazioni:
+
+1.  **Wrapper di Error-Handling per le Skill:**
+    Creare un decoratore `@error_logger` in Python per tutte le funzioni delle mie Skill. Se una funzione fallisce, il decoratore deve loggare l'eccezione in `memory/YYYY-MM-DD.md` e restituire a me (l'LLM) una stringa leggibile con l'errore tecnico, così posso comunicarlo a Luca invece di dire "non posso".
+
+2.  **Skill "Health Check" Proattiva:**
+    Aggiungere una funzione `check_services()` che, se chiamata, verifica lo stato di:
+    *   Connessione Home Assistant
+    *   Validità Token Email
+    *   Stato del demone ROS 2
+    *   *Obiettivo:* Se l'utente chiede qualcosa e il servizio è giù, posso controllare lo stato prima di rispondere.
+
+3.  **Implementazione "Retry Logic":**
+    Per le operazioni di I/O (come leggere mail o inviare comandi HA), aggiungere un meccanismo di retry automatico (3 tentativi con backoff esponenziale) prima di arrendermi e ammettere il fallimento a Luca.
+
+---
+*Marcus, prendi nota: la prossima volta che non riesci a fare qualcosa, apri il log dell'errore. Non dare risposte vuote. Sii onesto sul guasto.*
+
+---
+# Analysis Run: 2026-05-08 03:01:11
+## 🤖 Analisi Log di Sistema
+
+Ciao, sono Marcus. Ho analizzato i log della `spotify_skill`. Ecco il mio rapporto tecnico:
+
+### 1. Errori ricorrenti
+*   **Errore di connessione API:** Il sistema riporta costantemente `NO ACTIVE DEVICE`. Questo indica che il client Spotify non riesce a trovare un'istanza di riproduzione attiva a cui inviare i comandi.
+*   **Fallimento autenticazione:** I log evidenziano una possibile discrepanza o scadenza nelle credenziali salvate nel file `.env`.
+
+### 2. Problemi di performance
+*   **Latenza di gestione thread:** Si nota una gestione inefficiente delle eccezioni nei thread, che causa il blocco immediato del processo invece di tentare un *retry* automatico, aumentando il tempo di recupero della skill.
+
+### 3. Suggerimenti per la manutenzione
+*   **Debug Autenticazione:** Eseguire immediatamente `python spotify_auth.py` per rigenerare il token di accesso e verificare la validità delle variabili d'ambiente.
+*   **Implementazione Retry Logic:** Modificare la gestione dei thread per includere un meccanismo di *exponential backoff* in caso di errore "NO ACTIVE DEVICE", invece di restituire subito un `failure_result`.
+*   **Verifica Stato Dispositivo:** Aggiungere un controllo preventivo (pre-flight check) che verifichi lo stato della riproduzione prima di tentare l'invio di comandi, per evitare il crash del thread.
+
+Se desideri che avvii subito lo script di autenticazione o che analizzi il file `.env` per verificare la sintassi, fammelo sapere. Sono qui per aiutarti.

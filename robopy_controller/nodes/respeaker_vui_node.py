@@ -302,10 +302,13 @@ class ReSpeakerVUINode(Node):
         # [v3.0] _pub_speech alias per il VAD gate (usa lo stesso topic audio_pub)
         self._pub_speech  = self.audio_pub
 
+        self._current_mood = 'IDLE'
         self.create_subscription(Bool,      '/ai/tts/speaking',         self._tts_speaking_cb,  10)
         self.create_subscription(AudioData, '/respeaker/speaker_audio', self._speaker_audio_cb, 10)
         self.create_subscription(Bool,      '/ai/input/mic_mute',       self._mic_mute_cb,      10)
         self.create_subscription(Bool,      '/ai/music_playing',        self._music_playing_cb, 10)
+        self.create_subscription(String,    '/ai/conversation/mood',    self._mood_cb,          10)
+        self.create_subscription(Bool,      '/ai/conversation/interrupt', self._interrupt_cb,     10)
 
         # ------------------------------------------------------------------ #
         # PyAudio — usa CHUNK_SIZE come frames_per_buffer
@@ -506,11 +509,20 @@ class ReSpeakerVUINode(Node):
         self._is_tts_speaking = msg.data
         if msg.data:
             self._ev_tts.set()
-            self.set_led('THINKING')
+            # [v14.1] LED SUCCESS (verde fisso) quando Marcus sta parlando
+            self.set_led('SUCCESS')
         else:
             self._ev_tts.clear()
             if not self._ev_listening.is_set():
-                self.set_led('IDLE')
+                # Torna allo stato dell'umore corrente quando finisce di parlare
+                self.set_led(self._current_mood)
+
+    def _mood_cb(self, msg: String):
+        self._current_mood = msg.data
+        self.get_logger().info(f"🎭 [VUI] Nuovo stato emotivo ricevuto: {self._current_mood}")
+        # Se non stiamo parlando (TTS) e non stiamo ascoltando attivamente, aggiorna subito il LED
+        if not self._is_tts_speaking and not self._ev_listening.is_set():
+            self.set_led(self._current_mood)
 
     def _music_playing_cb(self, msg: Bool):
         """[v11.0] Tracks if Spotify is playing to inhibit VAD"""
@@ -524,11 +536,36 @@ class ReSpeakerVUINode(Node):
         if msg.data:
             self._stop_listen_timer()
             self._ev_listening.clear()
-            self.set_led('IDLE')
+            self.set_led(self._current_mood)
+            # Svuota la coda audio per interrompere immediatamente il parlato
+            while not self._audio_out_queue.empty():
+                try:
+                    self._audio_out_queue.get_nowait()
+                except queue.Empty:
+                    break
+            # Genera ed esegue un beep di disattivazione a due toni calanti
+            try:
+                beep_bytes = self._generate_beep(freq=600.0, duration=0.15) + self._generate_beep(freq=400.0, duration=0.15)
+                self._audio_out_queue.put_nowait(beep_bytes)
+            except Exception:
+                pass
         else:
             self._ev_listening.set()
             self.set_led('LISTENING')
             self._start_listen_timer()  # [FIX] Start auto-timeout when unmuted
+
+    def _interrupt_cb(self, msg: Bool):
+        if msg.data:
+            self.get_logger().info("🤫 [VUI] Ricevuto comando di INTERRUPT/SILENCE! Svuoto la coda audio...")
+            # Svuota la coda audio per interrompere immediatamente il parlato
+            drained = 0
+            while not self._audio_out_queue.empty():
+                try:
+                    self._audio_out_queue.get_nowait()
+                    drained += 1
+                except queue.Empty:
+                    break
+            self.get_logger().info(f"🔇 [VUI] Svuotati {drained} chunk dalla coda di riproduzione.")
 
     def _speaker_audio_cb(self, msg: AudioData):
         if self._shutdown or not msg.data:
@@ -616,7 +653,7 @@ class ReSpeakerVUINode(Node):
             f"Timeout ascolto ({self._listen_timeout_sec}s): reset IDLE automatico.")
         self._stop_listen_timer()
         self._ev_listening.clear()
-        self.set_led('IDLE')
+        self.set_led(self._current_mood)
         mute_msg = Bool()
         mute_msg.data = True
         self.mic_mute_pub.publish(mute_msg)
@@ -649,6 +686,8 @@ class ReSpeakerVUINode(Node):
         msg.data = b''                       # frame vuoto = segnale end-of-speech per il LLM
         self._pub_speech.publish(msg)
         self.get_logger().info("[VAD] <<< VOICE END: Segnale End-of-Speech inviato a Gemini.")
+        # [v14.1] LED THINKING (blu flicker) = stiamo aspettando la risposta di Gemini
+        self.set_led('THINKING')
         # [v6.1] Reset del timer di ascolto: i 3 minuti ripartono dall'ultima parola pronunciata
         self._start_listen_timer()
 
@@ -798,14 +837,18 @@ class ReSpeakerVUINode(Node):
             # A. Auto-regolazione soglia noise gate (se abilitata)
             if self.enable_adaptive_threshold:
                 boosted_ambient = self._ambient_noise_ema * self.stt_gain
-                # Ricarica dinamica: 1.20x + offset 150, protetta tra [1200.0, 32000.0]
-                self.noise_gate_threshold = float(np.clip(boosted_ambient * 1.20 + 150.0, 1200.0, 32000.0))
+                # Ricarica dinamica: 1.20x + offset 150, protetta tra [300.0, 32000.0]
+                # [v14.1 FIX] Abbassato il minimo da 1200 a 300: il segnale boosted in idle è ~100-150,
+                # ma la voce boosted è ~2000-8000. Con 1200 si rischia di tagliare voci deboli.
+                self.noise_gate_threshold = float(np.clip(boosted_ambient * 1.20 + 150.0, 300.0, 32000.0))
 
             # B. Taratura adattiva del timeout silenzio (se abilitato)
             if self.enable_adaptive_silence:
                 raw_ambient = self._ambient_noise_ema
                 if raw_ambient < 150.0:
-                    self._cfg_max_silence = 22  # ~440ms (silenzio perfetto: ultra rapido)
+                    # [v14.1 FIX] Aumentato da 22 (440ms) a 40 (800ms) in ambiente silenzioso.
+                    # Con 440ms l'utente non aveva tempo di iniziare a parlare dopo il beep.
+                    self._cfg_max_silence = 40  # ~800ms (silenzio perfetto: stabile ma reattivo)
                 elif raw_ambient < 300.0:
                     self._cfg_max_silence = 28  # ~560ms (moderato rumore di fondo)
                 elif raw_ambient < 600.0:

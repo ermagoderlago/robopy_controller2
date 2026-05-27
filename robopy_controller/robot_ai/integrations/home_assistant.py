@@ -431,7 +431,7 @@ class HomeAssistantClient:
             return self._entities.get(entity_id, HAEntity(entity_id, "", "")).state
             
         except Exception as e:
-            self.logger.error(f"Failed to get state: {e}")
+            self.logger.debug(f"Failed to get state: Not connected to Home Assistant")
             return None
     
     async def get_entities(self, domain: str = None) -> List[HAEntity]:

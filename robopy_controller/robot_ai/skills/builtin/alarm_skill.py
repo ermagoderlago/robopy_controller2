@@ -10,7 +10,7 @@ import logging
 from datetime import datetime, time, timedelta
 from typing import Any, Dict, List, Optional
 
-from robot_ai.skills.base_skill import BaseSkill, SkillMetadata, SkillResult, SkillErrorCode, Capability
+from robopy_controller.robot_ai.skills.base_skill import BaseSkill, SkillMetadata, SkillResult, SkillErrorCode
 
 logger = logging.getLogger("robot_ai.skills.alarm_skill")
 
@@ -46,8 +46,7 @@ class AlarmSkill(BaseSkill):
             description="Imposta una sveglia ad un orario specifico.",
             version="1.0.0",
             keywords=["sveglia", "alarm", "svegliami", "ora", "appuntamento"],
-            priority=9,
-            capabilities=[Capability.AUDIO_PLAY]
+            priority=9
         )
 
     def match(self, text: str, context: Dict[str, Any] = None) -> float:

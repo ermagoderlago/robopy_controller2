@@ -5,8 +5,11 @@ SmartBuildHatDriver — Open-Loop Bang-Bang Controller
 ECO00023: Rimosso PID (feedback da /odom_filtered era rotto da ECO00020).
 I motori PassiveMotor non hanno encoder e richiedono ~100% PWM.
 Strategia: se Nav2/teleop chiede di muoversi → PWM 100% nella direzione giusta.
+
+Version: 01.00.00 (ECO00003)
 """
 
+__version__ = "01.00.00"
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist
