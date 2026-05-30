@@ -61,6 +61,7 @@ class LiveConnectionManager:
         self._live_functions: Optional[List[Dict[str, Any]]] = None
         self._activity_started: bool = False
         self._current_user_text: str = ""
+        self._turn_in_progress: bool = False  # True tra activity_end e turn_complete — blocca nuovi activity_start
         
         # State timings updated by LLMService
         self.last_successful_turn_time = 0.0
@@ -104,6 +105,11 @@ class LiveConnectionManager:
 
     def _enqueue_audio(self, chunk: bytes):
         """Enqueues audio chunk with a sliding window drop policy to prevent OOM."""
+        # Se non c'è una sessione Live attiva o se Gemini sta elaborando un turno precedente,
+        # scarta subito il chunk (evita OOM, audio stantio e inutile accumulo offline)
+        if not self._live_session or self._turn_in_progress:
+            return
+
         if not isinstance(chunk, bytes):
             try:
                 if hasattr(chunk, 'tobytes'):
@@ -312,6 +318,7 @@ class LiveConnectionManager:
                             self._live_session = session
                             self._live_connecting = False
                             self._activity_started = False
+                            self._turn_in_progress = False  # reset su ogni nuova connessione
                             was_connected = True
 
                         self.logger.info("Live API connessa con successo.")
@@ -373,55 +380,64 @@ class LiveConnectionManager:
                     continue
 
                 if len(chunk) == 0:
-                    # Empty chunk = End of speech signal
+                    # Empty chunk = End of speech signal from local VAD
                     self.logger.info("🎤 [Live] Ricevuto END OF SPEECH da VUI. Eseguo controlli di gating...")
-                    
-                    user_text = self._current_user_text.strip().lower()
-                    is_noise = self._is_text_noise_or_empty(user_text)
-                    has_direct_address = "marcus" in user_text
-                    
+
+                    # NOTA ARCHITETTURALE (lesson_learned): Con VAD manuale (activity_start/end),
+                    # Gemini invia input_transcription DOPO activity_end, non durante lo streaming.
+                    # Quindi _current_user_text è SEMPRE vuoto qui. NON filtrare su is_noise
+                    # in questo punto — causerebbe lo scarto di tutti i turni validi.
+                    # Il filtro rumore è delegato al meccanismo <IGNORE_TURN> nel prompt di Gemini.
+
                     last_turn_ago = time.time() - self.last_successful_turn_time
                     last_wakeword_ago = time.time() - self.last_wakeword_time
                     is_active = (
                         last_wakeword_ago < 60.0 or
                         last_turn_ago < 30.0
                     )
-                    
-                    self.logger.debug(
+
+                    self.logger.info(
                         f"[LLM Gate] wakeword_ago={last_wakeword_ago:.1f}s | turn_ago={last_turn_ago:.1f}s | "
-                        f"is_active={is_active} | is_noise={is_noise} | has_address={has_direct_address}"
+                        f"is_active={is_active}"
                     )
-                    
-                    should_ignore = False
-                    if is_noise:
-                        self.logger.info(f"🔇 [Live] Turno ignorato: rilevato solo silenzio o rumore ('{user_text}').")
-                        should_ignore = True
-                    elif not is_active and not has_direct_address:
-                        self.logger.info(f"🔇 [Live] Turno ignorato: nessun indirizzo diretto ('marcus') fuori dalla finestra di conversazione.")
-                        should_ignore = True
-                        
-                    if should_ignore:
-                        # Mute mic callback
+
+                    if not is_active:
+                        # Fuori finestra conversazione: scarta silenziosamente
+                        self.logger.info("🔇 [Live] Turno ignorato: fuori dalla finestra di conversazione attiva (>60s da wake word, >30s dall'ultimo turno).")
                         if self.on_mic_mute:
                             self.on_mic_mute(True)
-                        
                         self._current_user_text = ""
                         self._current_live_response = {"text": "", "actions": []}
                         asyncio.create_task(self._reconnect())
                         continue
 
-                    # Valid turn, proceed with sending activity_end
-                    self.logger.info(f"🎤 [Live] Turno valido ('{user_text}'). Invio activity_end a Gemini...")
+                    # Finestra attiva: invia activity_end e lascia decidere a Gemini via <IGNORE_TURN>
+                    self.logger.info("🎤 [Live] Finestra conversazione attiva. Invio activity_end a Gemini...")
                     try:
                         await session.send_realtime_input(activity_end=types.ActivityEnd())
                         self._activity_started = False
-                        self.logger.info("✅ [Live] activity_end inviato.")
+                        self._turn_in_progress = True  # blocca nuovi activity_start fino a turn_complete
+                        self.logger.info("✅ [Live] activity_end inviato. In attesa di turn_complete...")
+                        # Drena la coda audio stantia per evitare activity_start spurii sulla sessione
+                        drained = 0
+                        while not self._audio_in_queue.empty():
+                            try:
+                                self._audio_in_queue.get_nowait()
+                                drained += 1
+                            except asyncio.QueueEmpty:
+                                break
+                        if drained > 0:
+                            self.logger.info(f"🧹 [Live] Drenati {drained} chunk audio stantii dalla coda post-EOS.")
                     except Exception as e:
                         self.logger.error(f"❌ Errore invio activity_end: {e}")
                     continue
 
                 try:
                     if not self._activity_started:
+                        if self._turn_in_progress:
+                            # Gemini sta ancora processando il turno precedente: scarta il chunk
+                            self.logger.debug("⏳ [Live] activity_start bloccato: turno precedente in attesa di turn_complete.")
+                            continue
                         await session.send_realtime_input(activity_start=types.ActivityStart())
                         self._activity_started = True
                         self.logger.info("🎤 [Live] activity_start inviato — inizio turno vocale.")
@@ -471,6 +487,7 @@ class LiveConnectionManager:
 
         if getattr(sc, 'interrupted', False):
             self.logger.warning("🤫 [Live] Interruzione rilevata dal server! Invio segnale di interrupt...")
+            self._turn_in_progress = False  # libera il blocco su interrupt
             self._current_user_text = ""
             self._current_live_response = {"text": "", "actions": []}
             if self.on_interrupt:
@@ -532,6 +549,18 @@ class LiveConnectionManager:
                     })
 
         if getattr(sc, 'turn_complete', False):
+            self._turn_in_progress = False  # sblocca nuovi activity_start
+            self.logger.info("✅ [Live] turn_complete ricevuto — sblocco nuovo ascolto.")
+            # Drena i chunk accumulati durante la risposta (rumore ambientale stantio)
+            drained = 0
+            while not self._audio_in_queue.empty():
+                try:
+                    self._audio_in_queue.get_nowait()
+                    drained += 1
+                except asyncio.QueueEmpty:
+                    break
+            if drained > 0:
+                self.logger.info(f"🧹 [Live] Drenati {drained} chunk stantii al turn_complete.")
             fut = self._live_response_future
             if fut is not None and not fut.done():
                 fut.set_result(self._current_live_response.copy())

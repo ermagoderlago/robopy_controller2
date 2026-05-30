@@ -124,10 +124,15 @@ class ConversationManager:
                 texts = await self.skill_executor.execute_skill(skill.name, {"text": clean_text})
                 for t in texts:
                     await self.tts.speak(t)
+                    if self.response_callback:
+                        self.response_callback(t)
             except Exception as e:
                 self._logger.error(f"Errore fast-path skill execution: {e}")
                 self.llm.flag_tool_failure()
-                await self.tts.speak("Uhm... Dunque, scusami, ho avuto un piccolo intoppo nel comando rapido.")
+                err_msg = "Uhm... Dunque, scusami, ho avuto un piccolo intoppo nel comando rapido."
+                await self.tts.speak(err_msg)
+                if self.response_callback:
+                    self.response_callback(err_msg)
             return True
 
         # Offline fallback
@@ -277,10 +282,15 @@ class ConversationManager:
                 speak_texts = await self.skill_executor.execute_actions(explicit_actions)
                 for t in speak_texts:
                      await self.tts.speak(t)
+                     if self.response_callback:
+                          self.response_callback(t)
             except Exception as e:
                 self._logger.error(f"Errore durante l'esecuzione delle skill: {e}", exc_info=True)
                 self.llm.flag_tool_failure()
-                await self.tts.speak("Uhm... Dunque, scusami, ho avuto un piccolo intoppo nell'eseguire questa azione.")
+                err_msg = "Uhm... Dunque, scusami, ho avuto un piccolo intoppo nell'eseguire questa azione."
+                await self.tts.speak(err_msg)
+                if self.response_callback:
+                     self.response_callback(err_msg)
                  
         if not response_text and (formatted_doc or any(a.get("action_type", a.get("name", "")) == "ask_visual_question" for a in response_actions)):
             response_text = "Ho analizzato l'hardware visivamente e prodotto un report a schermo."

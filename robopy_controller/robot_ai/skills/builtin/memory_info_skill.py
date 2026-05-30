@@ -2,7 +2,7 @@ import asyncio
 import time
 from typing import Any, AsyncGenerator, Dict, List, Optional
 from ..base_skill import BaseSkill, Capability, SkillMetadata, SkillResult
-from severus.robot_ai.utils import get_logger
+from ...utils import get_logger
 
 logger = get_logger("memory_info_skill")
 

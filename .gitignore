@@ -6,6 +6,8 @@ log/
 # Sensitive files - NEVER COMMIT THESE
 setup_keys.sh
 .env
+secrets.yaml
+
 # Large files
 *.blob
 weights/

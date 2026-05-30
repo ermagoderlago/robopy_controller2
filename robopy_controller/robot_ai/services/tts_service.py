@@ -269,7 +269,7 @@ class TTSService:
                 
                 audio_config = texttospeech.AudioConfig(
                     audio_encoding=texttospeech.AudioEncoding.LINEAR16,
-                    sample_rate_hertz=24000,
+                    sample_rate_hertz=16000,
                     speaking_rate=self.ai_config.tts.speaking_rate,
                     pitch=self.ai_config.tts.pitch
                 )
@@ -308,7 +308,7 @@ class TTSService:
             msg = AudioData()
             msg.data = list(audio_data) # bytes to list of ints for ROS byte[]
             self.speaker_pub.publish(msg)
-            duration = len(audio_data) / 48000.0  # 24000Hz, 16-bit mono = 48000 bytes/sec
+            duration = len(audio_data) / 32000.0  # 16000Hz, 16-bit mono = 32000 bytes/sec
             await asyncio.sleep(duration)
             return
 

@@ -8,7 +8,7 @@ import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 
-from severus.robot_ai.skills.base_skill import BaseSkill, SkillMetadata, SkillResult, SkillErrorCode, Capability
+from ..base_skill import BaseSkill, SkillMetadata, SkillResult, SkillErrorCode, Capability
 from ..skill_generator import SkillGeneratorPipeline, SkillRequest
 
 logger = logging.getLogger("robot_ai.skills.crea_skill")

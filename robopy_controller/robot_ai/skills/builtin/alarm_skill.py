@@ -71,7 +71,12 @@ class AlarmSkill(BaseSkill):
              )
              return
 
-        target_time = self._extract_time(text)
+        target_time = None
+        if text:
+            target_time = self._extract_time(text)
+            
+        if not target_time and context and "time_string" in context:
+            target_time = self._extract_time(context["time_string"])
         
         if not target_time:
             yield SkillResult.failure_result(

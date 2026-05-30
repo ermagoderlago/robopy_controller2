@@ -34,6 +34,10 @@ from robot_ai.skills.builtin.nightly_dream_skill import NightlyDreamSkill
 from robot_ai.skills.builtin.visual_exploration_skill import VisualExplorationSkill
 from robot_ai.skills.builtin.calibration_skill import CalibrationSkill
 from robot_ai.skills.builtin.alarm_skill import AlarmSkill
+from robot_ai.skills.builtin.email_skill import EmailSkill
+from robot_ai.skills.builtin.crea_skill import CreaSkill
+from robot_ai.skills.builtin.memory_info_skill import MemoryInfoSkill
+from robot_ai.skills.builtin.timer_skill import TimerSkill
 
 from robot_ai.core.camera_frame import CameraFrame
 
@@ -129,6 +133,12 @@ class AIOrchestrator(Node):
         else:
              self.skill_registry.register(AlarmSkill())
 
+        # Registrazione skill builtin email, crea_skill, memory_info, timer
+        self.skill_registry.register(EmailSkill(self.llm_service, self.config, self.memory_manager))
+        self.skill_registry.register(CreaSkill(self.llm_service))
+        self.skill_registry.register(MemoryInfoSkill(self.memory_manager))
+        self.skill_registry.register(TimerSkill())
+
         # Caricamento dinamico delle skill attive (Spotify, Terminale, Web Search, ecc.)
         try:
              from pathlib import Path
@@ -211,6 +221,14 @@ class AIOrchestrator(Node):
              self.scheduler.start()
         except ImportError:
              self.ai_logger.warning("APScheduler missing, nightly dream not scheduled.")
+
+        # Inietta lo scheduler nella sveglia se attiva
+        if hasattr(self, 'scheduler') and self.scheduler:
+             alarm_skill = self.skill_registry.get("alarm")
+             if alarm_skill:
+                 alarm_skill.scheduler = self.scheduler
+                 self.ai_logger.info("Scheduler iniettato con successo in AlarmSkill")
+
 
     def _reactive_loop_callback(self):
         if self._shutdown_flag:
@@ -410,8 +428,39 @@ class AIOrchestrator(Node):
             # safe_execute gestisce internamente il corretto thread context e asincronia.
             result = await skill.safe_execute("", context=args)
             
+            # Se è un generatore asincrono, lo consumiamo in modo sicuro
+            import inspect
+            if hasattr(result, '__aiter__'):  # AsyncGenerator
+                final_result = None
+                try:
+                    async for res in result:
+                        if final_result is None:
+                            final_result = res
+                        else:
+                            # Se ci sono risultati successivi (es. timer completato in futuro), li consumiamo in background
+                            async def consume_remaining(gen, first_res):
+                                try:
+                                    async for r in gen:
+                                        if hasattr(r, 'speak') and r.speak:
+                                            self.ai_logger.info(f"💬 Live Tool background event speak: '{r.speak}'")
+                                            if self.tts_service:
+                                                self.tts_service.speak(r.speak)
+                                except Exception as consume_e:
+                                    self.ai_logger.error(f"Errore nel consumo in background del generatore della skill: {consume_e}")
+                            
+                            asyncio.create_task(consume_remaining(result, final_result))
+                            break
+                except Exception as gen_e:
+                    self.ai_logger.error(f"Errore iterazione generatore skill: {gen_e}")
+                
+                if final_result is not None:
+                    result = final_result
+                else:
+                    return {"success": False, "error": "Skill returned empty generator"}
+
+            # Ora result è sicuramente un oggetto SkillResult
             # Se la skill fornisce un feedback vocale immediato, lo logghiamo per tracciabilità
-            if result.speak:
+            if hasattr(result, 'speak') and result.speak:
                  self.ai_logger.info(f"💬 Live Tool Speak feedback: '{result.speak}'")
             
             # [v15.1] Salva le preferenze utente nel RAG se è stata avviata musica su Spotify

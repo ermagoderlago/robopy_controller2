@@ -528,4 +528,116 @@ Questo documento raccoglie gli errori riscontrati, le cause identificate e le so
     1. In `watchdog.sh`, tutte le chiamate a `restart.sh` sono state marcate con `FROM_WATCHDOG=1`.
     2. In `restart.sh`, si verifica la presenza di tale variabile. Se è vuota (riavvio manuale dell'operatore), lo script provvede anzitutto ad arrestare in modo pulito il watchdog via systemd (`sudo systemctl stop marcus-watchdog.service`), uccide i nodi, riavvia lo stack e riattiva il watchdog al termine. Se invece `FROM_WATCHDOG=1`, salta la chiamata a systemctl per evitare la ricorsione e il deadlock della cgroup systemd.
 
+## Bug Critico: `tts_service.py` — IndentationError Silenzioso e Fallback Console (v16.x, Maggio 2026)
+
+- **Problema**: Marcus sentiva la voce (VAD attivo, Porcupine attivo) ma non rispondeva e non parlava mai.
+- **Causa**: In `tts_service.py`, il blocco `audio_config = texttospeech.AudioConfig(...)` aveva un livello di indentazione extra (8 spazi invece di 4 all'interno del blocco `try`). Questo causava un `IndentationError` silenzioso che Python non elevava a crash ma che mandava l'esecuzione nel branch `except Exception`, che a sua volta alzava una `TTSError`. La chiamata a `_breaker.call_async(_synthesize, ...)` falliva, il `speak()` rientrava nel `finally` pubblicando `speaking=False` senza aver mai parlato. Il robot aveva accesso a Google TTS ma non sintetizzava audio, cadendo silenziosamente in nessuna risposta vocale.
+- **Risoluzione**: Corretto il rientro di `audio_config` (da 8 spazi a 4 spazi, stesso livello di `synthesis_input` e `voice`).
+- **Regola Permanente**: Qualsiasi modifica a `tts_service.py` deve verificare SEMPRE che tutti i blocchi dentro il `try` della funzione `_synthesize` siano allo stesso livello di indentazione (4 spazi di delta rispetto al `try`). In Python, un blocco mal indentato in un `try...except` produce un `IndentationError` che l'`except` generico cattura SILENZIOSAMENTE, generando crash difficilissimi da tracciare.
+- **Fix Correlato**: Corretta anche la formula `duration` in `_play_audio`: da `/ 48000.0` a `/ 32000.0` perché il TTS classico lavora a **16kHz, 16-bit mono = 32000 bytes/sec** (non 24kHz come Gemini Live).
+
+## Bug Critico: `live_connection_manager.py` — Filtro `is_noise` sull'EOS sempre Vero con VAD Manuale (v16.x, Maggio 2026)
+
+- **Problema**: Marcus rileva la wake word e invia audio a Gemini, ma il turno viene **sempre** ignorato con `🔇 [Live] Turno ignorato: rilevato solo silenzio o rumore ('')`.
+- **Causa Radice**: Con VAD manuale (`automatic_activity_detection=disabled`), Gemini invia `input_transcription` **DOPO** che viene inviato `activity_end`, non durante lo streaming audio. Di conseguenza, `_current_user_text` è **sempre vuoto stringa** `''` al momento in cui arriva l'EOS locale. Il filtro `is_noise(user_text='')` restituisce `True` → il turno viene scartato → `_reconnect()` → nessuna risposta. **Questo blocco scartava il 100% dei turni validi.**
+- **Risoluzione**: Rimosso il controllo `is_noise` dall'handler EOS in `_audio_sender_loop`. Il gating all'EOS ora controlla **solo** la finestra temporale di conversazione (`is_active`: wake word < 60s o ultimo turno < 30s). Il filtro del rumore è delegato al meccanismo `<IGNORE_TURN>` nel prompt di sistema di Gemini, che ha accesso alla trascrizione completa dopo `activity_end`.
+
+> [!CAUTION]
+> **REGOLA PERMANENTE**: Con VAD manuale Gemini Live (activity_start/end), NON filtrare mai su `_current_user_text` all'arrivo dell'EOS. La trascrizione non è ancora disponibile. Usare SOLO filtri temporali (finestra conversazione) all'EOS, e delegare il filtro semantico al modello tramite `<IGNORE_TURN>`.
+
+## Bug Critico: `live_connection_manager.py` — Auto-Interruzione Post-`activity_end` (v16.x, Maggio 2026)
+
+- **Problema**: Marcus capisce la frase (ASR corretto: "Non mi piace."), ma non risponde mai. Log: `🤫 [Live] Interruzione rilevata dal server!` subito dopo `activity_end`.
+- **Causa Radice**: Dopo l'invio di `activity_end`, Gemini inizia a elaborare il turno. Il timer di ascolto del VUI non è ancora scaduto, quindi il VUI continua a rilevare audio (anche la voce residua o il silenzio) e invia un nuovo `activity_start` sulla sessione appena riconnessa. Questo `activity_start` interrompe Gemini prima che risponda → `interrupted` dal server → Marcus tace.
+- **Risoluzione**: Aggiunto flag `_turn_in_progress` (bool). Viene impostato a `True` dopo `activity_end` e a `False` su `turn_complete` o `interrupted`. L'invio di `activity_start` è bloccato se `_turn_in_progress=True`. Drenata anche la coda audio (`_audio_in_queue`) subito dopo `activity_end` per eliminare chunk stantii.
+
+> [!CAUTION]
+> **REGOLA PERMANENTE**: Dopo aver inviato `activity_end`, bloccare immediatamente nuovi `activity_start` con `_turn_in_progress=True`. Resettare solo su `turn_complete` o `interrupted`. Senza questo gate, il VUI interrompe sempre Gemini.
+
+## Bug Critico: `live_connection_manager.py` — Audio Mixing / "Parole che si Mischiano" (v16.x, Maggio 2026)
+
+- **Problema**: Marcus risponde ma le parole si sovrappongono e l'audio è incomprensibile. Log: decine di `⚠️ OOM Prevention: Coda PCM piena. Scarto il chunk più vecchio.`
+- **Causa Radice**: Con `_turn_in_progress=True` (Gemini sta elaborando), il VUI continua a inviare chunk audio dal microfono. La coda `_audio_in_queue` (maxsize=50 = ~3 secondi) si riempie di rumore ambientale. L'OOM prevention scarta i chunk più vecchi ma la coda rimane piena di rumore stantio. Quando `turn_complete` arriva e `_turn_in_progress=False`, il prossimo `activity_start` invia a Gemini 3 secondi di rumore ambientale PRIMA della voce reale dell'utente → audio confuso.
+- **Risoluzione**: In `_enqueue_audio`, se `_turn_in_progress=True`, scarta il chunk immediatamente senza accodarlo (`return` immediato). Eliminati gli OOM warning. Aggiunto drain della coda al `turn_complete` per sicurezza.
+
+> [!CAUTION]
+> **REGOLA PERMANENTE**: `_enqueue_audio` deve scartare immediatamente i chunk quando `_turn_in_progress=True`. MAI accumulare audio in coda durante l'elaborazione di Gemini: si riempie di rumore e poi viene inviato tutto insieme al turno successivo.
+
+## Architettura Vocale Marcus — Flusso Completo e Checklist Diagnostica (Definitivo, Maggio 2026)
+
+Questo è il flusso audio completo e corretto. Se Marcus sente ma non risponde, seguire questo schema per diagnosticare:
+
+```
+[MICROFONO]
+    ↓ stereo int16 raw
+[respeaker_vui_node.py — _audio_processing_worker]
+    ↓ stt_gain (30x) → solo canale L → boost → int16
+    ↓ Porcupine: wake word "Marcus" → pubblica /wake_word
+      → llm_service.wakeword_callback_ros → _live_mgr.last_wakeword_time = time.time()
+    ↓ VAD WebRTC: rilevata voce → _publish_preroll() + _publish_audio_frame()
+    ↓ Fine voce → _publish_end_of_speech() → bytes vuoti su /ai/input/audio_chunk
+[llm_service.py — audio_callback_ros]
+    ↓ → live_connection_manager.send_audio_chunk(chunk)
+[live_connection_manager.py — _audio_sender_loop]
+    ↓ chunk non-vuoto → session.send_realtime_input(audio=Blob(rate=16000))
+    ↓ chunk vuoto (EOS) → controllo gating:
+        - is_noise? → SCARTA (riconnette)
+        - not is_active and not has_direct_address? → SCARTA
+        - altrimenti: session.send_realtime_input(activity_end)
+[Gemini Live API — WebSocket]
+    ↓ modello risponde con audio PCM chunks + trascrizione
+[live_connection_manager.py — _handle_live_message]
+    ↓ part.inline_data → on_audio_received(data) → llm_service._on_live_audio_received
+    ↓ pubblica su /ai/conversation/audio_chunk
+[orchestrator.py — _audio_chunk_callback]
+    ↓ tts_service.play_raw_pcm(msg.data)
+[tts_service.py — play_raw_pcm]
+    ↓ speaker_pub.publish(AudioData) su /respeaker/speaker_audio
+[respeaker_vui_node.py — _speaker_audio_cb]
+    ↓ ratecv 24kHz→48kHz (live) o 16kHz→48kHz (TTS)
+    ↓ volume scaling → stereo → _play_audio(bytes)
+[out_stream PyAudio — DAC ReSpeaker 48kHz]
+    ↓ AUDIO USCENTE FISICAMENTE DALLO SPEAKER
+```
+
+**Checklist diagnostica — da eseguire in ordine se Marcus tace:**
+1. `ros2 topic echo /wake_word` → deve mostrare "detected" quando dici "Marcus"
+2. `ros2 topic echo /ai/input/audio_chunk` → deve mostrare dati tra il beep e il silenzio
+3. Log `llm_service`: cerca `🔇 [Live] Turno ignorato` → gating sta scartando i turni
+4. Log `llm_service`: cerca `📩 [Live] Messaggio ricevuto` → Gemini sta rispondendo?
+5. Log `orchestrator`: cerca `🔊 Audio chunk from Gemini Live` → l'audio arriva all'orchestratore?
+6. Log `vui_node`: cerca `🔊 [SPEAKER] chunk #` → l'audio arriva al VUI per la riproduzione?
+7. Log `tts_service`: cerca `TTS failed` → il TTS Google sta fallendo? (controlla indentazione!)
+
+**Punto di fallimento più comune**: `tts_service._synthesize()` con `IndentationError` silenzioso → fallback CONSOLE_TTS → nessun audio.
+
+## Comportamento Selettivo Marcus (Gemini Live — Solo su Richiesta) — Architettura Definitiva
+
+- **Obiettivo**: Marcus deve rispondere SOLO quando viene interpellato direttamente, non alle conversazioni tra terzi o al rumore. Deve funzionare come Gemini Live ma con **attivazione esplicita** tramite wake word.
+- **Architettura Corretta (Già Implementata)**:
+  1. **Porcupine** (VUI) rileva la wake word "Marcus" → pubblica `/wake_word` → `llm_service` aggiorna `_live_mgr.last_wakeword_time`.
+  2. **Gating vocale** in `_audio_sender_loop`: il turno viene inoltrato a Gemini SOLO se:
+     - La wake word è stata rilevata negli ultimi 60 secondi, OPPURE
+     - L'utente ha risposto entro 30 secondi dall'ultimo turno valido (conversazione in corso), OPPURE
+     - L'utente ha detto "Marcus" direttamente nella frase.
+  3. **Gating LLM** nel prompt di sistema: Gemini risponde `<IGNORE_TURN>` se il testo sembra conversazione tra terzi, rumore o input non indirizzato.
+  4. **VAD**: durante il TTS (Marcus parla), il stt_gain scende a 0.1x per evitare eco; Porcupine rimane attivo per permettere "zitto Marcus".
+- **NON MODIFICARE** questi parametri senza testare: `last_wakeword_ago < 60.0` e `last_turn_ago < 30.0`. Se allargati troppo, Marcus risponde a conversazioni ambientali. Se ristretti troppo, Marcus ignora domande legittime.
+
+## Bug: Warning OOM a 20Hz e Blocco Risposte (Fatturazione/Spending Cap ed Enqueueing Offline) — Maggio 2026
+
+- **Problemi riscontrati**:
+    1. *Marcus non rispondeva affatto* ed era completamente sordo al parlato (anche dopo la wake word).
+    2. *Log invasi a 20Hz* con migliaia di warning consecutivi: `⚠️ OOM Prevention: Coda PCM piena. Scarto il chunk più vecchio.`
+- **Cause**:
+    1. **Billing Cap Superato**: La Live API WebSocket restituiva costantemente l'errore di connessione `1011 None. Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend to manage your project`. Essendo la quota mensile di fatturazione per la chiave API superata, la connessione si chiudeva istantaneamente in loop, lasciando `self._live_session = None` per sempre.
+    2. **Log Flooding in Enqueueing**: Poiché la connessione Live era disconnessa (`self._live_session = None`), la coroutine di invio audio `_audio_sender_loop` non era attiva e non consumava alcun chunk dalla coda `_audio_in_queue`. Tuttavia, il VUI continuava a inviare frames via ROS a `_enqueue_audio`. Senza una sessione attiva, la coda da 50 elementi si riempiva in 2.5 secondi e scatenava la logica di scarto chunk in loop continuo, inondando i log a 20Hz e degradando le prestazioni.
+- **Risoluzione**:
+    1. Modificato `_enqueue_audio` in `live_connection_manager.py` per includere `not self._live_session` nella guardia iniziale:
+        ```python
+        if not self._live_session or self._turn_in_progress:
+            return
+        ```
+        Ora, se non c'è una sessione Live attiva (offline, riconnessione o billing cap bloccato), i chunk audio in ingresso vengono scartati all'istante in modo silenzioso, eliminando il flooding dei log e risparmiando CPU.
+    2. Segnalato all'utente la necessità di sbloccare o incrementare lo **spending cap** della fatturazione in Google AI Studio all'indirizzo https://ai.studio/spend per consentire a Gemini di ristabilire la connessione e rispondere.
 

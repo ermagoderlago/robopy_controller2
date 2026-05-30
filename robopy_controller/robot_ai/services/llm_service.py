@@ -808,7 +808,9 @@ class LLMServiceNode(Node):
 
     async def start_persistent_live(self, functions=None):
         if self._live_mgr:
-            return await self._live_mgr.start_persistent_live(functions)
+            coro = self._live_mgr.start_persistent_live(functions)
+            future = asyncio.run_coroutine_threadsafe(coro, self._loop)
+            return await asyncio.wrap_future(future)
         return False
 
     async def generate_live(self, prompt: str, context=None, functions=None, images=None, documents=None):

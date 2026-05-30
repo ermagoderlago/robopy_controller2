@@ -33,6 +33,16 @@ pkill -f respeaker_interface_node || true
 sleep 1
 pkill -9 -f respeaker_interface_node || true
 
+echo "🔴 Stopping foxglove_bridge..."
+pkill -f foxglove_bridge || true
+sleep 1
+pkill -9 -f foxglove_bridge || true
+
+echo "🔴 Stopping foxglove_nav2_bridge..."
+pkill -f foxglove_nav2_bridge || true
+sleep 1
+pkill -9 -f foxglove_nav2_bridge || true
+
 sleep 2
 
 # --- Riavvio ReSpeaker Interface Node (Hardware Serial Bridge) ---
@@ -74,10 +84,24 @@ nohup ros2 run robopy_controller robot_ai_node \
     --ros-args -r /ai/input/text:=/robopy/conversation_rx \
     > /home/robopy/robopy/logs/robot_ai_node_debug_TEST4.log 2>&1 &
 
+# --- Riavvio Foxglove Bridge & Nav2 Bridge ---
+echo "🔌 Starting foxglove_bridge..."
+> /home/robopy/robopy/logs/foxglove_bridge.log
+nohup ros2 run foxglove_bridge foxglove_bridge --ros-args \
+    -p port:=8765 \
+    > /home/robopy/robopy/logs/foxglove_bridge.log 2>&1 &
+
+echo "🌉 Starting foxglove_nav2_bridge..."
+> /home/robopy/robopy/logs/foxglove_nav2_bridge.log
+nohup ros2 run robopy_controller foxglove_nav2_bridge \
+    > /home/robopy/robopy/logs/foxglove_nav2_bridge.log 2>&1 &
+
 echo "✅ Nodi riavviati!"
 echo "   Interface log: tail -f /home/robopy/robopy/logs/respeaker_interface_node.log"
 echo "   VUI log:       tail -f /home/robopy/robopy/logs/respeaker_vui_node.log"
 echo "   AI  log:       tail -f /home/robopy/robopy/logs/robot_ai_node_debug_TEST4.log"
+echo "   Foxglove log:  tail -f /home/robopy/robopy/logs/foxglove_bridge.log"
+echo "   Foxglove Nav:  tail -f /home/robopy/robopy/logs/foxglove_nav2_bridge.log"
 
 if [ -z "$FROM_WATCHDOG" ]; then
     echo "🟢 Riattivazione del Watchdog..."
