@@ -184,7 +184,7 @@ class ConversationManager:
         # Timeout dall'oggetto config.llm.timeout (di base accesskey)
         llm_timeout = 20.0
         try:
-             llm_timeout = float(self.config.get("llm", {}).get("timeout", 20.0))
+             llm_timeout = float(self.config.get_config().llm.timeout)
         except:
              pass
 
@@ -279,8 +279,7 @@ class ConversationManager:
                       continue
 
             try:
-                speak_texts = await self.skill_executor.execute_actions(explicit_actions)
-                for t in speak_texts:
+                async for t in self.skill_executor.execute_actions_stream(explicit_actions):
                      await self.tts.speak(t)
                      if self.response_callback:
                           self.response_callback(t)
@@ -301,7 +300,7 @@ class ConversationManager:
             if self.response_callback:
                  self.response_callback(response_text)
 
-        if response_text and self.config.get("rag", {}).get("enabled", False):
+        if response_text and self.config.get_config().rag.enabled:
             await self.memory_manager.store_background(clean_text, response_text, "conversation")
 
         return True
@@ -343,6 +342,14 @@ class ConversationManager:
             prompt += f"{repeated_note}\n"
         if ha_context:
             prompt += f"{ha_context}\n"
+            
+        # Inietta le notifiche email recenti in modo che l'LLM possa farvi riferimento
+        email_skill = self.skill_executor.registry.get("check_emails")
+        if email_skill and hasattr(email_skill, 'consume_notifications'):
+            email_ctx = email_skill.consume_notifications()
+            if email_ctx:
+                prompt += f"\n[NOTIFICHE EMAIL RECENTI]\n{email_ctx}\n"
+                
         prompt += f"Utente: {user_text}\n"
         return prompt
 

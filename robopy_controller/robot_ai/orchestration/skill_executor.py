@@ -1,5 +1,5 @@
 import inspect
-from typing import List, Dict, Any
+from typing import List, Dict, Any, AsyncGenerator
 from robot_ai.skills.skill_registry import SkillRegistry
 from robot_ai.integrations import NavigationClient
 from robot_ai.utils import get_logger
@@ -38,7 +38,8 @@ class SkillExecutor:
                  execution_text = "torna alla base"
 
         try:
-            result = await skill.safe_execute(execution_text)
+            # Pass args as the context dictionary to safe_execute
+            result = await skill.safe_execute(execution_text, args)
             return await self._collect_speak_texts(result)
         except Exception as e:
             self._logger.error(f"Error executing skill {skill_name}: {e}", exc_info=True)
@@ -50,6 +51,44 @@ class SkillExecutor:
             texts = await self.execute_skill(action.get("action_type", ""), action.get("args", {}))
             all_speak.extend(texts)
         return all_speak
+
+    async def execute_actions_stream(self, actions: List[Dict[str, Any]]) -> AsyncGenerator[str, None]:
+        for action in actions:
+            skill_name = action.get("action_type", "")
+            args = action.get("args", {})
+            skill = self.registry.get(skill_name)
+            if not skill:
+                self._logger.warning(f"Skill '{skill_name}' non trovata nel registry.")
+                continue
+
+            execution_text = args.get("text", "")
+            if skill_name == "navigation" and "action" in args:
+                 action_val = args.get("action")
+                 if action_val == "move_to_room":
+                     execution_text = f"vai in {args.get('target', '')}"
+                 elif action_val == "explore":
+                     execution_text = "esplora la casa"
+                 elif action_val == "stop":
+                     execution_text = "fermati"
+                 elif action_val == "return_base":
+                     execution_text = "torna alla base"
+
+            try:
+                # Pass args as context
+                result = await skill.safe_execute(execution_text, args)
+                if inspect.isasyncgen(result):
+                    async for res in result:
+                        if hasattr(res, 'speak') and res.speak:
+                            yield res.speak
+                        elif isinstance(res, dict) and 'speak' in res:
+                            yield res['speak']
+                else:
+                    if hasattr(result, 'speak') and result.speak:
+                        yield result.speak
+                    elif isinstance(result, dict) and 'speak' in result:
+                        yield result['speak']
+            except Exception as e:
+                self._logger.error(f"Error executing skill {skill_name} in stream: {e}", exc_info=True)
 
     async def _collect_speak_texts(self, result_or_gen) -> List[str]:
         texts = []
@@ -68,3 +107,4 @@ class SkillExecutor:
         except Exception as e:
             self._logger.error(f"Error collecting skill output: {e}")
         return texts
+

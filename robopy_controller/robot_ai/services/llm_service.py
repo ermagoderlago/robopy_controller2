@@ -402,7 +402,7 @@ class LLMServiceNode(Node):
         """
         base_prompt = self._system_prompt
         master_prompt = ""
-        master_prompt_path = "/home/robopy/robopy/logs/master_prompt.txt"
+        master_prompt_path = "/home/robopy/robopy/logs/master_prompt.txt".strip()
         
         if os.path.exists(master_prompt_path):
             try:

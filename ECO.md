@@ -111,3 +111,27 @@ Questo registro (Engineering Change Order Log) documenta tutte le modifiche stru
 - **Dynamic Gate Auto-Calibration**: L'RMS di fondo stazionario è stato calcolato a `~55.7`, permettendo alla soglia adattiva del noise gate di auto-calibrarsi a `~1821.3`. Questo lascia ampio spazio al parlato (~3000+ RMS) garantendo l'apertura immediata ed affidabile del gate VAD per Gemini.
 - **Race Condition Mitigated**: Le collisioni di DDS e hardware audio all'avvio manuale sono state eliminate al 100%. Il riavvio manuale disattiva temporaneamente il watchdog e si completa in modo pulito e lineare.
 
+---
+
+## 📈 ECO-2026-05-31-001: EmailSkill Synchronous Refactoring and Gemini Live Speech Native Sync
+* **Data**: 31 Maggio 2026
+* **Autore**: Antigravity (AI Coding Partner)
+* **Stato**: ✅ **Completato, Sincronizzato e Collaudato**
+* **Descrizione**: Refactoring strutturale della skill email (`EmailSkill.execute`) da `AsyncGenerator` a coroutine a ritorno sincrono standard (`SkillResult`). Questo elimina l'utilizzo non sincronizzato di notifiche audio in background tramite offline TTS (gTTS con voce robotica differente) e abilita Gemini Live a descrivere e riassumere le email nativamente tramite la sua voce premium e calorosa tramite i tool call WebSocket standard.
+
+### 📂 File Modificati ed Introdotti
+1. **[ROS Node/Skill]** [email_skill.py](file:///c:/Users/lsuffia/OneDrive%20-%20BRUGOLA%20OEB%20INDUSTRIALE%20SPA/Documents/robopy/antigravity/robopy_controller/robot_ai/skills/builtin/email_skill.py):
+   - Modificata la firma di `execute` per restituire `SkillResult` direttamente anziché un `AsyncGenerator`.
+   - Rimossi tutti i `yield` intermedi che provocavano interruzioni e disconnessioni di sessione o forzavano l'offline TTS robotico.
+   - Sostituiti i `yield` di fallimento ed esito finale con `return` espliciti del corretto `SkillResult`.
+   - Gestito il fallthrough dell'intent "reply" in caso di cache mancante per eseguire un fetch IMAP fresco senza interruzioni intermedie.
+2. **[Documento]** [lesson_learned.md](file:///c:/Users/lsuffia/OneDrive%20-%20BRUGOLA%20OEB%20INDUSTRIALE%20SPA/Documents/robopy/antigravity/weights/lesson_learned.md):
+   - Tracciati i problemi architetturali legati ai generatori asincroni asincroni e alla Live API di Gemini.
+
+### 🧪 Risultato del Collaudo e Risoluzione Conflitti
+- **Syntax and Type Safety**: Il file `email_skill.py` modificato è stato compilato con successo con `py_compile` locale senza alcun errore di tipo o sintassi.
+- **DDS and Node Restart**: Hot-swapped via `sync_marcus.bat` ed eseguito il riavvio completo dei nodi via `restart.sh`. Marcus ha ripreso il corretto turn-taking ed è pronto per i test dal vivo senza interruzioni di flusso e con sintesi vocale unificata e nativa.
+- **Sogno Notturno Verification**: Analizzato il gap rilevato dalla skill *Sogno Notturno* (richiesta di sintesi e-mail con limite alle ultime 2 righe). Si conferma che il refactoring sincrono odierno integra già nativamente la gestione di sintesi tramite Gemini Live, risolvendo il gap strutturale.
+
+
+

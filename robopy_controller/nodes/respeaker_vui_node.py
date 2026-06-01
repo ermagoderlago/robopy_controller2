@@ -714,10 +714,10 @@ class ReSpeakerVUINode(Node):
         # [DSP-HOT] Calcolo RMS per noise gate pre-VAD (su segnale BOOSTED)
         rms = np.sqrt(np.mean(frame_boosted.astype(np.float32)**2))
         
-        # Soglia dinamica: raddoppiamo durante il TTS per ignorare l'eco
+        # Soglia dinamica: aumentiamo leggermente durante il TTS per ignorare eco residua
         current_threshold = self.noise_gate_threshold
         if self._is_tts_speaking:
-            current_threshold *= 2.0
+            current_threshold *= 1.2
             
         if rms < current_threshold:
             is_voice = False
@@ -859,8 +859,8 @@ class ReSpeakerVUINode(Node):
                 # A. Auto-regolazione soglia noise gate (se abilitata)
                 if self.enable_adaptive_threshold:
                     boosted_ambient = self._ambient_noise_ema * self.stt_gain
-                    # Ricarica dinamica: 1.20x + offset 150, protetta tra [300.0, 32000.0]
-                    self.noise_gate_threshold = float(np.clip(boosted_ambient * 1.20 + 150.0, 300.0, 32000.0))
+                    # Ricarica dinamica: 1.50x + offset 500, protetta tra [1500.0, 32000.0]
+                    self.noise_gate_threshold = float(np.clip(boosted_ambient * 1.50 + 500.0, 1500.0, 32000.0))
 
                 # B. Taratura adattiva del timeout silenzio (se abilitato)
                 if self.enable_adaptive_silence:
@@ -883,28 +883,6 @@ class ReSpeakerVUINode(Node):
                     r_ch   = audio_stereo[1::2]  # Canale destro
                     rms_r  = np.sqrt(np.mean(r_ch[:n].astype(np.float32)**2))
                 
-                # Dynamic Gain Control: riduciamo il guadagno durante il TTS per evitare eco
-                stt_gain_to_use = self.stt_gain
-                if self._is_tts_speaking:
-                    # Se l'AI parla, abbassiamo il boost drasticamente (0.1x) per proteggere il VAD dall'eco
-                    stt_gain_to_use = 0.1
-
-                if self._cfg_diag_mode and self._rms_chunk_count % 16 == 0:
-                    rms_boosted = rms_l * stt_gain_to_use
-                    self.get_logger().info(
-                        f"🎤 [MIC] Volume: L_RMS={rms_l:.1f} | FORCED_BOOSTED={rms_boosted:.1f} | "
-                        f"Ambient_EMA={self._ambient_noise_ema:.1f} | Gate={self.noise_gate_threshold:.1f} | "
-                        f"MaxSilence={self._cfg_max_silence} frames (Gain: {stt_gain_to_use}x)")
-                
-                # ---------------------------------------------------------- #
-                # Applica stt_gain_to_use al segnale d'ingresso per VAD e Porcupine
-                # ---------------------------------------------------------- #
-                if stt_gain_to_use != 1.0:
-                    boosted_l = l_ch[:n].astype(np.float32) * stt_gain_to_use
-                    np.copyto(self._int16_vad_buf[:n], np.clip(boosted_l, -32768, 32767).astype(np.int16))
-                else:
-                    np.copyto(self._int16_vad_buf[:n], l_ch[:n])
-
                 # ---------------------------------------------------------- #
                 # Controllo Parlato AI (TTS o Gemini Live playback)
                 # ---------------------------------------------------------- #
@@ -921,8 +899,18 @@ class ReSpeakerVUINode(Node):
                 self._tts_active = ai_speaking_now
                 self._is_tts_speaking = ai_speaking_now
 
-                # Transizione True→False: AI ha terminato di parlare — reset VAD
-                if ai_speaking_was and not ai_speaking_now:
+                # Salva l'ultimo istante in cui l'AI ha parlato
+                if ai_speaking_now:
+                    self._last_ai_speaking_time = time.monotonic()
+
+                # Calcola il periodo di cooldown (600 ms) per dissipare l'eco residua hardware del microfono
+                ai_cooldown_active = False
+                if hasattr(self, '_last_ai_speaking_time'):
+                    if time.monotonic() - self._last_ai_speaking_time < 0.6:
+                        ai_cooldown_active = True
+
+                # Transizione True→False o durante cooldown: AI ha terminato di parlare — reset VAD
+                if (ai_speaking_was and not ai_speaking_now) or ai_cooldown_active:
                     self._speech_frame_count  = 0
                     self._silence_frame_count = 0
                     self._is_speech_active    = False
@@ -930,6 +918,32 @@ class ReSpeakerVUINode(Node):
                     self._ring_write_idx      = 0
                     self._barge_in_triggered  = False
                     self._barge_in_frame_count = 0
+
+                # Dynamic Gain Control: riduciamo il guadagno durante il TTS per evitare eco
+                stt_gain_to_use = self.stt_gain
+                if self._is_tts_speaking:
+                    # Se l'AI parla, abbassiamo il boost per proteggere il VAD dall'eco
+                    # ma lo manteniamo a un livello moderato per consentire il barge-in e la wake word
+                    stt_gain_to_use = max(2.5, self.stt_gain * 0.15)
+                elif ai_cooldown_active:
+                    # Durante il cooldown di 600ms, azzeriamo il guadagno software per assorbire l'eco finale del buffer
+                    stt_gain_to_use = 0.0
+
+                if self._cfg_diag_mode and self._rms_chunk_count % 16 == 0:
+                    rms_boosted = rms_l * stt_gain_to_use
+                    self.get_logger().info(
+                        f"🎤 [MIC] Volume: L_RMS={rms_l:.1f} | FORCED_BOOSTED={rms_boosted:.1f} | "
+                        f"Ambient_EMA={self._ambient_noise_ema:.1f} | Gate={self.noise_gate_threshold:.1f} | "
+                        f"MaxSilence={self._cfg_max_silence} frames (Gain: {stt_gain_to_use}x)")
+                
+                # ---------------------------------------------------------- #
+                # Applica stt_gain_to_use al segnale d'ingresso per VAD e Porcupine
+                # ---------------------------------------------------------- #
+                if stt_gain_to_use != 1.0:
+                    boosted_l = l_ch[:n].astype(np.float32) * stt_gain_to_use
+                    np.copyto(self._int16_vad_buf[:n], np.clip(boosted_l, -32768, 32767).astype(np.int16))
+                else:
+                    np.copyto(self._int16_vad_buf[:n], l_ch[:n])
 
                 # ---------------------------------------------------------- #
                 # Porcupine — wake word detection su segnale int16 grezzo

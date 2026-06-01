@@ -641,3 +641,14 @@ Questo è il flusso audio completo e corretto. Se Marcus sente ma non risponde, 
         Ora, se non c'è una sessione Live attiva (offline, riconnessione o billing cap bloccato), i chunk audio in ingresso vengono scartati all'istante in modo silenzioso, eliminando il flooding dei log e risparmiando CPU.
     2. Segnalato all'utente la necessità di sbloccare o incrementare lo **spending cap** della fatturazione in Google AI Studio all'indirizzo https://ai.studio/spend per consentire a Gemini di ristabilire la connessione e rispondere.
 
+
+## Risoluzione della Voce Discrepante/Robotica nella Lettura delle Email (Gemini Live Sync) — Maggio 2026
+
+- **Problema**: Quando si chiedeva a Marcus di leggere le email, il riassunto o i dettagli delle email venivano pronunciati con una voce differente, robotica e sgradevole (fallback offline di gTTS), invece di usare la bellissima voce nativa di Gemini Live.
+- **Causa (Async Generators e Tool Call background)**: `EmailSkill` era definita con un pattern `AsyncGenerator[SkillResult, None]`, che rilasciava turni vocali intermedi progressivi (es. *"Connessione al server..."*). Quando chiamato tramite la Live API WebSocket, l'orchestratore consumava il primo `yield` e passava i successivi in un task in background (`consume_remaining`) che invocava `tts_service.speak()`. Questo forzava l'uso di gTTS (voce sgradevole/robotica) invece di far sì che fosse Gemini Live a leggere i dati.
+- **Risoluzione**:
+    1. **Refactoring Sincrono**: Convertito il metodo `execute` di `EmailSkill` da `AsyncGenerator` a un metodo asincrono standard che ritorna direttamente un singolo `SkillResult` (`async def execute(...) -> SkillResult`).
+    2. **Rimozione dei Yield Intermedi**: Eliminati i feedback vocali progressivi intermedi che innescavano la voce robotica offline. I passaggi intermedi (IMAP connect, LLM Analysis) ora avvengono in silenzio o tramite normali log di sistema.
+    3. **Nativa Gemini Live Speech**: Ora Gemini Live riceve il `SkillResult` serializzato come risposta della chiamata al tool asincrona (`FunctionResponse` su WebSocket) e sintetizza la risposta con la sua voce calda, naturale ed espressiva nativa!
+
+

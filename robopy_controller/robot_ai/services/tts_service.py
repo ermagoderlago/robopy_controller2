@@ -201,6 +201,10 @@ class TTSService:
         if not text:
             return False
             
+        # [v12.5] Pre-process text to fix common pronunciation mistakes
+        import re
+        text = re.sub(r'\bAVIS\b', 'Avis', text)
+            
         async with self._lock:
             # Stop current if priority
             if self._is_speaking and priority:
@@ -220,12 +224,12 @@ class TTSService:
                 self.speaking_pub.publish(msg)
             
             try:
-                # 1. Check cache or Synthesize
+                # 1. Check cache or Synthesize (uses GCP if configured, or gTTS + ffmpeg fallback if client is None)
                 audio_data = await self._breaker.call_async(
                     self._synthesize, text, language
                 )
                 
-                # 2. Play
+                # 2. Play (publishes raw PCM to ROS speaker topic or plays via Pygame)
                 await self._play_audio(audio_data)
                 
                 self.event_bus.publish(EventType.TTS_COMPLETED, {"text": text})
@@ -294,7 +298,43 @@ class TTSService:
                 self.logger.error(f"Google TTS synthesis error: {e}")
                 raise TTSError(f"Synthesis failed: {e}")
         else:
-            # Console fallback
+            # gTTS and ffmpeg fallback (credentials-free high-quality synthesis)
+            try:
+                self.logger.info(f"🎙️ Using gTTS fallback synthesis for: '{text[:40]}...'")
+                from gtts import gTTS
+                import subprocess
+                
+                # We need to run gtts in a separate thread because it performs synchronous HTTP requests
+                def run_gtts():
+                    mp3_path = os.path.join(tempfile.gettempdir(), f"{text_hash}.mp3")
+                    raw_path = os.path.join(tempfile.gettempdir(), f"{text_hash}.raw")
+                    
+                    # Synthesize MP3
+                    tts = gTTS(text=text, lang='it')
+                    tts.save(mp3_path)
+                    
+                    # Convert to raw PCM using ffmpeg
+                    cmd = [
+                        "ffmpeg", "-y", "-i", mp3_path,
+                        "-f", "s16le", "-acodec", "pcm_s16le",
+                        "-ar", "16000", "-ac", "1", raw_path
+                    ]
+                    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    
+                    if os.path.exists(raw_path):
+                        with open(raw_path, "rb") as f:
+                            return f.read()
+                    return None
+
+                pcm_bytes = await asyncio.to_thread(run_gtts)
+                if pcm_bytes:
+                    with open(filename, "wb") as out:
+                        out.write(pcm_bytes)
+                    return pcm_bytes
+            except Exception as gtts_err:
+                self.logger.error(f"gTTS fallback synthesis failed: {gtts_err}")
+            
+            # Absolute fallback
             self.logger.info(f"[CONSOLE TTS] {text}")
             return b"CONSOLE_TTS"
     

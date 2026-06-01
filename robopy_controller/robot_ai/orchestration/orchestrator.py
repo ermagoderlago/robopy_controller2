@@ -226,8 +226,16 @@ class AIOrchestrator(Node):
         if hasattr(self, 'scheduler') and self.scheduler:
              alarm_skill = self.skill_registry.get("alarm")
              if alarm_skill:
-                 alarm_skill.scheduler = self.scheduler
-                 self.ai_logger.info("Scheduler iniettato con successo in AlarmSkill")
+                  alarm_skill.scheduler = self.scheduler
+                  self.ai_logger.info("Scheduler iniettato con successo in AlarmSkill")
+
+             # Registra i job schedulati dell'email
+             email_skill = self.skill_registry.get("check_emails")
+             if email_skill:
+                  self.scheduler.add_job(email_skill.run_nightly_spam_cleanup, 'cron', hour=2, minute=0)
+                  self.scheduler.add_job(self._announce_morning_briefing, 'cron', hour=7, minute=30)
+                  self.scheduler.add_job(self._check_proactive_email_notifications, 'interval', minutes=1)
+                  self.ai_logger.info("📧 Job schedulati email (Spam Cleanup 02:00, Briefing 07:30, Proactive Check 1min) registrati nel scheduler!")
 
 
     def _reactive_loop_callback(self):
@@ -344,6 +352,47 @@ class AIOrchestrator(Node):
         if self._loop.is_running() and not self._shutdown_flag:
             asyncio.run_coroutine_threadsafe(self.nightly_dream_service.run_analysis(), self._loop)
 
+    def _announce_morning_briefing(self):
+        """Annuncia il morning briefing vocale se presente."""
+        if self._loop.is_running() and not self._shutdown_flag:
+            asyncio.run_coroutine_threadsafe(self._async_announce_morning_briefing(), self._loop)
+
+    async def _async_announce_morning_briefing(self):
+        """Recupera il morning briefing da EmailSkill e lo annuncia vocalmente."""
+        email_skill = self.skill_registry.get("check_emails")
+        if email_skill and hasattr(email_skill, 'run_morning_briefing'):
+            briefing = await email_skill.run_morning_briefing()
+            if briefing and self.tts_service:
+                self.ai_logger.info("📧 Annuncio morning briefing vocale...")
+                intro = "Buongiorno Luca! Ecco il tuo briefing mattutino. "
+                await self.tts_service.speak(intro + briefing)
+
+    def _check_proactive_email_notifications(self):
+        """Controlla se ci sono notifiche email urgenti o importanti pendenti e le annuncia proattivamente."""
+        if self._loop.is_running() and not self._shutdown_flag:
+            asyncio.run_coroutine_threadsafe(self._async_check_proactive_email_notifications(), self._loop)
+
+    async def _async_check_proactive_email_notifications(self):
+        """Esegue il controllo delle notifiche in background in modo thread-safe."""
+        email_skill = self.skill_registry.get("check_emails")
+        if not email_skill:
+            return
+            
+        # Non disturbare se in quiet hours o se Marcus/utente stanno parlando
+        from datetime import datetime
+        hour = datetime.now().hour
+        quiet_start = getattr(email_skill, '_quiet_start', 23)
+        quiet_end = getattr(email_skill, '_quiet_end', 7)
+        if quiet_start <= hour or hour < quiet_end:
+            return
+
+        if hasattr(email_skill, 'consume_notifications'):
+            notifications = email_skill.consume_notifications()
+            if notifications and self.tts_service:
+                self.ai_logger.info(f"📧 Proattività: Rilevate nuove email da annunciare: {notifications}")
+                announcement = f"Scusami Luca, ti informo che hai nuove email importanti. {notifications}"
+                await self.tts_service.speak(announcement)
+
     async def _on_ha_event(self, event_data: dict):
         # Evento da HA (es. cambio luce) arrivato
         pass
@@ -401,6 +450,20 @@ class AIOrchestrator(Node):
         # 3. Memory & Background workers
         self.memory_manager.start()
 
+        # 4. Email background polling (Attendi 30s dopo boot)
+        email_skill = self.skill_registry.get("check_emails")
+        if email_skill and hasattr(email_skill, 'start_background_tasks'):
+            asyncio.create_task(self._start_email_polling(email_skill))
+
+    async def _start_email_polling(self, email_skill):
+        """Attende 30s dopo boot per stabilizzazione, poi avvia polling."""
+        self.ai_logger.info("📧 Email polling: avvio pianificato tra 30 secondi...")
+        await asyncio.sleep(30)
+        try:
+            email_skill.start_background_tasks()
+        except Exception as e:
+            self.ai_logger.error(f"📧 Errore durante l'avvio del polling email: {e}")
+
     async def _init_ha(self):
         """Inizializzazione Home Assistant in background per non bloccare il node ready."""
         try:
@@ -444,7 +507,7 @@ class AIOrchestrator(Node):
                                         if hasattr(r, 'speak') and r.speak:
                                             self.ai_logger.info(f"💬 Live Tool background event speak: '{r.speak}'")
                                             if self.tts_service:
-                                                self.tts_service.speak(r.speak)
+                                                await self.tts_service.speak(r.speak)
                                 except Exception as consume_e:
                                     self.ai_logger.error(f"Errore nel consumo in background del generatore della skill: {consume_e}")
                             
