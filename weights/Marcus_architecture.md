@@ -4,7 +4,7 @@
 **Status**: Ready for Implementation  
 **Version**: 5.1  
 **Date**: 2025-02-13  
-**Target**: Raspberry Pi 5 (8GB) + OAK-D + ROS 2 Humble + Gemini 2.0 Cloud  
+**Target**: Raspberry Pi 5 (8GB) + OAK-D + ROS 2 Jazzy + Gemini 2.5/3.1 Cloud  
 **Philosophy**: Maximum reasoning power, acceptable latency, radical honesty  
 
 ---
