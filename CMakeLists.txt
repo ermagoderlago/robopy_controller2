@@ -23,6 +23,9 @@ find_package(image_transport REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(depthai CONFIG REQUIRED)
+find_package(message_filters REQUIRED)
+find_package(rtabmap_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
 
 add_executable(oak_superpoint_odometry_cpp src/oak_superpoint_odometry_node.cpp)
 ament_target_dependencies(oak_superpoint_odometry_cpp
@@ -103,12 +106,43 @@ install(TARGETS fast_flow_vo_cpp
   DESTINATION lib/${PROJECT_NAME}
 )
 
+# NEW: Marcus Semantic Mapper Node (fuses Hailo NPU detections and Depth)
+add_executable(marcus_semantic_mapper_cpp
+  src/marcus_semantic_mapper_node.cpp
+)
+ament_target_dependencies(marcus_semantic_mapper_cpp
+  rclcpp
+  std_msgs
+  geometry_msgs
+  sensor_msgs
+  diagnostic_msgs
+  visualization_msgs
+  rtabmap_msgs
+  message_filters
+  tf2
+  tf2_ros
+  tf2_geometry_msgs
+  cv_bridge
+)
+target_include_directories(marcus_semantic_mapper_cpp PRIVATE ${EIGEN3_INCLUDE_DIR})
+target_link_libraries(marcus_semantic_mapper_cpp
+  ${OpenCV_LIBRARIES}
+  Eigen3::Eigen
+)
+
+install(TARGETS marcus_semantic_mapper_cpp
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/AudioData.msg"
   "msg/KeypointsCompressed.msg"
   "msg/DescriptorsCompressed.msg"
   "msg/OAKSyncFrame.msg"
+  "msg/SemanticObject.msg"
+  "msg/SemanticObjectArray.msg"
+  "msg/EngagementStatus.msg"
   "srv/AskVisualQuestion.srv"
   DEPENDENCIES std_msgs geometry_msgs sensor_msgs vision_msgs
 )
@@ -139,11 +173,17 @@ install(PROGRAMS
   scripts/servo_coda_node
   scripts/homeassistant_node
   scripts/smart_buildhat_driver
+  scripts/waveshare_motor_driver
   scripts/foxglove_nav2_bridge
   scripts/wake_word_node
   scripts/ultrasonic_sensor
   scripts/respeaker_interface_node
   scripts/respeaker_vui_node
+  scripts/hailo_bridge_node
+  scripts/semantic_costmap_injector
+  scripts/engagement_monitor
+  scripts/cloud_watchdog_node
+  scripts/speaker_id_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

@@ -5,6 +5,7 @@ import datetime
 from robot_ai.utils import get_logger
 from robot_ai.core.input_sanitizer import InputSanitizer
 from robot_ai.core.camera_frame import CameraFrame
+from .cognitive_graph import MarcusStateGraph, MarcusAgentState
 
 # New: VQA Service from robopy_controller
 from robopy_controller.srv import AskVisualQuestion
@@ -33,6 +34,13 @@ class ConversationManager:
         self._sanitizer = InputSanitizer()
         self.document_callback = None
         self._recent_inputs = []
+
+        # Dopamine Biometric Alignment System
+        self.cognitive_graph = MarcusStateGraph(
+            memory_store=self.memory_manager.memory_store,
+            embedding_service=self.memory_manager.embedding_service
+        )
+        self.agent_state = MarcusAgentState()
 
     def set_latest_frame(self, frame):
         try:
@@ -97,6 +105,14 @@ class ConversationManager:
         clean_text = self._sanitizer.sanitize(text)
         self.world_model.recent_interactions.append(f"User: {clean_text}")
 
+        # --- Dopamine Biometric Alignment (Input Flow) ---
+        self.agent_state.current_task = clean_text
+        self.agent_state = await self.cognitive_graph.run_input_flow(
+            self.agent_state,
+            user_text=clean_text,
+            base_system_prompt=self.llm._system_prompt
+        )
+
         # --- Contextual Memory Filter (Repeated Queries) ---
         now_ts = time.time()
         self._recent_inputs = [item for item in self._recent_inputs if now_ts - item["timestamp"] < 300.0]
@@ -126,6 +142,13 @@ class ConversationManager:
                     await self.tts.speak(t)
                     if self.response_callback:
                         self.response_callback(t)
+                
+                # Biometric Post-Execution Critic check
+                self.agent_state = await self.cognitive_graph.run_post_execution_flow(
+                    self.agent_state,
+                    skill_name=skill.name,
+                    success=True
+                )
             except Exception as e:
                 self._logger.error(f"Errore fast-path skill execution: {e}")
                 self.llm.flag_tool_failure()
@@ -133,6 +156,14 @@ class ConversationManager:
                 await self.tts.speak(err_msg)
                 if self.response_callback:
                     self.response_callback(err_msg)
+                
+                # Biometric Post-Execution Critic check (Failure)
+                self.agent_state = await self.cognitive_graph.run_post_execution_flow(
+                    self.agent_state,
+                    skill_name=skill.name,
+                    success=False,
+                    error_message=str(e)
+                )
             return True
 
         # Offline fallback
@@ -188,6 +219,10 @@ class ConversationManager:
         except:
              pass
 
+        # Temporarily inject biomimetic prompt override into LLM
+        original_sys_prompt = self.llm._system_prompt
+        self.llm.set_system_prompt(self.agent_state.system_prompt_override)
+
         try:
             start = time.perf_counter()
             if source == "audio":
@@ -239,6 +274,9 @@ class ConversationManager:
             self.metrics.record_llm_error("unexpected")
             self._logger.error(f"LLM call failed: {e}", exc_info=True)
             return False
+        finally:
+            # Restore the original system prompt
+            self.llm.set_system_prompt(original_sys_prompt)
 
         # Post LLM validation -> prevent emergency action
         response_text = getattr(response, "text", "")
@@ -283,6 +321,15 @@ class ConversationManager:
                      await self.tts.speak(t)
                      if self.response_callback:
                           self.response_callback(t)
+                
+                # Critic evaluation on successful skill executions
+                for act in explicit_actions:
+                    skill_name = act.get("action_type", act.get("name", "unknown"))
+                    self.agent_state = await self.cognitive_graph.run_post_execution_flow(
+                        self.agent_state,
+                        skill_name=skill_name,
+                        success=True
+                    )
             except Exception as e:
                 self._logger.error(f"Errore durante l'esecuzione delle skill: {e}", exc_info=True)
                 self.llm.flag_tool_failure()
@@ -290,6 +337,16 @@ class ConversationManager:
                 await self.tts.speak(err_msg)
                 if self.response_callback:
                      self.response_callback(err_msg)
+                     
+                # Critic evaluation on failed skill executions
+                for act in explicit_actions:
+                    skill_name = act.get("action_type", act.get("name", "unknown"))
+                    self.agent_state = await self.cognitive_graph.run_post_execution_flow(
+                        self.agent_state,
+                        skill_name=skill_name,
+                        success=False,
+                        error_message=str(e)
+                    )
                  
         if not response_text and (formatted_doc or any(a.get("action_type", a.get("name", "")) == "ask_visual_question" for a in response_actions)):
             response_text = "Ho analizzato l'hardware visivamente e prodotto un report a schermo."
@@ -335,8 +392,8 @@ class ConversationManager:
             return f"Errore durante l'analisi visiva: {e}"
 
     def _build_prompt(self, user_text: str, ha_context: str, repeated_note: str = "") -> str:
-        # Usiamo l'ora locale del sistema (che deve essere sincronizzata su Europe/Rome)
-        now = datetime.datetime.now().strftime("%A %d %B %Y, ore %H:%M")
+        from zoneinfo import ZoneInfo
+        now = datetime.datetime.now(ZoneInfo("Europe/Rome")).strftime("%A %d %B %Y, ore %H:%M")
         prompt = f"[DATA LOCALE: {now} (fuso orario: Europe/Rome)]\n"
         if repeated_note:
             prompt += f"{repeated_note}\n"

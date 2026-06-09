@@ -1,0 +1,258 @@
+#!/usr/bin/env python3
+"""
+Semantic Costmap Injector
+=========================
+ROS 2 Python node that transforms 3D semantic obstacles from Hailo VLM
+and injects them as 2D grid cells for Nav2 Costmap.
+
+Includes dynamic temporal decay to prevent ghost obstacles.
+
+Version: 01.00.00
+"""
+
+import math
+import time
+import threading
+
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+
+from std_msgs.msg import Header
+from nav_msgs.msg import GridCells
+from geometry_msgs.msg import Point, PointStamped
+from visualization_msgs.msg import Marker, MarkerArray
+
+# TF2 imports
+import tf2_ros
+from tf2_geometry_msgs import PointStamped as TFPointStamped
+
+# Custom package messages
+from robopy_controller.msg import SemanticObject, SemanticObjectArray
+
+
+class SemanticCostmapInjector(Node):
+    def __init__(self):
+        super().__init__('semantic_costmap_injector')
+        self.get_logger().info("Inizializzazione semantic_costmap_injector...")
+
+        # Parameters
+        self.declare_parameter('decay_time_sec', 5.0)
+        self.declare_parameter('min_obstacle_confidence', 0.6)
+        self.declare_parameter('inflation_radius_m', 0.15)
+        self.declare_parameter('costmap_frame', 'map')
+        self.declare_parameter('grid_resolution', 0.05) # 5 cm grid resolution
+
+        self.decay_time = self.get_parameter('decay_time_sec').value
+        self.min_confidence = self.get_parameter('min_obstacle_confidence').value
+        self.inflation_radius = self.get_parameter('inflation_radius_m').value
+        self.costmap_frame = self.get_parameter('costmap_frame').value
+        self.grid_res = self.get_parameter('grid_resolution').value
+
+        # TF2 Setup
+        self.tf_buffer = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
+
+        # QoS Settings
+        qos_reliable = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=5
+        )
+        qos_best_effort = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1
+        )
+
+        # Subscribers
+        self.sub_objects = self.create_subscription(
+            SemanticObjectArray, '/hailo/vlm/semantic_objects', self.objects_callback, qos_reliable
+        )
+
+        # Publishers
+        self.pub_grid_cells = self.create_publisher(
+            GridCells, '/semantic_obstacles', qos_best_effort
+        )
+        self.pub_debug_markers = self.create_publisher(
+            MarkerArray, '/semantic_costmap_injector/debug', qos_best_effort
+        )
+
+        # Obstacle Memory (key: label+str(x)+str(y), val: (transformed_point, timestamp, label))
+        self.active_obstacles = {}
+        self.lock = threading.Lock()
+
+        # Timer to handle temporal decay and publishing at 5Hz
+        self.create_timer(0.2, self.update_and_publish)
+
+        self.get_logger().info("semantic_costmap_injector avviato.")
+
+    def objects_callback(self, msg):
+        """Callback per la ricezione degli oggetti rilevati da VLM"""
+        # Filtra e trasforma i punti nel frame di destinazione
+        for obj in msg.objects:
+            if obj.confidence < self.min_confidence:
+                continue
+
+            # Consideriamo solo ostacoli adatti alla costmap
+            if obj.semantic_class not in ["obstacle", "person", "furniture"]:
+                continue
+
+            try:
+                # Creiamo PointStamped per TF2
+                pt_cam = PointStamped()
+                pt_cam.header = msg.header
+                pt_cam.point = obj.centroid_3d
+
+                # Trasformiamo nel frame della mappa/costmap (solitamente 'map' o 'odom')
+                # Se la trasformata non è ancora pronta, saltiamo
+                if self.tf_buffer.can_transform(self.costmap_frame, msg.header.frame_id, rclpy.time.Time()):
+                    pt_map = self.tf_buffer.transform(pt_cam, self.costmap_frame)
+                    
+                    # Rimuoviamo la coordinata Z per la costmap 2D
+                    pt_map.point.z = 0.0
+
+                    # ID univoco per tracciare l'ostacolo
+                    # Eseguiamo il discretizing sulla griglia per unire rilevamenti vicini dello stesso tipo
+                    grid_x = round(pt_map.point.x / self.grid_res) * self.grid_res
+                    grid_y = round(pt_map.point.y / self.grid_res) * self.grid_res
+                    obs_key = f"{obj.label}_{grid_x:.2f}_{grid_y:.2f}"
+
+                    with self.lock:
+                        # Salviamo l'ostacolo con timestamp aggiornato
+                        self.active_obstacles[obs_key] = {
+                            'point': pt_map.point,
+                            'timestamp': time.time(),
+                            'label': obj.label,
+                            'width': obj.estimated_width_m,
+                            'depth': obj.estimated_depth_m
+                        }
+                else:
+                    self.get_logger().warn(f"TF: Impossibile trasformare da {msg.header.frame_id} a {self.costmap_frame}", throttle_duration_sec=5.0)
+            except Exception as e:
+                self.get_logger().error(f"Errore durante la trasformazione TF dell'ostacolo: {e}")
+
+    def update_and_publish(self):
+        """Pulisce gli ostacoli scaduti e pubblica i GridCells ed i marker debug"""
+        now = time.time()
+        expired_keys = []
+
+        with self.lock:
+            # Identifica gli ostacoli scaduti
+            for key, obs in self.active_obstacles.items():
+                if now - obs['timestamp'] > self.decay_time:
+                    expired_keys.append(key)
+
+            # Rimuove ostacoli scaduti
+            for key in expired_keys:
+                del self.active_obstacles[key]
+
+            # Costruiamo la lista di GridCells
+            cells_to_publish = []
+            
+            # Per ogni ostacolo attivo, eseguiamo l'inflazione se richiesta
+            for obs in self.active_obstacles.values():
+                center_pt = obs['point']
+                
+                # Aggiungiamo il centro
+                cells_to_publish.append(center_pt)
+                
+                # Se abbiamo un raggio di inflazione maggiore di zero, aggiungiamo celle adiacenti
+                if self.inflation_radius > 0:
+                    steps = int(self.inflation_radius / self.grid_res)
+                    for dx in range(-steps, steps + 1):
+                        for dy in range(-steps, steps + 1):
+                            if dx == 0 and dy == 0:
+                                continue
+                            # Controlliamo la distanza euclidea
+                            dist = math.sqrt((dx * self.grid_res)**2 + (dy * self.grid_res)**2)
+                            if dist <= self.inflation_radius:
+                                inflated_pt = Point()
+                                inflated_pt.x = center_pt.x + dx * self.grid_res
+                                inflated_pt.y = center_pt.y + dy * self.grid_res
+                                inflated_pt.z = 0.0
+                                cells_to_publish.append(inflated_pt)
+
+            # Pubblica GridCells per Nav2
+            grid_msg = GridCells()
+            grid_msg.header.stamp = self.get_clock().now().to_msg()
+            grid_msg.header.frame_id = self.costmap_frame
+            grid_msg.cell_width = self.grid_res
+            grid_msg.cell_height = self.grid_res
+            grid_msg.cells = cells_to_publish
+            self.pub_grid_cells.publish(grid_msg)
+
+            # Pubblica MarkerArray per visualizzazione in RViz (Foxglove Studio)
+            self.publish_debug_markers()
+
+    def publish_debug_markers(self):
+        """Pubblica marker cilindrici per visualizzare gli ostacoli su Foxglove/RViz"""
+        marker_array = MarkerArray()
+        idx = 0
+        
+        for key, obs in self.active_obstacles.items():
+            marker = Marker()
+            marker.header.stamp = self.get_clock().now().to_msg()
+            marker.header.frame_id = self.costmap_frame
+            marker.ns = "semantic_obstacles"
+            marker.id = idx
+            marker.type = Marker.CYLINDER
+            marker.action = Marker.ADD
+            marker.pose.position = obs['point']
+            # Altezza fittizia per visualizzazione 3D
+            marker.pose.position.z = 0.5 
+            marker.pose.orientation.w = 1.0
+            
+            # Dimensioni
+            marker.scale.x = max(obs['width'], self.inflation_radius * 2.0)
+            marker.scale.y = max(obs['depth'], self.inflation_radius * 2.0)
+            marker.scale.z = 1.0 # Altezza 1m
+            
+            # Colore rosso semi-trasparente
+            marker.color.r = 1.0
+            marker.color.g = 0.0
+            marker.color.b = 0.0
+            marker.color.a = 0.6
+            
+            marker.lifetime = rclpy.duration.Duration(seconds=self.decay_time).to_msg()
+            
+            # Testo label sopra l'ostacolo
+            text_marker = Marker()
+            text_marker.header = marker.header
+            text_marker.ns = "semantic_labels"
+            text_marker.id = idx + 1000
+            text_marker.type = Marker.TEXT_VIEW_FACING
+            text_marker.action = Marker.ADD
+            text_marker.pose.position = Point()
+            text_marker.pose.position.x = obs['point'].x
+            text_marker.pose.position.y = obs['point'].y
+            text_marker.pose.position.z = 1.1 # Sopra il cilindro
+            text_marker.scale.z = 0.2 # Altezza testo
+            text_marker.color.r = 1.0
+            text_marker.color.g = 1.0
+            text_marker.color.b = 1.0
+            text_marker.color.a = 1.0
+            text_marker.text = f"{obs['label']}"
+            text_marker.lifetime = marker.lifetime
+            
+            marker_array.markers.append(marker)
+            marker_array.markers.append(text_marker)
+            idx += 1
+
+        self.pub_debug_markers.publish(marker_array)
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = SemanticCostmapInjector()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()

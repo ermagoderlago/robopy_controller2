@@ -859,8 +859,9 @@ class EmailSkill(BaseSkill):
                 learned_carriers = self.email_memory.get_learned_carriers()
                 learned_vips = self.email_memory.get_learned_vips()
                 
+                from zoneinfo import ZoneInfo
                 dispatch_prompt = _AGENT_DISPATCH_TEMPLATE.format(
-                    current_date=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    current_date=datetime.datetime.now(ZoneInfo("Europe/Rome")).strftime("%Y-%m-%d %H:%M:%S"),
                     text=text,
                     active_packages=json.dumps(active_pkgs, ensure_ascii=False),
                     active_appointments=json.dumps(upcoming_apps, ensure_ascii=False),
@@ -1303,7 +1304,8 @@ class EmailSkill(BaseSkill):
         await asyncio.sleep(60)  # Attendi 1 min dopo boot per stabilizzazione
         while True:
             try:
-                hour = datetime.datetime.now().hour
+                from zoneinfo import ZoneInfo
+                hour = datetime.datetime.now(ZoneInfo("Europe/Rome")).hour
                 if self._quiet_start <= hour or hour < self._quiet_end:
                     logger.debug(f"📧 Quiet hours ({hour}:00), polling sospeso")
                     await asyncio.sleep(300)  # Ricontrolla tra 5 min

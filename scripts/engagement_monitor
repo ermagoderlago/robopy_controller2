@@ -1,0 +1,18 @@
+#!/usr/bin/env python3
+import sys
+import rclpy
+import signal
+from robopy_controller.nodes.engagement_monitor import main
+
+def signal_handler(sig, frame):
+    pass
+
+if __name__ == '__main__':
+    signal.signal(signal.SIGINT, signal_handler)
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass
+    except Exception as e:
+        print(f"Error in engagement_monitor wrapper: {e}", file=sys.stderr)
+        sys.exit(1)

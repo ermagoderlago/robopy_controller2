@@ -107,9 +107,9 @@ class ChromaNativeStore:
                         return ""
 
             if memory.embedding is not None:
-                if len(memory.embedding) != 768:
+                if len(memory.embedding) not in (768, 3072):
                     self.logger.error(
-                        f"❌ Corruzione spazio vettoriale: embedding ha dimensione {len(memory.embedding)} anziché 768. Record scartato."
+                        f"❌ Corruzione spazio vettoriale: embedding ha dimensione {len(memory.embedding)} anziché 768 o 3072. Record scartato."
                     )
                     return ""
 

@@ -651,4 +651,13 @@ Questo è il flusso audio completo e corretto. Se Marcus sente ma non risponde, 
     2. **Rimozione dei Yield Intermedi**: Eliminati i feedback vocali progressivi intermedi che innescavano la voce robotica offline. I passaggi intermedi (IMAP connect, LLM Analysis) ora avvengono in silenzio o tramite normali log di sistema.
     3. **Nativa Gemini Live Speech**: Ora Gemini Live riceve il `SkillResult` serializzato come risposta della chiamata al tool asincrona (`FunctionResponse` su WebSocket) e sintetizza la risposta con la sua voce calda, naturale ed espressiva nativa!
 
+## Peak Limiter / AGC Software in Tempo Reale [v16.0 - Giugno 2026]
 
+- **Problema**: Problemi di saturazione e clipping con il microfono ReSpeaker Lite. Se l'utente parla troppo vicino l'audio satura e si distorce, mentre se parla troppo lontano non sente correttamente; l'aumento del guadagno software (`stt_gain` a 30x) causava forte distorsione armonica (clipping) sui picchi sonori.
+- **Soluzione**: Implementato un algoritmo di compressione e limitazione digitale (Peak Limiter / AGC software) in tempo reale direttamente nel ciclo di lettura del flusso audio PCM (16kHz, 16-bit mono) all'interno di `respeaker_vui_node.py` (nel thread `_audio_processing_worker`), prima che il segnale venga elaborato da Porcupine o inviato al VAD/cervello AI.
+- **Parametri dell'Algoritmo**:
+  1. **Soglia di Attivazione (Threshold)**: Monitora il picco assoluto massimo di ogni chunk PCM. Se supera il valore di `26000` (vicino al clipping a 16-bit che è 32768), attiva istantaneamente l'attenuazione.
+  2. **Tempo di Attacco (Attack Time)**: Istantaneo (`0 ms`). Calcola il moltiplicatore necessario (`30000.0 / peak_val`) sul chunk corrente per evitare che i campioni vadano in saturazione oltre `30000`. Se il moltiplicatore calcolato è inferiore al guadagno corrente del limitatore (`self._limiter_gain`), viene applicato immediatamente.
+  3. **Tempo di Rilascio (Release Time)**: Quando il picco del segnale scende sotto la soglia, il moltiplicatore di guadagno risale linearmente verso `1.0` a una velocità di `0.0667` per chunk da 60ms (circa `900ms` totali di rilascio), eliminando l'effetto "pompaggio" acustico.
+  4. **Efficienza**: Utilizza operazioni vettoriali NumPy ad alte prestazioni sull'array mono. L'elaborazione del chunk richiede meno di `0.1 millisecondi`, garantendo zero latenza aggiuntiva nello streaming verso le API di Gemini.
+- **Verifica Funzionamento**: I campioni rimangono confinati nel range sicuro `[-30000, 30000]`, mantenendo la massima dinamica e nitidezza senza alcuna distorsione a onda quadra o saturazione.

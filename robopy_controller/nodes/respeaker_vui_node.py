@@ -261,6 +261,17 @@ class ReSpeakerVUINode(Node):
         self._is_music_playing     = False # [v11.0]
 
         # ------------------------------------------------------------------ #
+        # Peak Limiter / AGC software real-time parameters [v16.0]
+        # ------------------------------------------------------------------ #
+        self._limiter_gain = 1.0  # Moltiplicatore di guadagno dinamico corrente
+        # Rilascio: in 800ms-1000ms risale linearmente a 1.0. 
+        # Calcoliamo il delta per frame/chunk. Ogni chunk = 960 campioni a 16kHz = 60ms.
+        # Per risalire da 0.0 a 1.0 in 900ms, servono 15 chunk.
+        # Quindi il guadagno aumenta di 1.0 / 15 = ~0.0667 per chunk.
+        self._limiter_release_rate = 0.0667  # incremento lineare per chunk (60ms)
+
+
+        # ------------------------------------------------------------------ #
         # [v2.5 #1] Stato VUI con threading.Event
         # ------------------------------------------------------------------ #
         # self.stt_gain gia' impostata sopra
@@ -938,12 +949,34 @@ class ReSpeakerVUINode(Node):
                 
                 # ---------------------------------------------------------- #
                 # Applica stt_gain_to_use al segnale d'ingresso per VAD e Porcupine
+                # con Peak Limiter / AGC software [v16.0]
                 # ---------------------------------------------------------- #
-                if stt_gain_to_use != 1.0:
-                    boosted_l = l_ch[:n].astype(np.float32) * stt_gain_to_use
-                    np.copyto(self._int16_vad_buf[:n], np.clip(boosted_l, -32768, 32767).astype(np.int16))
+                # 1. Applica il guadagno software iniziale (boost di sensibilità stt_gain)
+                boosted_float = l_ch[:n].astype(np.float32) * stt_gain_to_use
+
+                # 2. Peak Limiter / AGC Software in tempo reale sui chunk PCM
+                # Soglia (Threshold): 26000. Se il picco supera 26000, attiva attenuazione istantanea (Attack = 0ms)
+                # in modo che i campioni non saturino oltre 30000.
+                peak_val = np.max(np.abs(boosted_float))
+                
+                if peak_val > 26000.0:
+                    # Tempo di attacco istantaneo (0ms): Calcola il moltiplicatore necessario sul chunk corrente
+                    target_gain = 30000.0 / peak_val
+                    # Applica immediatamente il fattore di compressione limitatore se è più forte del guadagno corrente
+                    if target_gain < self._limiter_gain:
+                        self._limiter_gain = target_gain
                 else:
-                    np.copyto(self._int16_vad_buf[:n], l_ch[:n])
+                    # Tempo di rilascio lineare (Release Time ~900ms): risale verso 1.0
+                    if self._limiter_gain < 1.0:
+                        self._limiter_gain = min(1.0, self._limiter_gain + self._limiter_release_rate)
+
+                # 3. Applica il limiter_gain calcolato dinamicamente a tutti i campioni del chunk
+                if self._limiter_gain < 1.0:
+                    boosted_float *= self._limiter_gain
+
+                # 4. Cast sicuro a int16 con clipping a 16-bit
+                np.copyto(self._int16_vad_buf[:n], np.clip(boosted_float, -32768, 32767).astype(np.int16))
+
 
                 # ---------------------------------------------------------- #
                 # Porcupine — wake word detection su segnale int16 grezzo

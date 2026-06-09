@@ -14,6 +14,19 @@ source /home/robopy/ros2_venv/bin/activate
 source /mnt/ssd/robopy_controller_host/install/setup.bash
 source /mnt/ssd/robopy_controller_host/setup_keys.sh
 export ROS_DOMAIN_ID=42
+if [ ! -f /tmp/cyclonedds_robopy.xml ]; then
+    echo "📄 Generating /tmp/cyclonedds_robopy.xml..."
+    cat << 'EOF' > /tmp/cyclonedds_robopy.xml
+<?xml version="1.0" encoding="UTF-8" ?>
+<CycloneDDS xmlns="https://cdds.io/config" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://cdds.io/config https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
+    <Domain id="any">
+        <Discovery>
+            <MaxAutoParticipantIndex>200</MaxAutoParticipantIndex>
+        </Discovery>
+    </Domain>
+</CycloneDDS>
+EOF
+fi
 export CYCLONEDDS_URI=/tmp/cyclonedds_robopy.xml
 export PYTHONUNBUFFERED=1
 

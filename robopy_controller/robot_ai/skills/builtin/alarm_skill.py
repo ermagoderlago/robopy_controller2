@@ -87,9 +87,11 @@ class AlarmSkill(BaseSkill):
             return
 
         # Calcola quando deve suonare
-        now = datetime.now() # Questo ora rifletterà il timezone del sistema (Europe/Rome dopo il fix)
+        from zoneinfo import ZoneInfo
+        rome_tz = ZoneInfo("Europe/Rome")
+        now = datetime.now(rome_tz)
         # Se l'ora è già passata oggi, impostala per domani
-        alarm_dt = datetime.combine(now.date(), target_time)
+        alarm_dt = datetime.combine(now.date(), target_time, tzinfo=rome_tz)
         if alarm_dt <= now:
             alarm_dt += timedelta(days=1)
 

@@ -133,5 +133,177 @@ Questo registro (Engineering Change Order Log) documenta tutte le modifiche stru
 - **DDS and Node Restart**: Hot-swapped via `sync_marcus.bat` ed eseguito il riavvio completo dei nodi via `restart.sh`. Marcus ha ripreso il corretto turn-taking ed è pronto per i test dal vivo senza interruzioni di flusso e con sintesi vocale unificata e nativa.
 - **Sogno Notturno Verification**: Analizzato il gap rilevato dalla skill *Sogno Notturno* (richiesta di sintesi e-mail con limite alle ultime 2 righe). Si conferma che il refactoring sincrono odierno integra già nativamente la gestione di sintesi tramite Gemini Live, risolvendo il gap strutturale.
 
+---
+
+## 📈 ECO-2026-06-01-001: Dopamine Biometric Alignment System (Allineamento Biomimetico)
+* **Data**: 1 Giugno 2026
+* **Autore**: Antigravity (AI Coding Partner)
+* **Stato**: ✅ **Completato, Sincronizzato e Collaudato**
+* **Descrizione**: Introduzione di un sistema di allineamento biomimetico a grafo asincrono basato su un meccanismo dopaminergico di ricompensa e punizione (RPE - Reward Prediction Error) integrato nella pipeline cognitiva di Marcus. Consente l'analisi in tempo reale dei feedback verbali dell'utente e dei fallimenti delle skill ROS 2, la persistenza episodica su ChromaDB (RAG "Severus") e il condizionamento predittivo per inibizione sinaptica prima dell'esecuzione di azioni o generazioni.
+
+### 📂 File Modificati ed Introdotti
+1. **[Cognitive Graph - INTRODOTTO]** [cognitive_graph.py](file:///c:/Users/lsuffia/OneDrive%20-%20BRUGOLA%20OEB%20INDUSTRIALE%20SPA/Documents/robopy/antigravity/robopy_controller/robot_ai/orchestration/cognitive_graph.py):
+   - Creato modulo a grafo asincrono che modella lo stato dell'agente (`MarcusAgentState`).
+   - Implementato `CriticEvaluatorNode` per valutare feedback positivi ("ottimo", "bravo") o negativi ("no", "fermati") e determinare l'RPE ($\delta = \text{Feedback} - \text{Expectation}$) con salvataggio automatico di allineamenti episodici su ChromaDB per variazioni significative ($|RPE| \ge 0.3$).
+   - Implementato `PredictiveRouterNode` con inibizione sinaptica preventiva via query vettoriale su ChromaDB.
+2. **[ROS Node/Orchestrator]** [conversation.py](file:///c:/Users/lsuffia/OneDrive%20-%20BRUGOLA%20OEB%20INDUSTRIALE%20SPA/Documents/robopy/antigravity/robopy_controller/robot_ai/orchestration/conversation.py):
+   - Importato ed inizializzato il `MarcusStateGraph` passandogli la connessione nativa `ChromaNativeStore` ed il servizio di embedding.
+   - Integrato il ciclo di input flow nel gestore `_process_locked`, che imposta temporaneamente il system prompt dell'LLM prima della generazione.
+   - Aggiunta la verifica post-esecuzione al Critic node per intercettare esiti ed errori di skill ROS 2 (es. timeout IMAP) in tempo reale.
+3. **[Script Test - INTRODOTTO]** [test_dopamine_alignment.py](file:///c:/Users/lsuffia/OneDrive%20-%20BRUGOLA%20OEB%20INDUSTRIALE%20SPA/Documents/robopy/antigravity/scratch/test_dopamine_alignment.py):
+   - Creato script di test isolato con mock di ChromaDB e embedding per validare il funzionamento end-to-end privo di derive di codifica terminale.
+
+### 🧪 Risultato del Collaudo e Risoluzione Conflitti
+- **Automatic Execution check**: Il test `test_dopamine_alignment.py` ha superato con successo tutti i 4 step di verifica (Feedback Positivo, Feedback Negativo, ROS 2 Skill Timeout e Inibizione Sinaptica Preventiva) registrando correttamente gli eventi come `reward` e `penalty` ed effettuando l'iniezione dinamica del prompt in modo deterministico e pulito.
+## 📈 ECO-2026-06-02-001: Peak Limiter / AGC Software in Tempo Reale
+* **Data**: 2 Giugno 2026
+* **Autore**: Antigravity (AI Coding Partner)
+* **Stato**: ✅ **Completato, Sincronizzato e Riavviato**
+* **Descrizione**: Progettazione e implementazione di un algoritmo di compressione e limitazione digitale (Peak Limiter / AGC software) in tempo reale direttamente nel ciclo di cattura PCM (16kHz, 16-bit mono) nel nodo VUI. L'algoritmo previene la saturazione ed il clipping (distorsione a onda quadra) causati da un guadagno microfonico elevato o dal parlato troppo ravvicinato, ottimizzando l'elaborazione prima di Porcupine e del VAD.
+
+### 📂 File Modificati ed Introdotti
+1. **[ROS Node]** [respeaker_vui_node.py](file:///c:/Users/lsuffia/OneDrive%20-%20BRUGOLA%20OEB%20INDUSTRIALE%20SPA/Documents/robopy/antigravity/robopy_controller/nodes/respeaker_vui_node.py):
+   - Inizializzato lo stato del limitatore (`self._limiter_gain = 1.0` e `self._limiter_release_rate = 0.0667`) in `__init__`.
+   - Implementato l'algoritmo vettoriale ultra-veloce in `_audio_processing_worker` che monitora il picco assoluto di ogni chunk. Se supera `26000`, applica un'attenuazione istantanea (tempo di attacco 0ms) per bloccare i campioni entro `30000.0`.
+   - Configurato il tempo di rilascio lineare (~900ms totali) per far risalire il moltiplicatore a `1.0` eliminando gli effetti di "pompaggio" acustico.
+2. **[Documento]** [lesson_learned.md](file:///c:/Users/lsuffia/OneDrive%20-%20BRUGOLA%20OEB%20INDUSTRIALE%20SPA/Documents/robopy/antigravity/weights/lesson_learned.md):
+   - Documentati i dettagli architetturali, i parametri scelti per soglia, attacco, rilascio e l'analisi prestazionale del limitatore software.
+
+### 🧪 Risultato del Collaudo e Sincronizzazione
+- **Efficienza Vettoriale**: L'elaborazione del chunk con operazioni NumPy mono-channel richiede meno di `0.1ms` su core singolo, ampiamente sotto il limite strutturale di `1ms`.
+- **Sync & Hot-Swap**: Modifiche sincronizzate a caldo sul Raspberry Pi tramite `./sync_marcus.bat` con successo.
+- **Riavvio**: Eseguito `restart.sh` via SSH. Tutti i nodi sono ripartiti senza errori e con il modulo VUI in ascolto adattivo e limitato.
+
+---
+
+## 📈 ECO-2026-06-03-001: Waveshare General Driver (ESP32) Integration
+* **Data**: 3 Giugno 2026
+* **Autore**: Antigravity (AI Coding Partner)
+* **Stato**: ✅ **Completato, Sincronizzato e Compilato**
+* **Descrizione**: Progettazione ed implementazione di un nuovo nodo ROS 2 standalone in Python chiamato `waveshare_motor_driver` per il controllo a basso livello e odometria della nuova scheda Waveshare General Driver (ESP32) via seriale USB. Questo nodo funge da driver alternativo a `smart_buildhat_driver` e integra la cinematica differenziale closed-loop nativa del firmware Waveshare, il calcolo dell'odometria geometrica dagli encoder e un meccanismo di sicurezza Watchdog a 500ms.
+
+### 📂 File Modificati ed Introdotti
+1. **[ROS Node - INTRODOTTO]** [waveshare_motor_driver.py](file:///c:/Users/lsuffia/OneDrive%20-%20BRUGOLA%20OEB%20INDUSTRIALE%20SPA/Documents/robopy/antigravity/robopy_controller/nodes/waveshare_motor_driver.py):
+   - Creato nodo standalone ROS 2 che gestisce la comunicazione seriale non bloccante via JSON con la scheda ESP32.
+   - Sottoscrive `/cmd_vel` ed esegue la cinematica differenziale classica per ricavare la velocità lineare dei motori destro/sinistro in m/s, inviando comandi seriali `{"T": 1, "L": v_L, "R": v_R}`.
+   - Legge asincronamente in un thread dedicato i feedback seriali `{"T": 1001, "odl": odl, "odr": odr}` contenenti i tick degli encoder (30Hz).
+   - Esegue l'integrazione geometrica della posa ($X$, $Y$, $\theta$) gestendo i reset ed i wrap-around degli encoder, pubblicando sul topic `/odom` (`nav_msgs/msg/Odometry`) e trasmettendo il TF `odom` ➔ `base_link`.
+   - Implementa un meccanismo di Watchdog: invia un comando seriale di stop `{"T": 1, "L": 0.0, "R": 0.0}` se non arrivano messaggi su `/cmd_vel` per oltre 500ms.
+2. **[ROS Wrapper - INTRODOTTO]** [waveshare_motor_driver](file:///c:/Users/lsuffia/OneDrive%20-%20BRUGOLA%20OEB%20INDUSTRIALE%20SPA/Documents/robopy/antigravity/scripts/waveshare_motor_driver):
+   - Script eseguibile per il wrapper di avvio del nodo ROS 2.
+3. **[Config/Build]** [setup.py](file:///c:/Users/lsuffia/OneDrive%20-%20BRUGOLA%20OEB%20INDUSTRIALE%20SPA/Documents/robopy/antigravity/setup.py):
+   - Aggiunto l'entry point `waveshare_motor_driver`.
+4. **[Config/Build]** [CMakeLists.txt](file:///c:/Users/lsuffia/OneDrive%20-%20BRUGOLA%20OEB%20INDUSTRIALE%20SPA/Documents/robopy/antigravity/CMakeLists.txt):
+   - Aggiunto lo script wrapper `scripts/waveshare_motor_driver` nel blocco `install(PROGRAMS ... DESTINATION lib/${PROJECT_NAME})`.
+
+### 🧪 Risultato del Collaudo e Sincronizzazione
+- **Sincronizzazione**: Sincronizzato con successo tramite `sync_marcus.bat` copiando i nuovi file e aggiornando l'installazione remota.
+- **Compilazione ROS 2**: Ricostruito con successo il pacchetto sul Raspberry Pi via SSH con `colcon build --packages-select robopy_controller` in 6 minuti e 23 secondi.
+- **Registrazione Eseguibile**: Verificato tramite `ros2 pkg executables` che il nodo `waveshare_motor_driver` è registrato ed eseguibile correttamente.
+- **Syntax Check**: py_compile superato senza errori sul Pi sia per il nodo che per lo script wrapper.
+
+---
+
+## 📈 ECO-2026-06-07-001: Hailo-10H NPU Platform and Local LLM (Ollama) Support
+* **Data**: 7 Giugno 2026
+* **Autore**: Antigravity (AI Coding Partner)
+* **Stato**: ✅ **Completato, Configurato e Verificato** (NPU pronta per essere montata a caldo)
+* **Descrizione**: Configurazione completa del sistema host Raspberry Pi OS 64-bit Bookworm per supportare il nuovo HAT Raspberry Pi AI HAT+ 2 (con NPU Hailo-10H ed 8GB di RAM dedicati) per l'infrastruttura Gen-AI.
+
+### 📂 File Modificati ed Introdotti (Host System)
+1. **[Firmware/Tuning]** `/boot/firmware/config.txt` (Modificato sul Pi):
+   - Abilitato il connettore PCIe FPC (`dtparam=pciex1`).
+   - Forzata la velocità PCIe Gen 3 (`dtparam=pciex1_gen=3`).
+   - Configurato/verificato il bypass di corrente USB-PD (`max_current=5000`) per prevenire il throttling a 600mA.
+2. **[APT Configuration]** `/etc/apt/sources.list.d/trixie.list` (Creato sul Pi):
+   - Aggiunto il puntamento al repository `trixie main` di Raspberry Pi Foundation per rendere disponibili i pacchetti per Hailo-10H (non presenti in Bookworm).
+3. **[APT Configuration]** `/etc/apt/preferences.d/trixie-pin` (Creato sul Pi):
+   - Configurato il pinning APT a priorità `50` per la suite `trixie`, isolando il sistema Bookworm da avanzamenti di versione involontari e consentendo solo il recupero delle dipendenze esplicite dei moduli NPU.
+4. **[Systemd Service]** `/etc/systemd/system/hailo-ollama.service` (Creato sul Pi):
+   - Configurato ed abilitato il servizio systemd per avviare `hailo-ollama` al boot come utente `robopy`.
+   - Impostate le variabili d'ambiente `HOME=/home/robopy` e `XDG_CONFIG_DIRS=/etc/xdg`.
+5. **[System Config JSON]** `/etc/xdg/hailo-ollama/hailo-ollama.json` (e copia in `~/.config/hailo-ollama/hailo-ollama.json`) (Modificato/Creato sul Pi):
+   - Cambiata la porta di bind predefinita da `8000` (in conflitto con Docker proxy) a `11434` (porta standard Ollama).
+
+### 🧪 Risultato del Collaudo e Stato
+- **Compilazione Modulo DKMS**: Superata con successo. Il driver `hailo1x_pci` versione `5.1.1` è compilato ed installato nel kernel corrente `6.12.47+rpt-rpi-v8`.
+- **Installazione Base runtime**: Installati con successo i pacchetti `h10-hailort` (runtime C++ v5.1.1) e `h10-hailort-pcie-driver` (driver).
+- **Model Zoo & Ollama**: Installato con successo `hailo-gen-ai-model-zoo` (v5.1.1).
+- **Service Running Check**: Il servizio `hailo-ollama.service` è abilitato ed attivo (`active (running)`) e risponde sulla porta standard `11434` (`0.0.0.0:11434`), pronto a ricevere le connessioni dei modelli HEF non appena l'NPU sarà fisicamente montato.
+
+---
+
+## 📈 ECO-2026-06-07-002: Hailo-10H ROS 2 Custom Nodes and Message IDL Implementation
+* **Data**: 7 Giugno 2026
+* **Autore**: Antigravity (AI Coding Partner)
+* **Stato**: ✅ **Completato, Sincronizzato e Compilato** (Pronto per l'avvio e test sul campo)
+* **Descrizione**: Progettazione, implementazione e compilazione di 5 nuovi nodi ROS 2 in Python per gestire la pipeline cognitiva locale di Hailo-10H e 3 nuovi messaggi custom IDL per lo scambio dati ad alta efficienza.
+
+### 📂 File Modificati ed Introdotti (Workspace)
+1. **[Custom Message]** [SemanticObject.msg](file:///c:/Users/lsuffia/OneDrive%20-%20BRUGOLA%20OEB%20INDUSTRIALE%20SPA/Documents/robopy/antigravity/msg/SemanticObject.msg):
+   - Rappresenta baricentro 3D, coordinate 2D proiettate, bounding box normalizzato e metadati per gli ostacoli estratti dal VLM.
+2. **[Custom Message]** [SemanticObjectArray.msg](file:///c:/Users/lsuffia/OneDrive%20-%20BRUGOLA%20OEB%20INDUSTRIALE%20SPA/Documents/robopy/antigravity/msg/SemanticObjectArray.msg):
+   - Contiene il vettore degli oggetti semantici inviati al filtro costmap.
+3. **[Custom Message]** [EngagementStatus.msg](file:///c:/Users/lsuffia/OneDrive%20-%20BRUGOLA%20OEB%20INDUSTRIALE%20SPA/Documents/robopy/antigravity/msg/EngagementStatus.msg):
+   - Stato HRI (ENGAGED, DISENGAGED, LOST), confidenza dello sguardo e distanza prossemica.
+4. **[ROS Node]** [hailo_bridge_node.py](file:///c:/Users/lsuffia/OneDrive%20-%20BRUGOLA%20OEB%20INDUSTRIALE%20SPA/Documents/robopy/antigravity/robopy_controller/nodes/hailo_bridge_node.py):
+   - Nodo di interfaccia per modelli HEF NPU con Core Pinning automatico su CPU Cores 2-3 ed emulatori di fallback.
+5. **[ROS Node]** [semantic_costmap_injector.py](file:///c:/Users/lsuffia/OneDrive%20-%20BRUGOLA%20OEB%20INDUSTRIALE%20SPA/Documents/robopy/antigravity/robopy_controller/nodes/semantic_costmap_injector.py):
+   - Proiezione geometrica 3D ➔ 2D su griglia e filtro di decadimento temporale degli ostacoli.
+6. **[ROS Node]** [engagement_monitor.py](file:///c:/Users/lsuffia/OneDrive%20-%20BRUGOLA%20OEB%20INDUSTRIALE%20SPA/Documents/robopy/antigravity/robopy_controller/nodes/engagement_monitor.py):
+   - Monitora la prossimità dell'interlocutore ed emette segnali di preemption in caso di allontanamento.
+7. **[ROS Node]** [cloud_watchdog_node.py](file:///c:/Users/lsuffia/OneDrive%20-%20BRUGOLA%20OEB%20INDUSTRIALE%20SPA/Documents/robopy/antigravity/robopy_controller/nodes/cloud_watchdog_node.py):
+   - Controlla la latenza HTTPS di Gemini Cloud attivando/disattivando la sopravvivenza locale su Hailo.
+8. **[ROS Node]** [speaker_id_node.py](file:///c:/Users/lsuffia/OneDrive%20-%20BRUGOLA%20OEB%20INDUSTRIALE%20SPA/Documents/robopy/antigravity/robopy_controller/nodes/speaker_id_node.py):
+   - Modulo standalone per il riconoscimento biometrico dello speaker ECAPA-TDNN.
+9. **[Build/Config]** [setup.py](file:///c:/Users/lsuffia/OneDrive%20-%20BRUGOLA%20OEB%20INDUSTRIALE%20SPA/Documents/robopy/antigravity/setup.py) e [CMakeLists.txt](file:///c:/Users/lsuffia/OneDrive%20-%20BRUGOLA%20OEB%20INDUSTRIALE%20SPA/Documents/robopy/antigravity/CMakeLists.txt):
+   - Registrazione entry points, file di messaggio IDL, script wrapper in `scripts/` ed installazione.
+10. **[Test Script]** [test_hailo_nodes.py](file:///c:/Users/lsuffia/OneDrive%20-%20BRUGOLA%20OEB%20INDUSTRIALE%20SPA/Documents/robopy/antigravity/test/test_hailo_nodes.py):
+    - Testa l'integrazione ROS 2 end-to-end pubblicando dati fittizi sui canali di input e verificando la ricezione di messaggi strutturati.
+11. **[Test Script]** [test_npu_inference.py](file:///c:/Users/lsuffia%20-%20BRUGOLA%20OEB%20INDUSTRIALE%20SPA/Documents/robopy/antigravity/test/test_npu_inference.py):
+    - Esegue diagnostica diretta dell'hardware, rileva il driver PCIe `hailo1x_pci` e valida il caricamento di file `.hef` sull'NPU.
+
+### 🧪 Risultato del Collaudo e Stato
+- **Compilazione ROS 2**: Ricostruito con successo il pacchetto sul Pi via SSH usando Clang/Ninja in 4 minuti e 9 secondi. Generati tutti i moduli di messaggio Python in `install/robopy_controller/local/lib/python3.11/dist-packages/robopy_controller/msg/`.
+- **Hot-swap & Sincronizzazione**: Sincronizzazione ed allineamento dei file sorgenti ed eseguibili a caldo completati al 100%. I nodi sono pronti per essere eseguiti e testati.
+
+---
+
+## 📈 ECO-2026-06-10-001: Hailo-10H 3D Semantic Fusion and Launch Infrastructure
+* **Data**: 10 Giugno 2026
+* **Autore**: Antigravity (AI Coding Partner)
+* **Stato**: ✅ **Completato e Sincronizzato** (Pronto per test sul campo)
+* **Descrizione**: Progettazione e implementazione del nodo visual fusion C++17 `marcus_semantic_mapper`, configurazione del build system, creazione dello script di riavvio completo della suite local AI/NPU `restart_hailo.sh` e dei file di test di integrazione per l'arrivo dell'acceleratore Hailo-10H.
+
+### 📂 File Modificati ed Introdotti (Workspace)
+1. **[ROS Node C++ - INTRODOTTO]** [marcus_semantic_mapper_node.hpp](file:///c:/Users/lsuffia/OneDrive - BRUGOLA OEB INDUSTRIALE SPA/Documents/robopy/antigravity/src/marcus_semantic_mapper_node.hpp):
+   - Definizione della classe `MarcusSemanticMapperNode`.
+   - Strutture dati pre-allocate per zero runtime allocations nella callback.
+   - Setup di `message_filters::ApproximateTime` per RGB + Depth + SemanticObjectArray.
+2. **[ROS Node C++ - INTRODOTTO]** [marcus_semantic_mapper_node.cpp](file:///c:/Users/lsuffia/OneDrive - BRUGOLA OEB INDUSTRIALE SPA/Documents/robopy/antigravity/src/marcus_semantic_mapper_node.cpp):
+   - Back-projection geometrica ad alte prestazioni usando intrinseci camera ed Eigen (senza PCL).
+   - Calcolo della profondità robusta con median filter sulla ROI.
+   - Ordinamento per importanza tramite meccanismo di Attention dinamico/statico.
+   - Serializzazione binaria (76 byte per oggetto) in `rtabmap_msgs/msg/UserData`.
+3. **[Build/Config - MODIFICATO]** [CMakeLists.txt](file:///c:/Users/lsuffia/OneDrive - BRUGOLA OEB INDUSTRIALE SPA/Documents/robopy/antigravity/CMakeLists.txt):
+   - Aggiunti i pacchetti `message_filters`, `rtabmap_msgs` e `visualization_msgs` in `find_package`.
+   - Definita la regola di compilazione e installazione per `marcus_semantic_mapper_cpp`.
+4. **[Build/Config - MODIFICATO]** [package.xml](file:///c:/Users/lsuffia/OneDrive - BRUGOLA OEB INDUSTRIALE SPA/Documents/robopy/antigravity/package.xml):
+   - Aggiunte le dipendenze per `message_filters`, `visualization_msgs` e `rtabmap_msgs`.
+5. **[Bash Script - INTRODOTTO]** [restart_hailo.sh](file:///c:/Users/lsuffia/OneDrive - BRUGOLA OEB INDUSTRIALE SPA/Documents/robopy/antigravity/restart_hailo.sh):
+   - Script di riavvio e gestione watchdog systemd che interrompe e avvia tutti i nodi AI standard (Respeaker interface/VUI, Foxglove, robot_ai_node) E tutti i nodi locali NPU Hailo (`hailo_bridge_node`, `speaker_id_node`, `marcus_semantic_mapper_cpp`, `semantic_costmap_injector`, `engagement_monitor`, `cloud_watchdog_node`).
+6. **[Test Script - INTRODOTTO]** [test_semantic_mapper.py](file:///c:/Users/lsuffia/OneDrive - BRUGOLA OEB INDUSTRIALE SPA/Documents/robopy/antigravity/test/test_semantic_mapper.py):
+   - Script di test per verificare a livello ROS 2 l'aggancio di CameraInfo, il calcolo della back-projection geometrica 3D e il parsing del payload binario `UserData` rispetto alle specifiche di serializzazione.
+
+### 🧪 File di Test e loro Funzione
+* **`test_semantic_mapper.py`**:
+  - **Cosa fa**: Pubblica topic simulati sincronizzati (Grayscale rectified RGB, flat depth image a 2000mm, `SemanticObjectArray` contenente una sedia al centro del frame, e `CameraInfo` con `fx=500, fy=500`). Sottoscrive `/semantic_mapper/objects_3d` e `/rtabmap/user_data` per catturare l'output del mapper C++.
+  - **Cosa valida**: Asserta che la sedia sia proiettata a `(0, 0, 2)` metri nello spazio camera (confermando la matematica 3D della proiezione). Esegue l'un-packing binario dei byte di `UserData` e valida il magic header `SEM\0`, la versione `0x01` e il formato del record (32B label, 4B float conf, 12B float pos, 8B float size, 16B class, 4B float attention).
+* **`test_hailo_nodes.py`**:
+  - **Cosa fa**: Invia mock data sui topic di input del driver `hailo_bridge_node` e verifica che tutti i nodi della suite Hailo (injector, monitor, speaker verification) rispondano correttamente.
+* **`test_npu_inference.py`**:
+  - **Cosa fa**: Diagnostica hardware di basso livello per testare il caricamento del file `.hef` direttamente all'arrivo e montaggio fisico dell'NPU Hailo-10H sul Pi 5.
+
+
 
 

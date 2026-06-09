@@ -28,6 +28,14 @@
 | `./LAUNCH_UPDATE_GUIDE.md` | Media | Istruzioni per l'aggiornamento dei file di lancio ROS 2 |
 | `./weights/lesson_learned.md` | Media | Archivio strutturato delle lezioni apprese e bug risolti |
 | `./robopy_controller/nodes/` | Media | Cartella contenente i nodi Python del controller |
+| `./robopy_controller/nodes/hailo_bridge_node.py` | Media | Nodo ROS 2 per l'interfaccia con Hailo-10H NPU |
+| `./robopy_controller/nodes/semantic_costmap_injector.py` | Media | Proiezione ostacoli 3D in ostacoli costmap 2D |
+| `./robopy_controller/nodes/engagement_monitor.py` | Media | Monitoraggio engagement gaze e prossemica HRI |
+| `./robopy_controller/nodes/cloud_watchdog_node.py` | Media | Watchdog di rete per stato online/offline Gemini |
+| `./robopy_controller/nodes/speaker_id_node.py` | Media | Verifica biometrica vocale ECAPA-TDNN |
+| `./msg/SemanticObject.msg` | Media | Definizione messaggio oggetto semantico rilevato |
+| `./msg/SemanticObjectArray.msg` | Media | Array di oggetti semantici per Nav2 costmap |
+| `./msg/EngagementStatus.msg` | Media | Messaggio di stato dell'engagement HRI |
 | `./launch/` | Media | Cartella contenente i file di lancio del sistema |
 | `./test/` | Bassa | Test unitari e di integrazione del pacchetto |
 | `./tests/` | Bassa | File di test aggiuntivi e legacy |

@@ -513,3 +513,58 @@ This file lists the ROS 2 nodes and their topics (auto-generated).
 ## robopy_controller\robot_ai\skills\active\spotify_skill.py
 - **Subscribes to:** None
 - **Transmits (Publishes) to:** None
+
+## robopy_controller\nodes\hailo_bridge_node.py
+- **Subscribes to:**
+  - `/rgb/image/compressed`
+  - `/depth/image_raw`
+  - `/ai/input/audio_chunk`
+  - `/hailo/trigger/vlm`
+  - `/hailo/trigger/face`
+  - `/hailo/trigger/offline_mode`
+- **Transmits (Publishes) to:**
+  - `/hailo/vlm/semantic_objects`
+  - `/hailo/face/detections`
+  - `/hailo/face/embeddings`
+  - `/hailo/face/emotions`
+  - `/hailo/gaze/direction`
+  - `/hailo/speaker/verified`
+  - `/hailo/speaker/confidence`
+  - `/hailo/health`
+  - `/hailo/vlm/offline_intent`
+
+## robopy_controller\nodes\semantic_costmap_injector.py
+- **Subscribes to:**
+  - `/hailo/vlm/semantic_objects`
+  - `/tf`
+- **Transmits (Publishes) to:**
+  - `/semantic_obstacles`
+  - `/semantic_costmap_injector/debug`
+
+## robopy_controller\nodes\engagement_monitor.py
+- **Subscribes to:**
+  - `/hailo/face/detections`
+  - `/hailo/gaze/direction`
+  - `/superpoint/keypoints_3d`
+- **Transmits (Publishes) to:**
+  - `/engagement/status`
+  - `/engagement/status_str`
+  - `/engagement/cancel_goal`
+  - `/engagement/interrupt`
+  - `/engagement/proxemics_distance`
+
+## robopy_controller\nodes\cloud_watchdog_node.py
+- **Subscribes to:** None
+- **Transmits (Publishes) to:**
+  - `/cloud/status`
+  - `/cloud/latency_ms`
+  - `/hailo/trigger/offline_mode`
+
+## robopy_controller\nodes\speaker_id_node.py
+- **Subscribes to:**
+  - `/ai/input/audio_chunk`
+- **Transmits (Publishes) to:**
+  - `/speaker/verified`
+  - `/speaker/identity`
+  - `/speaker/confidence`
+
