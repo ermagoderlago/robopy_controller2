@@ -10,5 +10,15 @@ secrets.yaml
 
 # Large files
 *.blob
+*.hef
+*.har
+*.onnx
 weights/
 models/
+
+# Log files and Python cache
+*.log
+__pycache__/
+*.pyc
+dp/
+

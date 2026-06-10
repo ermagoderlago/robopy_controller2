@@ -18,6 +18,7 @@ find_package(rclcpp REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
+find_package(tf2_eigen REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(image_transport REQUIRED)
 find_package(nav_msgs REQUIRED)
@@ -123,6 +124,7 @@ ament_target_dependencies(marcus_semantic_mapper_cpp
   tf2_ros
   tf2_geometry_msgs
   cv_bridge
+  tf2_eigen
 )
 target_include_directories(marcus_semantic_mapper_cpp PRIVATE ${EIGEN3_INCLUDE_DIR})
 target_link_libraries(marcus_semantic_mapper_cpp
@@ -146,6 +148,11 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/AskVisualQuestion.srv"
   DEPENDENCIES std_msgs geometry_msgs sensor_msgs vision_msgs
 )
+
+rosidl_target_interfaces(marcus_semantic_mapper_cpp
+  ${PROJECT_NAME} "rosidl_typesupport_cpp"
+)
+
 
 # Install Python package (setup.py handles data_files and scripts)
 # ament_python_install_package(${PROJECT_NAME})

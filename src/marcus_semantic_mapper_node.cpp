@@ -14,6 +14,7 @@ MarcusSemanticMapperNode::MarcusSemanticMapperNode(const rclcpp::NodeOptions& op
     config_.camera_frame = this->declare_parameter("camera_frame", config_.camera_frame);
     config_.base_frame   = this->declare_parameter("base_frame", config_.base_frame);
     config_.map_frame    = this->declare_parameter("map_frame", config_.map_frame);
+    config_.odom_frame   = this->declare_parameter("odom_frame", config_.odom_frame);
     config_.min_depth_m  = this->declare_parameter("min_depth_m", config_.min_depth_m);
     config_.max_depth_m  = this->declare_parameter("max_depth_m", config_.max_depth_m);
     config_.depth_roi_margin_px = this->declare_parameter("depth_roi_margin_px", config_.depth_roi_margin_px);
@@ -41,11 +42,9 @@ MarcusSemanticMapperNode::MarcusSemanticMapperNode(const rclcpp::NodeOptions& op
     qos_best_effort.history = RMW_QOS_POLICY_HISTORY_KEEP_LAST;
     qos_best_effort.depth = config_.max_queue_depth;
 
-    auto sub_options = message_filters::SubscriptionOptions();
-
-    rgb_sub_.subscribe(this, "/rgb/image", qos_best_effort, sub_options);
-    depth_sub_.subscribe(this, "/camera/depth/image_raw", qos_best_effort, sub_options);
-    semantic_sub_.subscribe(this, "/hailo/vlm/semantic_objects", rclcpp::QoS(10).get_rmw_qos_profile(), sub_options);
+    rgb_sub_.subscribe(this, "/rgb/image", qos_best_effort);
+    depth_sub_.subscribe(this, "/camera/depth/image_raw", qos_best_effort);
+    semantic_sub_.subscribe(this, "/hailo/vlm/semantic_objects", rclcpp::QoS(10).get_rmw_qos_profile());
 
     sync_ = std::make_shared<message_filters::Synchronizer<SyncPolicy>>(
         SyncPolicy(config_.max_queue_depth), rgb_sub_, depth_sub_, semantic_sub_);
@@ -90,7 +89,7 @@ bool MarcusSemanticMapperNode::lookupTransforms(const rclcpp::Time& stamp) {
         return true;
     }
     try {
-        auto tf_msg = tf_buffer_->lookup_transform(
+        auto tf_msg = tf_buffer_->lookupTransform(
             config_.base_frame,
             config_.camera_frame,
             stamp,
@@ -385,13 +384,13 @@ void MarcusSemanticMapperNode::publishSemanticObjects(const rclcpp::Time& stamp)
 
     // Prova ad agganciare la posa in map frame (o odom come fallback) per centroid_2d
     try {
-        auto tf_msg = tf_buffer_->lookup_transform(
+        auto tf_msg = tf_buffer_->lookupTransform(
             config_.map_frame, config_.camera_frame, stamp, tf2::durationFromSec(0.02));
         T_map_camera = tf2::transformToEigen(tf_msg);
         transform_found = true;
     } catch (const tf2::TransformException&) {
         try {
-            auto tf_msg = tf_buffer_->lookup_transform(
+            auto tf_msg = tf_buffer_->lookupTransform(
                 config_.odom_frame, config_.camera_frame, stamp, tf2::durationFromSec(0.02));
             T_map_camera = tf2::transformToEigen(tf_msg);
             transform_found = true;

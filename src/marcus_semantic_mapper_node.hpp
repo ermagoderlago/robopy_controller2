@@ -15,7 +15,7 @@
 
 #include <tf2_ros/transform_listener.h>
 #include <tf2_ros/buffer.h>
-#include <cv_bridge/cv_bridge.h>
+#include <cv_bridge/cv_bridge.hpp>
 #include <opencv2/opencv.hpp>
 #include <Eigen/Core>
 #include <Eigen/Geometry>
@@ -45,6 +45,7 @@ private:
         std::string camera_frame = "oak_left_camera_optical_frame";
         std::string base_frame   = "base_link";
         std::string map_frame    = "map";
+        std::string odom_frame   = "odom";
         
         double min_depth_m = 0.3;
         double max_depth_m = 6.0;

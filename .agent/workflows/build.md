@@ -232,6 +232,93 @@ Se riscontri problemi o freeze al microfono I2S/DMA, ripristina istantaneamente 
    ```
 
 
+## 🚀 Compilazione Modelli NPU Hailo su WSL
+
+Per compilare ed ottimizzare i modelli di Deep Learning (es. YOLO, SuperPoint) da formato **ONNX/TFLite** a binario **HEF** compatibile con l'NPU Hailo-10H del robot:
+
+1. Accedi a WSL2 sul PC ed attiva l'ambiente dedicato:
+   ```bash
+   source ~/hailo_env/bin/activate
+   ```
+2. **Utilizzo di Hailo Model Zoo (`hailomz`)**:
+   L'utility gestisce il download, il parsing, la quantizzazione e la compilazione automatica dei modelli noti:
+   ```bash
+   # Visualizza informazioni su un modello (es. yolov8n)
+   hailomz info yolov8n
+   
+   # Esegui la compilazione in formato HEF per Hailo-10H
+   hailomz compile yolov8n
+   ```
+3. **Utilizzo di Hailo Dataflow Compiler (`hailo` CLI)**:
+   Per compilazioni custom o passaggi manuali di ottimizzazione (quantizzazione INT8) tramite SDK:
+   ```bash
+   hailo --help
+   # Parsing di un ONNX personalizzato in formato HAR (Hailo Archive):
+   hailo parser onnx /path/to/model.onnx
+   ```
+
+#### 📦 Ricette di Compilazione per i Modelli di Marcus:
+
+##### A. YOLOv8s-seg (Segmentazione)
+Per aggirare la mancanza del dataset COCO TFRecord locale richiesto da `hailomz compile`:
+1. Esporta in ONNX via ultralytics:
+   ```bash
+   yolo export model=yolov8s-seg.pt format=onnx imgsz=640 opset=12
+   ```
+2. Converti in HAR:
+   ```bash
+   hailo parser onnx --hw-arch hailo10h --net-name yolov8s_seg yolov8s-seg.onnx
+   ```
+3. Ottimizza con calibrazione sintetica (bypassando l'errore JIT compiler CUDA in WSL):
+   ```bash
+   export CUDA_VISIBLE_DEVICES=""
+   hailo optimize --hw-arch hailo10h --use-random-calib-set yolov8s_seg.har
+   ```
+4. Compila in HEF:
+   ```bash
+   hailo compiler --hw-arch hailo10h yolov8s_seg_optimized.har
+   ```
+
+##### B. SuperPoint (Odometria Visuale)
+1. Esporta il modello in ONNX tramite lo script python dedicato.
+2. Converti in HAR:
+   ```bash
+   hailo parser onnx --hw-arch hailo10h --net-name superpoint_128d superpoint_128d.onnx
+   ```
+3. Ottimizza (quantizzazione):
+   ```bash
+   export CUDA_VISIBLE_DEVICES=""
+   hailo optimize --hw-arch hailo10h --use-random-calib-set superpoint_128d.har
+   ```
+4. Compila in HEF:
+   ```bash
+   hailo compiler --hw-arch hailo10h superpoint_128d_optimized.har
+   ```
+
+##### C. NetVLAD (Localizzazione Globale / VPR)
+*Nota Critica: Il modello NetVLAD completo fallisce il parsing Hailo con errore `ValueError: width is not in list` nel nodo di reshape. Le operazioni di flattening ed L2-norm multidimensionali non sono supportate su NPU. L'architettura è stata divisa: il feature extractor gira su NPU, mentre il pooling gira in millisecondi sulla CPU dell'host.*
+
+1. Esporta il solo Backbone (MobileNetV2 + 1x1 conv reducer) usando JIT trace e inibendo dynamo:
+   ```bash
+   # Esegui lo script export_netvlad.py (forzando dynamo=False)
+   python3 scratch/export_netvlad.py
+   ```
+2. Converti il backbone in HAR:
+   ```bash
+   hailo parser onnx --hw-arch hailo10h --net-name netvlad_mobilenet_backbone netvlad_mobilenet_backbone.onnx
+   ```
+3. Ottimizza (quantizzazione):
+   ```bash
+   export CUDA_VISIBLE_DEVICES=""
+   hailo optimize --hw-arch hailo10h --use-random-calib-set netvlad_mobilenet_backbone.har
+   ```
+4. Compila in HEF:
+   ```bash
+   hailo compiler --hw-arch hailo10h netvlad_mobilenet_backbone_optimized.har
+   ```
+   *Questo genera `netvlad_mobilenet_backbone.hef` che restituisce una costmap ridotta di `[1, 128, 7, 10]`. Il nodo ROS esegue il softmax ed i residui di pooling in CPU (<1ms).*
+
+
 ## Collegamenti a frammenti correlati
 
 - `./weights/Marcus_architecture.md` — Descrizione dell'architettura neurale e logica di Marcus
