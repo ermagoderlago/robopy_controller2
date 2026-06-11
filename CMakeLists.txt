@@ -28,6 +28,18 @@ find_package(message_filters REQUIRED)
 find_package(rtabmap_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/AudioData.msg"
+  "msg/KeypointsCompressed.msg"
+  "msg/DescriptorsCompressed.msg"
+  "msg/OAKSyncFrame.msg"
+  "msg/SemanticObject.msg"
+  "msg/SemanticObjectArray.msg"
+  "msg/EngagementStatus.msg"
+  "srv/AskVisualQuestion.srv"
+  DEPENDENCIES std_msgs geometry_msgs sensor_msgs vision_msgs
+)
+
 add_executable(oak_superpoint_odometry_cpp src/oak_superpoint_odometry_node.cpp)
 ament_target_dependencies(oak_superpoint_odometry_cpp
   rclcpp
@@ -137,21 +149,24 @@ install(TARGETS marcus_semantic_mapper_cpp
 )
 
 
-rosidl_generate_interfaces(${PROJECT_NAME}
-  "msg/AudioData.msg"
-  "msg/KeypointsCompressed.msg"
-  "msg/DescriptorsCompressed.msg"
-  "msg/OAKSyncFrame.msg"
-  "msg/SemanticObject.msg"
-  "msg/SemanticObjectArray.msg"
-  "msg/EngagementStatus.msg"
-  "srv/AskVisualQuestion.srv"
-  DEPENDENCIES std_msgs geometry_msgs sensor_msgs vision_msgs
-)
+# Link visual fusion node to generated interfaces
+rosidl_get_typesupport_target(typesupport_target "${PROJECT_NAME}" "rosidl_typesupport_cpp")
+target_link_libraries(marcus_semantic_mapper_cpp "${typesupport_target}")
+add_dependencies(marcus_semantic_mapper_cpp ${PROJECT_NAME}__rosidl_generator_cpp)
 
-rosidl_target_interfaces(marcus_semantic_mapper_cpp
-  ${PROJECT_NAME} "rosidl_typesupport_cpp"
+# Workaround: copy visibility control header during build to prevent Ninja deletion bug
+add_custom_target(copy_visibility_control_header ALL
+  COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/rosidl_generator_cpp/${PROJECT_NAME}/msg"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/msg/rosidl_generator_cpp__visibility_control.hpp"
+    "${CMAKE_CURRENT_BINARY_DIR}/rosidl_generator_cpp/${PROJECT_NAME}/msg/rosidl_generator_cpp__visibility_control.hpp"
+  COMMENT "Copying C++ visibility control header to prevent Ninja deletion"
 )
+add_dependencies(copy_visibility_control_header ${PROJECT_NAME}__cpp)
+add_dependencies(marcus_semantic_mapper_cpp copy_visibility_control_header)
+
+
+
 
 
 # Install Python package (setup.py handles data_files and scripts)

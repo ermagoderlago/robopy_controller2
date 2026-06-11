@@ -170,6 +170,11 @@ class HailoBridgeNode(Node):
 
     def init_hailo_hardware(self):
         """Inizializzazione fisica dell'Hailo NPU"""
+        if not HAILO_AVAILABLE:
+            self.get_logger().error("Libreria hailo_platform non disponibile in questo ambiente Python. Passaggio a SIMULATION.")
+            self.sim_mode = True
+            return
+
         try:
             # Create a virtual device that handles memory/context scheduling
             params = ConfigureParams()
