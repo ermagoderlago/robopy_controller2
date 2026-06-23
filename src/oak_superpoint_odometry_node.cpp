@@ -50,6 +50,9 @@ public:
         declare_parameter("yolo_iou_thresh", 0.5);
         declare_parameter("publish_tf", false);
         declare_parameter("filter_alpha", 0.25);
+        declare_parameter("force_2d", true);
+        declare_parameter("min_translation_thresh", 0.0015);
+        declare_parameter("min_rotation_thresh", 0.0015);
         declare_parameter("min_features", 30);
         declare_parameter("min_inliers", 12);
         declare_parameter("min_depth", 0.3);
@@ -77,6 +80,9 @@ public:
         yolo_iou_thresh_ = get_parameter("yolo_iou_thresh").as_double();
         publish_tf_ = get_parameter("publish_tf").as_bool();
         filter_alpha_ = get_parameter("filter_alpha").as_double();
+        force_2d_ = get_parameter("force_2d").as_bool();
+        min_translation_thresh_ = get_parameter("min_translation_thresh").as_double();
+        min_rotation_thresh_ = get_parameter("min_rotation_thresh").as_double();
         min_features_ = get_parameter("min_features").as_int();
         min_inliers_ = get_parameter("min_inliers").as_int();
         min_depth_ = get_parameter("min_depth").as_double();
@@ -116,10 +122,11 @@ public:
         // ============================================================================
         pub_odom_ = create_publisher<nav_msgs::msg::Odometry>("/vo/odom", rclcpp::QoS(10).reliable());
         pub_depth_ = create_publisher<sensor_msgs::msg::Image>("/camera/depth/image_raw", rclcpp::QoS(10).reliable());
-        pub_debug_ = create_publisher<sensor_msgs::msg::CompressedImage>("/vo/debug/compressed", rclcpp::QoS(10).best_effort());
+        pub_debug_ = create_publisher<sensor_msgs::msg::CompressedImage>("/vo/debug/compressed", rclcpp::QoS(10).reliable());
         pub_quality_ = create_publisher<std_msgs::msg::Float32>("/vo/quality", 10);
         pub_camera_info_ = create_publisher<sensor_msgs::msg::CameraInfo>("/camera/camera_info", 10);
         pub_rgb_ = create_publisher<sensor_msgs::msg::Image>("/rgb/image", rclcpp::QoS(10).reliable());
+        pub_rgb_compressed_ = create_publisher<sensor_msgs::msg::CompressedImage>("/rgb/image/compressed", rclcpp::QoS(10).reliable());
         pub_imu_ = create_publisher<sensor_msgs::msg::Imu>("/oak/imu/data", 50);
         pub_tracking_status_ = create_publisher<std_msgs::msg::Bool>("/vo/tracking_ok", 10);
         pub_diagnostics_ = create_publisher<std_msgs::msg::String>("/vo/diagnostics", 10);
@@ -178,10 +185,11 @@ private:
     // PARAMETERS
     // ============================================================================
     std::string sp_blob_, yolo_blob_;
-    bool enable_yolo_, publish_tf_, enable_clahe_, use_bruteforce_;
+    bool enable_yolo_, publish_tf_, enable_clahe_, use_bruteforce_, force_2d_;
     bool use_orb_primary_, sp_relocalization_;
     double yolo_freq_, yolo_conf_thresh_, yolo_iou_thresh_;
     double filter_alpha_, min_depth_, max_depth_, depth_fps_;
+    double min_translation_thresh_, min_rotation_thresh_;
     int min_features_, min_inliers_, depth_pub_w_, depth_pub_h_;
     int vo_skip_frames_, max_orb_features_, lost_tracking_threshold_, relocalization_inliers_;
 
@@ -190,7 +198,7 @@ private:
     // ============================================================================
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pub_odom_;
     rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr pub_depth_, pub_rgb_;
-    rclcpp::Publisher<sensor_msgs::msg::CompressedImage>::SharedPtr pub_debug_;
+    rclcpp::Publisher<sensor_msgs::msg::CompressedImage>::SharedPtr pub_debug_, pub_rgb_compressed_;
     rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr pub_quality_;
     rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr pub_camera_info_;
     rclcpp::Publisher<vision_msgs::msg::Detection2DArray>::SharedPtr pub_detections_;
@@ -706,7 +714,23 @@ private:
                                 R_base.copyTo(T_base(cv::Rect(0,0,3,3)));
                                 t_base.copyTo(T_base(cv::Rect(3,0,1,3)));
                                 
-                                {
+                                double translation_norm = cv::norm(t_base);
+                                tf2::Matrix3x3 tfR_base(
+                                    R_base.at<double>(0,0), R_base.at<double>(0,1), R_base.at<double>(0,2),
+                                    R_base.at<double>(1,0), R_base.at<double>(1,1), R_base.at<double>(1,2),
+                                    R_base.at<double>(2,0), R_base.at<double>(2,1), R_base.at<double>(2,2)
+                                );
+                                double roll, pitch, yaw;
+                                tfR_base.getRPY(roll, pitch, yaw);
+                                
+                                bool significant_motion = true;
+                                if (min_translation_thresh_ > 0.0 && min_rotation_thresh_ > 0.0) {
+                                    if (translation_norm < min_translation_thresh_ && std::abs(yaw) < min_rotation_thresh_) {
+                                        significant_motion = false;
+                                    }
+                                }
+                                
+                                if (significant_motion) {
                                     std::lock_guard<std::mutex> pose_lock(pose_mutex_);
                                     pose_matrix_ = pose_matrix_ * T_base;
                                 }
@@ -788,7 +812,7 @@ private:
             
             std_msgs::msg::Header h;
             h.stamp = ts;
-            h.frame_id = "left_optical_frame";
+            h.frame_id = transform_handler_->getOpticalFrame();
             sensor_msgs::msg::CompressedImage cmsg;
             cmsg.header = h;
             cmsg.format = "jpeg";
@@ -1037,10 +1061,51 @@ private:
             R_base.copyTo(T_robot(cv::Rect(0,0,3,3)));
             t_base.copyTo(T_robot(cv::Rect(3,0,1,3)));
 
-            pose_matrix_ = pose_matrix_ * T_robot;
+            double translation_norm = cv::norm(t_base);
+            tf2::Matrix3x3 tfR_base(
+                R_base.at<double>(0,0), R_base.at<double>(0,1), R_base.at<double>(0,2),
+                R_base.at<double>(1,0), R_base.at<double>(1,1), R_base.at<double>(1,2),
+                R_base.at<double>(2,0), R_base.at<double>(2,1), R_base.at<double>(2,2)
+            );
+            double roll, pitch, yaw;
+            tfR_base.getRPY(roll, pitch, yaw);
+
+            bool significant_motion = true;
+            if (min_translation_thresh_ > 0.0 && min_rotation_thresh_ > 0.0) {
+                if (translation_norm < min_translation_thresh_ && std::abs(yaw) < min_rotation_thresh_) {
+                    significant_motion = false;
+                }
+            }
+
+            if (significant_motion) {
+                pose_matrix_ = pose_matrix_ * T_robot;
+            }
         } else {
              RCLCPP_WARN(get_logger(), "SP Transform failed");
         }
+    }
+
+    void enforce_2d_pose(cv::Mat& pose) {
+        // Force Z translation to 0
+        pose.at<double>(2,3) = 0.0;
+        
+        // Extract rotation matrix
+        cv::Mat R = pose(cv::Rect(0,0,3,3));
+        tf2::Matrix3x3 tfR(
+            R.at<double>(0,0), R.at<double>(0,1), R.at<double>(0,2),
+            R.at<double>(1,0), R.at<double>(1,1), R.at<double>(1,2),
+            R.at<double>(2,0), R.at<double>(2,1), R.at<double>(2,2)
+        );
+        double roll, pitch, yaw;
+        tfR.getRPY(roll, pitch, yaw);
+        
+        // Reconstruct 2D rotation matrix
+        tf2::Matrix3x3 tfR_2d;
+        tfR_2d.setRPY(0.0, 0.0, yaw);
+        
+        pose.at<double>(0,0) = tfR_2d[0][0]; pose.at<double>(0,1) = tfR_2d[0][1]; pose.at<double>(0,2) = 0.0;
+        pose.at<double>(1,0) = tfR_2d[1][0]; pose.at<double>(1,1) = tfR_2d[1][1]; pose.at<double>(1,2) = 0.0;
+        pose.at<double>(2,0) = 0.0;          pose.at<double>(2,1) = 0.0;          pose.at<double>(2,2) = 1.0;
     }
 
     // ============================================================================
@@ -1050,6 +1115,9 @@ private:
         cv::Mat pose;
         {
             std::lock_guard<std::mutex> lock(pose_mutex_);
+            if (force_2d_) {
+                enforce_2d_pose(pose_matrix_);
+            }
             pose = pose_matrix_.clone();
         }
         
@@ -1126,8 +1194,8 @@ private:
             
             std_msgs::msg::Header header;
             header.stamp = ts;
-            header.frame_id = "left_optical_frame";
-            auto msg = cv_bridge::CvImage(header, "mono16", depth).toImageMsg();
+            header.frame_id = transform_handler_->getOpticalFrame();
+            auto msg = cv_bridge::CvImage(header, "16UC1", depth).toImageMsg();
             pub_depth_->publish(*msg);
 
             // Camera Info
@@ -1173,9 +1241,16 @@ private:
             cv::resize(bgr, bgr, cv::Size(depth_pub_w_, depth_pub_h_));
             std_msgs::msg::Header header;
             header.stamp = ts;
-            header.frame_id = "left_optical_frame";
+            header.frame_id = transform_handler_->getOpticalFrame();
             auto msg = cv_bridge::CvImage(header, "bgr8", bgr).toImageMsg();
             pub_rgb_->publish(*msg);
+            if (pub_rgb_compressed_->get_subscription_count() > 0) {
+                sensor_msgs::msg::CompressedImage compressed_msg;
+                compressed_msg.header = header;
+                compressed_msg.format = "jpeg";
+                cv::imencode(".jpg", bgr, compressed_msg.data, {cv::IMWRITE_JPEG_QUALITY, 60});
+                pub_rgb_compressed_->publish(compressed_msg);
+            }
         } catch (const std::exception& e) {
             RCLCPP_ERROR(get_logger(), "RGB publish error: %s", e.what());
         }
@@ -1210,6 +1285,13 @@ private:
         h.frame_id = "camera_color_optical_frame";
         auto img_msg = cv_bridge::CvImage(h, "bgr8", rgb).toImageMsg();
         pub_rgb_->publish(*img_msg);
+        if (pub_rgb_compressed_->get_subscription_count() > 0) {
+            sensor_msgs::msg::CompressedImage compressed_msg;
+            compressed_msg.header = h;
+            compressed_msg.format = "jpeg";
+            cv::imencode(".jpg", rgb, compressed_msg.data, {cv::IMWRITE_JPEG_QUALITY, 60});
+            pub_rgb_compressed_->publish(compressed_msg);
+        }
     }
 };
 

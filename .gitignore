@@ -22,3 +22,10 @@ __pycache__/
 *.pyc
 dp/
 
+# Scratch and local test scripts
+scratch/
+test_motore_remote.py
+test_motori_remote.py
+test_porcupine.py
+
+

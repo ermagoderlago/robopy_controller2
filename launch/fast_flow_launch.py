@@ -245,14 +245,15 @@ def generate_launch_description():
         period=4.0,
         actions=[Node(
             package='robopy_controller',
-            executable='smart_buildhat_driver',
-            name='smart_buildhat_driver',
+            executable='waveshare_motor_driver',
+            name='waveshare_motor_driver',
             output='screen',
             parameters=[{
-                # ECO00023: Open-loop bang-bang (no PID, no encoder feedback)
-                'min_pwm': 70.0,       # Minimo per vincere l'attrito
-                'max_pwm': 100.0,      # Massimo — motori piccoli usano tutto
-                'angular_mix_factor': 0.5,  # Mix rotazione/lineare
+                'serial_port': '/dev/ttyUSB0',
+                'baud_rate': 115200,
+                'wheel_radius': 0.0325,
+                'wheel_separation': 0.16,
+                'ticks_per_rev': 1440,
             }]
         )]
     )

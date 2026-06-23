@@ -16,7 +16,7 @@ import time
 
 try:
     import hailo_platform
-    from hailo_platform import HEF, VDevice, ConfigureParams, FormatType
+    from hailo_platform import HEF, Device, VDevice, ConfigureParams, FormatType, HailoStreamInterface
     HAILO_AVAILABLE = True
 except ImportError:
     HAILO_AVAILABLE = False
@@ -39,7 +39,7 @@ def main():
     # 2. Check PCIe Device Connection
     print("\n🔍 Rilevamento hardware PCIe in corso...")
     try:
-        devices = VDevice.detect()
+        devices = Device.scan()
         if not devices:
             print("❌ ERRORE: Nessun dispositivo NPU Hailo rilevato sul bus PCIe.")
             print("   Verifiche suggerite:")
@@ -70,21 +70,32 @@ def main():
                     sys.exit(1)
                 
                 start_time = time.time()
-                hef = HEF(hef_path)
-                configure_params = target_device.create_configure_params(hef)
-                network_group = target_device.configure(hef, configure_params)[0]
-                
-                print(f"✅ Modello caricato e configurato in {time.time() - start_time:.3f} secondi.")
-                print(f"   Gruppo di rete configurato: {network_group.name}")
-                
-                # Print input/output streams details
-                print("\n   [Streams di Input]:")
-                for stream_info in hef.get_input_stream_infos():
-                    print(f"     - {stream_info.name}: Shape {stream_info.shape}, Formato {stream_info.format.type}")
+                try:
+                    print("🔄 Tentativo con la nuova InferModel API...")
+                    infer_model = target_device.create_infer_model(hef_path)
+                    print(f"✅ Modello caricato con successo (InferModel API) in {time.time() - start_time:.3f} secondi.")
                     
-                print("   [Streams di Output]:")
-                for stream_info in hef.get_output_stream_infos():
-                    print(f"     - {stream_info.name}: Shape {stream_info.shape}, Formato {stream_info.format.type}")
+                    print("\n   [Streams di Input]:")
+                    for input_info in infer_model.inputs:
+                        print(f"     - {input_info.name}: Shape {input_info.shape}")
+                    print("   [Streams di Output]:")
+                    for output_info in infer_model.outputs:
+                        print(f"     - {output_info.name}: Shape {output_info.shape}")
+                except Exception as e1:
+                    print(f"⚠️ InferModel API fallita o non supportata ({e1}). Fallback a legacy VStream API...")
+                    start_time = time.time()
+                    hef = HEF(hef_path)
+                    configure_params = ConfigureParams.create_from_hef(hef, HailoStreamInterface.PCIe)
+                    network_group = target_device.configure(hef, configure_params)[0]
+                    print(f"✅ Modello caricato e configurato (VStream API) in {time.time() - start_time:.3f} secondi.")
+                    print(f"   Gruppo di rete configurato: {network_group.name}")
+                    
+                    print("\n   [Streams di Input]:")
+                    for stream_info in hef.get_input_stream_infos():
+                        print(f"     - {stream_info.name}: Shape {stream_info.shape}, Formato {stream_info.format.type}")
+                    print("   [Streams di Output]:")
+                    for stream_info in hef.get_output_stream_infos():
+                        print(f"     - {stream_info.name}: Shape {stream_info.shape}, Formato {stream_info.format.type}")
             else:
                 print("\n💡 Suggerimento: Passa il percorso di un file .hef come argomento")
                 print("    per testare il caricamento del modello sull'NPU.")

@@ -1,6 +1,6 @@
 #!/bin/bash
-# restart_hailo.sh — Riavvio rapido dell'infrastruttura AI locale con Hailo-10H NPU
-# [v1.0] Gestione nodi NPU, VUI adattiva, e C++ semantic mapper
+# restart_hailo.sh — Riavvio ordinato dell'infrastruttura AI locale e navigazione
+# [v3.0] Avvio sequenziale temporizzato (sleep) per la stabilità di camera, SLAM e NAV2
 
 # --- Gestione Watchdog di Sopravvivenza ---
 if [ -z "$FROM_WATCHDOG" ]; then
@@ -31,54 +31,99 @@ fi
 export CYCLONEDDS_URI=/tmp/cyclonedds_robopy.xml
 export PYTHONUNBUFFERED=1
 
-# --- Kill nodi precedenti (AI & Hailo NPU) ---
-echo "🔴 Stopping robot_ai_node..."
-pkill -f robot_ai_node || true
+# --- Kill nodi precedenti (AI, Hailo NPU, Camera e Navigazione) ---
+echo "🔴 Stopping all previous nodes..."
 pkill -9 -f robot_ai_node || true
-
-echo "🔴 Stopping respeaker_vui_node..."
-pkill -f respeaker_vui_node || true
 pkill -9 -f respeaker_vui_node || true
-
-echo "🔴 Stopping respeaker_interface_node..."
-pkill -f respeaker_interface_node || true
 pkill -9 -f respeaker_interface_node || true
-
-echo "🔴 Stopping hailo_bridge_node..."
-pkill -f hailo_bridge_node || true
 pkill -9 -f hailo_bridge_node || true
-
-echo "🔴 Stopping marcus_semantic_mapper_cpp..."
-pkill -f marcus_semantic_mapper_cpp || true
 pkill -9 -f marcus_semantic_mapper_cpp || true
-
-echo "🔴 Stopping semantic_costmap_injector..."
-pkill -f semantic_costmap_injector || true
 pkill -9 -f semantic_costmap_injector || true
-
-echo "🔴 Stopping engagement_monitor..."
-pkill -f engagement_monitor || true
 pkill -9 -f engagement_monitor || true
-
-echo "🔴 Stopping cloud_watchdog_node..."
-pkill -f cloud_watchdog_node || true
 pkill -9 -f cloud_watchdog_node || true
-
-echo "🔴 Stopping speaker_id_node..."
-pkill -f speaker_id_node || true
 pkill -9 -f speaker_id_node || true
-
-echo "🔴 Stopping foxglove_bridge..."
-pkill -f foxglove_bridge || true
 pkill -9 -f foxglove_bridge || true
-
-echo "🔴 Stopping foxglove_nav2_bridge..."
-pkill -f foxglove_nav2_bridge || true
 pkill -9 -f foxglove_nav2_bridge || true
 
-sleep 2
+# Kill camera & navigation nodes
+pkill -9 -f oak_superpoint_odometry_cpp || true
+pkill -9 -f waveshare_motor_driver || true
+pkill -9 -f smart_buildhat_driver || true
+pkill -9 -f depthimage_to_laserscan_node || true
+pkill -9 -f rtabmap || true
+pkill -9 -f static_transform_publisher || true
+pkill -9 -f controller_server || true
+pkill -9 -f planner_server || true
+pkill -9 -f behavior_server || true
+pkill -9 -f bt_navigator || true
+pkill -9 -f lifecycle_manager || true
 
-# --- Avvio Nodi Audio & VUI Adattiva ---
+# Reset ROS 2 Daemon
+ros2 daemon stop || true
+sleep 2
+ros2 daemon start || true
+sleep 1
+
+# =============================================================================
+# STEP 1: AVVIO CAMERA E TRASFORMATE STATICHE (Subito)
+# =============================================================================
+echo "⚙️ Starting waveshare_motor_driver..."
+> /home/robopy/robopy/logs/waveshare_motor_driver.log
+nohup ros2 run robopy_controller waveshare_motor_driver --ros-args \
+    -p serial_port:=/dev/ttyUSB0 \
+    -p baud_rate:=115200 \
+    -p wheel_radius:=0.0325 \
+    -p wheel_separation:=0.16 \
+    -p ticks_per_rev:=1440 \
+    > /home/robopy/robopy/logs/waveshare_motor_driver.log 2>&1 &
+
+echo "📐 Starting static TF publishers..."
+nohup ros2 run tf2_ros static_transform_publisher --x 0.05 --y 0.0 --z 0.08 --yaw 0.0 --pitch -0.1535 --roll 0.0 --frame-id base_link --child-frame-id camera_link > /home/robopy/robopy/logs/tf_camera.log 2>&1 &
+nohup ros2 run tf2_ros static_transform_publisher --x 0.0 --y 0.0 --z 0.0 --yaw -1.5708 --pitch 0.0 --roll -1.5708 --frame-id camera_link --child-frame-id camera_optical_frame > /home/robopy/robopy/logs/tf_camera_opt.log 2>&1 &
+nohup ros2 run tf2_ros static_transform_publisher --x 0.0 --y 0.0 --z 0.0 --yaw 0.0 --pitch 0.0 --roll 0.0 --frame-id base_link --child-frame-id imu_link > /home/robopy/robopy/logs/tf_imu.log 2>&1 &
+nohup ros2 run tf2_ros static_transform_publisher --x 0.12 --y 0.0 --z 0.05 --yaw 0.0 --pitch 0.0 --roll 0.0 --frame-id base_link --child-frame-id ultrasonic_sensor > /home/robopy/robopy/logs/tf_ultrasonic.log 2>&1 &
+
+echo "📷 Starting OAK SuperPoint camera (C++ Driver)..."
+mkdir -p /home/robopy/robopy/logs
+> /home/robopy/robopy/logs/oak_camera.log
+nohup ros2 run robopy_controller oak_superpoint_odometry_cpp --ros-args \
+    -p superpoint_blob_path:=/mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_controller/models/superpoint.blob \
+    -p yolo_blob_path:=/mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_controller/models/yolov6nr1_coco_640x352.blob \
+    -p enable_yolo:=False \
+    -p publish_tf:=True \
+    -p depth_fps:=12.0 \
+    -p depth_resolution:=400p \
+    -p depth_pub_width:=320 \
+    -p depth_pub_height:=200 \
+    > /home/robopy/robopy/logs/oak_camera.log 2>&1 &
+
+echo "📡 Starting depthimage_to_laserscan..."
+> /home/robopy/robopy/logs/depthimage_to_laserscan.log
+nohup ros2 run depthimage_to_laserscan depthimage_to_laserscan_node --ros-args \
+    -r depth:=/camera/depth/image_raw \
+    -r depth_camera_info:=/camera/camera_info \
+    -r scan:=/scan \
+    -p output_frame:=camera_link \
+    > /home/robopy/robopy/logs/depthimage_to_laserscan.log 2>&1 &
+
+# Diamo tempo alla camera di inizializzare l'NPU/SuperPoint e iniziare lo streaming dei frame
+echo "⏳ Attesa inizializzazione hardware camera (15 secondi)..."
+sleep 15
+
+# =============================================================================
+# STEP 2: AVVIO RTAB-MAP SLAM E SUITE AI DI MARCUS
+# =============================================================================
+echo "🗺️ Starting RTAB-Map SLAM..."
+> /home/robopy/robopy/logs/rtabmap.log
+nohup ros2 run rtabmap_slam rtabmap --ros-args \
+    --params-file /mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_controller/config/rtabmap.yaml \
+    -r rgb/image:=/rgb/image \
+    -r rgb/camera_info:=/camera/camera_info \
+    -r depth/image:=/camera/depth/image_raw \
+    -r scan:=/scan \
+    -r odom:=/vo/odom \
+    > /home/robopy/robopy/logs/rtabmap.log 2>&1 &
+
 echo "🔌 Starting respeaker_interface_node..."
 > /home/robopy/robopy/logs/respeaker_interface_node.log
 nohup ros2 run robopy_controller respeaker_interface_node --ros-args \
@@ -109,11 +154,10 @@ nohup ros2 run robopy_controller respeaker_vui_node --ros-args \
     -p diag_mode:=true \
     > /home/robopy/robopy/logs/respeaker_vui_node.log 2>&1 &
 
-# --- Avvio Infrastruttura Hailo NPU ---
 echo "🧠 Starting hailo_bridge_node (NPU Driver)..."
 > /home/robopy/robopy/logs/hailo_bridge_node.log
 nohup ros2 run robopy_controller hailo_bridge_node --ros-args \
-    -p hef_path:=/mnt/ssd/models/marcus_unified.hef \
+    -p hef_path:=/mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_controller/models/joined_yolo_superpoint_netvlad.hef \
     -p sim_mode:=False \
     > /home/robopy/robopy/logs/hailo_bridge_node.log 2>&1 &
 
@@ -144,14 +188,12 @@ echo "🌐 Starting cloud_watchdog_node (Local NPU vs Cloud Fallback)..."
 nohup ros2 run robopy_controller cloud_watchdog_node \
     > /home/robopy/robopy/logs/cloud_watchdog_node.log 2>&1 &
 
-# --- Avvio AI Orchestrator ---
 echo "🤖 Starting robot_ai_node (Cognitive Orchestrator)..."
 > /home/robopy/robopy/logs/robot_ai_node_debug_TEST4.log
 nohup ros2 run robopy_controller robot_ai_node \
     --ros-args -r /ai/input/text:=/robopy/conversation_rx \
     > /home/robopy/robopy/logs/robot_ai_node_debug_TEST4.log 2>&1 &
 
-# --- Avvio Bridges Diagnostici (Foxglove) ---
 echo "🔌 Starting foxglove_bridge..."
 > /home/robopy/robopy/logs/foxglove_bridge.log
 nohup ros2 run foxglove_bridge foxglove_bridge --ros-args \
@@ -163,11 +205,50 @@ echo "🌉 Starting foxglove_nav2_bridge..."
 nohup ros2 run robopy_controller foxglove_nav2_bridge \
     > /home/robopy/robopy/logs/foxglove_nav2_bridge.log 2>&1 &
 
-echo "✅ Nodi AI locali & Hailo NPU riavviati!"
-echo "   Hailo log:     tail -f /home/robopy/robopy/logs/hailo_bridge_node.log"
-echo "   Mapper C++ log:tail -f /home/robopy/robopy/logs/marcus_semantic_mapper.log"
+# Attendiamo che RTAB-Map crei il frame map->odom e lo stack AI si stabilizzi
+echo "⏳ Attesa stabilità SLAM e AI (15 secondi)..."
+sleep 15
+
+# =============================================================================
+# STEP 3: AVVIO NAV2 STACK (Solo dopo che i sensori e TF odom/map sono stabili)
+# =============================================================================
+echo "🚀 Starting Nav2 Stack..."
+> /home/robopy/robopy/logs/nav2.log
+nohup ros2 launch robopy_controller custom_nav2_launch.py \
+    params_file:=/mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_controller/config/nav2_params_jazzy.yaml \
+    use_sim_time:=false \
+    autostart:=true \
+    use_respawn:=true \
+    > /home/robopy/robopy/logs/nav2.log 2>&1 &
+
+# Attesa di inizializzazione per attivare i nodi lifecycle di Nav2
+(
+    echo "⏳ [NAV2-ENSURE] Avvio monitoraggio nodi lifecycle in background..."
+    sleep 20
+    for node in controller_server planner_server behavior_server bt_navigator global_costmap/global_costmap local_costmap/local_costmap; do
+        state=$(ros2 lifecycle get /$node 2>/dev/null | grep -oP '^\w+')
+        if [ "$state" = "unconfigured" ]; then
+            echo "[NAV2-ENSURE] Configuring /$node..."
+            ros2 lifecycle set /$node configure 2>/dev/null
+            sleep 3
+            state="inactive"
+        fi
+        if [ "$state" = "inactive" ]; then
+            echo "[NAV2-ENSURE] Activating /$node..."
+            ros2 lifecycle set /$node activate 2>/dev/null
+            sleep 2
+        fi
+        final=$(ros2 lifecycle get /$node 2>/dev/null | grep -oP '^\w+')
+        echo "[NAV2-ENSURE] /$node → $final"
+    done
+    echo "[NAV2-ENSURE] Monitoraggio completato."
+) &
+
+echo "✅ Stack completo (AI, Percezione, SLAM e Nav2) avviato con successo!"
+echo "   Camera log:    tail -f /home/robopy/robopy/logs/oak_camera.log"
+echo "   RTAB-Map log:  tail -f /home/robopy/robopy/logs/rtabmap.log"
+echo "   Nav2 log:      tail -f /home/robopy/robopy/logs/nav2.log"
 echo "   VUI log:       tail -f /home/robopy/robopy/logs/respeaker_vui_node.log"
-echo "   AI  log:       tail -f /home/robopy/robopy/logs/robot_ai_node_debug_TEST4.log"
 
 if [ -z "$FROM_WATCHDOG" ]; then
     echo "🟢 Riattivazione del Watchdog..."

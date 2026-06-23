@@ -19,10 +19,14 @@ source /home/robopy/ros2_jazzy/install/setup.bash 2>/dev/null || true
 # Override CMAKE_PREFIX_PATH to exclude system ROS
 export CMAKE_PREFIX_PATH="/home/robopy/ros2_jazzy/install:$CMAKE_PREFIX_PATH"
 
+# Limit GNU Make to a single job to prevent OOM
+export MAKEFLAGS="-j1"
+
 # Build with clang
 colcon build \
   --packages-select robopy_controller \
   --symlink-install \
+  --parallel-workers 1 \
   --cmake-args \
     -DCMAKE_C_COMPILER=/usr/bin/clang \
     -DCMAKE_CXX_COMPILER=/usr/bin/clang++ \

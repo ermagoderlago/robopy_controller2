@@ -173,7 +173,7 @@ class ConversationManager:
 
         ha_context = self.ha_context_provider()
         frame = await self._get_latest_frame()
-        images = [frame.b64()] if (frame and self._is_vision_request(clean_text)) else []
+        images = [frame.b64] if (frame and self._is_vision_request(clean_text)) else []
         
         # Merge incoming documents if any
         llm_docs = documents or []

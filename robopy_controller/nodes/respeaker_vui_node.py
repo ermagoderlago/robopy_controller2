@@ -463,9 +463,8 @@ class ReSpeakerVUINode(Node):
                 if len(first_chunk) > 12288:
                     required_chunks = 1
 
-                if qsize < required_chunks:
-                    self._is_playing_out = False  # In attesa di caricamento buffer
-                    time.sleep(0.001)  # [FIX] da 5ms → 1ms: meno jitter
+                if not self._is_playing_out and qsize < required_chunks:
+                    time.sleep(0.005)  # Attesa caricamento buffer
                     continue
 
                 # [DEBUG] Log inizio drain (solo all'inizio di ogni burst)
@@ -853,9 +852,15 @@ class ReSpeakerVUINode(Node):
                 if not hasattr(self, '_is_speech_active'):
                     self._is_speech_active = False
                 
-                # Calcolo continuo EMA rumore ambientale (aggiornato anche durante ascolto se sotto la soglia dei transienti)
-                if not self._is_tts_speaking and not self._is_music_playing and not getattr(self, '_is_playing_out', False) and rms_current < self._ambient_noise_ema * 1.5:
-                    alpha = 0.05
+                # Calcolo continuo EMA rumore ambientale (aggiornato anche durante ascolto)
+                if not self._is_tts_speaking and not self._is_music_playing and not getattr(self, '_is_playing_out', False):
+                    if rms_current < self._ambient_noise_ema * 1.5:
+                        alpha = 0.05
+                    else:
+                        # Se il rumore sale improvvisamente o stabilmente oltre la soglia dei transienti,
+                        # permettiamo comunque all'EMA di adeguarsi ma molto lentamente (alpha basso)
+                        # per evitare stalli permanenti del noise gate.
+                        alpha = 0.001
                     self._ambient_noise_ema = (alpha * float(rms_current)) + ((1.0 - alpha) * self._ambient_noise_ema)
                     # Cap fisico del rumore di fondo tra 50 e 2000 per evitare clip (il filtro transitori fa il resto)
                     self._ambient_noise_ema = float(np.clip(self._ambient_noise_ema, 50.0, 2000.0))

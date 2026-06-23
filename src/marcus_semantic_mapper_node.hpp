@@ -42,7 +42,7 @@ public:
 private:
     // ===================== Structs =====================
     struct Config {
-        std::string camera_frame = "oak_left_camera_optical_frame";
+        std::string camera_frame = "camera_optical_frame";
         std::string base_frame   = "base_link";
         std::string map_frame    = "map";
         std::string odom_frame   = "odom";

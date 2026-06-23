@@ -1,129 +1,54 @@
 ╔═══════════════════════════════════════════════════════════════════╗
 ║                                                                   ║
-║           🎯 FRAME TF RESTRUCTURING - START HERE 🎯              ║
+║           🎯 MARCUS AI HIERARCHICAL DOCUMENTATION V2 🎯           ║
 ║                                                                   ║
-║              Status: ✅ COMPLETED AND READY                       ║
-║              Date: 15 January 2026                                ║
+║              Status: ✅ REFACTORED AND ACTIVE                     ║
 ║              Quality: ⭐⭐⭐⭐⭐ (5/5 Stars)                       ║
 ║                                                                   ║
 ╚═══════════════════════════════════════════════════════════════════╝
 
-📚 DOCUMENTATION ROADMAP:
-───────────────────────────────────────────────────────────────────
+WORKFLOW DI PROGRAMMAZIONE DI MARCUS:
+Quando viene richiesto di analizzare, correggere o implementare un modulo o un nodo ROS 2, l'operatore AI DEVE seguire questa pipeline sequenziale:
 
-1️⃣  INDEX.md
-    └─ Navigation hub for all documentation
-    └─ Read this first to find what you need!
-
-2️⃣  QUICK_START.md  
-    └─ 5-minute overview (NEW USERS - START HERE)
-    └─ What changed? How to test? 
-
-3️⃣  README_FRAMES.md  ⭐ MAIN DOCUMENTATION
-    └─ 20-minute complete guide
-    └─ Everything you need to know
-    └─ HOW TO USE THE SYSTEM
-
-4️⃣  TF_RESTRUCTURE_SUMMARY.md
-    └─ Technical documentation
-    └─ Frame definitions and conventions
-    └─ For developers who want theory
-
-5️⃣  IMPLEMENTATION_REPORT.md
-    └─ Detailed report of changes
-    └─ Verification steps
-    └─ Troubleshooting guide
-
-6️⃣  LAUNCH_UPDATE_GUIDE.md
-    └─ How to update other launch files
-    └─ Step-by-step instructions
-    └─ Use when updating new launch files
-
-7️⃣  PROJECT_COMPLETION.md
-    └─ Summary of all changes
-    └─ Deployment checklist
-    └─ Statistics and proof
-
-8️⃣  tf_verify.sh
-    └─ Automated verification script
-    └─ Run: bash tf_verify.sh
-    └─ Quick system health check
+1) Leggere 'marcus_core_rules.md' per allinearsi sui vincoli hardware e di sopravvivenza globali.
+2) Consultare la Mappa dei Domini (Mappa Spoke in marcus_core_rules.md) per identificare il file specifico (es. /docs/lessons/audio_vui_pipeline.md) associato al task. Se il task è cross-dominio, è consentito caricare al massimo due file di lezioni.
+3) Utilizzare il tool di lettura per estrarre ESCLUSIVAMENTE il codice sorgente del nodo interessato e il file delle lezioni/ECO identificato. È SEVERAMENTE VIETATO caricare documentazione non pertinente al dominio corrente.
+4) Prima di emettere il codice modificato, produrre un blocco di testo prefissato con [COGNITIVE_CHECK] che attesti esplicitamente il rispetto dei vincoli di marcus_core_rules.md applicati al codice che si sta per scrivere.
 
 ───────────────────────────────────────────────────────────────────
 
-🚀 QUICK START (3 STEPS):
+📚 STRUTTURA DOCUMENTALE V2 (BOOK-TO-SKILL)
+───────────────────────────────────────────────────────────────────
+
+1️⃣  marcus_core_rules.md  ⭐ NUCLEO RESIDENTE (Alta importanza)
+    └─ Vincoli fisici globali (RAM, 2.5D, 16kHz audio, core pinning)
+    └─ Mappa Spoke per orientarsi nei domini
+
+2️⃣  /docs/lessons/ (Media importanza)
+    └─ Lezioni tematiche atomiche per dominio
+    └─ audio_vui_pipeline.md, nav2_slam_tuning.md, llm_live_api.md, ecc.
+
+3️⃣  /docs/ecos/ (Media importanza)
+    └─ Registro storico delle modifiche strutturali per dominio
+    └─ audio_vui_ecos.md, nav2_slam_ecos.md, llm_live_ecos.md, ecc.
+
+4️⃣  INDEX.md & README_FRAMES.md (Media importanza)
+    └─ Indice e guida specifici per la gerarchia dei frame TF
+
+───────────────────────────────────────────────────────────────────
+
+🚀 QUICK START (3 STEPS DI VERIFICA)
 ───────────────────────────────────────────────────────────────────
 
 Step 1: Launch the system
     ros2 launch robopy_controller test_odometry_launch.py
 
-Step 2: Verify frame hierarchy (in another terminal)
+Step 2: Verify frame hierarchy
     ros2 run tf2_tools view_frames
 
-Step 3: Run automated test
+Step 3: Run automated verification
     bash tf_verify.sh
 
-Expected: Frame hierarchy shows:
+Frame standard ROS atteso:
     odom → base_link → camera_link → camera_optical_frame
                     ↘ imu_link
-
-───────────────────────────────────────────────────────────────────
-
-📊 WHAT CHANGED:
-───────────────────────────────────────────────────────────────────
-
-OLD NAMES (OAK-D specific):
-    ❌ oak_mono_camera_frame
-    ❌ oak_mono_camera_optical_frame
-    ❌ oak_imu_frame
-    ❌ oak_depth_frame
-
-NEW NAMES (ROS standard):
-    ✅ camera_link
-    ✅ camera_optical_frame
-    ✅ imu_link
-    ✅ camera_optical_frame (depth uses optical frame)
-
-BENEFITS:
-    ✅ Standard ROS compatible
-    ✅ Works with SLAM/Nav2/RViz/etc
-    ✅ Easy to modify camera position in launch file
-    ✅ Complete documentation provided
-    ✅ No hardcoded frame names anymore
-
-───────────────────────────────────────────────────────────────────
-
-📋 FILES MODIFIED:
-───────────────────────────────────────────────────────────────────
-
-CODE FILES:
-    ✅ robopy_controller/nodes/superpoint_node.py
-    ✅ robopy_controller/nodes/IMU_oakd_node.py
-    ✅ robopy_controller/nodes/camera_info_publisher.py
-
-LAUNCH FILES:
-    ✅ launch/test_odometry_launch.py
-    ✅ launch/test2_launch.py
-
-DOCUMENTATION:
-    ✅ INDEX.md (Navigation)
-    ✅ QUICK_START.md
-    ✅ README_FRAMES.md (MAIN)
-    ✅ TF_RESTRUCTURE_SUMMARY.md
-    ✅ IMPLEMENTATION_REPORT.md
-    ✅ LAUNCH_UPDATE_GUIDE.md
-    ✅ PROJECT_COMPLETION.md
-    ✅ tf_verify.sh (Script)
-
-───────────────────────────────────────────────────────────────────
-
-✅ READY FOR DEPLOYMENT
-───────────────────────────────────────────────────────────────────
-
-All modifications are complete and tested.
-System follows ROS standard conventions.
-Complete documentation and verification tools provided.
-
-Start with: INDEX.md or README_FRAMES.md
-
-───────────────────────────────────────────────────────────────────

@@ -32,7 +32,7 @@ bt_navigator:
     error_code_names:
       - compute_path_error_code
       - follow_path_error_code
-    default_bt_xml_filename: "/home/robopy/robopy/robopi_controller/robopy_controller_host/robopy_controller/config/nav2_survival_bt.xml"
+    default_bt_xml_filename: "/mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_controller/config/nav2_survival_bt.xml"
     # plugin_lib_names:
     #   - nav2_follow_path_action_bt_node
     #   - nav2_back_up_action_bt_node

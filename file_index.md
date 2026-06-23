@@ -9,7 +9,8 @@
 | `./setup.py` | Alta | Entry points e installazione dei nodi Python |
 | `./setup.cfg` | Alta | Configurazioni aggiuntive per Python e linting |
 | `./.env` | Alta | Variabili d'ambiente, chiavi API e segreti di configurazione |
-| `./00_START_HERE.txt` | Alta | Punto di ingresso e panoramica della documentazione |
+| `./00_START_HERE.txt` | Alta | Protocollo operativo IA e start guide V2 |
+| `./marcus_core_rules.md` | Alta | Vincoli hardware globali e Mappa dei Domini (Resident Core) |
 | `./INDEX.md` | Alta | Hub di navigazione per la ristrutturazione dei frame TF |
 | `./QUICK_START.md` | Alta | Guida rapida all'avvio e test del sistema |
 | `./README_FRAMES.md` | Alta | Documentazione principale per il sistema di coordinate |
@@ -19,6 +20,8 @@
 | `./marcus_robot/package.xml` | Alta | Definizione del pacchetto robot Marcus e dipendenze |
 | `./weights/Marcus_architecture.md` | Alta | Architettura del sistema di intelligenza artificiale Marcus |
 | `./.agent/workflows/build.md` | Alta | Istruzioni per la compilazione e linee guida per l'IA |
+| `./docs/lessons/` | Media | Lezioni tematiche atomiche e isolate per dominio |
+| `./docs/ecos/` | Media | Engineering Change Orders (ECO) strutturati per dominio |
 | `./Marcus plan 01 planning.md` | Media | Pianificazione strategica e obiettivi del sistema Marcus |
 | `./Marcus plan 02 risks tests ci.md` | Media | Analisi dei rischi, piano di test e integrazione continua |
 | `./Marcus plan 03 runbook.md` | Media | Guida operativa (Runbook) per l'esecuzione del robot |
@@ -26,7 +29,6 @@
 | `./Marcus plan 05 sprint 0 code.md` | Media | Note tecniche e dettagli implementativi dello Sprint 0 |
 | `./IMPLEMENTATION_REPORT.md` | Media | Report dettagliato sulle implementazioni e verifiche effettuate |
 | `./LAUNCH_UPDATE_GUIDE.md` | Media | Istruzioni per l'aggiornamento dei file di lancio ROS 2 |
-| `./weights/lesson_learned.md` | Media | Archivio strutturato delle lezioni apprese e bug risolti |
 | `./robopy_controller/nodes/` | Media | Cartella contenente i nodi Python del controller |
 | `./robopy_controller/nodes/hailo_bridge_node.py` | Media | Nodo ROS 2 per l'interfaccia con Hailo-10H NPU |
 | `./robopy_controller/nodes/semantic_costmap_injector.py` | Media | Proiezione ostacoli 3D in ostacoli costmap 2D |
@@ -37,6 +39,8 @@
 | `./msg/SemanticObjectArray.msg` | Media | Array di oggetti semantici per Nav2 costmap |
 | `./msg/EngagementStatus.msg` | Media | Messaggio di stato dell'engagement HRI |
 | `./launch/` | Media | Cartella contenente i file di lancio del sistema |
+| `./weights/lesson_learned.md` | Bassa | [DEPRECATO] Rimpiazzato da `./docs/lessons/` |
+| `./ECO.md` | Bassa | [DEPRECATO] Rimpiazzato da `./docs/ecos/` |
 | `./test/` | Bassa | Test unitari e di integrazione del pacchetto |
 | `./tests/` | Bassa | File di test aggiuntivi e legacy |
 | `./test_live_25.py` | Bassa | Script di test per la stabilità della Live API |

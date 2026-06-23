@@ -31,6 +31,9 @@ export CYCLONEDDS_URI=/tmp/cyclonedds_robopy.xml
 export PYTHONUNBUFFERED=1
 
 # --- Kill nodi precedenti ---
+pkill -9 -f waveshare_motor_driver || true
+pkill -9 -f smart_buildhat_driver || true
+
 echo "🔴 Stopping robot_ai_node..."
 pkill -f robot_ai_node || true
 sleep 1
@@ -57,6 +60,17 @@ sleep 1
 pkill -9 -f foxglove_nav2_bridge || true
 
 sleep 2
+
+# --- Riavvio Waveshare Motor Driver ---
+echo "⚙️ Starting waveshare_motor_driver..."
+> /home/robopy/robopy/logs/waveshare_motor_driver.log
+nohup ros2 run robopy_controller waveshare_motor_driver --ros-args \
+    -p serial_port:=/dev/ttyUSB0 \
+    -p baud_rate:=115200 \
+    -p wheel_radius:=0.0325 \
+    -p wheel_separation:=0.16 \
+    -p ticks_per_rev:=1440 \
+    > /home/robopy/robopy/logs/waveshare_motor_driver.log 2>&1 &
 
 # --- Riavvio ReSpeaker Interface Node (Hardware Serial Bridge) ---
 echo "🔌 Starting respeaker_interface_node..."

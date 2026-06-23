@@ -81,6 +81,8 @@ rsync -avz --progress -e "${RSYNC_SSH}" \
     --exclude='*.log' \
     --exclude='*.tar.gz' \
     --exclude='marcus_sync*.gz' \
+    --exclude='*.har' \
+    --exclude='*.hef' \
     ./ ${TARGET_HOST}:${TARGET_DIR}/
 
 # --- STEP 3: HOT-SWAP install/ (aggiornamento Python a caldo senza ricompilare) ---
