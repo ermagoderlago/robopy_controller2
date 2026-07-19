@@ -66,6 +66,8 @@ class LiveConnectionManager:
         # State timings updated by LLMService
         self.last_successful_turn_time = 0.0
         self.last_wakeword_time = 0.0
+        self.recent_user_transcripts = []
+        self._last_mic_audio_time = 0.0
 
         # Initialize lock and queues safely within the event loop
         init_fut = asyncio.run_coroutine_threadsafe(self._init_async_resources(), self._loop)
@@ -105,6 +107,9 @@ class LiveConnectionManager:
 
     def _enqueue_audio(self, chunk: bytes):
         """Enqueues audio chunk with a sliding window drop policy to prevent OOM."""
+        if chunk and len(chunk) > 0:
+            self._last_mic_audio_time = time.time()
+
         # Se non c'è una sessione Live attiva o se Gemini sta elaborando un turno precedente,
         # scarta subito il chunk (evita OOM, audio stantio e inutile accumulo offline)
         if not self._live_session or self._turn_in_progress:
@@ -498,6 +503,14 @@ class LiveConnectionManager:
             self._current_user_text += " " + transcription
             self.logger.info(f"🎤 [Live ASR] Trascrizione utente: {transcription}")
 
+            # Salva la trascrizione per il controllo dei duplicati
+            clean_trans = self._current_user_text.strip()
+            self.recent_user_transcripts.append((clean_trans, time.time()))
+            self.recent_user_transcripts = [
+                (t, ts) for t, ts in self.recent_user_transcripts[-10:]
+                if time.time() - ts < 15.0
+            ]
+
             user_speech = self._current_user_text.lower()
             exit_phrases = ["stai zitto", "basta parlare", "fermati di parlare", "smetti di parlare", "taci", "silenzio", "zitto marcus", "marcus zitto", "basta marcus", "marcus basta"]
             if any(cmd in user_speech for cmd in exit_phrases):
@@ -569,6 +582,13 @@ class LiveConnectionManager:
             
             user_msg = self._current_user_text.strip() or "[Ascolto Vocale]"
             model_msg = self._current_live_response["text"].strip()
+
+            if user_msg and user_msg != "[Ascolto Vocale]":
+                self.recent_user_transcripts.append((user_msg, time.time()))
+                self.recent_user_transcripts = [
+                    (t, ts) for t, ts in self.recent_user_transcripts[-10:]
+                    if time.time() - ts < 15.0
+                ]
             
             if model_msg and self.on_turn_complete:
                 self.on_turn_complete(user_msg, model_msg)
@@ -613,3 +633,41 @@ class LiveConnectionManager:
                     self.logger.info("✅ [Live Tool] Risposta/e inviate.")
                 except Exception as e:
                     self.logger.error(f"❌ Errore invio tool response: {e}")
+
+    def is_duplicate_text(self, text: str) -> bool:
+        """Returns True if the given text matches a recently processed live bidi voice turn."""
+        now = time.time()
+        # Clean up old entries
+        self.recent_user_transcripts = [
+            (t, ts) for t, ts in self.recent_user_transcripts
+            if now - ts < 15.0
+        ]
+        
+        def normalize(s: str) -> str:
+            import re
+            import unicodedata
+            s_norm = unicodedata.normalize('NFKD', s)
+            s_clean = "".join([c for c in s_norm if not unicodedata.combining(c)])
+            return re.sub(r'[^a-z0-9\s]', '', s_clean.lower()).strip()
+            
+        norm_input = normalize(text)
+        if not norm_input:
+            return False
+            
+        for trans, ts in self.recent_user_transcripts:
+            norm_trans = normalize(trans)
+            if norm_input == norm_trans or norm_input in norm_trans or norm_trans in norm_input:
+                self.logger.info(f"🚫 [Live bidi check] Rilevato input duplicato: '{text}' corrispondente a trascrizione live recente '{trans}'")
+                return True
+                
+        if self._current_user_text:
+            norm_current = normalize(self._current_user_text)
+            if norm_input == norm_current or norm_input in norm_current or norm_current in norm_input:
+                self.logger.info(f"🚫 [Live bidi check] Rilevato input duplicato: '{text}' corrispondente a trascrizione live parziale '{self._current_user_text}'")
+                return True
+                
+        return False
+
+    def get_last_mic_audio_time(self) -> float:
+        """Returns the timestamp of the last non-empty audio chunk received from the mic."""
+        return self._last_mic_audio_time

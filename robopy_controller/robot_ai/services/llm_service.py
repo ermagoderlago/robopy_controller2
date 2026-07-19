@@ -767,7 +767,18 @@ class LLMServiceNode(Node):
     def _get_live_history(self) -> List[tuple]:
         return self._live_conversation_history
 
+    def register_audio_callback(self, callback):
+        """[v15.3] Registra una callback Python diretta per i chunk audio, bypassando ROS per evitare jitter/out-of-order."""
+        self._direct_audio_callback = callback
+
     def _on_live_audio_received(self, data: bytes):
+        if hasattr(self, '_direct_audio_callback') and self._direct_audio_callback:
+            try:
+                self._direct_audio_callback(data)
+                return
+            except Exception as e:
+                self.get_logger().error(f"Errore callback audio diretta: {e}")
+
         audio_msg = AudioData()
         audio_msg.data = data
         self.pub_audio_chunk.publish(audio_msg)
@@ -826,6 +837,18 @@ class LLMServiceNode(Node):
     async def send_audio_chunk(self, audio_data: bytes):
         if self._live_mgr:
             self._live_mgr.send_audio_chunk(audio_data)
+
+    def is_duplicate_text(self, text: str) -> bool:
+        """[v15.2] Verifica se il testo corrisponde a una trascrizione recente della Live API per evitare duplicati."""
+        if self._live_mgr and hasattr(self._live_mgr, 'is_duplicate_text'):
+            return self._live_mgr.is_duplicate_text(text)
+        return False
+
+    def get_last_mic_audio_time(self) -> float:
+        """[v15.2] Restituisce il timestamp dell'ultimo chunk audio registrato dal microfono."""
+        if self._live_mgr and hasattr(self._live_mgr, 'get_last_mic_audio_time'):
+            return self._live_mgr.get_last_mic_audio_time()
+        return 0.0
 
     def destroy_node(self):
         self.get_logger().info("Inizio shutdown grazioso del nodo LLM...")

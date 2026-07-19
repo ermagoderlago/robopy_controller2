@@ -16,6 +16,7 @@ import numpy as np
 import cv2
 import re
 import uuid
+import threading
 from typing import Dict, Any, List, Optional, Callable
 from datetime import datetime
 from collections import deque
@@ -88,12 +89,31 @@ class VisualMemoryService:
             self._handle_ask_vqa
         )
 
+        # Client to query the local NPU Qwen2-VL service
+        self.vlm_client = self.node.create_client(AskVisualQuestion, '/hailo/vlm/ask_question')
+
+        # Track current session ID
+        self._current_session_id = 1
+        try:
+            from rtabmap_msgs.msg import Info
+            self._info_sub = self.node.create_subscription(
+                Info,
+                '/rtabmap/info',
+                self._rtabmap_info_callback,
+                10
+            )
+            self.logger.info("Subscribed to /rtabmap/info for dynamic session tracking in VisualMemoryService.")
+        except Exception as e:
+            self.logger.warning(f"Could not subscribe to /rtabmap/info: {e}")
+
         # State
+        self._is_moving = False
         self._last_analysis_time = 0.0
         self._last_odom: Optional[Odometry] = None
-        self._is_moving = False
+        self.bridge = CvBridge()
         self._startup_analysis_done = False
         self._processing_lock = asyncio.Lock()
+        self._frame_lock = threading.Lock()
 
         # Trigger
         self._force_next_analysis = False
@@ -156,18 +176,19 @@ class VisualMemoryService:
         depth_frame: Optional[np.ndarray] = None,
         rgb_timestamp: Optional[float] = None,
     ):
-        self._latest_rgb = rgb_frame
-        self._latest_rgb_ts = rgb_timestamp if rgb_timestamp is not None else time.time()
-        if depth_frame is not None:
-            self._latest_depth = depth_frame
+        with self._frame_lock:
+            self._latest_rgb = rgb_frame
+            self._latest_rgb_ts = rgb_timestamp if rgb_timestamp is not None else time.time()
+            if depth_frame is not None:
+                self._latest_depth = depth_frame
 
     def _cam_info_callback(self, msg: CameraInfo):
-        self._latest_camera_info = msg
+        with self._frame_lock:
+            self._latest_camera_info = msg
 
     def _depth_callback(self, msg: Image):
         try:
             depth_img = self.bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
-            self._latest_depth = depth_img
 
             if msg.encoding in ('16UC1', '16SC1'):
                 unit_scale = 0.001  # mm -> m
@@ -176,14 +197,25 @@ class VisualMemoryService:
             else:
                 unit_scale = self._depth_unit_scale
 
-            self._depth_unit_scale = unit_scale
             stamp = msg.header.stamp
             ts = float(stamp.sec) + float(stamp.nanosec) / 1e9 if stamp else time.time()
-            self._latest_depth_ts = ts
 
-            self._depth_buffer.append((ts, depth_img.copy(), unit_scale))
+            with self._frame_lock:
+                self._latest_depth = depth_img
+                self._depth_unit_scale = unit_scale
+                self._latest_depth_ts = ts
+                self._depth_buffer.append((ts, depth_img.copy(), unit_scale))
         except Exception as e:
             self.logger.debug(f"Depth frame conversion failed: {e}")
+
+    def _rtabmap_info_callback(self, msg):
+        try:
+            for key, val in zip(msg.stats_keys, msg.stats_values):
+                if "map_id" in key.lower() or "session_id" in key.lower():
+                    self._current_session_id = int(val)
+                    break
+        except Exception:
+            pass
 
     def force_capture(self):
         self._force_next_analysis = True
@@ -196,13 +228,17 @@ class VisualMemoryService:
 
     async def spin(self):
         cfg = self.config.get_config().visual_memory
-        if not cfg.enabled or self._latest_rgb is None:
+        with self._frame_lock:
+            latest_rgb = self._latest_rgb
+            latest_rgb_ts = self._latest_rgb_ts
+
+        if not cfg.enabled or latest_rgb is None:
             return
 
         now = time.time()
 
         # Check stale frames before locking
-        if self._latest_rgb_ts and (now - self._latest_rgb_ts) > 3.0:
+        if latest_rgb_ts and (now - latest_rgb_ts) > 3.0:
             if self._force_next_analysis:
                 self.logger.debug("Stale frame detected, waiting for fresh frame before forced capture.")
             return
@@ -238,8 +274,17 @@ class VisualMemoryService:
     async def _analyze_scene(self):
         self.logger.info("📸 Capturing visual memory...")
 
+        with self._frame_lock:
+            latest_rgb = self._latest_rgb
+            latest_rgb_ts = self._latest_rgb_ts
+            latest_depth = self._latest_depth
+            latest_camera_info = self._latest_camera_info
+
+        if latest_rgb is None:
+            return
+
         encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 80]
-        success, encoded_jpg = cv2.imencode('.jpg', self._latest_rgb, encode_param)
+        success, encoded_jpg = cv2.imencode('.jpg', latest_rgb, encode_param)
         if not success:
             return
         jpg_bytes = encoded_jpg.tobytes()
@@ -265,16 +310,36 @@ class VisualMemoryService:
         )
 
         try:
-            response = await asyncio.wait_for(
-                self.llm_service.generate(prompt, images=[jpg_bytes], max_tokens=800),
-                timeout=20.0,
-            )
+            # Controlla se il servizio VLM locale su NPU è disponibile
+            use_local_vlm = self.vlm_client.service_is_ready()
+            text = ""
+
+            if use_local_vlm:
+                self.logger.info("Using local NPU Qwen2-VL service for visual memory...")
+                req = AskVisualQuestion.Request()
+                req.question = prompt
+                future = self.vlm_client.call_async(req)
+                try:
+                    response_msg = await self._wait_for_future(future, timeout=25.0)
+                    if response_msg.success:
+                        text = response_msg.answer
+                    else:
+                        raise Exception(response_msg.answer)
+                except Exception as e:
+                    self.logger.warn(f"Local NPU VLM failed, falling back to Cloud Gemini: {e}")
+                    use_local_vlm = False
+
+            if not use_local_vlm:
+                self.logger.info("Using Cloud Gemini API for visual memory...")
+                response = await asyncio.wait_for(
+                    self.llm_service.generate(prompt, images=[jpg_bytes], max_tokens=800),
+                    timeout=20.0,
+                )
+                text = response.text
 
             # consume target only on valid response
             if target and self._active_search_target == target:
                 self._active_search_target = None
-
-            text = response.text
             if not text:
                 return
 
@@ -313,9 +378,9 @@ class VisualMemoryService:
 
             should_save_to_db = False
             found_objects_3d: List[Dict[str, Any]] = []
-            image_capture_time = self._latest_rgb_ts or time.time()
+            image_capture_time = latest_rgb_ts or time.time()
 
-            if self._latest_depth is not None and self._latest_camera_info is not None and objects:
+            if latest_depth is not None and latest_camera_info is not None and objects:
                 found_objects_3d = self._process_and_publish_3d(objects, description, image_capture_time)
 
                 now = time.time()
@@ -431,7 +496,8 @@ class VisualMemoryService:
                         "timestamp": datetime.now().isoformat(),
                         "rgb_ts": image_capture_time,
                         "primary_uuid": primary_obj.get('uuid', ""),
-                        "location": f"({primary_obj.get('x', 0):.2f}, {primary_obj.get('y', 0):.2f}, {primary_obj.get('z', 0):.2f}) in {primary_obj.get('frame', 'map')}"
+                        "location": f"({primary_obj.get('x', 0):.2f}, {primary_obj.get('y', 0):.2f}, {primary_obj.get('z', 0):.2f}) in {primary_obj.get('frame', 'map')}",
+                        "session_id": self._current_session_id
                     },
                 )
                 
@@ -458,7 +524,10 @@ class VisualMemoryService:
 
     def _find_closest_depth(self, target_ts: Optional[float]):
         if target_ts is None or not self._depth_buffer:
-            return self._latest_depth, self._depth_unit_scale
+            with self._frame_lock:
+                latest_depth = self._latest_depth
+                depth_unit_scale = self._depth_unit_scale
+            return latest_depth, depth_unit_scale
         closest = min(self._depth_buffer, key=lambda x: abs(x[0] - target_ts))
         return closest[1], closest[2]
 
@@ -728,14 +797,17 @@ class VisualMemoryService:
         """Handle synchronous VQA request for active search."""
         self.logger.info(f"🔍 Active Search Triggered: {request.question}")
 
-        if self._latest_rgb is None:
+        with self._frame_lock:
+            latest_rgb = self._latest_rgb
+
+        if latest_rgb is None:
             response.success = False
             response.answer = "Errore: Camera non disponibile."
             return response
 
         # Compress to JPEG
         encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 80]
-        success, encoded_jpg = cv2.imencode('.jpg', self._latest_rgb, encode_param)
+        success, encoded_jpg = cv2.imencode('.jpg', latest_rgb, encode_param)
         if not success:
             response.success = False
             response.answer = "Errore: Compressione immagine fallita."
@@ -766,3 +838,12 @@ class VisualMemoryService:
             response.answer = f"Errore API/Timeout: {e}"
 
         return response
+
+    async def _wait_for_future(self, future, timeout=25.0):
+        """Wait for an rclpy future to complete in an asyncio-safe manner"""
+        start_time = time.time()
+        while not future.done():
+            if time.time() - start_time > timeout:
+                raise asyncio.TimeoutError("VLM Service Call Timeout")
+            await asyncio.sleep(0.1)
+        return future.result()

@@ -42,3 +42,26 @@ Questo documento descrive le lezioni apprese in merito alla gestione dei servizi
   $$\delta = \text{Feedback} - \text{Expectation}$$
   * Salva le memorie episodiche su ChromaDB in caso di scostamenti significativi ($|RPE| \ge 0.3$).
 * **PredictiveRouterNode:** Esegue query vettoriali preventive su ChromaDB per applicare inibizioni sinaptiche ed evitare di ripetere errori passati (es. tentativi falliti in loop su nodi non raggiungibili), modificando temporaneamente il system prompt dell'LLM prima della generazione del turno.
+
+---
+
+## 🔬 Dinamica Sinaptica ed Oblio Bio-Ispirato (Sprint 5)
+
+L'infrastruttura cognitiva di Marcus implementa la curva dell'oblio di Ebbinghaus per ottimizzare lo spazio vettoriale su hardware limitato (4GB RAM) senza creare database ausiliari.
+
+### 1. Metadati di Controllo Sinaptico
+Ogni record salvato in ChromaDB è corredato dai seguenti campi di controllo:
+* `synaptic_strength` (float): La forza del ricordo (inizializzata a 100.0, ridotta nel tempo).
+* `recall_count` (int): Numero di volte in cui il ricordo è stato richiamato o rinforzato.
+* `lambda_decay` (float): Il tasso di decadimento temporale specifico del ricordo.
+* `amygdala_protected` (string `"true"`/`"false"`): Flag per indicare ricordi immuni all'oblio.
+
+### 2. Equazione del Decadimento
+Durante il ciclo notturno `SOGNO`, per ciascun record non protetto viene calcolata la forza sinaptica residua:
+$$S(t) = S_0 \cdot e^{-\lambda \cdot \Delta t}$$
+dove $\Delta t$ rappresenta il tempo trascorso (in ore) dall'ultimo aggiornamento o creazione del record.
+
+### 3. Potatura Sinaptica (Pruning)
+Tutti i record che presentano una forza sinaptica $S(t) < 30.0$ e che sono stati richiamati meno di due volte (`recall_count` < 2) vengono fisicamente eliminati da ChromaDB. Questo processo riduce la frammentazione e previene il crash da esaurimento di memoria RAM.
+Dopo la potatura, il sistema invoca un Garbage Collection (`gc.collect()`) forzato per liberare la memoria dell'host.
+

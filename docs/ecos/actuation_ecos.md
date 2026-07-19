@@ -11,3 +11,71 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
   * Creato `waveshare_motor_driver.py` (comunicazione seriale JSON con ESP32, sottoscrizione `/cmd_vel` ed invio `{"T": 1, "L": v_L, "R": v_R}`, lettura feedback tick encoder, calcolo ed integrazione geometrica odometria con pubblicazione su `/odom` e TF `odom ➔ base_link`, watchdog di stop a 500ms).
   * Creato lo script wrapper `scripts/waveshare_motor_driver` per l'avvio del nodo.
   * Aggiunto l'entry point `waveshare_motor_driver` in `setup.py` e lo script wrapper in `CMakeLists.txt` per l'installazione in `lib/${PROJECT_NAME}`.
+
+---
+
+## 📈 ECO-2026-07-03-002: Lego Build HAT Deprecation & Waveshare Motor Driver Transition
+* **Stato:** ✅ **Completato in Locale, in attesa di Sincronizzazione ed SSD**
+* **Descrizione:** Rimozione definitiva di tutti i file e i riferimenti al Lego Build HAT precedentemente dismesso. Transizione completa di tutti i file di launch ROS 2 e degli script di sistema al driver `waveshare_motor_driver` con odometria attiva.
+* **Modifiche apportate:**
+  * Eliminati i file obsoleti: `smart_buildhat_driver.py`, `motor_control_node.py`, `test_lego_encoder_motor.py` e relativi wrapper in `scripts/`.
+  * Rimosse le dipendenze da `package.xml`, `CMakeLists.txt` e `setup.py`.
+  * Aggiornati 11 file di launch ROS 2 per avviare il nodo `waveshare_motor_driver` al posto del vecchio `motor_control_node`.
+  * Modificata la configurazione dell'AI Orchestrator (`orchestrator.py`) per pubblicare messaggi di `Twist` direttamente su `/cmd_vel` anziché su `/bluedot_input`.
+  * Aggiornata la lista dei nodi attesi in `system_inspector.py` e la documentazione del workspace (`WORKSPACE_STATE.md`, `files_topic.md`).
+  * Riscritto `calibration_skill.py` (V2): calibrazione closed-loop iterativa (max 10 loop, stop < 2% errore) di raggio e traccia ruote confrontando `/vo/odom` (ground truth) e `/odom`, con profilazione della caduta di tensione a vuoto/carico e calcolo della velocità massima dinamica.
+  * Modificato `waveshare_motor_driver.py` per includere la sottoscrizione a `/vo/odom`, un callback per la scrittura dinamica dei parametri ed un sistema di diagnostica attiva (stallo se le ruote non girano sotto sforzo, slittamento se le ruote girano ma il robot è fermo visivamente, sovraccarico se si ha una caduta di tensione della batteria $> 2.0$ V) con pubblicazione su `/diagnostics`.
+  * Aggiornato `orchestrator.py` per ricevere i diagnostici di `motor_stall`, ordinare l'arresto d'emergenza (`emergency_stop()`) e pronunciare vocalmente l'avviso di ostacolo incontrato.
+
+---
+
+## 📈 ECO-2026-07-16-003: ESP32 Parser Compatibility, Right Wheel Kinematic Alignment and Calibration Tuning
+* **Stato:** ✅ **Completato e Sincronizzato**
+* **Descrizione:** Correzione di tre bug bloccanti sul modulo di attuazione Waveshare e calibrazione closed-loop: disallineamento cinematico dell'encoder destro, incompatibilità di stringhe seriali JSON con il parser ESP32, deadlock del client parametri ROS 2 e ottimizzazione delle velocità di calibrazione contro la forza di strizione.
+* **Modifiche apportate:**
+  * **Formattazione seriale (ESP32):** Modificato `send_speeds` in `waveshare_motor_driver.py` per includere `separators=(',', ':')` nella serializzazione JSON. Questo ha rimosso gli spazi bianchi dopo i due punti generati per default da Python, risolvendo il blocco dell'ESP32 che cercava rigidamente la sottostringa `"T":1`.
+  * **Inversione cinematica:** Abilitato `invert_right_encoder := True` nei default del driver in `waveshare_motor_driver.py` e in `restart.sh`. Questo assicura che il conteggio dei tick per la ruota destra (che gira in senso inverso a causa del montaggio speculare) sia invertito a livello software prima di calcolare l'odometria lineare, prevenendo la cancellazione reciproca delle velocità delle ruote ($v_L + v_R = 0$) che causava un falso allarme stallo immediato.
+  * **Risoluzione deadlock parameters:** Modificata l'interazione con il client dei parametri dinamici in `calibration_skill.py` (`get_motor_params` e `set_motor_params`) per fare il polling manuale e non bloccante dell'attributo `future.done()` con `await asyncio.sleep(0.05)`, evitando deadlock di integrazione tra il ciclo asincrono di `asyncio` ed il thread MultiThreadedExecutor di `rclpy`.
+  * **Superamento strizione (Stiction):** Modificata la skill di calibrazione (`calibration_skill.py`) elevando i parametri di test standard a `0.45` m/s (velocità lineare) e `5.0` rad/s (velocità angolare) per garantire coppia di spunto sufficiente a muovere la ruota destra bloccata dall'attrito della riduzione. Aumentato il timeout di controllo stallo della skill a `2.0` secondi.
+
+---
+
+## 📈 ECO-2026-07-17-004: Correct Encoder Polarity Alignment
+* **Stato:** ✅ **Completato e Sincronizzato**
+* **Descrizione:** Corretto l'allineamento dei parametri di inversione degli encoder per riflettere le letture fisiche reali del firmware ESP32.
+* **Modifiche apportate:**
+  * Impostato `invert_left_encoder := False` e `invert_right_encoder := False` sia in `waveshare_motor_driver.py` che in `restart.sh` dopo aver verificato che il firmware ESP32 restituisce tick positivi per la rotazione in avanti su entrambi i canali.
+
+
+## 📈 ECO-2026-07-17-005: Left Encoder Hardware Fault Diagnosis
+* **Stato:** ⚠️ **Rilevato Errore Hardware (Azione Utente Richiesta)**
+* **Descrizione:** Diagnosi di guasto hardware critico sul canale dell'encoder sinistro (`odl`).
+* **Modifiche apportate:**
+  * Eseguito test seriale a basso livello (`test_backward.py`) escludendo ROS 2.
+  * Rilevato che, a fronte di rotazione fisica costante e corretta di entrambi i motori (movimento rettilineo), l'encoder sinistro ha registrato solo 27 tick contro i 4417 del destro.
+  * Il malfunzionamento del canale in quadratura sinistro spiega perché l'odometria fusa sul robot calcola una rotazione fittizia a sinistra ad ogni spostamento lineare, disallineando la localizzazione della mappa.
+
+---
+
+## 📈 ECO-2026-07-18-007: Kinematic Symmetry, Wheel Geometry Tuning & Encoder Polarity Update
+* **Stato:** ✅ **Completato e Sincronizzato**
+* **Descrizione:** Allineamento finale della cinematica differenziale e dell'odometria ruote basato su test sistematici di isolamento di singola ruota. Rettifica dei parametri geometrici del robot misurati fisicamente e inversione polare dei canali encoder.
+* **Modifiche apportate:**
+  * **Configurazione Geometrica:** Impostato `wheel_radius := 0.0325` (diametro misurato 65mm) e `wheel_separation := 0.29` (carreggiata misurata 290mm) in `full_robot_launch.py`, `restart_hailo.sh` e nel firmware/driver.
+  * **Correzione Cinematica in Python:** Modificata la formula cinematica in `waveshare_motor_driver.py` per inviare i comandi corretti di rotazione e traslazione. La ruota sinistra richiede comandi negativi sulla seriale per avanzare, mentre la destra positivi. La mappatura seriale è stata definita come: `L_serial = -v_left` e `R_serial = v_right`.
+  * **Parsing Encoder:** Modificato il parsing del feedback in `waveshare_motor_driver.py` mappando `left_ticks = odl` e `right_ticks = odr`. Per garantire che i tick dell'encoder sinistro aumentino durante la marcia in avanti (che richiede un comando negativo fisicamente), è stato impostato `invert_left_encoder := True` e `invert_right_encoder := False`.
+  * **Verifica del moto:** Eseguito test con successo (`test_forward_back.py`) con errore residuo di posa di soli 0.8cm e drift angolare minimo (-5.44°).
+
+---
+
+## 📈 ECO-2026-07-18-008: Nav2 Lifecycle Resolution, Visual Odometry Auto-Reset and Final Geometric Calibration
+* **Stato:** ✅ **Completato, Sincronizzato e Compilato**
+* **Descrizione:** Risoluzione del crash di startup dello stack Nav2, implementazione di un recupero automatico per il blocco del tracking dell'odometria visiva (VO) e calibrazione finale dei parametri geometrici fisici.
+* **Modifiche apportate:**
+  * **Auto-Reset VO:** Aggiunto un monitor di timeout del tracciamento in `oak_superpoint_odometry_node.cpp`. Se il tracking della camera va in stato `LOST` e non si relocalizza per 3 secondi (60 frame), il nodo forza autonomamente il reset delle pose storiche per ricominciare il tracking ORB dal frame corrente. Questo ha risolto lo stallo sistematico della VO a 0.000m.
+  * **Nav2 Lifecycle Resolution:** Rimosse le stringhe fittizie `global_costmap/global_costmap` e `local_costmap/local_costmap` dalla lista `node_names` gestita da `lifecycle_manager_navigation` in `launch/custom_nav2_launch.py`. Questo ha eliminato la race condition che mandava in crash i server di navigazione all'avvio, portando Nav2 in stato `active` stabile.
+  * **Inversione Encoder & Scala:** Rallineata la direzione del moto virtuale in Foxglove rispetto a quello reale impostando `invert_left_encoder := False` e `invert_right_encoder := True`.
+  * **Calibrazione Finale Parametri Geometrici:** Impostato `ticks_per_rev := 594` (rapporto di scala reale 1x sul Pi5) per allineare l'odometria ruote con quella visiva. Tarato il raggio dinamico a `wheel_radius := 0.0361` e la carreggiata a `wheel_separation := 0.091` ottenendo un'accuratezza sul giro a 360° pari allo **0.7%** di errore (yaw residuo di solo -2.6°).
+  * **Ottimizzazione Velocità MPPI:** Elevate le velocità massime operative di Nav2 in `nav2_params_jazzy.yaml` (`vx_max := 0.18 m/s` e `wz_max := 0.8 rad/s`) per consentire al planner locale di erogare coppia fluida superiore alla soglia di strizione minima (`0.15 m/s`).
+
+

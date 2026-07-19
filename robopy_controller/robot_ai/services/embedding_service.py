@@ -28,7 +28,7 @@ from ..utils.logging_utils import get_logger
 class LRUCache:
     """Simple LRU cache for embeddings."""
     
-    def __init__(self, max_size: int = 256):
+    def __init__(self, max_size: int = 64):
         self.cache: OrderedDict = OrderedDict()
         self.max_size = max_size
         self._lock = threading.Lock()
@@ -260,12 +260,8 @@ class EmbeddingService:
     
     def _quantize_float16(self, embedding: List[float]) -> List[float]:
         """Quantize embedding to float16 (reduces memory by ~50%)."""
-        # Convert to float16 and back to maintain precision
-        import array
-        f16_array = array.array('f', embedding)
-        # Note: Python's array doesn't support float16, so we use struct for conversion
-        # This is a simplified version - in production, use numpy
-        return [round(x, 6) for x in embedding]  # Reduce precision instead
+        import numpy as np
+        return np.array(embedding, dtype=np.float16).tolist()
     
     def cosine_similarity(self, v1: List[float], v2: List[float]) -> float:
         """Calculate cosine similarity between two vectors."""

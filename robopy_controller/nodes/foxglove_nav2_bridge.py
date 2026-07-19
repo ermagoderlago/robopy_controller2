@@ -14,10 +14,18 @@ class FoxgloveNav2Bridge(Node):
     def __init__(self):
         super().__init__('foxglove_nav2_bridge')
         
-        # Subscribe to Foxglove's Nav Goal topic
+        # Subscribe to Foxglove's Nav Goal topic (ROS 2 standard)
         self.subscription = self.create_subscription(
             PoseStamped,
             '/goal_pose',
+            self.goal_pose_callback,
+            10
+        )
+
+        # Subscribe to Foxglove's Nav Goal topic (ROS 1 / Legacy standard)
+        self.subscription_legacy = self.create_subscription(
+            PoseStamped,
+            '/move_base_simple/goal',
             self.goal_pose_callback,
             10
         )

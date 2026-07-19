@@ -5,8 +5,11 @@ Skill per comandi di navigazione semantica.
 """
 
 import re
+import json
+import time
 from typing import Any, Dict, List, Optional
 
+from ...utils.logging_utils import get_logger
 from ..base_skill import BaseSkill, SkillMetadata, SkillResult, SkillErrorCode
 
 
@@ -88,12 +91,38 @@ class NavigationSkill(BaseSkill):
         },
     }
     
-    def __init__(self, nav_client=None, move_handler=None):
+    def __init__(self, nav_client=None, move_handler=None, memory_store=None):
         super().__init__()
         self.nav_client = nav_client  # Will be injected
         self.move_handler = move_handler  # Callback: move_handler(direction, speed, duration)
+        self.memory_store = memory_store
         self._current_destination = None
         self._is_following = False
+        self._current_session_id = 1
+        self.logger = get_logger("navigation_skill")
+        
+        # Subscribe to /rtabmap/info to track current session ID
+        if self.nav_client and hasattr(self.nav_client, '_node') and self.nav_client._node:
+            try:
+                from rtabmap_msgs.msg import Info
+                self._info_sub = self.nav_client._node.create_subscription(
+                    Info,
+                    '/rtabmap/info',
+                    self._rtabmap_info_callback,
+                    10
+                )
+                self.logger.info("Subscribed to /rtabmap/info for dynamic session tracking.")
+            except Exception as e:
+                self.logger.warning(f"Could not subscribe to /rtabmap/info: {e}")
+
+    def _rtabmap_info_callback(self, msg):
+        try:
+            for key, val in zip(msg.stats_keys, msg.stats_values):
+                if "map_id" in key.lower() or "session_id" in key.lower():
+                    self._current_session_id = int(val)
+                    break
+        except Exception:
+            pass
     
     def get_metadata(self) -> SkillMetadata:
         return SkillMetadata(
@@ -282,10 +311,142 @@ class NavigationSkill(BaseSkill):
     
     async def _handle_goto(self, destination: str) -> SkillResult:
         """Handle goto command."""
-        waypoint = self.WAYPOINTS.get(destination)
-        if not waypoint:
+        found_location = None
+        
+        # 1. Search in MemoryType.LOCATION in ChromaDB
+        if self.memory_store:
+            try:
+                from ...rag.memory_store import MemoryType
+                loc_memories = self.memory_store.get_recent(limit=100, memory_type=MemoryType.LOCATION)
+                current_session = getattr(self, "_current_session_id", 1)
+                
+                # First pass: matching session
+                for mem in loc_memories:
+                    meta = mem.metadata or {}
+                    label = meta.get("label", "").lower()
+                    aliases_str = meta.get("aliases", "[]")
+                    try:
+                        aliases = json.loads(aliases_str)
+                    except Exception:
+                        aliases = [label]
+                    aliases_lower = [a.lower() for a in aliases]
+                    
+                    if destination.lower() == label or destination.lower() in aliases_lower:
+                        session_val = meta.get("session_id")
+                        try:
+                            session_id = int(session_val) if session_val else 1
+                        except ValueError:
+                            session_id = 1
+                        
+                        if session_id == current_session:
+                            found_location = {
+                                "x": float(meta.get("x", 0.0)),
+                                "y": float(meta.get("y", 0.0)),
+                                "frame_id": meta.get("frame_id", "map")
+                            }
+                            self.logger.info(f"Dynamic waypoint '{destination}' found in LOCATION (session {current_session})")
+                            break
+                            
+                # Second pass: fallback to any session
+                if not found_location:
+                    for mem in loc_memories:
+                        meta = mem.metadata or {}
+                        label = meta.get("label", "").lower()
+                        aliases_str = meta.get("aliases", "[]")
+                        try:
+                            aliases = json.loads(aliases_str)
+                        except Exception:
+                            aliases = [label]
+                        aliases_lower = [a.lower() for a in aliases]
+                        
+                        if destination.lower() == label or destination.lower() in aliases_lower:
+                            found_location = {
+                                "x": float(meta.get("x", 0.0)),
+                                "y": float(meta.get("y", 0.0)),
+                                "frame_id": meta.get("frame_id", "map")
+                            }
+                            self.logger.info(f"Dynamic waypoint '{destination}' found in LOCATION (any session)")
+                            break
+            except Exception as e:
+                self.logger.error(f"Error querying LOCATION in ChromaDB: {e}")
+
+        # 2. Search in MemoryType.VISUAL_OBSERVATION in ChromaDB
+        if not found_location and self.memory_store:
+            try:
+                from ...rag.memory_store import MemoryType
+                obs_memories = self.memory_store.get_recent(limit=100, memory_type=MemoryType.VISUAL_OBSERVATION)
+                current_session = getattr(self, "_current_session_id", 1)
+                
+                # First pass: matching session
+                for mem in obs_memories:
+                    meta = mem.metadata or {}
+                    session_val = meta.get("session_id")
+                    try:
+                        session_id = int(session_val) if session_val else 1
+                    except ValueError:
+                        session_id = 1
+                        
+                    if session_id != current_session:
+                        continue
+                        
+                    objects_str = meta.get("objects", "[]")
+                    try:
+                        objects = json.loads(objects_str)
+                    except Exception:
+                        objects = []
+                        
+                    for obj in objects:
+                        label = obj.get("label", "").lower()
+                        if destination.lower() in label or label in destination.lower():
+                            found_location = {
+                                "x": float(obj.get("x", 0.0)),
+                                "y": float(obj.get("y", 0.0)),
+                                "frame_id": obj.get("frame", "map")
+                            }
+                            self.logger.info(f"Dynamic target '{destination}' found in VISUAL_OBSERVATION (session {current_session})")
+                            break
+                    if found_location:
+                        break
+                        
+                # Second pass: fallback to any session
+                if not found_location:
+                    for mem in obs_memories:
+                        meta = mem.metadata or {}
+                        objects_str = meta.get("objects", "[]")
+                        try:
+                            objects = json.loads(objects_str)
+                        except Exception:
+                            objects = []
+                            
+                        for obj in objects:
+                            label = obj.get("label", "").lower()
+                            if destination.lower() in label or label in destination.lower():
+                                found_location = {
+                                    "x": float(obj.get("x", 0.0)),
+                                    "y": float(obj.get("y", 0.0)),
+                                    "frame_id": obj.get("frame", "map")
+                                }
+                                self.logger.info(f"Dynamic target '{destination}' found in VISUAL_OBSERVATION (any session)")
+                                break
+                        if found_location:
+                            break
+            except Exception as e:
+                self.logger.error(f"Error querying VISUAL_OBSERVATION in ChromaDB: {e}")
+
+        # 3. Fallback to static WAYPOINTS
+        if not found_location:
+            waypoint = self.WAYPOINTS.get(destination)
+            if waypoint:
+                found_location = {
+                    "x": waypoint["x"],
+                    "y": waypoint["y"],
+                    "frame_id": "map"
+                }
+                self.logger.info(f"Waypoint '{destination}' found in static fallbacks")
+        
+        if not found_location:
             return SkillResult.failure_result(
-                f"Non conosco la posizione '{destination}'",
+                f"Non conosco la posizione o l'oggetto '{destination}'",
                 SkillErrorCode.INVALID_PARAMETERS,
             )
         
@@ -294,17 +455,18 @@ class NavigationSkill(BaseSkill):
         action = {
             "action_type": "nav_goto",
             "destination": destination,
-            "x": waypoint["x"],
-            "y": waypoint["y"],
-            "frame_id": "map"
+            "x": found_location["x"],
+            "y": found_location["y"],
+            "frame_id": found_location["frame_id"]
         }
         
         # If we have a nav client, execute
         if self.nav_client:
             try:
                 result = await self.nav_client.navigate_to_pose(
-                    x=waypoint["x"],
-                    y=waypoint["y"]
+                    x=found_location["x"],
+                    y=found_location["y"],
+                    frame_id=found_location["frame_id"]
                 )
                 
                 return SkillResult(
@@ -461,6 +623,30 @@ class NavigationSkill(BaseSkill):
             "x": x,
             "y": y
         }
+        if self.memory_store:
+            try:
+                from ...rag.memory_store import Memory, MemoryType
+                mem_id = f"loc_{name.lower().replace(' ', '_')}"
+                
+                # Check if it already exists to overwrite/update cleanly
+                mem = Memory(
+                    id=mem_id,
+                    content=f"Location: {name}",
+                    memory_type=MemoryType.LOCATION,
+                    metadata={
+                        "label": name,
+                        "aliases": json.dumps(aliases or [name]),
+                        "x": float(x),
+                        "y": float(y),
+                        "frame_id": "map",
+                        "session_id": getattr(self, "_current_session_id", 1),
+                        "timestamp": time.time()
+                    }
+                )
+                self.memory_store.add(mem)
+                self.logger.info(f"Saved location '{name}' to ChromaDB for session {getattr(self, '_current_session_id', 1)}")
+            except Exception as e:
+                self.logger.error(f"Error saving location to ChromaDB: {e}")
     
     def get_parameters_schema(self) -> Dict[str, Any]:
         """Schema for LLM function calling."""

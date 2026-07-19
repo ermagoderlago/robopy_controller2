@@ -110,7 +110,6 @@ setup(
 
     entry_points={
         "console_scripts": [
-            "motor_control_node = robopy_controller.motor_control_node:main",
             "ultrasonic_sensor = robopy_controller.ultrasonic_sensor:main",
             "bluedot_node = robopy_controller.bluedot_node:main",
             "odometry_node = robopy_controller.odometry_node:main",
@@ -169,7 +168,6 @@ setup(
             "oak_driver_node = robopy_controller.nodes.oak_driver_node:main",
             "oak_superpoint_odometry_node = robopy_controller.nodes.oak_superpoint_odometry_node:main",
             "robot_ai_node = robopy_controller.nodes.robot_ai_node:main",
-            "smart_buildhat_driver = robopy_controller.nodes.smart_buildhat_driver:main",
             "waveshare_motor_driver = robopy_controller.nodes.waveshare_motor_driver:main",
             "foxglove_nav2_bridge = robopy_controller.nodes.foxglove_nav2_bridge:main",
             "wake_word_node = robopy_controller.nodes.wake_word_node:main",
@@ -180,6 +178,11 @@ setup(
             "engagement_monitor = robopy_controller.nodes.engagement_monitor:main",
             "cloud_watchdog_node = robopy_controller.nodes.cloud_watchdog_node:main",
             "speaker_id_node = robopy_controller.nodes.speaker_id_node:main",
+            # === Cognitive Brain ===
+            "chroma_synaptic_manager = robopy_controller.robot_ai.cognitive.chroma_synaptic_manager:main",
+            "cognitive_amygdala = robopy_controller.robot_ai.cognitive.cognitive_amygdala:main",
+            "cognitive_core_node = robopy_controller.robot_ai.cognitive.cognitive_core_node:main",
+            "neuro_vegetative_bridge = robopy_controller.robot_ai.cognitive.neuro_vegetative_bridge:main",
         ],
     },
 )

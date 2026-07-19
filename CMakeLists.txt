@@ -37,6 +37,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/SemanticObjectArray.msg"
   "msg/EngagementStatus.msg"
   "srv/AskVisualQuestion.srv"
+  "srv/MemoryRecall.srv"
   DEPENDENCIES std_msgs geometry_msgs sensor_msgs vision_msgs
 )
 
@@ -186,7 +187,6 @@ install(PROGRAMS
   scripts/superpoint_node
   scripts/madgwick_node
   scripts/bluedot_node
-  scripts/motor_control_node
   scripts/image_compressor_node
   scripts/oak_superpoint_odometry_node
   scripts/teleop_node
@@ -194,7 +194,6 @@ install(PROGRAMS
   scripts/robot_ai_node
   scripts/servo_coda_node
   scripts/homeassistant_node
-  scripts/smart_buildhat_driver
   scripts/waveshare_motor_driver
   scripts/foxglove_nav2_bridge
   scripts/wake_word_node

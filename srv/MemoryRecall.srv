@@ -1,0 +1,6 @@
+string memory_id
+---
+bool success
+float32 new_synaptic_strength
+int32 new_recall_count
+string message

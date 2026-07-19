@@ -13,13 +13,19 @@ set -e  # Esci subito in caso di errore
 TARGET_HOST="marcus"
 TARGET_DIR="/mnt/ssd/robopy_controller_host"
 
-# --- Configurazione SSH ControlMaster ---
-# Crea una socket di controllo in /tmp per il multiplexing.
-# ControlPersist=60 mantiene la connessione per 60s dopo l'ultimo uso.
-CTRL_SOCK="/tmp/ssh_ctrl_marcus_sync"
-SSH_OPTS="-o ControlMaster=auto -o ControlPath=${CTRL_SOCK} -o ControlPersist=60 -o ConnectTimeout=10"
-SSH_CMD="ssh ${SSH_OPTS}"
-RSYNC_SSH="ssh ${SSH_OPTS}"
+# --- Configurazione SSH ---
+# In WSL o Linux puro, usiamo il native ssh di Linux che supporta ControlMaster.
+# Usiamo ssh.exe solo se siamo in Windows Cmd/PowerShell (non-WSL).
+if [ -n "$COMSPEC" ] && ! grep -qE "(Microsoft|WSL)" /proc/version 2>/dev/null; then
+    echo "🪟 Ambiente Windows Cmd/PowerShell rilevato: uso ssh.exe (senza ControlMaster)"
+    SSH_CMD="ssh.exe"
+    RSYNC_SSH="ssh.exe"
+else
+    CTRL_SOCK="/tmp/ssh_ctrl_marcus_sync"
+    SSH_OPTS="-o ControlMaster=auto -o ControlPath=${CTRL_SOCK} -o ControlPersist=60 -o ConnectTimeout=10"
+    SSH_CMD="ssh ${SSH_OPTS}"
+    RSYNC_SSH="ssh ${SSH_OPTS}"
+fi
 
 echo "=============================================="
 echo " 🤖 SYNC MARCUS - Avvio sincronizzazione"

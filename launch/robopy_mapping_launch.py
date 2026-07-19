@@ -260,8 +260,20 @@ def generate_launch_description():
         }]
     )
 
-    # G) Hardware Control
-    motor_control_node = Node(package='robopy_controller', executable='motor_control_node', output='screen')
+    motor_control_node = Node(
+        package='robopy_controller',
+        executable='waveshare_motor_driver',
+        name='waveshare_motor_driver',
+        output='screen',
+        parameters=[{
+            'serial_port': '/dev/ttyUSB0',
+            'baud_rate': 115200,
+            'wheel_radius': 0.0325,
+            'wheel_separation': 0.16,
+            'ticks_per_rev': 1440,
+            'invert_right_encoder': True,
+        }]
+    )
     bluedot_node = Node(package='robopy_controller', executable='bluedot_node', output='screen')
 
 

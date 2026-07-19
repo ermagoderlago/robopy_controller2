@@ -1,0 +1,29 @@
+esphome:
+  name: waveshare-motor-driver
+  friendly_name: Waveshare Motor Driver
+  includes:
+    - waveshare_bridge.h
+  on_boot:
+    - priority: -100
+      then:
+        - lambda: |-
+            setup_waveshare();
+  platformio_options:
+    platform: https://gh-proxy.com/https://github.com/pioarduino/platform-espressif32/releases/download/55.03.37/platform-espressif32.zip
+    platform_packages:
+      - pioarduino/framework-espidf@https://gh-proxy.com/https://github.com/pioarduino/esp-idf/releases/download/v5.5.2/esp-idf-v5.5.2.tar.xz
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+logger:
+  baud_rate: 115200
+  level: NONE
+
+interval:
+  - interval: 5ms
+    then:
+      - lambda: |-
+          loop_waveshare();

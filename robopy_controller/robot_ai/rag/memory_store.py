@@ -20,7 +20,7 @@ try:
 except ImportError:
     HAS_CHROMADB = False
 
-from ..core.exceptions import MemoryError as AIMemoryError
+from ..core.exceptions import RAGMemoryError as AIMemoryError
 from ..utils.logging_utils import get_logger
 
 
@@ -94,7 +94,8 @@ class SearchResult:
 
 class MemoryStore:
     """
-    ChromaDB-based memory storage.
+    [DEPRECATED] ChromaDB-based memory storage.
+    Deprecated: Use ChromaNativeStore instead.
     
     Features:
     - Persistent ChromaDB storage
@@ -127,6 +128,12 @@ class MemoryStore:
         hnsw_ef_construction: int = 200,
         hnsw_m: int = 16
     ):
+        import warnings
+        warnings.warn(
+            "MemoryStore is deprecated and will be removed. Use ChromaNativeStore instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         self.logger = get_logger("memory_store")
         self.persist_dir = Path(persist_dir)
         self.collection_name = collection_name

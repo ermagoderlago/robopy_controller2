@@ -84,12 +84,14 @@ class EngagementMonitor(Node):
         self.last_gaze_time = 0.0
         self.gaze_direction = None
         self.current_engagement_state = "LOST"
+        self.current_zone = "PUBLIC"
+        self.last_published_distance = 99.0
         
         # Simulated distance for tracking (falls back when skeleton keypoints are missing)
         self.proxemic_distance = 99.0
 
-        # Loop to evaluate engagement at 10Hz
-        self.create_timer(0.1, self.evaluate_engagement)
+        # Loop to evaluate engagement at 2Hz
+        self.create_timer(0.5, self.evaluate_engagement)
 
         self.get_logger().info("engagement_monitor avviato.")
 
@@ -151,35 +153,45 @@ class EngagementMonitor(Node):
             self.proxemic_distance = 99.0 # reset to default far distance
 
         # Check for state transitions and handle preemption
-        if new_state != self.current_engagement_state:
-            self.get_logger().info(f"Stato engagement cambiato: {self.current_engagement_state} -> {new_state} (Zone: {zone}, Dist: {self.proxemic_distance:.2f}m)")
+        state_changed = (new_state != self.current_engagement_state)
+        zone_changed = (zone != self.current_zone)
+        dist_changed = (abs(self.proxemic_distance - self.last_published_distance) > 0.15)
+
+        if state_changed or zone_changed or dist_changed:
+            if state_changed:
+                self.get_logger().info(f"Stato engagement cambiato: {self.current_engagement_state} -> {new_state} (Zone: {zone}, Dist: {self.proxemic_distance:.2f}m)")
+                
+                # If we lose the user suddenly while executing a task, trigger preemption/cancel
+                if self.enable_preemption and self.current_engagement_state == "ENGAGED" and new_state == "LOST":
+                    self.trigger_preemption()
+
+                self.current_engagement_state = new_state
             
-            # If we lose the user suddenly while executing a task, trigger preemption/cancel
-            if self.enable_preemption and self.current_engagement_state == "ENGAGED" and new_state == "LOST":
-                self.trigger_preemption()
+            if zone_changed:
+                self.current_zone = zone
+                
+            self.last_published_distance = self.proxemic_distance
 
-            self.current_engagement_state = new_state
+            # Publish info
+            # 1. Custom message
+            status_msg = EngagementStatus()
+            status_msg.header.stamp = self.get_clock().now().to_msg()
+            status_msg.header.frame_id = "base_link"
+            status_msg.status = self.current_engagement_state
+            status_msg.gaze_score = gaze_score
+            status_msg.distance_m = float(self.proxemic_distance)
+            status_msg.zone = self.current_zone
+            self.pub_status.publish(status_msg)
 
-        # Publish info
-        # 1. Custom message
-        status_msg = EngagementStatus()
-        status_msg.header.stamp = self.get_clock().now().to_msg()
-        status_msg.header.frame_id = "base_link"
-        status_msg.status = self.current_engagement_state
-        status_msg.gaze_score = gaze_score
-        status_msg.distance_m = float(self.proxemic_distance)
-        status_msg.zone = zone
-        self.pub_status.publish(status_msg)
+            # 2. String status
+            str_msg = String()
+            str_msg.data = self.current_engagement_state
+            self.pub_status_str.publish(str_msg)
 
-        # 2. String status
-        str_msg = String()
-        str_msg.data = self.current_engagement_state
-        self.pub_status_str.publish(str_msg)
-
-        # 3. Proxemics
-        prox_msg = Float32()
-        prox_msg.data = float(self.proxemic_distance)
-        self.pub_proxemics.publish(prox_msg)
+            # 3. Proxemics
+            prox_msg = Float32()
+            prox_msg.data = float(self.proxemic_distance)
+            self.pub_proxemics.publish(prox_msg)
 
     def trigger_preemption(self):
         self.get_logger().warn("🚨 Rilevata perdita improvvisa di engagement! Invio segnali di preemption...")

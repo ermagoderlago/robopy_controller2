@@ -35,6 +35,7 @@ rtabmap:
     Rtabmap/CreateIntermediateNodes: "false"
     Mem/NotLinkedNodesKept: "true"
     Mem/SaveRawData: "false"
+    Mem/IncrementalMemory: "true"
     Rtabmap/TimeThr: "0"
     Rtabmap/MemoryThr: "300"
     Rtabmap/DetectionRate: "0.5"

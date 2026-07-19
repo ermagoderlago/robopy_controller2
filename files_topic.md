@@ -68,12 +68,6 @@ This file lists the ROS 2 nodes and their topics (auto-generated).
 - **Transmits (Publishes) to:**
   - `/motion_detected`
 
-## robopy_controller\motor_control_node.py
-- **Subscribes to:**
-  - `bluedot_input`
-  - `cmd_vel`
-- **Transmits (Publishes) to:** None
-
 ## robopy_controller\nodes\IMU_node.py
 - **Subscribes to:** None
 - **Transmits (Publishes) to:**
@@ -279,16 +273,6 @@ This file lists the ROS 2 nodes and their topics (auto-generated).
   - `servo_angle`
 - **Transmits (Publishes) to:** None
 
-## robopy_controller\nodes\smart_buildhat_driver.py
-- **Subscribes to:**
-  - `/cmd_vel`
-  - `/cmd_vel_nav`
-  - `/imu/data`
-  - `/teleop/cmd_vel`
-  - `/ultrasonic_range`
-  - `/vo/odom`
-- **Transmits (Publishes) to:** None
-
 ## robopy_controller\nodes\stereo_camera_info_converter.py
 - **Subscribes to:**
   - `/oak/stereo/camera_info`
@@ -365,6 +349,15 @@ This file lists the ROS 2 nodes and their topics (auto-generated).
   - `/audio/audio`
 - **Transmits (Publishes) to:**
   - `/ai/input/mic_mute`
+
+## robopy_controller\nodes\waveshare_motor_driver.py
+- **Subscribes to:**
+  - `/cmd_vel`
+- **Transmits (Publishes) to:**
+  - `/odom`
+  - `/imu/esp32`
+  - `/battery_state`
+  - `/diagnostics`
 
 ## robopy_controller\nodes\web_video_stream_node.py
 - **Subscribes to:**

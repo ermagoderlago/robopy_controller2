@@ -171,6 +171,44 @@ La compilazione richiede risorse significative ed è configurata in WSL.
    bash /mnt/ssd/robopy_controller_host/restart.sh
    ```
 
+## 🔌 Compilazione e Flash del Firmware ESPHome (Waveshare General Driver)
+
+La scheda Waveshare General Driver (ESP32) gestisce il controllo dei motori e la lettura degli encoder. Per compilarla e flasharla senza ricorrere alla MicroSD, segui questa procedura:
+
+### 1. Risoluzione Problemi di Alimentazione e Disconnessione SSH
+> [!IMPORTANT]
+> **Vincolo Fisico di Alimentazione (Overcurrent & Crash WiFi)**:
+> Se l'alimentazione esterna (batteria) della Waveshare è spenta durante il collegamento USB con il Raspberry Pi 5, la scheda proverà ad alimentare i circuiti dei motori tramite la porta USB del Pi. 
+> Questo causa un sovraccarico (overcurrent) che fa calare la tensione a 3.3V sulla scheda di rete del Pi 5, provocando la disconnessione immediata della sessione SSH (errore `Connection closed` o `Resource temporarily unavailable`).
+> **Soluzione:** Accendere sempre l'alimentazione esterna della Waveshare prima di eseguire test seriali.
+
+### 2. Compilazione Offline sul Raspberry Pi (Evitare il Firewall Aziendale)
+Il firewall aziendale blocca i download di grossi file compressi (come la toolchain ESP-IDF) da GitHub, causando disconnessioni di rete sul Pi.
+Per aggirare questo blocco, tutti i pacchetti necessari sono stati pre-scaricati e salvati nella cache di PlatformIO sul Pi (`/home/robopy/.platformio_local/packages`).
+Per compilare senza scaricare nulla da internet:
+1. Accedi al Pi via SSH:
+   ```bash
+   ssh robopy@marcus
+   ```
+2. Compila in modalità offline ed esegui la build sui core CPU 0 e 1 (per evitare picchi di calore/corrente):
+   ```bash
+   cd /home/robopy/waveshare_build_pi
+   export PLATFORMIO_RUN_OFFLINE=true
+   source /home/robopy/esphome_venv/bin/activate
+   taskset -c 0,1 esphome compile waveshare_driver.yaml
+   ```
+
+### 3. Flashing sul Robot
+1. Arresta eventuali script o nodi ROS che occupano la porta `/dev/ttyUSB0`:
+   ```bash
+   sudo fuser -k /dev/ttyUSB0 || true
+   ```
+2. Attiva l'ambiente virtuale ed esegui il flashing tramite `esptool`:
+   ```bash
+   source /home/robopy/esphome_venv/bin/activate
+   esptool --port /dev/ttyUSB0 --baud 115200 write-flash 0x0 /home/robopy/waveshare_build_pi/.esphome/build/waveshare-motor-driver/.pioenvs/waveshare-motor-driver/firmware.factory.bin
+   ```
+
 ---
 
 ### 🛠️ Ricostruzione ed Installazione dell'Ambiente da Zero (Bootstrap & Troubleshooting)

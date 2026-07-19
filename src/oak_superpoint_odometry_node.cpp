@@ -9,6 +9,7 @@
 #include <std_msgs/msg/bool.hpp>
 #include <std_msgs/msg/string.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
+#include <geometry_msgs/msg/twist.hpp>
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2_ros/transform_broadcaster.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
@@ -131,6 +132,12 @@ public:
         pub_tracking_status_ = create_publisher<std_msgs::msg::Bool>("/vo/tracking_ok", 10);
         pub_diagnostics_ = create_publisher<std_msgs::msg::String>("/vo/diagnostics", 10);
 
+        cmd_vel_sub_ = this->create_subscription<geometry_msgs::msg::Twist>(
+            "/cmd_vel", 10,
+            std::bind(&OakSuperPointOdometry::cmdVelCallback, this, std::placeholders::_1)
+        );
+        last_cmd_vel_time_ = this->now();
+
         if (enable_yolo_) {
             pub_detections_ = create_publisher<vision_msgs::msg::Detection2DArray>("/yolo/detections", rclcpp::QoS(10).reliable());
         }
@@ -206,6 +213,10 @@ private:
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr pub_tracking_status_;
     std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
     rclcpp::TimerBase::SharedPtr timer_odom_;
+    rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_sub_;
+    std::atomic<bool> motors_active_{false};
+    rclcpp::Time last_cmd_vel_time_;
+    std::mutex time_mutex_;
 
     // ============================================================================
     // DEPTHAI PIPELINE
@@ -242,6 +253,7 @@ private:
     std::deque<int> inliers_history_;
     int consecutive_lost_frames_ = 0;
     bool tracking_lost_ = false;
+    int consecutive_reloc_failures_ = 0;
     
     // Advanced utilities
     std::unique_ptr<FrameSynchronizer<dai::ImgFrame, dai::ImgFrame>> frame_sync_;
@@ -277,8 +289,8 @@ private:
     // ============================================================================
     // CONSTANTS
     // ============================================================================
-    const int SP_W = 480;
-    const int SP_H = 360;
+    const int SP_W = 320;
+    const int SP_H = 200;
     const int DEPTH_W = 640;
     const int DEPTH_H = 400;
 
@@ -325,6 +337,30 @@ private:
             
             pub_imu_->publish(imu_msg);
         }
+    }
+
+    // ============================================================================
+    // CMD_VEL CALLBACK & ZUPT HELPER
+    // ============================================================================
+    void cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg) {
+        if (!rclcpp::ok()) return;
+        bool active = (std::abs(msg->linear.x) > 0.001 || std::abs(msg->angular.z) > 0.001);
+        motors_active_.store(active, std::memory_order_release);
+        std::lock_guard<std::mutex> lock(time_mutex_);
+        last_cmd_vel_time_ = this->now();
+    }
+
+    bool isRobotMoving() {
+        rclcpp::Time cmd_time;
+        {
+            std::lock_guard<std::mutex> lock(time_mutex_);
+            cmd_time = last_cmd_vel_time_;
+        }
+        double time_since_cmd = (this->now() - cmd_time).seconds();
+        if (time_since_cmd < 0.5) {
+            return motors_active_.load(std::memory_order_acquire);
+        }
+        return false;
     }
 
     // ============================================================================
@@ -724,7 +760,9 @@ private:
                                 tfR_base.getRPY(roll, pitch, yaw);
                                 
                                 bool significant_motion = true;
-                                if (min_translation_thresh_ > 0.0 && min_rotation_thresh_ > 0.0) {
+                                if (!isRobotMoving()) {
+                                    significant_motion = false;
+                                } else if (min_translation_thresh_ > 0.0 && min_rotation_thresh_ > 0.0) {
                                     if (translation_norm < min_translation_thresh_ && std::abs(yaw) < min_rotation_thresh_) {
                                         significant_motion = false;
                                     }
@@ -738,7 +776,7 @@ private:
                                 vo_success = true;
                                 
                                 // Update adaptive covariance
-                                double translation_norm = cv::norm(t_base);
+                                translation_norm = cv::norm(t_base);
                                 double depth_valid_ratio = (double)pts3d.size() / kpts.size();
                                 covariance_estimator_.update(n_inliers, n_matches, translation_norm,
                                                             depth_valid_ratio, false);
@@ -891,6 +929,7 @@ private:
                             RCLCPP_INFO(get_logger(), "🟢 RELOCALIZATION SUCCESS! Inliers: %d", n_inliers);
                             tracking_lost_ = false;
                             consecutive_lost_frames_ = 0;
+                            consecutive_reloc_failures_ = 0;
                             
                             std_msgs::msg::Bool status;
                             status.data = true;
@@ -903,9 +942,38 @@ private:
                                 last_orb_descs_ = cv::Mat();
                                 last_orb_kpts_.clear();
                             }
+                        } else {
+                            consecutive_reloc_failures_++;
                         }
+                    } else {
+                        consecutive_reloc_failures_++;
                     }
+                } else {
+                    consecutive_reloc_failures_++;
                 }
+            } else {
+                consecutive_reloc_failures_++;
+            }
+
+            // Fallback recovery: if we are stuck in LOST mode for too long, force ORB re-initialization
+            if (consecutive_reloc_failures_ >= 60) {
+                RCLCPP_WARN(get_logger(), "⚠️ Relocalization timeout (%d frames). Forcing ORB re-initialization...", consecutive_reloc_failures_);
+                tracking_lost_ = false;
+                consecutive_lost_frames_ = 0;
+                consecutive_reloc_failures_ = 0;
+                
+                std_msgs::msg::Bool status;
+                status.data = true;
+                pub_tracking_status_->publish(status);
+
+                {
+                    std::lock_guard<std::mutex> orb_lock(orb_mutex_);
+                    last_orb_pts3d_.clear();
+                    last_orb_descs_ = cv::Mat();
+                    last_orb_kpts_.clear();
+                }
+                last_sp_pts3d_.clear();
+                last_sp_descs_ = cv::Mat();
             }
 
             // Always update SuperPoint history for future relocalization
@@ -931,10 +999,14 @@ private:
         if (layers.size() < 2) return false;
         
         std::vector<float> heatmap, descriptors;
-        for (auto& name : layers) {
-            auto data = sp->getLayerFp16(name);
-            if (data.size() > 500000) descriptors = std::move(data);
-            else if (data.size() > 100000) heatmap = std::move(data);
+        auto data0 = sp->getLayerFp16(layers[0]);
+        auto data1 = sp->getLayerFp16(layers[1]);
+        if (data0.size() > data1.size()) {
+            descriptors = std::move(data0);
+            heatmap = std::move(data1);
+        } else {
+            descriptors = std::move(data1);
+            heatmap = std::move(data0);
         }
         
         if (heatmap.empty() || descriptors.empty()) return false;
@@ -1071,7 +1143,9 @@ private:
             tfR_base.getRPY(roll, pitch, yaw);
 
             bool significant_motion = true;
-            if (min_translation_thresh_ > 0.0 && min_rotation_thresh_ > 0.0) {
+            if (!isRobotMoving()) {
+                significant_motion = false;
+            } else if (min_translation_thresh_ > 0.0 && min_rotation_thresh_ > 0.0) {
                 if (translation_norm < min_translation_thresh_ && std::abs(yaw) < min_rotation_thresh_) {
                     significant_motion = false;
                 }

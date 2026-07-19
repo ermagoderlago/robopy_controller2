@@ -135,12 +135,23 @@ def generate_launch_description():
         }]
     )
 
-    # 6) Motor control and bluedot / teleop
     motor_control_node = Node(
         package='robopy_controller',
-        executable='motor_control_node',
-        name='motor_control_node',
-        output='screen'
+        executable='waveshare_motor_driver',
+        name='waveshare_motor_driver',
+        output='screen',
+        parameters=[{
+            'serial_port': '/dev/ttyUSB0',
+            'baud_rate': 115200,
+            'wheel_radius': 0.0361,
+            'wheel_separation': 0.091,
+            'ticks_per_rev': 594,
+            'invert_left_motor': False,
+            'invert_right_motor': False,
+            'invert_left_encoder': True,
+            'invert_right_encoder': False,
+            'publish_tf': False,
+        }]
     )
 
     bluedot_node = Node(
@@ -230,15 +241,15 @@ def generate_launch_description():
                                     False, False, True,
                                     False, False, False],
 
-                    # Visual Odometry config
-                    'odom0': '/odometry/visual',
-                    'odom0_frame_id': 'camera_optical_frame',  # Aggiunto: fondamentale!
+                    # Wheel Odometry config
+                    'odom0': '/odom',
+                    'odom0_frame_id': 'odom',  # Aggiunto: fondamentale!
                     'odom0_differential': False,
                     'odom0_queue_size': 10,
                     'odom0_config': [True, True, False,
                                      False, False, True,
-                                     False, False, False,
-                                     False, False, False,
+                                     True,  True,  False,
+                                     False, False, True,
                                      False, False, False],
 
                     # Covarianza e rumore

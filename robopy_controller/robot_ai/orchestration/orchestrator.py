@@ -3,7 +3,8 @@ import threading
 from typing import Optional, List, Dict, Callable
 from rclpy.node import Node
 from sensor_msgs.msg import CompressedImage
-from std_msgs.msg import String, Bool
+from std_msgs.msg import String, Bool, Float32MultiArray
+from vision_msgs.msg import Detection2DArray
 from diagnostic_msgs.msg import DiagnosticArray
 from geometry_msgs.msg import Twist
 from robopy_controller.msg import AudioData
@@ -62,14 +63,16 @@ class AIOrchestrator(Node):
         self._shutdown_flag = False
         self.timer_list = []
         self._latest_frame_bytes = None
+        self._last_cmd_vel_zero = False
 
         # Instanziamo i ROS Publisher base
-        self.cmd_vel_pub = self.create_publisher(Twist, '/bluedot_input', 10)
+        self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', 10)
         self.response_pub = self.create_publisher(String, '/ai/conversation/response', 10)
         self.document_pub = self.create_publisher(String, '/ai/conversation/document', 10)
         self.status_pub = self.create_publisher(String, '/ai/conversation/status', 10)
         # ReSpeaker LED feedback
         self.respeaker_led_pub = self.create_publisher(String, '/respeaker/led_command', 10)
+        self.speaker_trigger_pub = self.create_publisher(String, '/speaker/trigger_enrollment', 10)
 
         # Manager
         self.world_model = WorldModel()
@@ -80,9 +83,11 @@ class AIOrchestrator(Node):
         # Servizi Core
         self.llm_service = LLMService(self.config_manager)
         self.tts_service = TTSService(self.config_manager, ros_node=self)
+        if hasattr(self.llm_service, 'register_audio_callback'):
+            self.llm_service.register_audio_callback(self._direct_audio_chunk_callback)
         self.asr_service = ASRService(self.config_manager)
         self.embedding_service = EmbeddingService(self.config_manager)
-        self.nav_client = NavigationClient(self, self.config_manager)
+        self.nav_client = NavigationClient(self, self.config_manager, self.cmd_vel_pub)
         self.ha_client = HomeAssistantClient(self.config_manager)
         
         db_path = "/home/robopy/ChromaDB_Llama"
@@ -116,7 +121,7 @@ class AIOrchestrator(Node):
         self.skill_registry = SkillRegistry()
         self.skill_registry.register(HomeAssistantSkill(self.event_bus))
         if self.nav_client:
-             self.skill_registry.register(NavigationSkill(self.nav_client, self._skill_move_handler))
+             self.skill_registry.register(NavigationSkill(self.nav_client, self._skill_move_handler, self.memory_store))
         self.skill_registry.register(SearchSkill(self.nav_client, self.llm_service, self._provide_camera_frame))
         self.skill_registry.register(NightlyDreamSkill(self.nightly_dream_service))
         self.skill_registry.register(VisualExplorationSkill(
@@ -191,6 +196,8 @@ class AIOrchestrator(Node):
 
     def _setup_ros_interfaces(self):
         self.create_subscription(CompressedImage, '/rgb/image/compressed', self._camera_callback, 1)
+        self.create_subscription(Detection2DArray, '/hailo/face/detections', self._face_detections_callback, 5)
+        self.create_subscription(Float32MultiArray, '/hailo/face/embeddings', self._face_embeddings_callback, 5)
         self.create_subscription(DiagnosticArray, '/diagnostics', self._diagnostics_callback, 10)
         self.create_subscription(String, 'ai/input/text', self._text_input_callback, 10)
         self.create_subscription(String, 'ai/input/document', self._document_input_callback, 10)
@@ -213,14 +220,17 @@ class AIOrchestrator(Node):
              self.scheduler.add_job(self._run_nightly_dream, 'cron', hour=3, minute=0)
              self.scheduler.start()
              self.ai_logger.info("Scheduler avviato con timezone Europe/Rome (Dream alle 03:00 locale)")
-        except Exception as e:
-             self.ai_logger.warning(f"APScheduler init failed or timezone not found: {e}. Usando local system time.")
-             from apscheduler.schedulers.asyncio import AsyncIOScheduler
-             self.scheduler = AsyncIOScheduler(event_loop=self._loop)
-             self.scheduler.add_job(self._run_nightly_dream, 'cron', hour=3, minute=0)
-             self.scheduler.start()
         except ImportError:
              self.ai_logger.warning("APScheduler missing, nightly dream not scheduled.")
+        except Exception as e:
+             self.ai_logger.warning(f"APScheduler init failed or timezone not found: {e}. Usando local system time.")
+             try:
+                 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+                 self.scheduler = AsyncIOScheduler(event_loop=self._loop)
+                 self.scheduler.add_job(self._run_nightly_dream, 'cron', hour=3, minute=0)
+                 self.scheduler.start()
+             except Exception as fallback_err:
+                 self.ai_logger.error(f"APScheduler fallback init failed: {fallback_err}")
 
         # Inietta lo scheduler nella sveglia se attiva
         if hasattr(self, 'scheduler') and self.scheduler:
@@ -243,8 +253,14 @@ class AIOrchestrator(Node):
             return
         twist = self.reactive_safety.get_twist()
         
-        # Publish only if not fully zero to avoid loop spam, or publish one zero
-        self.cmd_vel_pub.publish(twist)
+        # Check if twist is zero
+        is_zero = (twist.linear.x == 0.0 and twist.linear.y == 0.0 and twist.linear.z == 0.0 and
+                   twist.angular.x == 0.0 and twist.angular.y == 0.0 and twist.angular.z == 0.0)
+        
+        # Publish only if not fully zero to avoid loop spam, or publish one zero to stop
+        if not is_zero or not self._last_cmd_vel_zero:
+            self.cmd_vel_pub.publish(twist)
+            self._last_cmd_vel_zero = is_zero
 
     def _ha_update_callback(self):
         if self._shutdown_flag:
@@ -266,6 +282,15 @@ class AIOrchestrator(Node):
                 self.get_logger().info(f"🔊 Audio chunk from Gemini Live ({data_len} bytes) → TTS play_raw_pcm")
             self.tts_service.play_raw_pcm(msg.data)
 
+    def _direct_audio_chunk_callback(self, data: bytes):
+        if self._shutdown_flag:
+            return
+        if self.tts_service:
+            data_len = len(data) if data else 0
+            if data_len > 0:
+                self.get_logger().debug(f"🔊 [DIRECT] Audio chunk from Gemini Live ({data_len} bytes) → TTS play_raw_pcm")
+            self.tts_service.play_raw_pcm(data)
+
     def _camera_callback(self, msg):
         if self._shutdown_flag:
             return
@@ -273,10 +298,31 @@ class AIOrchestrator(Node):
             self._latest_frame_bytes = msg.data
             frame = CameraFrame(raw=msg.data)
             self.conversation_manager.set_latest_frame(frame)
-            # Passa a FA
-            asyncio.run_coroutine_threadsafe(self.face_recognition_service.process_image_async(msg.data), self._loop)
         except Exception:
             pass
+
+    def _face_detections_callback(self, msg):
+        self._latest_face_detections = msg
+
+    def _face_embeddings_callback(self, msg):
+        if self._shutdown_flag:
+            return
+        if msg.data:
+            self._loop.call_soon_threadsafe(
+                self._process_npu_embedding, list(msg.data)
+            )
+
+    def _process_npu_embedding(self, embedding_list):
+        try:
+            result = self.face_recognition_service.process_face_embedding(embedding_list)
+            if result.enrollment_complete:
+                self.get_logger().info(f"🎉 Dynamic enrollment complete for {result.name}!")
+                asyncio.run_coroutine_threadsafe(
+                    self.tts_service.speak(f"Ho imparato a riconoscere {result.name}!"),
+                    self._loop
+                )
+        except Exception as e:
+            self.get_logger().error(f"Errore processamento embedding NPU: {e}")
 
     def _provide_camera_frame(self) -> Optional[bytes]:
         return self._latest_frame_bytes
@@ -347,6 +393,15 @@ class AIOrchestrator(Node):
                      self.event_bus.publish(EventType.DIAGNOSTIC_UPDATE, {"battery": level})
                 except ValueError:
                      pass
+            elif status.name == "motor_stall":
+                if status.level == 2:  # DiagnosticStatus.ERROR
+                    self.get_logger().error(f"🚨 ALLARME CHASSIS: {status.message}")
+                    self.reactive_safety.emergency_stop()
+                    if self.tts_service:
+                         asyncio.run_coroutine_threadsafe(
+                              self.tts_service.speak("Attenzione. Rilevato blocco o ostacolo nei motori. Fermo il movimento per sicurezza."),
+                              self._loop
+                         )
 
     def _run_nightly_dream(self):
         if self._loop.is_running() and not self._shutdown_flag:

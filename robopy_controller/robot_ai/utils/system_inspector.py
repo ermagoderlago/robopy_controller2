@@ -14,7 +14,7 @@ import re
 import json
 import logging
 import subprocess
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 from datetime import datetime
 
 # Try loading rclpy
@@ -56,7 +56,7 @@ class SystemInspector:
             "fast_flow_vo",
             "madgwick_filter",
             "rtabmap",
-            "smart_buildhat_driver",
+            "waveshare_motor_driver",
             "foxglove_bridge",
             "audio_capture",
             "robot_ai_orchestrator",
@@ -175,7 +175,7 @@ class SystemInspector:
         try:
             if os.path.exists("/proc/meminfo"):
                 meminfo = {}
-                with open("/proc/proc/meminfo" if not os.path.exists("/proc/meminfo") else "/proc/meminfo", "r") as f:
+                with open("/proc/meminfo", "r") as f:
                     for line in f:
                         parts = line.split(":")
                         if len(parts) == 2:
@@ -303,7 +303,7 @@ class SystemInspector:
         for node in sorted(nodes["zombie"]):
             md += f"| `{node}` | Unexpected | 🟡 ZOMBIE | Running but not declared in launch |\n"
 
-        md += """
+        md += f"""
 ---
 
 ## 3. Topic & Pipeline Analysis

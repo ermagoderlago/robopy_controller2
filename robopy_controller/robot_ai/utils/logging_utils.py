@@ -95,7 +95,7 @@ class AILogger:
         cls,
         log_dir: str = str(Path.home() / ".robot_ai" / "logs"),
         level: str = "INFO",
-        max_size_mb: int = 100,
+        max_size_mb: int = 10,
         backup_count: int = 5,
         json_console: bool = False
     ):

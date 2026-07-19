@@ -19,3 +19,17 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
 * **Modifiche apportate:**
   * Aggiunto il parametro `-p output_frame:=camera_link` all'invocazione di `depthimage_to_laserscan_node` nel launch script `restart_hailo.sh` per allineare il frame_id del topic `/scan` alle static TFs caricate in memoria.
   * Spostate camera OAK-D Lite ed SSD su un hub USB alimentato esternamente (tensione stabile, `vcgencmd get_throttled` fisso a `0x0`). RTAB-Map ora si sincronizza correttamente a 1.0Hz aggiornando le mappe.
+
+---
+
+## 📈 ECO-2026-06-25-001: RTAB-Map Multi-session Configuration and Dynamic ChromaDB Waypoint Navigation
+* **Stato:** ✅ **Completato in Workspace Locale (In Attesa di Avvio Robot)**
+* **Descrizione:** Integrazione della navigazione semantica dinamica tramite database vettoriale locale (ChromaDB) e sincronizzazione multi-sessione con RTAB-Map SLAM per risolvere lo scenario del robot rapito (kidnapped robot) senza alterare/sovrascrivere le mappe passate.
+* **Modifiche apportate:**
+  * Configurato il parametro `Mem/IncrementalMemory` a `"true"` in `rtabmap.yaml` e `rtabmap_params.yaml` per consentire il salvataggio incrementale di più sessioni di mappatura.
+  * Modificato `orchestrator.py` per iniettare `ChromaNativeStore` in `NavigationSkill`.
+  * Aggiornata la skill di navigazione `navigation_skill.py` per tracciare dinamicamente l'active session ID tramite sottoscrizione a `/rtabmap/info`.
+  * Implementato in `_handle_goto` un doppio livello di ricerca in ChromaDB (`MemoryType.LOCATION` e `MemoryType.VISUAL_OBSERVATION`) con ordinamento temporale e filtraggio per session ID per consentire il raggiungimento di oggetti rilevati visivamente e stanze apprese dinamicamente.
+  * Aggiornato `add_waypoint` per persistere i nuovi landmark su ChromaDB.
+  * Sincronizzata la sessione anche su `visual_memory_service.py` per associare le osservazioni all'active session ID.
+  * Risolto un bug nel fallback locale Qwen2-VL che sovrascriveva la risposta VQA corretta con un NameError su `response.text`.

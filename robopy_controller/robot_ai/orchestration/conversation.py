@@ -41,6 +41,16 @@ class ConversationManager:
             embedding_service=self.memory_manager.embedding_service
         )
         self.agent_state = MarcusAgentState()
+        self._current_source = ""
+
+        # Dynamically wrap speak to respect chat silencing
+        original_speak = self.tts.speak
+        async def wrapped_speak(text, *args, **kwargs):
+            if getattr(self, '_current_source', '') == "text":
+                self._logger.info(f"[MUTE] Chat silenziata: non riproduco '{text}' vocalmente")
+                return
+            return await original_speak(text, *args, **kwargs)
+        self.tts.speak = wrapped_speak
 
     def set_latest_frame(self, frame):
         try:
@@ -66,6 +76,7 @@ class ConversationManager:
         await self.tts.speak("Fermo tutto!")
 
     async def process_input(self, text: str, source: str):
+        self._current_source = source
         self.metrics.inc_requests_total()
 
         if self._is_emergency(text):
@@ -77,6 +88,21 @@ class ConversationManager:
             self._logger.debug("Mic muted, ignoring audio input.")
             return
 
+        # [v15.2] Ignora input di testo duplicati o generati da ASR client-side se già gestiti o concomitanti con la Live API
+        last_mic_time = 0.0
+        if hasattr(self.llm, 'get_last_mic_audio_time'):
+            last_mic_time = self.llm.get_last_mic_audio_time()
+        
+        time_since_mic = time.time() - last_mic_time
+        is_duplicate = False
+        if hasattr(self.llm, 'is_duplicate_text'):
+            is_duplicate = self.llm.is_duplicate_text(text)
+
+        if source == "text" and (time_since_mic < 3.5 or is_duplicate):
+            self._logger.info(f"Ignorato input testuale duplicato/ASR: '{text}' (attività mic rilevata {time_since_mic:.2f}s fa, duplicato={is_duplicate})")
+            self.metrics.inc_requests_success()
+            return
+
         async with self._processing_lock:
             success = await self._process_locked(text, source)
             if success:
@@ -86,6 +112,7 @@ class ConversationManager:
 
     async def process_document(self, text: str, document_data: str, mime_type: str, filename: str):
         """Process an incoming document (PDF, TIFF, etc.)"""
+        self._current_source = "document"
         self.metrics.inc_requests_total()
         
         doc_info = {
@@ -102,8 +129,43 @@ class ConversationManager:
                 self.metrics.inc_requests_failed()
 
     async def _process_locked(self, text: str, source: str, documents: list = None) -> bool:
+        self._current_source = source
         clean_text = self._sanitizer.sanitize(text)
         self.world_model.recent_interactions.append(f"User: {clean_text}")
+
+        # --- Voice-triggered Face Enrollment ---
+        enroll_match = re.search(r'\b(?:quest[ao]\s+è|ti\s+presento|lui\s+è|lei\s+è)\s+([a-zA-Z]+)', clean_text, re.IGNORECASE)
+        if enroll_match:
+            name_candidate = enroll_match.group(1).strip().lower()
+            stop_words = {
+                "un", "una", "il", "la", "lo", "le", "i", "gli", "mio", "mia", "miei", "mie", 
+                "amico", "amica", "questo", "questa", "quello", "quella", "cane", "gatto", "sedia", "tavolo"
+            }
+            if name_candidate not in stop_words and len(name_candidate) > 2:
+                if self.node and hasattr(self.node, 'face_recognition_service'):
+                    face_svc = self.node.face_recognition_service
+                    success = face_svc.start_enrollment(name_candidate, num_samples=10)
+                    if success:
+                        self._logger.info(f"Enrollment session started via VUI for: {name_candidate}")
+                        await self.tts.speak(f"Va bene, inizio a imparare il volto di {name_candidate.capitalize()}. Guarda la telecamera per favore.")
+                        return True
+
+        # --- Voice-triggered Speaker Enrollment ---
+        speaker_match = re.search(r'\b(?:registra\s+la\s+mia\s+voce\s+come|impara\s+la\s+mia\s+voce\s+(?:come|sono)?|ti\s+presento\s+la\s+mia\s+voce\s+sono)\s+([a-zA-Z]+)', clean_text, re.IGNORECASE)
+        if speaker_match:
+            name_candidate = speaker_match.group(1).strip().lower()
+            stop_words = {
+                "un", "una", "il", "la", "lo", "le", "i", "gli", "mio", "mia", "miei", "mie", 
+                "amico", "amica", "questo", "questa", "quello", "quella", "cane", "gatto", "sedia", "tavolo"
+            }
+            if name_candidate not in stop_words and len(name_candidate) > 2:
+                if self.node and hasattr(self.node, 'speaker_trigger_pub'):
+                    msg = String()
+                    msg.data = name_candidate
+                    self.node.speaker_trigger_pub.publish(msg)
+                    self._logger.info(f"Speaker enrollment session started via VUI for: {name_candidate}")
+                    await self.tts.speak(f"Va bene, inizio a registrare le impronte della tua voce come {name_candidate.capitalize()}. Continua a parlarmi per favore.")
+                    return True
 
         # --- Dopamine Biometric Alignment (Input Flow) ---
         self.agent_state.current_task = clean_text
@@ -178,7 +240,7 @@ class ConversationManager:
         # Merge incoming documents if any
         llm_docs = documents or []
 
-        functions = [s.to_function_declaration() for s in self.skill_executor.get_all()]
+        functions = self.skill_executor.registry.get_function_declarations()
         
         # Inject implicit tools
         functions.append({
@@ -225,6 +287,7 @@ class ConversationManager:
 
         try:
             start = time.perf_counter()
+            is_live = False
             if source == "audio":
                 try:
                     # 1. Prova Live API (esclusiva per input Audio)
@@ -238,6 +301,7 @@ class ConversationManager:
                         ),
                         timeout=llm_timeout
                     )
+                    is_live = True
                 except (asyncio.TimeoutError, Exception) as e:
                     self._logger.warning(f"Live API failed or timeout ({e}), falling back to standard...")
                     # 2. Fallback su API Standard (GenerateContent)
@@ -318,9 +382,10 @@ class ConversationManager:
 
             try:
                 async for t in self.skill_executor.execute_actions_stream(explicit_actions):
-                     await self.tts.speak(t)
-                     if self.response_callback:
-                          self.response_callback(t)
+                      if not is_live:
+                           await self.tts.speak(t)
+                      if self.response_callback:
+                           self.response_callback(t)
                 
                 # Critic evaluation on successful skill executions
                 for act in explicit_actions:
@@ -333,9 +398,11 @@ class ConversationManager:
             except Exception as e:
                 self._logger.error(f"Errore durante l'esecuzione delle skill: {e}", exc_info=True)
                 self.llm.flag_tool_failure()
-                err_msg = "Uhm... Dunque, scusami, ho avuto un piccolo intoppo nell'eseguire questa azione."
-                await self.tts.speak(err_msg)
+                if not is_live:
+                    err_msg = "Uhm... Dunque, scusami, ho avuto un piccolo intoppo nell'eseguire questa azione."
+                    await self.tts.speak(err_msg)
                 if self.response_callback:
+                     err_msg = "Uhm... Dunque, scusami, ho avuto un piccolo intoppo nell'eseguire questa azione."
                      self.response_callback(err_msg)
                      
                 # Critic evaluation on failed skill executions
@@ -352,7 +419,8 @@ class ConversationManager:
             response_text = "Ho analizzato l'hardware visivamente e prodotto un report a schermo."
 
         if response_text:
-            await self.tts.speak(response_text)
+            if not is_live:
+                await self.tts.speak(response_text)
             self.world_model.recent_interactions.append(f"Robot: {response_text[:50]}...")
             if self.response_callback:
                  self.response_callback(response_text)

@@ -127,7 +127,7 @@ def generate_launch_description():
             'base_frame': 'base_link',
             
             # Odom TF is explicitly broadcasted internally by FastFlowVO
-            'publish_tf': True,
+            'publish_tf': False,
             
             # Camera settings
             'camera_fps': 15.0, # Alzato a 15Hz (fondamentale per inseguire i punti in ottico KLT senza perderli nei movimenti)
@@ -254,6 +254,8 @@ def generate_launch_description():
                 'wheel_radius': 0.0325,
                 'wheel_separation': 0.16,
                 'ticks_per_rev': 1440,
+                'invert_right_encoder': True,
+                'publish_tf': True,  # waveshare_motor_driver owns odom->base_link TF
             }]
         )]
     )

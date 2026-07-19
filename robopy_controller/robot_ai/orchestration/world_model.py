@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Dict, Any, Optional, Tuple
 from collections import deque
-from robot_ai.core import EventBus, EventType
+from robot_ai.core import EventBus, EventType, Event
 from robot_ai.utils import get_logger
 
 @dataclass
@@ -16,6 +16,8 @@ class WorldModel:
 
     def to_prompt_section(self) -> str:
         parts = ["[WORLD MODEL]"]
+        if self.current_user:
+            parts.append(f"- Utente Rilevato: {self.current_user.get('name', 'Sconosciuto')}")
         if self.battery_level is not None:
             parts.append(f"- Batteria: {self.battery_level}%")
         if self.position is not None:
@@ -44,11 +46,13 @@ class WorldModelUpdater:
         self.event_bus.subscribe(EventType.DIAGNOSTIC_UPDATE, self._on_diagnostic)
         self.event_bus.subscribe(EventType.FACE_RECOGNIZED, self._on_face_recognized)
 
-    async def _on_diagnostic(self, event_data: dict):
+    async def _on_diagnostic(self, event: Event):
+        event_data = event.data
         if "battery" in event_data:
             self.world_model.battery_level = event_data["battery"]
 
-    async def _on_face_recognized(self, event_data: dict):
+    async def _on_face_recognized(self, event: Event):
+        event_data = event.data
         name = event_data.get("name", "Unknown")
         self.world_model.current_user = {"name": name}
         self.world_model.recent_events.append(f"Riconosciuto utente: {name}")

@@ -33,6 +33,8 @@ export PYTHONUNBUFFERED=1
 
 # --- Kill nodi precedenti (AI, Hailo NPU, Camera e Navigazione) ---
 echo "🔴 Stopping all previous nodes..."
+pkill -9 -f custom_nav2_launch.py || true
+pkill -9 -f ros2\ launch || true
 pkill -9 -f robot_ai_node || true
 pkill -9 -f respeaker_vui_node || true
 pkill -9 -f respeaker_interface_node || true
@@ -48,7 +50,6 @@ pkill -9 -f foxglove_nav2_bridge || true
 # Kill camera & navigation nodes
 pkill -9 -f oak_superpoint_odometry_cpp || true
 pkill -9 -f waveshare_motor_driver || true
-pkill -9 -f smart_buildhat_driver || true
 pkill -9 -f depthimage_to_laserscan_node || true
 pkill -9 -f rtabmap || true
 pkill -9 -f static_transform_publisher || true
@@ -57,6 +58,8 @@ pkill -9 -f planner_server || true
 pkill -9 -f behavior_server || true
 pkill -9 -f bt_navigator || true
 pkill -9 -f lifecycle_manager || true
+pkill -9 -f ultrasonic_sensor || true
+pkill -9 -f bluedot_node || true
 
 # Reset ROS 2 Daemon
 ros2 daemon stop || true
@@ -72,9 +75,14 @@ echo "⚙️ Starting waveshare_motor_driver..."
 nohup ros2 run robopy_controller waveshare_motor_driver --ros-args \
     -p serial_port:=/dev/ttyUSB0 \
     -p baud_rate:=115200 \
-    -p wheel_radius:=0.0325 \
-    -p wheel_separation:=0.16 \
-    -p ticks_per_rev:=1440 \
+    -p wheel_radius:=0.0361 \
+    -p wheel_separation:=0.091 \
+    -p ticks_per_rev:=594 \
+    -p invert_left_motor:=False \
+    -p invert_right_motor:=False \
+    -p invert_left_encoder:=True \
+    -p invert_right_encoder:=False \
+    -p publish_tf:=True \
     > /home/robopy/robopy/logs/waveshare_motor_driver.log 2>&1 &
 
 echo "📐 Starting static TF publishers..."
@@ -90,7 +98,7 @@ nohup ros2 run robopy_controller oak_superpoint_odometry_cpp --ros-args \
     -p superpoint_blob_path:=/mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_controller/models/superpoint.blob \
     -p yolo_blob_path:=/mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_controller/models/yolov6nr1_coco_640x352.blob \
     -p enable_yolo:=False \
-    -p publish_tf:=True \
+    -p publish_tf:=False \
     -p depth_fps:=12.0 \
     -p depth_resolution:=400p \
     -p depth_pub_width:=320 \
@@ -106,6 +114,11 @@ nohup ros2 run depthimage_to_laserscan depthimage_to_laserscan_node --ros-args \
     -p output_frame:=camera_link \
     > /home/robopy/robopy/logs/depthimage_to_laserscan.log 2>&1 &
 
+echo "📡 Starting ultrasonic_sensor..."
+> /home/robopy/robopy/logs/ultrasonic_sensor.log
+nohup ros2 run robopy_controller ultrasonic_sensor \
+    > /home/robopy/robopy/logs/ultrasonic_sensor.log 2>&1 &
+
 # Diamo tempo alla camera di inizializzare l'NPU/SuperPoint e iniziare lo streaming dei frame
 echo "⏳ Attesa inizializzazione hardware camera (15 secondi)..."
 sleep 15
@@ -115,13 +128,13 @@ sleep 15
 # =============================================================================
 echo "🗺️ Starting RTAB-Map SLAM..."
 > /home/robopy/robopy/logs/rtabmap.log
-nohup ros2 run rtabmap_slam rtabmap --ros-args \
+nohup ros2 run rtabmap_slam rtabmap --delete_db_on_start --ros-args \
     --params-file /mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_controller/config/rtabmap.yaml \
     -r rgb/image:=/rgb/image \
     -r rgb/camera_info:=/camera/camera_info \
     -r depth/image:=/camera/depth/image_raw \
     -r scan:=/scan \
-    -r odom:=/vo/odom \
+    -r odom:=/odom \
     > /home/robopy/robopy/logs/rtabmap.log 2>&1 &
 
 echo "🔌 Starting respeaker_interface_node..."
@@ -205,6 +218,11 @@ echo "🌉 Starting foxglove_nav2_bridge..."
 nohup ros2 run robopy_controller foxglove_nav2_bridge \
     > /home/robopy/robopy/logs/foxglove_nav2_bridge.log 2>&1 &
 
+echo "🔵 Starting bluedot_node..."
+> /home/robopy/robopy/logs/bluedot_node.log
+nohup ros2 run robopy_controller bluedot_node \
+    > /home/robopy/robopy/logs/bluedot_node.log 2>&1 &
+
 # Attendiamo che RTAB-Map crei il frame map->odom e lo stack AI si stabilizzi
 echo "⏳ Attesa stabilità SLAM e AI (15 secondi)..."
 sleep 15
@@ -221,28 +239,9 @@ nohup ros2 launch robopy_controller custom_nav2_launch.py \
     use_respawn:=true \
     > /home/robopy/robopy/logs/nav2.log 2>&1 &
 
-# Attesa di inizializzazione per attivare i nodi lifecycle di Nav2
-(
-    echo "⏳ [NAV2-ENSURE] Avvio monitoraggio nodi lifecycle in background..."
-    sleep 20
-    for node in controller_server planner_server behavior_server bt_navigator global_costmap/global_costmap local_costmap/local_costmap; do
-        state=$(ros2 lifecycle get /$node 2>/dev/null | grep -oP '^\w+')
-        if [ "$state" = "unconfigured" ]; then
-            echo "[NAV2-ENSURE] Configuring /$node..."
-            ros2 lifecycle set /$node configure 2>/dev/null
-            sleep 3
-            state="inactive"
-        fi
-        if [ "$state" = "inactive" ]; then
-            echo "[NAV2-ENSURE] Activating /$node..."
-            ros2 lifecycle set /$node activate 2>/dev/null
-            sleep 2
-        fi
-        final=$(ros2 lifecycle get /$node 2>/dev/null | grep -oP '^\w+')
-        echo "[NAV2-ENSURE] /$node → $final"
-    done
-    echo "[NAV2-ENSURE] Monitoraggio completato."
-) &
+# Attesa di inizializzazione per i nodi lifecycle gestiti nativamente da Nav2
+echo "⏳ [NAV2-MONITOR] Nav2 lifecycle manager gestisce la transizione automatica dei nodi..."
+sleep 15
 
 echo "✅ Stack completo (AI, Percezione, SLAM e Nav2) avviato con successo!"
 echo "   Camera log:    tail -f /home/robopy/robopy/logs/oak_camera.log"

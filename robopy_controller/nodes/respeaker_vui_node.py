@@ -248,6 +248,9 @@ class ReSpeakerVUINode(Node):
         # Contatori diagnostica (inizializzati qui, non con hasattr nel hot-path)
         self._rms_chunk_count = 0
         self._stt_chunk_count = 0
+        self._audio_chunk_count = 0
+        self._out_hw_rate = self.sample_rate
+        self._last_ai_speaking_time = 0.0
 
         # [v3.0] Stato TTS — scritto e letto SOLO nel callback audio (no race condition)
         self._tts_active          = False
@@ -499,7 +502,7 @@ class ReSpeakerVUINode(Node):
 
     def _generate_beep(self, freq: float = 1000.0, duration: float = 0.3) -> bytes:
         """Genera un beep sinusoidale stereo con fade-out al rate hardware."""
-        rate = self._out_hw_rate if hasattr(self, '_out_hw_rate') else SAMPLE_RATE
+        rate = self._out_hw_rate if self._out_hw_rate is not None else SAMPLE_RATE
         t    = np.linspace(0, duration, int(rate * duration), False)
         fade = np.linspace(1.0, 0.0, len(t))
         # Volume udibile ma non distorto (~20% picco)
@@ -591,7 +594,6 @@ class ReSpeakerVUINode(Node):
             raw_bytes = bytes(msg.data)
 
             # [DEBUG] Log primo chunk e ogni 20 successivi
-            if not hasattr(self, '_audio_chunk_count'): self._audio_chunk_count = 0
             self._audio_chunk_count += 1
             is_first = (self._audio_chunk_count == 1)
 
@@ -849,8 +851,6 @@ class ReSpeakerVUINode(Node):
                 
                 # [v11.0] Calcolo continuo RMS per Auto-Volume Ambientale
                 rms_current = np.sqrt(np.mean(l_ch[:n].astype(np.float32)**2))
-                if not hasattr(self, '_is_speech_active'):
-                    self._is_speech_active = False
                 
                 # Calcolo continuo EMA rumore ambientale (aggiornato anche durante ascolto)
                 if not self._is_tts_speaking and not self._is_music_playing and not getattr(self, '_is_playing_out', False):
@@ -921,7 +921,7 @@ class ReSpeakerVUINode(Node):
 
                 # Calcola il periodo di cooldown (600 ms) per dissipare l'eco residua hardware del microfono
                 ai_cooldown_active = False
-                if hasattr(self, '_last_ai_speaking_time'):
+                if self._last_ai_speaking_time > 0.0:
                     if time.monotonic() - self._last_ai_speaking_time < 0.6:
                         ai_cooldown_active = True
 

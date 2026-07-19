@@ -101,6 +101,12 @@ class NavigationClient:
         self._node = node
         self._action_client = None
         self._cmd_vel_pub = cmd_vel_pub
+        if HAS_ROS and self._node and not self._cmd_vel_pub:
+            try:
+                self._cmd_vel_pub = self._node.create_publisher(Twist, '/cmd_vel', 10)
+                self.logger.info("Automatically created /cmd_vel publisher fallback in NavigationClient")
+            except Exception as e:
+                self.logger.error(f"Failed to create /cmd_vel publisher fallback: {e}")
         self._latest_scan: Optional[LaserScan] = None
         self._scan_sub = None
         

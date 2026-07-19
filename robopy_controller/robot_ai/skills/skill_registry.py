@@ -59,6 +59,7 @@ class SkillRegistry:
         self._skills: Dict[str, BaseSkill] = {}
         self._skill_paths: Dict[str, Path] = {}  # skill_name -> file path
         self._skill_mtimes: Dict[str, float] = {}  # path -> mtime
+        self._cached_declarations: Optional[List[Dict[str, Any]]] = None
         
         self._watch_thread: Optional[threading.Thread] = None
         self._watching = False
@@ -83,6 +84,7 @@ class SkillRegistry:
                 self.logger.warning(f"Skill '{name}' already registered, replacing")
             
             self._skills[name] = skill
+            self._cached_declarations = None
             
             self.event_bus.publish(EventType.SKILL_REGISTERED, {
                 "name": name,
@@ -108,6 +110,7 @@ class SkillRegistry:
             
             del self._skills[name]
             self._skill_paths.pop(name, None)
+            self._cached_declarations = None
             
             self.event_bus.publish(EventType.SKILL_UNREGISTERED, {"name": name})
             self.logger.info(f"Unregistered skill: {name}")
@@ -405,7 +408,10 @@ class SkillRegistry:
     
     def get_function_declarations(self) -> List[Dict[str, Any]]:
         """Get all skills as LLM function declarations."""
-        return [skill.to_function_declaration() for skill in self.get_all()]
+        with self._lock:
+            if self._cached_declarations is None:
+                self._cached_declarations = [skill.to_function_declaration() for skill in self.get_all()]
+            return list(self._cached_declarations)
 
     def get_summary(self) -> str:
         """Get a text summary of all registered skills for LLM context."""

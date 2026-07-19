@@ -27,3 +27,28 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
   * Implementato `PredictiveRouterNode` con inibizione sinaptica preventiva tramite query vettoriale.
   * Integrato il ciclo di input in `conversation.py` tramite `MarcusStateGraph` ed inserita l'intercettazione delle eccezioni sulle skill per settare `flag_tool_failure()`.
   * Creato lo script di test isolato `test_dopamine_alignment.py`.
+
+---
+
+## 📈 ECO-2026-06-24-001: Sprint 2 Optimization Pack
+* **Stato:** ✅ **Completato e Sincronizzato Localmente**
+* **Descrizione:** Ottimizzazione globale delle performance, riduzione dei consumi di RAM e throttling dei messaggi ROS 2 per stabilizzare il Raspberry Pi 5.
+* **Modifiche apportate:**
+  * Ridotta la cache degli embedding da 256 a 64 in `config_manager.py` e `embedding_service.py` (risparmio RAM).
+  * Throttlato `engagement_monitor.py` a 2Hz con pubblicazione selettiva su variazione di stato/zona/distanza (riduzione traffico bus ROS 2).
+  * Convertito `cloud_watchdog_node.py` a singolo thread worker persistente invece di thread-per-ping.
+  * Caching delle function declarations in `skill_registry.py` e `conversation.py` per evitare list comprehension ad ogni query.
+  * Limitata l'esposizione del contesto di Home Assistant a un massimo di 30 entità prioritarie in `ha_context.py`.
+
+---
+
+## 📈 ECO-2026-07-03-001: Amigdala Digitale e Potatura Sinaptica (Sprint 5)
+* **Stato:** ✅ **Completato, Sincronizzato e Collaudato**
+* **Descrizione:** Introduzione del pacchetto cognitivo composto da 4 nodi Python (`chroma_synaptic_manager`, `cognitive_amygdala`, `cognitive_core_node`, `neuro_vegetative_bridge`) e dal servizio `MemoryRecall.srv`. Implementata la curva di decadimento per i metadati di ChromaDB ed il pruning notturno in modalità sogno, con attivazione del DMN riflessivo e del riflesso di startle.
+* **Modifiche apportate:**
+  * Creato `MemoryRecall.srv` ed integrato in `CMakeLists.txt` per la compilazione dei messaggi.
+  * Registrate le dipendenze per le action Nav2 (`nav2_msgs`, `action_msgs`, `rcl_interfaces`) in `package.xml`.
+  * Creato il sotto-modulo `robopy_controller.robot_ai.cognitive` contenente i 4 file sorgente dei nodi cognitivi.
+  * Modificato `servo_coda_node.py` per accogliere le variazioni di scodinzolio in base a `/ai/conversation/mood`.
+  * Registrati gli entry points in `setup.py` per consentire il lancio dei nodi via ROS 2.
+

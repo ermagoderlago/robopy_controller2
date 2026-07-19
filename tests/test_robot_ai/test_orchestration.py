@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, AsyncMock
 
 from robot_ai.orchestration.reactive_safety import ReactiveSafety
 from robot_ai.orchestration.memory_manager import MemoryManager
+from robot_ai.rag.memory_store import MemoryType
 from geometry_msgs.msg import Twist
 
 @pytest.fixture
@@ -22,6 +23,7 @@ async def test_reactive_safety_emergency_stop(mock_publisher):
 
     # Trigger emergency stop
     safety.emergency_stop()
+    await asyncio.sleep(0.01)
     
     # Movement should be cancelled, twist reset, and publisher called
     assert safety.get_twist().linear.x == 0.0
@@ -37,9 +39,9 @@ async def test_memory_manager_queue_saturation():
     manager.start()
     
     # Fill queue
-    await manager.store_background("1", "1", "chat")
-    await manager.store_background("2", "2", "chat")
-    await manager.store_background("3", "3", "chat") # Should be dropped or logged as full
+    await manager.store_background("1", "1", MemoryType.CONVERSATION)
+    await manager.store_background("2", "2", MemoryType.CONVERSATION)
+    await manager.store_background("3", "3", MemoryType.CONVERSATION) # Should be dropped or logged as full
     
     # Wait for processing
     await asyncio.sleep(0.1)

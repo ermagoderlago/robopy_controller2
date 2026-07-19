@@ -63,17 +63,23 @@ class CloudWatchdogNode(Node):
         self.last_successful_ping = time.time()
         self.is_offline = False
 
-        # Start monitoring timer
-        self.create_timer(self.interval, self.check_connection)
+        # Start persistent thread for monitoring pings
+        self._stop_event = threading.Event()
+        self._ping_thread = threading.Thread(target=self._ping_loop, daemon=True)
+        self._ping_thread.start()
 
-        self.get_logger().info("cloud_watchdog_node avviato.")
+        self.get_logger().info("cloud_watchdog_node avviato con thread persistente.")
 
-    def check_connection(self):
-        """Effettua il ping socket HTTPS verso l'host Gemini per valutare la latenza"""
-        # Creiamo un thread per evitare di bloccare l'executor ROS con la socket bloccante
-        threading.Thread(target=self._ping_worker).start()
+    def destroy_node(self):
+        self._stop_event.set()
+        super().destroy_node()
 
-    def _ping_worker(self):
+    def _ping_loop(self):
+        while not self._stop_event.is_set():
+            self._execute_ping()
+            self._stop_event.wait(self.interval)
+
+    def _execute_ping(self):
         start_time = time.time()
         success = False
         latency = 0.0

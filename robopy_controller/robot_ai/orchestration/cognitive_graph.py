@@ -114,7 +114,7 @@ class CriticEvaluatorNode:
         rpe = feedback_val - expected_reward
         
         # Apply biometric learning update
-        new_reward_score = state.reward_score + self.learning_rate * rpe
+        new_reward_score = max(-1.0, min(1.0, state.reward_score + self.learning_rate * rpe))
         
         logger.info(
             f"[Critic Node] Evaluated '{feedback_source}'. "

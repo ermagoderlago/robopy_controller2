@@ -32,7 +32,6 @@ export PYTHONUNBUFFERED=1
 
 # --- Kill nodi precedenti ---
 pkill -9 -f waveshare_motor_driver || true
-pkill -9 -f smart_buildhat_driver || true
 
 echo "🔴 Stopping robot_ai_node..."
 pkill -f robot_ai_node || true
@@ -70,6 +69,11 @@ nohup ros2 run robopy_controller waveshare_motor_driver --ros-args \
     -p wheel_radius:=0.0325 \
     -p wheel_separation:=0.16 \
     -p ticks_per_rev:=1440 \
+    -p invert_left_motor:=True \
+    -p invert_right_motor:=False \
+    -p invert_left_encoder:=False \
+    -p invert_right_encoder:=False \
+    -p publish_tf:=True \
     > /home/robopy/robopy/logs/waveshare_motor_driver.log 2>&1 &
 
 # --- Riavvio ReSpeaker Interface Node (Hardware Serial Bridge) ---

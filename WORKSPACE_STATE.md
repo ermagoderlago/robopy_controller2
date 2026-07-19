@@ -91,7 +91,6 @@
 - robopy_controller\midas_lite_ONNX_node.py
 - robopy_controller\models\import_torch.py
 - robopy_controller\motion_detector_node.py
-- robopy_controller\motor_control_node.py
 - robopy_controller\msg\DetectedObjects.msg
 - robopy_controller\msg\__init__.py
 - robopy_controller\networks\__init__.py
@@ -136,7 +135,6 @@
 - robopy_controller\nodes\servo_coda_node.py
 - robopy_controller\nodes\servo_node.py
 - robopy_controller\nodes\simple_matcher_node.py
-- robopy_controller\nodes\smart_buildhat_driver.py
 - robopy_controller\nodes\stereo_camera_info_converter.py
 - robopy_controller\nodes\superpoint_node copy.py
 - robopy_controller\nodes\superpoint_node.py
@@ -148,6 +146,7 @@
 - robopy_controller\nodes\v4l2_camera_node.py
 - robopy_controller\nodes\vision_safety_node.py
 - robopy_controller\nodes\wake_word_node.py
+- robopy_controller\nodes\waveshare_motor_driver.py
 - robopy_controller\nodes\web_video_stream_node.py
 - robopy_controller\oak_logic\__init__.py
 - robopy_controller\oak_logic\adaptive_roi.py

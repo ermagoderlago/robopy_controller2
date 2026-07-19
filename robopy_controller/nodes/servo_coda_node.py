@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, String
 from vision_msgs.msg import Detection2DArray
 import time
+import json
 import threading
 
 class ServoCodaNode(Node):
@@ -37,14 +39,20 @@ class ServoCodaNode(Node):
         self.busy = False
         self.is_tracking = False
         self.calibration_active = self.calibration_wag
+        self.current_mood = "calm"
+        self._lock = threading.Lock()
         
         # Subscriptions
         self.create_subscription(Detection2DArray, '/oakdetections', self.detection_cb, 10)
         self.create_subscription(Bool, '/movement_detected', self.movement_cb, 10)
         self.create_subscription(Bool, '/vo/tracking_status', self.tracking_cb, 10)
+        self.create_subscription(String, '/ai/conversation/mood', self.mood_cb, 10)
         
         # Start startup wag
         threading.Thread(target=self.startup_wag, daemon=True).start()
+        
+        # Start emotional background wagging loop
+        threading.Thread(target=self.emotional_wag_loop, daemon=True).start()
 
     def move_and_relax(self, angle, duration=0.4):
         """
@@ -55,13 +63,14 @@ class ServoCodaNode(Node):
         """
         if self.servo is None:
             return
-        try:
-            target_value = (angle / 90.0) - 1.0
-            self.servo.value = target_value
-            time.sleep(duration)
-            self.servo.detach()
-        except Exception as e:
-            self.get_logger().error(f"Errore servo: {e}")
+        with self._lock:
+            try:
+                target_value = (angle / 90.0) - 1.0
+                self.servo.value = target_value
+                time.sleep(duration)
+                self.servo.detach()
+            except Exception as e:
+                self.get_logger().error(f"Errore servo: {e}")
 
     def startup_wag(self):
         """Scodinzolio iniziale di 5 secondi"""
@@ -78,7 +87,7 @@ class ServoCodaNode(Node):
         self.get_logger().info('✅ Scodinzolio iniziale terminato. In attesa di eventi.')
 
     def scodinzola(self):
-        """Scodinzolio normale (reazione a eventi)"""
+        """Scodinzolio normale (reazione a eventi di rilevamento)"""
         if self.busy:
             return
         def anima():
@@ -104,6 +113,58 @@ class ServoCodaNode(Node):
     def movement_cb(self, msg):
         if msg.data:
             self.scodinzola()
+
+    def mood_cb(self, msg):
+        """Sottoscrizione del mood dall'amigdala o bridge"""
+        try:
+            data = json.loads(msg.data)
+            mood = data.get("mood", "calm").lower()
+            if self.current_mood != mood:
+                self.current_mood = mood
+                self.get_logger().info(f"Coda allineata a mood emotivo: {mood}")
+        except Exception as e:
+            self.get_logger().error(f"Errore parsing JSON mood in servo_coda: {e}")
+
+    def emotional_wag_loop(self):
+        """
+        Loop periodico in background per oscillazioni mimetiche a seconda dello stato emotivo
+        """
+        # Attendiamo la conclusione dello startup scodinzolio
+        time.sleep(6.0)
+        
+        while rclpy.ok():
+            if self.busy:
+                time.sleep(1.0)
+                continue
+                
+            mood = self.current_mood
+            
+            if mood == "calm":
+                # Oscillazione lenta, armonica e sporadica
+                self.move_and_relax(75, 0.5)
+                self.move_and_relax(105, 0.5)
+                self.move_and_relax(90, 0.5)
+                time.sleep(4.0)  # Pausa lunga prima del prossimo ciclo calmo
+                
+            elif mood == "anxious":
+                # Micro-tremori veloci e ravvicinati
+                for _ in range(5):
+                    self.move_and_relax(83, 0.12)
+                    self.move_and_relax(97, 0.12)
+                self.move_and_relax(90, 0.2)
+                time.sleep(1.5)
+                
+            else:
+                # Per alert, emergency, dreaming: coda ferma al centro e rilassata
+                if self.servo is not None:
+                    try:
+                        with self._lock:
+                            self.servo.value = 0.0
+                            time.sleep(0.1)
+                            self.servo.detach()
+                    except Exception:
+                        pass
+                time.sleep(2.0)
 
 def main(args=None):
     rclpy.init(args=args)

@@ -14,6 +14,7 @@ Quando viene richiesto di analizzare, correggere o implementare un modulo o un n
 2) Consultare la Mappa dei Domini (Mappa Spoke in marcus_core_rules.md) per identificare il file specifico (es. /docs/lessons/audio_vui_pipeline.md) associato al task. Se il task è cross-dominio, è consentito caricare al massimo due file di lezioni.
 3) Utilizzare il tool di lettura per estrarre ESCLUSIVAMENTE il codice sorgente del nodo interessato e il file delle lezioni/ECO identificato. È SEVERAMENTE VIETATO caricare documentazione non pertinente al dominio corrente.
 4) Prima di emettere il codice modificato, produrre un blocco di testo prefissato con [COGNITIVE_CHECK] che attesti esplicitamente il rispetto dei vincoli di marcus_core_rules.md applicati al codice che si sta per scrivere.
+5) Se le modifiche alterano le funzionalità generali, i flussi utente o lo stato di avanzamento del robot, aggiornare la guida globale 'marcus_robot_guide.md'.
 
 ───────────────────────────────────────────────────────────────────
 
@@ -34,6 +35,10 @@ Quando viene richiesto di analizzare, correggere o implementare un modulo o un n
 
 4️⃣  INDEX.md & README_FRAMES.md (Media importanza)
     └─ Indice e guida specifici per la gerarchia dei frame TF
+
+5️⃣  marcus_robot_guide.md (Media importanza)
+    └─ Guida alle funzionalità, obiettivi, stato attuale e sviluppi futuri del robot.
+       DA AGGIORNARE ogni volta che si introducono modifiche funzionali macroscopiche.
 
 ───────────────────────────────────────────────────────────────────
 

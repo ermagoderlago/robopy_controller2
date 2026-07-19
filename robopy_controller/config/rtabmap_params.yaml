@@ -69,6 +69,7 @@ rtabmap:
     # ============ MEMORY ============
     Mem/STMSize: "20"                # Aumentato da 15
     Mem/RehearsalSimilarity: "0.85"  # Ridotto da 0.90 (tiene più mappe)
+    Mem/IncrementalMemory: "true"
     
     # ============ VISUALIZATION ============
     Rtabmap/DetectionRate: "1"       # Ridotto da 2 Hz (più tempo per processare)

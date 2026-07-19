@@ -52,3 +52,32 @@ Questo documento documenta la gestione del bidi-streaming vocale, la latenza dei
 
 * **Problema:** Errore `Extra inputs are not permitted` per `tools.0.Tool.name` o `tools.0.callable` dovuto alla validazione Pydantic rigida nell'SDK `google.genai` (v1.x).
 * **Risoluzione:** Implementare una funzione helper `_format_tools_for_google` per ripulire i dizionari dei tool custom del sistema Marcus, rimuovendo campi extra (come `callable`) e incapsulandoli in oggetti `types.FunctionDeclaration` dentro `types.Tool(function_declarations=[...])`.
+
+---
+
+## 🎙️ Prevenzione della Sovrapposizione Audio (Double Voice / Double LLM Calls)
+* **Problema:** Quando si avviava una sessione vocale, si udivano due voci sovrapposte che rispondevano contemporaneamente (la voce fluida nativa di Gemini Live e la voce robotica standard di gTTS).
+* **Causa:** La Live API genera e riproduce autonomamente l'audio tramite il bidi WebSocket. Tuttavia, `conversation.py` riceve anche la trascrizione testuale finale e la passava a `self.tts.speak(...)` generando una seconda istanza di riproduzione vocale locale.
+* **Soluzione:** Introdurre un flag `is_live` per tracciare se il turno è stato risposto con successo dalla Live API. Inibire qualsiasi chiamata locale a `self.tts.speak(...)` in `conversation.py` se `is_live` è `True`. Se la Live API fallisce o scatta il fallback standard su REST, `is_live` rimane `False` e la sintesi vocale locale gTTS viene regolarmente utilizzata.
+* **Integrazione Client-Side ASR (Doppia Chiamata / Doppia Voce):**
+  * **Problema:** Se l'utente usa un client con ASR integrata (es. Foxglove o web app), il client transceve e invia la trascrizione sul topic `/ai/input/text` (con `source="text"`), provocando comunque la doppia risposta (quella nativa Live e quella REST locale).
+  * **Soluzione [v15.2]:** Memorizzare le trascrizioni recenti utente della Live API in `LiveConnectionManager.recent_user_transcripts`. In `ConversationManager.process_input`, se arriva un input di testo che corrisponde (o è substring) a una delle trascrizioni Live recenti (finestra di 15 secondi) o in corso, l'input testuale duplicato viene scartato silenziosamente.
+  * **Filtro Temporale Anti-Allucinazione ASR [v15.2]:**
+    - Se l'ASR di Gemini Live allucina la trascrizione in un'altra lingua (es. italiano trascritto come portoghese a causa di disturbi), il controllo testuale di uguaglianza fallisce.
+    - **Soluzione:** Tracciare `_last_mic_audio_time` ad ogni chunk registrato dal microfono fisico del robot. Qualsiasi messaggio testuale (`source="text"`) che giunge entro **3.5 secondi** dall'ultimo input del microfono viene catalogato come ASR client-side concorrente e scartato a prescindere dal testo.
+  * **Silenziamento Conversazione da Chat [v15.3]:**
+    - Per evitare che Marcus risponda a voce quando l'utente comunica via tastiera/chat, si effettua un wrapping dinamico di `self.tts.speak` in `ConversationManager.__init__`. Se `_current_source == "text"`, il parlato locale gTTS viene soppresso loggando l'evento `[MUTE]`.
+
+---
+
+## 🔊 Ottimizzazione Streaming Audio PCM e Sequenzialità
+
+### Jitter e Out-of-Order sotto MultiThreadedExecutor [v15.3]
+* **Problema:** Lo streaming vocale di Gemini Live partiva correttamente, per poi arricchirsi di parole distorte e sovrapposte, rendendo l'audio del robot incomprensibile.
+* **Causa:** Il nodo AI e l'orchestratore sono eseguiti all'interno di un `MultiThreadedExecutor` a 4 thread per ragioni di efficienza asincrona. I chunk audio ricevuti da Gemini venivano pubblicati via ROS su `/ai/conversation/audio_chunk`. A causa della concorrenza del pool di thread dell'esecutore, i callback di ricezione venivano eseguiti in parallelo o fuori ordine (es. il chunk 2 veniva spedito sul bus `/respeaker/speaker_audio` prima del chunk 1), provocando sfasamenti e scatti del tasso di campionamento (resampling state corrotto).
+* **Risoluzione (Bypass ROS via Callback Diretta):**
+  - Eliminare il passaggio intermedio via topic ROS `/ai/conversation/audio_chunk` per lo streaming vocale.
+  - Implementare una callback Python sincrona e diretta `register_audio_callback` tra `LLMServiceNode` e `AIOrchestrator`.
+  - Poiché il loop di ricezione WebSocket di Gemini gira sul thread a ciclo singolo asincrono di asyncio, la callback diretta inoltra i chunk in ordine cronologico perfetto e sequenziale. La pubblicazione finale su `/respeaker/speaker_audio` avviene così in modo strettamente ordinato, ripristinando la pulizia assoluta dell'audio in cuffia/altoparlante.
+
+

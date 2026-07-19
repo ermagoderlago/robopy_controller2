@@ -11,6 +11,7 @@ Quando ti viene richiesto di analizzare, correggere o implementare un modulo o u
 3. **Aggiornamento Continuo delle Lezioni ed ECO:** 
    - Se risolvi un bug, implementi una nuova feature o scopri una specificità hardware, **DEVI aggiornare immediatamente** il file di lezioni tematiche corrispondente sotto `/docs/lessons/` (es. aggiungendo dettagli sul resampling audio in `audio_vui_pipeline.md`).
    - Se effettui una modifica strutturale all'architettura o al build system, **DEVI registrare un nuovo ECO** compilando il relativo file in `/docs/ecos/` (es. `vision_hailo_ecos.md`).
+   - Se le modifiche alterano le funzionalità generali del robot, gli scenari d'uso, o lo stato dei moduli principali, **DEVI aggiornare** la guida globale `marcus_robot_guide.md` nella radice.
 4. **Verifica Cognitiva (`[COGNITIVE_CHECK]`):** Prima di emettere qualsiasi codice modificato, produci all'inizio della tua risposta un blocco di testo chiaramente visibile prefissato con **`[COGNITIVE_CHECK]`**. In questo blocco devi:
    - Attestare esplicitamente il rispetto dei vincoli fisici di `marcus_core_rules.md` applicati al codice che stai per scrivere.
-   - Dichiarare quali file di lezioni (`/docs/lessons/`) o registri ECO (`/docs/ecos/`) hai letto ed eventualmente aggiornato per rispecchiare la modifica.
+   - Dichiarare quali file di lezioni (`/docs/lessons/`), registri ECO (`/docs/ecos/`) o guide (`marcus_robot_guide.md`) hai letto ed eventualmente aggiornato per rispecchiare la modifica.

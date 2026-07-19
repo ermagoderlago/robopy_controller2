@@ -26,14 +26,16 @@ class WaveshareMotorDriver(Node):
         # --- Parameter Declaration ---
         self.declare_parameter('serial_port', '/dev/ttyUSB0')
         self.declare_parameter('baud_rate', 115200)
-        self.declare_parameter('wheel_radius', 0.0325)      # in meters
-        self.declare_parameter('wheel_separation', 0.16)   # track width in meters
-        self.declare_parameter('ticks_per_rev', 1440)      # encoder ticks per wheel revolution
+        self.declare_parameter('wheel_radius', 0.0361)      # in meters
+        self.declare_parameter('wheel_separation', 0.091)   # track width in meters
+        self.declare_parameter('ticks_per_rev', 594)      # encoder ticks per wheel revolution
         
-        self.declare_parameter('invert_left_motor', False)
+        self.declare_parameter('invert_left_motor', True)
         self.declare_parameter('invert_right_motor', False)
-        self.declare_parameter('invert_left_encoder', False)
+        self.declare_parameter('invert_left_encoder', True)
         self.declare_parameter('invert_right_encoder', False)
+        self.declare_parameter('encoder_dead_zone', 2)        # ticks: ignore deltas <= this when both wheels below threshold
+        self.declare_parameter('publish_tf', True)             # set False when another node (e.g. fast_flow_vo) owns odom->base_link TF
         
         # --- Retrieve Parameters ---
         self.serial_port = self.get_parameter('serial_port').value
@@ -46,6 +48,11 @@ class WaveshareMotorDriver(Node):
         self.invert_right_motor = self.get_parameter('invert_right_motor').value
         self.invert_left_encoder = self.get_parameter('invert_left_encoder').value
         self.invert_right_encoder = self.get_parameter('invert_right_encoder').value
+        self.encoder_dead_zone = self.get_parameter('encoder_dead_zone').value
+        self.publish_tf = self.get_parameter('publish_tf').value
+        
+        # Register dynamic parameter callback
+        self.add_on_set_parameters_callback(self.parameter_callback)
         
         self.get_logger().info(
             f"Configured parameters: Port={self.serial_port}, Baud={self.baud_rate}, "
@@ -63,16 +70,32 @@ class WaveshareMotorDriver(Node):
         # --- Watchdog & Control State ---
         self.last_cmd_vel_time = time.time()
         self.motors_stopped = True
+        self.cmd_linear_x = 0.0
+        self.cmd_angular_z = 0.0
+        self.v_robot = 0.0
+        self.w_robot = 0.0
+        self.vo_linear_speed = 0.0
+        self.latest_voltage = 12.0
+        self.idle_voltage = 12.0
+        
+        # Obstruction & Stall monitoring
+        self.stall_start_time = None
+        self.slipping_start_time = None
+        self.voltage_drop_start_time = None
+        self.is_stalled = False
+        self.is_slipping = False
+        self.is_voltage_overload = False
         
         # --- Publishers & Broadcasters ---
         self.odom_pub = self.create_publisher(Odometry, '/odom', 10)
-        self.imu_pub = self.create_publisher(Imu, '/imu/data', 10)
+        self.imu_pub = self.create_publisher(Imu, '/imu/esp32', 10)  # separate from madgwick /imu/data to avoid topic collision
         self.battery_pub = self.create_publisher(BatteryState, '/battery_state', 10)
         self.diag_pub = self.create_publisher(DiagnosticArray, '/diagnostics', 10)
         self.tf_broadcaster = TransformBroadcaster(self)
         
         # --- Subscribers ---
         self.create_subscription(Twist, '/cmd_vel', self.cmd_vel_callback, 10)
+        self.create_subscription(Odometry, '/vo/odom', self.vo_odom_callback, 10)
         
         # --- Serial Connection & Threads ---
         self.serial_lock = threading.Lock()
@@ -165,22 +188,66 @@ class WaveshareMotorDriver(Node):
                 return False
 
     def cmd_vel_callback(self, msg):
-        """Processes geometry_msgs/Twist, computes differential drive wheel velocities (m/s), and sends JSON."""
+        """Processes geometry_msgs/Twist, computes differential drive differential kinematics, and sends JSON."""
         v = msg.linear.x
         w = msg.angular.z
+        self.get_logger().info(f"📥 Received cmd_vel: v={v:.4f}, w={w:.4f}")
         
-        # Differential kinematics
+        self.cmd_linear_x = v
+        self.cmd_angular_z = w
+        
+        # Direct differential kinematics (ROS standard)
+        # v_left_target = v - (w * self.wheel_separation / 2.0)
+        # v_right_target = v + (w * self.wheel_separation / 2.0)
+        
+        # Dai test fisici:
+        # Per muovere la ruota DESTRA in AVANTI: linear=0.1, angular=0.69 (Twist)
+        # -> v_left_target = 0.1 - 0.69 * 0.29 / 2.0 = 0.0
+        # -> v_right_target = 0.1 + 0.69 * 0.29 / 2.0 = 0.2
+        #
+        # Per muovere la ruota SINISTRA in AVANTI: linear=-0.1, angular=0.69 (Twist)
+        # -> v_left_target = -0.1 - 0.69 * 0.29 / 2.0 = -0.2
+        # -> v_right_target = -0.1 + 0.69 * 0.29 / 2.0 = 0.0
+        #
+        # Questo implica che:
+        # Per muovere la ruota DESTRA in avanti, serve un valore di comando POSITIVO.
+        # Per muovere la ruota SINISTRA in avanti, serve un valore di comando NEGATIVO.
+        #
+        # Inoltre, il driver chiama: self.send_speeds(left, right)
+        # Dove left va a "L" sulla seriale, e right va a "R" sulla seriale.
+        #
+        # Dalla nostra mappatura:
+        # Quando angular > 0 (gira a SX):
+        # - Solo DX in avanti (linear=0.1, angular=0.69) -> muove RUOTA DESTRA in avanti.
+        #   Quindi per angular > 0, dobbiamo comandare la DESTRA in avanti.
+        # - Solo SX in avanti (linear=-0.1, angular=0.69) -> muove RUOTA SINISTRA in avanti.
+        #   Quindi per angular > 0, dobbiamo comandare la SINISTRA in avanti (con segno negativo).
+        #
+        # Calcoliamo le velocità ideali:
         v_L = v - (w * self.wheel_separation / 2.0)
         v_R = v + (w * self.wheel_separation / 2.0)
+
+        # Applichiamo i segni di marcia determinati fisicamente:
+        # Ruota destra ha segno POSITIVO per andare in avanti (v_R_cmd = v_R)
+        # Ruota sinistra ha segno NEGATIVO per andare in avanti (v_L_cmd = -v_L)
+        v_R_cmd = v_R
+        v_L_cmd = -v_L
+
+        # Swap dei canali:
+        # Dai test fisici:
+        # Il comando Twist (linear=0.1, angular=0.69) -> target v_R = 0.2, v_L = 0.0.
+        # E questo faceva girare la ruota DESTRA.
+        # Nella chiamata send_speeds(L_serial, R_serial):
+        # Se inviamo send_speeds(v_L_cmd, v_R_cmd):
+        # - per solo DX in avanti: v_L_cmd = 0.0, v_R_cmd = 0.2. Invia L=0.0, R=0.2.
+        #   La seriale riceve R=0.2 che aziona la ruota destra fisica.
+        # - per solo SX in avanti: v_L_cmd = 0.2, v_R_cmd = 0.0. Invia L=0.2, R=0.0.
+        #   La seriale riceve L=0.2 che aziona la ruota sinistra fisica (ed essendo v_L_cmd invertito è concorde).
+        # Quindi la mappatura seriale corretta è:
+        # L_serial = v_L_cmd (velocità sinistra invertita)
+        # R_serial = v_R_cmd (velocità destra)
         
-        # Invert direction if parameterized
-        if self.invert_left_motor:
-            v_L = -v_L
-        if self.invert_right_motor:
-            v_R = -v_R
-            
-        # Send velocity command
-        self.send_speeds(v_L, v_R)
+        self.send_speeds(v_L_cmd, v_R_cmd)
         
         # Feed watchdog
         self.last_cmd_vel_time = time.time()
@@ -193,7 +260,7 @@ class WaveshareMotorDriver(Node):
             "L": round(left, 4),
             "R": round(right, 4)
         }
-        cmd_str = json.dumps(cmd) + "\n"
+        cmd_str = json.dumps(cmd, separators=(',', ':')) + "\n"
         
         with self.serial_lock:
             if self.serial_conn and self.serial_conn.is_open:
@@ -209,6 +276,42 @@ class WaveshareMotorDriver(Node):
                 self.get_logger().warn("Watchdog timeout (500ms): stopping motors.")
                 self.send_speeds(0.0, 0.0)
                 self.motors_stopped = True
+                self.cmd_linear_x = 0.0
+                self.cmd_angular_z = 0.0
+                
+        # Rilevamento Stallo / Slittamento / Assorbimento Eccessivo
+        cmd_active = (abs(self.cmd_linear_x) > 0.05 or abs(self.cmd_angular_z) > 0.1)
+        
+        # 1. Stall Meccanico: Comandiamo ma le ruote non girano
+        if cmd_active and abs(self.v_robot) < 0.005 and abs(self.w_robot) < 0.02:
+            if self.stall_start_time is None:
+                self.stall_start_time = time.time()
+            elif time.time() - self.stall_start_time > 1.0:
+                self.is_stalled = True
+        else:
+            self.stall_start_time = None
+            self.is_stalled = False
+            
+        # 2. Slittamento (Slipping): Le ruote girano ma il movimento visuale (VO) è zero
+        if cmd_active and abs(self.v_robot) > 0.03 and abs(self.vo_linear_speed) < 0.008:
+            if self.slipping_start_time is None:
+                self.slipping_start_time = time.time()
+            elif time.time() - self.slipping_start_time > 1.0:
+                self.is_slipping = True
+        else:
+            self.slipping_start_time = None
+            self.is_slipping = False
+            
+        # 3. Assorbimento Eccessivo: Caduta di tensione della batteria
+        v_drop = self.idle_voltage - self.latest_voltage
+        if cmd_active and v_drop > 2.0:
+            if self.voltage_drop_start_time is None:
+                self.voltage_drop_start_time = time.time()
+            elif time.time() - self.voltage_drop_start_time > 1.0:
+                self.is_voltage_overload = True
+        else:
+            self.voltage_drop_start_time = None
+            self.is_voltage_overload = False
 
     def serial_loop(self):
         """Continuously manages the serial connection and reads incoming status lines."""
@@ -250,6 +353,10 @@ class WaveshareMotorDriver(Node):
                 
                 # Look for chassis feedback
                 if data.get('T') == 1001:
+                    # Dagli esperimenti di moto:
+                    # - La ruota DESTRA fisica (R sulla seriale) è legata al canale 'odr'
+                    # - La ruota SINISTRA fisica (L sulla seriale) è legata al canale 'odl'
+                    # Quindi mappiamo:
                     left_ticks = data.get('odl')
                     right_ticks = data.get('odr')
                     
@@ -310,6 +417,21 @@ class WaveshareMotorDriver(Node):
             delta_ticks_left = 0
         if abs(delta_ticks_right) > self.ticks_per_rev * 5:
             delta_ticks_right = 0
+        
+        # --- ZERO-VELOCITY LOCK ---
+        # When motors are stopped (no cmd_vel for >500ms), force delta to zero.
+        # This is the primary defense against encoder noise drift at standstill.
+        if self.motors_stopped:
+            delta_ticks_left = 0
+            delta_ticks_right = 0
+        
+        # --- DEAD-ZONE FILTER ---
+        # If BOTH wheel deltas are within the dead-zone threshold, treat as noise.
+        # At 20Hz, even 0.01 m/s produces ~4-5 ticks/cycle, so 2 ticks is safe.
+        if (abs(delta_ticks_left) <= self.encoder_dead_zone and
+                abs(delta_ticks_right) <= self.encoder_dead_zone):
+            delta_ticks_left = 0
+            delta_ticks_right = 0
             
         # Invert readings if specified
         if self.invert_left_encoder:
@@ -340,6 +462,17 @@ class WaveshareMotorDriver(Node):
         if dt > 0.001:
             v_robot = delta_s / dt
             w_robot = delta_theta / dt
+        self.v_robot = v_robot
+        self.w_robot = w_robot
+        
+        # --- DYNAMIC COVARIANCES ---
+        # Low covariance when moving (trustworthy), high when stopped (uncertain).
+        if self.motors_stopped:
+            pose_cov = 1e-3
+            twist_cov = 1e-3
+        else:
+            pose_cov = 1e-5
+            twist_cov = 1e-4
             
         # Publish Odometry
         odom = Odometry()
@@ -351,25 +484,36 @@ class WaveshareMotorDriver(Node):
         q = self.quaternion_from_euler(0.0, 0.0, self.theta)
         odom.pose.pose.orientation = Quaternion(x=q[0], y=q[1], z=q[2], w=q[3])
         
+        # Diagonal covariance matrices (6x6 flattened to 36)
+        odom.pose.covariance = [0.0] * 36
+        odom.pose.covariance[0] = pose_cov    # x
+        odom.pose.covariance[7] = pose_cov    # y
+        odom.pose.covariance[35] = pose_cov   # yaw
+        
         odom.twist.twist = Twist(
             linear=Vector3(x=v_robot, y=0.0, z=0.0),
             angular=Vector3(x=0.0, y=0.0, z=w_robot)
         )
         
+        odom.twist.covariance = [0.0] * 36
+        odom.twist.covariance[0] = twist_cov   # vx
+        odom.twist.covariance[35] = twist_cov  # wz
+        
         self.odom_pub.publish(odom)
         
-        # Broadcast TF odom -> base_link
-        t = TransformStamped()
-        t.header.stamp = odom.header.stamp
-        t.header.frame_id = 'odom'
-        t.child_frame_id = 'base_link'
-        
-        t.transform.translation.x = self.x
-        t.transform.translation.y = self.y
-        t.transform.translation.z = 0.0
-        t.transform.rotation = odom.pose.pose.orientation
-        
-        self.tf_broadcaster.sendTransform(t)
+        # Broadcast TF odom -> base_link (only if this node owns TF authority)
+        if self.publish_tf:
+            t = TransformStamped()
+            t.header.stamp = odom.header.stamp
+            t.header.frame_id = 'odom'
+            t.child_frame_id = 'base_link'
+            
+            t.transform.translation.x = self.x
+            t.transform.translation.y = self.y
+            t.transform.translation.z = 0.0
+            t.transform.rotation = odom.pose.pose.orientation
+            
+            self.tf_broadcaster.sendTransform(t)
 
     def quaternion_from_euler(self, roll, pitch, yaw):
         """Converts euler angles (roll, pitch, yaw) to quaternion [x, y, z, w]."""
@@ -401,6 +545,10 @@ class WaveshareMotorDriver(Node):
             voltage = v_val / 100.0
         else:
             voltage = v_val
+            
+        self.latest_voltage = voltage
+        if self.motors_stopped:
+            self.idle_voltage = 0.95 * self.idle_voltage + 0.05 * voltage
             
         # Calculate battery percentage (for 3S LiPo: max 12.6V, min 9.9V)
         min_v = 9.9
@@ -440,8 +588,32 @@ class WaveshareMotorDriver(Node):
             KeyValue(key="voltage", value=f"{voltage:.2f}V"),
             KeyValue(key="percentage", value=f"{percentage:.1f}%")
         ]
-        
         diag_msg.status.append(status)
+        
+        # Publish Diagnostics Stall / Slip / Overload
+        stall_status = DiagnosticStatus()
+        stall_status.name = "motor_stall"
+        stall_status.hardware_id = "waveshare_esp32_driver"
+        v_drop = self.idle_voltage - self.latest_voltage
+        
+        if self.is_stalled or self.is_slipping or self.is_voltage_overload:
+            stall_status.level = DiagnosticStatus.ERROR
+            reasons = []
+            if self.is_stalled: reasons.append("Stallo meccanico (ruote ferme)")
+            if self.is_slipping: reasons.append("Slittamento (ostacolo rilevato da VO)")
+            if self.is_voltage_overload: reasons.append("Sovraccarico elettrico (assorbimento elevato)")
+            stall_status.message = " | ".join(reasons)
+        else:
+            stall_status.level = DiagnosticStatus.OK
+            stall_status.message = "Motori OK"
+            
+        stall_status.values = [
+            KeyValue(key="stalled", value=str(self.is_stalled)),
+            KeyValue(key="slipping", value=str(self.is_slipping)),
+            KeyValue(key="voltage_overload", value=str(self.is_voltage_overload)),
+            KeyValue(key="voltage_drop", value=f"{v_drop:.2f}V")
+        ]
+        diag_msg.status.append(stall_status)
         self.diag_pub.publish(diag_msg)
 
     def process_imu_feedback(self, roll, pitch, yaw, ax=None, ay=None, az=None, gx=None, gy=None, gz=None):
@@ -483,6 +655,20 @@ class WaveshareMotorDriver(Node):
         imu_msg.linear_acceleration_covariance = [0.01, 0.0, 0.0, 0.0, 0.01, 0.0, 0.0, 0.0, 0.01]
         
         self.imu_pub.publish(imu_msg)
+
+    def vo_odom_callback(self, msg):
+        self.vo_linear_speed = msg.twist.twist.linear.x
+
+    def parameter_callback(self, params):
+        from rcl_interfaces.msg import SetParametersResult
+        for param in params:
+            if param.name == 'wheel_radius':
+                self.wheel_radius = float(param.value)
+                self.get_logger().info(f"Dynamic Parameter Updated: wheel_radius = {self.wheel_radius:.5f}m")
+            elif param.name == 'wheel_separation':
+                self.wheel_separation = float(param.value)
+                self.get_logger().info(f"Dynamic Parameter Updated: wheel_separation = {self.wheel_separation:.5f}m")
+        return SetParametersResult(successful=True)
 
     def destroy_node(self):
         """Clean shutdown operations."""
