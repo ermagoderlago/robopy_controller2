@@ -72,9 +72,9 @@ controller_server:
       vx_std: 0.03      # Campionamento stretto (velocità basse)
       vy_std: 0.0
       wz_std: 0.08       # Campionamento proporzionale
-      vx_max: 0.085      # Velocità lineare max REALE del robot
+      vx_max: 0.18      # Velocità lineare max REALE del robot
       vx_min: 0.0       # Zero: NESSUNA RETROMARCIA AMMESSA cieca
-      wz_max: 0.155      # Velocità angolare max REALE del robot
+      wz_max: 0.8      # Velocità angolare max REALE del robot
       kinematics:
         base_min_turning_radius: 0.0  # Permetti rotazione sul posto (skid steer) per curve taglienti
       critics: ["ConstraintCritic", "GoalCritic", "GoalAngleCritic", "ObstaclesCritic", "PathAlignCritic", "PathFollowCritic", "PathAngleCritic", "PreferForwardCritic"]
@@ -128,7 +128,7 @@ local_costmap:
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: true
-        observation_sources: scan semantic_objects
+        observation_sources: scan semantic_objects hailo_semantic_objects
         scan:
           topic: /scan
           max_obstacle_height: 2.0
@@ -141,6 +141,12 @@ local_costmap:
           obstacle_min_range: 0.0
         semantic_objects:
           topic: /visual_objects_pc
+          max_obstacle_height: 2.0
+          clearing: true
+          marking: true
+          data_type: "PointCloud2"
+        hailo_semantic_objects:
+          topic: /hailo_semantic_obstacles_pc
           max_obstacle_height: 2.0
           clearing: true
           marking: true
@@ -178,14 +184,14 @@ global_costmap:
       rolling_window: false
       width: 10
       height: 10
-      plugins: ["static_layer", "range_layer", "inflation_layer"]
+      plugins: ["static_layer", "obstacle_layer", "range_layer", "inflation_layer"]
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
         map_subscribe_transient_local: true
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: true
-        observation_sources: scan semantic_objects
+        observation_sources: scan semantic_objects hailo_semantic_objects
         scan:
           topic: /scan
           max_obstacle_height: 2.0
@@ -198,6 +204,12 @@ global_costmap:
           obstacle_min_range: 0.0
         semantic_objects:
           topic: /visual_objects_pc
+          max_obstacle_height: 2.0
+          clearing: true
+          marking: true
+          data_type: "PointCloud2"
+        hailo_semantic_objects:
+          topic: /hailo_semantic_obstacles_pc
           max_obstacle_height: 2.0
           clearing: true
           marking: true

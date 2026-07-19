@@ -400,18 +400,14 @@ void MarcusSemanticMapperNode::publishSemanticObjects(const rclcpp::Time& stamp)
         }
     }
 
-    size_t count = 0;
+    std::vector<SemanticObject3D> local_objects;
     {
         std::lock_guard<std::mutex> lock(data_mutex_);
-        count = object_count_;
+        local_objects.assign(object_buffer_.begin(), object_buffer_.begin() + object_count_);
     }
 
-    for (size_t i = 0; i < count; ++i) {
-        SemanticObject3D s_obj;
-        {
-            std::lock_guard<std::mutex> lock(data_mutex_);
-            s_obj = object_buffer_[i];
-        }
+    for (size_t i = 0; i < local_objects.size(); ++i) {
+        const auto& s_obj = local_objects[i];
 
         robopy_controller::msg::SemanticObject msg_obj;
         msg_obj.header.stamp = stamp;
@@ -446,18 +442,14 @@ void MarcusSemanticMapperNode::publishMarkers(const rclcpp::Time& stamp) {
     }
 
     visualization_msgs::msg::MarkerArray marker_arr;
-    size_t count = 0;
+    std::vector<SemanticObject3D> local_objects;
     {
         std::lock_guard<std::mutex> lock(data_mutex_);
-        count = object_count_;
+        local_objects.assign(object_buffer_.begin(), object_buffer_.begin() + object_count_);
     }
 
-    for (size_t i = 0; i < count; ++i) {
-        SemanticObject3D s_obj;
-        {
-            std::lock_guard<std::mutex> lock(data_mutex_);
-            s_obj = object_buffer_[i];
-        }
+    for (size_t i = 0; i < local_objects.size(); ++i) {
+        const auto& s_obj = local_objects[i];
 
         // Marker Box
         visualization_msgs::msg::Marker box;

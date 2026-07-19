@@ -44,3 +44,83 @@ Questo documento descrive le lezioni apprese su OAK-D Lite, l'acceleratore NPU H
 ### C++ Core Pinning e Ottimizzazione
 * **Core Pinning:** `hailo_bridge_node` e `marcus_semantic_mapper_cpp` devono essere vincolati ai Core CPU 2 e 3 del Raspberry Pi 5 per isolare il calcolo intensivo dai thread di I/O.
 * **Eigen vs PCL:** Per ottimizzare i tempi di calcolo, la back-projection geometrica C++ del mapper deve utilizzare matrici Eigen pure ed intrinseci camera pre-allocati, evitando l'overhead e le runtime allocations della libreria PCL.
+
+---
+
+## 👥 Riconoscimento Facciale & Dynamic Enrollment (Sprint 3)
+
+### Pipeline Integrata (Detect -> Align -> Embed -> Match)
+* **Landmarks & Alignment:** L'allineamento affine tramite `cv2.estimateAffinePartial2D` basato sui 5 punti landmark di SCRFD è essenziale prima di passare l'immagine ad ArcFace. Se l'allineamento fallisce, un crop standard basato sulla bounding box ridimensionata è usato come fallback.
+* **Normalizzazione L2:** Gli embedding ArcFace (512-dim) devono essere normalizzati con norma L2 (divisi per la norma euclidea). Questo permette di calcolare la similarità del coseno tramite un semplice prodotto scalare (`np.dot`), abbattendo i tempi CPU a pochi microsecondi per confronto.
+* **Dynamic Enrollment:** Per evitare falsi positivi causati dal rumore del singolo frame, l'enrollment ospite accumula 10 campioni temporali consecutivi, ne calcola la media vettoriale, esegue una nuova normalizzazione L2 e salva il vettore risultante come file `.npy` sotto `known_faces/<nome>/`.
+* **Fallback di Simulazione Robust:** Il nodo `hailo_bridge_node.py` implementa un controllo a run-time per verificare se lo stream SCRFD/ArcFace è presente nell'HEF caricato. In caso di assenza, attiva automaticamente la simulazione leggendo i file `.npy` da disco e pubblicando periodicamente i vettori per consentire il funzionamento e il test del sistema orchestrator/RAG in qualsiasi configurazione di modello HEF.
+
+---
+
+## 📐 Allineamento delle Risoluzioni Modello & Risoluzione dei Mismatch (Sprint 5)
+
+### Allineamento della Risoluzione SuperPoint
+* **Problema:** Mismatch di risoluzione tra le dimensioni configurate nell'host (`480x360`) e quelle reali del modello `.blob` caricato su NPU (`320x200`). Questo genera warning continui da parte di DepthAI e provoca letture fuori dai limiti del vettore di heatmap (heap memory overflow silente), portando all'estrazione di keypoint spuri e a derive esponenziali dell'odometria visuale (che a sua volta causa falsi movimenti e inclinazioni 3D del robot).
+* **Soluzione:** Configurare rigidamente le costanti di ridimensionamento del frame (`SP_W` e `SP_H`) per allinearsi esattamente alle dimensioni di input del modello compilato (320x200).
+
+### Robustezza del Parsing dei Tensor (Dimension-Independent)
+* **Problema:** I controlli basati su soglie di dimensione fissa (`data.size() > 500000` per i descrittori e `> 100000` per l'heatmap) falliscono silenziosamente quando la risoluzione del modello cambia, impedendo il caricamento dei dati.
+* **Soluzione:** Confrontare le dimensioni relative dei due layer di output in modo indipendente dalla risoluzione. Poiché i descrittori hanno 256 canali e l'heatmap 65 canali su una griglia di identiche dimensioni ($H \times W$), il vettore dei descrittori è sempre circa 4 volte più grande dell'heatmap. Il confronto relativo `data0.size() > data1.size()` garantisce la corretta assegnazione in qualsiasi risoluzione.
+
+---
+
+## 🗺️ Visual Odometry & SLAM Map Drift Resolution (Sprint 5)
+
+### Zero Velocity Update (ZUPT) in Visual Odometry
+* **Problema:** Anche a robot fermo, il rumore dei singoli pixel della camera e le variazioni di illuminazione portano i nodi di Visual Odometry (sia C++ che Python) a calcolare piccoli delta di posa fittizi (drift). RTAB-Map SLAM, leggendo questa odometria visuale derivata, muove progressivamente il robot all'interno della mappa globale.
+* **Soluzione:** Implementare un filtro ZUPT all'interno del nodo VO C++ (`oak_superpoint_odometry_cpp`). Sottoscrivendosi al topic `/cmd_vel`, se il robot non riceve comandi di movimento attivi (linear/angular > 0.001) per più di 500ms, il nodo VO smette di accumulare la matrice di posa (`pose_matrix_`), bloccando a zero qualsiasi deriva spaziale da fermo.
+
+### Esclusione Concorrente del TF `odom → base_link`
+* **Regola Permanente:** Solo un nodo alla volta può pubblicare il transform `odom → base_link` in ROS 2. Per evitare sfarfallii in RViz, disabilitare `publish_tf` su tutti i nodi di Visual Odometry (`fast_flow_vo` e `oak_superpoint_odometry`) tramite i parametri di launch e startup, ed abilitarlo esclusivamente sul driver motori (`waveshare_motor_driver`), che è basato su encoder fisici e filtrato da dead-zone ed è quindi il sensore più affidabile a robot fermo.
+
+---
+
+## 👁️ Integrazione YOLO, Mappatura Semantica e Debug Image (Sprint 5)
+
+### Eliminazione degli Ostacoli Spuri Persistenti (Ghost Obstacles)
+* **Problema:** In Foxglove/RTAB-Map veniva costantemente visualizzata una sedia mock all'interno della costmap che non si degradava mai.
+* **Causa:** Il nodo `hailo_bridge_node` in modalità simulata (`sim_mode`) pubblicava a frequenza fissa (1.5 Hz) l'ostacolo fittizio "sedia" sul topic `/hailo/vlm/semantic_objects`. Poiché l'intervallo di pubblicazione era inferiore al tempo di decadimento temporale di `semantic_costmap_injector` (5.0s), il timestamp veniva continuamente aggiornato impedendone il decadimento.
+* **Risoluzione:** Introdotto il parametro `publish_sim_sedia` (default: `False`). In questo modo l'ostacolo simulato non inquina la navigazione a meno che non sia esplicitamente configurato a `True` per test.
+
+### Mappatura Semantica Diretta da YOLO in Real Mode
+* **Problema:** Quando si eseguiva il robot in modalità reale, nessuna informazione semantica veniva inviata al costmap injector o al mapper C++ perché il topic `/hailo/vlm/semantic_objects` non riceveva pubblicazioni.
+* **Risoluzione:** Collegati i rilevamenti YOLO reali alla pipeline semantica. Le classi COCO rilevate (sedie, persone, tavoli, ecc.) vengono tradotte in italiano e mappate in messaggi `SemanticObject`. Le coordinate Z (profondità) vengono stimate proiettando il centro del box 2D sul frame di profondità tramite `self.latest_depth`, mentre le dimensioni fisiche dell'ostacolo vengono ricavate tramite regressione geometrica basata su FOV e profondità.
+
+### Stream di Debug Annotato (Annotated Compressed Video)
+* **Problema:** Difficoltà nel diagnosticare la bontà del riconoscimento oggetti e della semantica direttamente da Foxglove in assenza di un feed video annotato.
+* **Risoluzione:** Implementato il topic `/hailo/annotated_image/compressed` in `hailo_bridge_node`. Sovrappone in tempo reale sul flusso RGB i box YOLO (in verde), i volti riconosciuti (in arancione) e gli oggetti semantici (in viola) con indicazione del nome classe, confidenza e coordinate 3D stimate, ricomprimendo il frame in JPEG prima dell'invio.
+
+---
+
+## 🔧 Correzioni Critiche Pipeline YOLO & Semantica (Luglio 2026)
+
+### Esecuzione YOLO con InferModel API
+* **Problema:** L'inferenza reale YOLO non partiva mai con le nuove API `InferModel` (standard per Hailo-10H) a causa del controllo rigido `self.yolo_network_group is not None` (valido solo per le API legacy).
+* **Risoluzione:** Modificata la condizione a riga 674 per includere `(self.use_infer_model_api and self.has_yolo)`, abilitando l'esecuzione dell'inferenza reale YOLO sulla NPU.
+
+### Accesso Concorrente alla NPU (NPU Thread Safety)
+* **Problema:** I tre thread concorrenti (YOLO, Face Recognition/SCRFD, NetVLAD) utilizzavano lo stesso oggetto `self.bindings` ed eseguivano `configured_infer_model.run` senza alcuna mutua esclusione, portando a collisioni di memoria e corruzione dei dati.
+* **Risoluzione:** Introdotto un mutex globale `self._infer_lock = threading.Lock()` in `hailo_bridge_node.py` per proteggere tutte le operazioni di `set_buffer` e `run` dell'NPU, assicurando l'accesso thread-safe.
+
+### Sottoscrizione Immagine Raw
+* **Problema:** `hailo_bridge` sottoscriveva a `/rgb/image/compressed` ma la camera pubblicava `/rgb/image` raw, bloccando silenziosamente l'arrivo dei frame.
+* **Risoluzione:** Modificata la sottoscrizione a `/rgb/image` raw e introdotto `CvBridge` per la decodifica efficiente a livello di thread.
+
+### Integrazione Nav2 Costmap (QoS & Z-Coordinate)
+* **Problema 1:** Nav2 non riceveva gli ostacoli perché il publisher PointCloud2 del costmap injector usava QoS `BEST_EFFORT` invece del QoS `RELIABLE` atteso. Inoltre, `obstacle_layer` non era abilitato nella lista dei plugins di `global_costmap` in `nav2_params_jazzy.yaml`.
+* **Problema 2:** L'ingombro 3D dell'ostacolo veniva espanso a `z = -0.5m` sotto terra, rischiando di essere filtrato a causa delle soglie di altezza minima del robot.
+* **Risoluzione:** Impostato il publisher di PointCloud2 su `RELIABLE`, aggiunto `obstacle_layer` ai plugin del global_costmap, e semplificata la generazione del PointCloud proiettando tutti i punti sul piano `z = 0.1m`.
+
+### Correzione Coordinate centroid_2d
+* **Problema:** `centroid_2d` conteneva erroneamente i valori fisici X/Y in metri, causando errori nei marker e nelle visualizzazioni.
+* **Risoluzione:** Riconfigurato per contenere le coordinate 2D normalizzate centrali `[0.0, 1.0]` basate sulle coordinate del bounding box 2D.
+
+### Correzione TOCTOU C++ Mapper
+* **Problema:** Nel mapper C++, la dimensione del buffer veniva letta sotto un lock, per poi iterare sul buffer riacquisendo il lock per ogni singolo elemento, permettendo al thread di scrittura `syncCallback` di mutare il buffer ed invalidare l'indice, provocando corruzione o crash.
+* **Risoluzione:** Modificato il codice in `publishSemanticObjects` e `publishMarkers` per copiare localmente l'intero array degli oggetti attivi sotto un unico lock prima di processarlo ed inviarlo.
+

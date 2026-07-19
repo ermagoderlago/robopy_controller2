@@ -19,7 +19,8 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 
 from std_msgs.msg import Header
-from nav_msgs.msg import GridCells
+from sensor_msgs.msg import PointCloud2, PointField
+import sensor_msgs_py.point_cloud2 as pc2
 from geometry_msgs.msg import Point, PointStamped
 from visualization_msgs.msg import Marker, MarkerArray
 
@@ -71,8 +72,8 @@ class SemanticCostmapInjector(Node):
         )
 
         # Publishers
-        self.pub_grid_cells = self.create_publisher(
-            GridCells, '/semantic_obstacles', qos_best_effort
+        self.pub_point_cloud = self.create_publisher(
+            PointCloud2, '/hailo_semantic_obstacles_pc', qos_reliable
         )
         self.pub_debug_markers = self.create_publisher(
             MarkerArray, '/semantic_costmap_injector/debug', qos_best_effort
@@ -147,40 +148,32 @@ class SemanticCostmapInjector(Node):
             for key in expired_keys:
                 del self.active_obstacles[key]
 
-            # Costruiamo la lista di GridCells
-            cells_to_publish = []
+            # Costruiamo la lista di punti PointCloud2
+            pc_points = []
             
-            # Per ogni ostacolo attivo, eseguiamo l'inflazione se richiesta
+            # Per ogni ostacolo attivo, aggiungiamo il centro e i punti dell'ingombro
             for obs in self.active_obstacles.values():
                 center_pt = obs['point']
+                px, py = center_pt.x, center_pt.y
+                # Aggiungi il centro a z = 0.1
+                pc_points.append([px, py, 0.1])
                 
-                # Aggiungiamo il centro
-                cells_to_publish.append(center_pt)
-                
-                # Se abbiamo un raggio di inflazione maggiore di zero, aggiungiamo celle adiacenti
-                if self.inflation_radius > 0:
-                    steps = int(self.inflation_radius / self.grid_res)
-                    for dx in range(-steps, steps + 1):
-                        for dy in range(-steps, steps + 1):
-                            if dx == 0 and dy == 0:
-                                continue
-                            # Controlliamo la distanza euclidea
-                            dist = math.sqrt((dx * self.grid_res)**2 + (dy * self.grid_res)**2)
-                            if dist <= self.inflation_radius:
-                                inflated_pt = Point()
-                                inflated_pt.x = center_pt.x + dx * self.grid_res
-                                inflated_pt.y = center_pt.y + dy * self.grid_res
-                                inflated_pt.z = 0.0
-                                cells_to_publish.append(inflated_pt)
+                # Aggiungi i punti di delimitazione basati su larghezza e profondità (bounding box semplificata)
+                dw = obs.get('width', 0.2) / 2.0
+                dd = obs.get('depth', 0.2) / 2.0
+                for dx in [-dd, dd]:
+                    for dy in [-dw, dw]:
+                        pc_points.append([px + dx, py + dy, 0.1])
 
-            # Pubblica GridCells per Nav2
-            grid_msg = GridCells()
-            grid_msg.header.stamp = self.get_clock().now().to_msg()
-            grid_msg.header.frame_id = self.costmap_frame
-            grid_msg.cell_width = self.grid_res
-            grid_msg.cell_height = self.grid_res
-            grid_msg.cells = cells_to_publish
-            self.pub_grid_cells.publish(grid_msg)
+            if pc_points:
+                # Creiamo l'header per il PointCloud2
+                header = Header()
+                header.stamp = self.get_clock().now().to_msg()
+                header.frame_id = self.costmap_frame
+                
+                # Pubblichiamo PointCloud2 per Nav2
+                pc_msg = pc2.create_cloud_xyz32(header, pc_points)
+                self.pub_point_cloud.publish(pc_msg)
 
             # Pubblica MarkerArray per visualizzazione in RViz (Foxglove Studio)
             self.publish_debug_markers()

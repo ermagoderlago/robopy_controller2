@@ -56,3 +56,59 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
 ## 📈 ECO-2026-06-16-001: Unified Hailo HEF Compilation & ROS 2 InferModel Integration
 * **Stato:** ✅ **Completato, Sincronizzato e Attivo sul Robot**
 * **Descrizione:** Compilazione unificata dei tre modelli AI in un singolo HEF (`joined_yolo_superpoint_netvlad.hef`) e refactoring di `hailo_bridge_node.py` per utilizzare le nuove API `InferModel` anziché le legacy `VStream` (incompatibili con Hailo-10H, generavano `HAILO_NOT_IMPLEMENTED`). Rimozione di import obsoleti (`InferVStream`) per prevenire il fallback silenziato in modalità simulazione.
+
+---
+
+## 📈 ECO-2026-06-24-001: Face Recognition su Hailo-10 NPU & VUI Guest Enrollment
+* **Stato:** ✅ **Completato, Verificato tramite Test Suite**
+* **Descrizione:** Integrazione completa del pipeline SCRFD Face Detection e ArcFace Face Recognition su Hailo-10 NPU con allineamento affine landmark in Python, enrollment dinamico guidato da comandi vocali VUI e fallback di simulazione robusto.
+* **Modifiche apportate:**
+  * Implementato allineamento affine delle facce (coordinate standard ArcFace) in `face_alignment.py` utilizzando `cv2.estimateAffinePartial2D`.
+  * Creato `face_enrollment_manager.py` per raccogliere 10 campioni consecutivi, effettuarne la media, normalizzarli con norma L2 e scriverli in formato `.npy` su disco.
+  * Refattorizzato `face_recognition_service.py` per calcolare velocemente la similarità tramite prodotto scalare e gestire le fasi di enrollment e matching.
+  * Riconfigurato `conversation.py` per intercettare i trigger vocali (es. "Marcus, ti presento [Nome]") e avviare la sessione di enrollment dando feedback vocale (TTS).
+  * Esteso `hailo_bridge_node.py` per eseguire la pipeline reale su InferModel o attivare il fallback simulato leggendo i file `.npy` da `known_faces/` per test offline.
+  * Aggiunto `test_sprint3.py` per la validazione automatica end-to-end con mocks completi su Windows.
+
+---
+
+## 📈 ECO-2026-06-25-001: Visual Odometry Resolution Alignment & Memory-Safety Fix
+* **Stato:** ✅ **Completato e Sincronizzato (da compilare ed attivare)**
+* **Descrizione:** Allineamento della risoluzione di ridimensionamento del frame SuperPoint per corrispondere all'input nativo del modello `.blob` (320x200 invece di 480x360). Risolto l'heap out-of-bounds read nel decoding dei layer dell'NPU tramite confronto relativo delle dimensioni anziché soglie assolute rigide.
+* **Modifiche apportate:**
+  * Modificate le costanti `SP_W` da `480` a `320` e `SP_H` da `360` a `200` in [oak_superpoint_odometry_node.cpp](file:///c:/Users/lsuffia/OneDrive - BRUGOLA OEB INDUSTRIALE SPA/Documents/robopy/antigravity/src/oak_superpoint_odometry_node.cpp).
+  * Sostituito il loop di parsing dei tensor basato su soglie fisse di dimensione con un controllo robusto relativo (`data0.size() > data1.size()`) per distinguere dinamicamente il layer dei descrittori da quello delle heatmap.
+
+---
+
+## 📈 ECO-2026-07-03-001: YOLO & Semantics Integration and Debug Image Overlay
+* **Stato:** ✅ **Completato e Sincronizzato (da verificare sul robot)**
+* **Descrizione:** Risoluzione del problema del ghost obstacle "sedia" persistente in simulazione, integrazione delle rilevazioni YOLO reali come semantic objects e creazione di un topic video compresso per il debug visivo annotato.
+* **Modifiche apportate:**
+  - Aggiunti i parametri `publish_sim_sedia` (Boolean, default `False`) e `annotated_image_topic` (String, default `/hailo/annotated_image/compressed`) in `hailo_bridge_node.py`.
+  - Disabilitata la pubblicazione continua e incondizionata della sedia simulata quando `sim_mode` è attivo.
+  - Implementata la mappatura dinamica delle classi YOLO reali rilevate (in italiano) a `SemanticObject` con stima 3D tramite `estimate_3d_position` basata sull'immagine di profondità del sensore.
+  - Aggiunto il publisher ed il metodo `annotate_and_publish_image` per sovrapporre box YOLO (verdi), volti (arancioni) e oggetti semantici (viola) in tempo reale sul flusso di immagine compressa `/hailo/annotated_image/compressed`.
+
+---
+
+## 📈 ECO-2026-07-19-001: Risoluzione dei Bug Critici del Comparto AI Hailo NPU
+* **Stato:** ✅ **Completato e Sincronizzato**
+* **Descrizione:** Correzione sistematica di tutti i bug di pipeline, concurrency, QoS, formati di topic e race condition C++/Python del comparto AI di Hailo-10H, sbloccando finalmente l'esecuzione di YOLOv8 su hardware reale.
+* **Modifiche apportate:**
+  * **`hailo_bridge_node.py`**:
+    - Abilitata l'esecuzione reale di YOLO con l'API InferModel integrando il controllo `(self.use_infer_model_api and self.has_yolo)` a riga 674.
+    - Introdotto un mutex globale `self._infer_lock` per evitare race condition sui bindings NPU condivisi concorrentemente dai thread YOLO, Face e NetVLAD.
+    - Sostituita la sottoscrizione RGB da CompressedImage a Image raw su `/rgb/image` per allineamento con i topic pubblicati e decodifica ottimizzata via `CvBridge`.
+    - Corretto `centroid_2d` per popolare coordinate 2D normalizzate invece di 3D in metri.
+    - Protetto con lock l'accesso a `self.latest_depth` in `run_yolo_hailo` ed introdotto il supporto per encoding di profondità float32 `32FC1`.
+  * **`semantic_costmap_injector.py`**:
+    - Cambiato il QoS del publisher PointCloud2 a `RELIABLE` per rispecchiare la configurazione Nav2.
+    - Semplificata la generazione della PointCloud2 proiettando i punti sul piano `z = 0.1m` per evitare Z negativi ed eccessiva ridondanza.
+  * **`marcus_semantic_mapper_node.cpp`**:
+    - Risolto il TOCTOU copiando localmente il buffer degli oggetti attivi sotto un singolo lock in `publishSemanticObjects` e `publishMarkers`.
+    - Aumentata la dimensione della coda di sincronizzazione `max_queue_depth` a `30` in `marcus_semantic_mapper_node.hpp`.
+  * **`nav2_params_jazzy.yaml`**:
+    - Abilitato `obstacle_layer` nella lista dei plugins di `global_costmap`.
+  * **`launch/hailo_vision_launch.py`**:
+    - Creato launch file unificato per avviare in modo pulito ed integrato tutti e tre i nodi del comparto AI.

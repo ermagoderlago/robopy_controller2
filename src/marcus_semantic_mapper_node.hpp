@@ -60,7 +60,7 @@ private:
         
         bool publish_debug = false;
         double diag_period_sec = 2.0;
-        int max_queue_depth = 10;
+        int max_queue_depth = 30;
     };
 
     struct SemanticObject3D {
