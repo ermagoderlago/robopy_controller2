@@ -130,6 +130,124 @@ class NetVLADPooledCPU:
         return vlad_flat
 
 
+class FaceDatabase:
+    """
+    Database dei volti noti per il Face Recognition.
+    
+    Carica all'avvio gli embedding ArcFace (vettori 512-dim normalizzati L2)
+    dai file .npy presenti in known_faces/<nome>/embedding.npy.
+    Il confronto avviene tramite prodotto scalare (similarità del coseno),
+    possibile perché i vettori sono già normalizzati L2.
+    """
+
+    def __init__(self, known_faces_dir: str, logger=None):
+        self.logger = logger
+        self.known_faces_dir = known_faces_dir
+        # dict: nome_persona -> np.array(512,) normalizzato L2
+        self._embeddings: dict = {}
+        self.load()
+
+    def load(self):
+        """Scansiona known_faces_dir e carica tutti gli embedding.npy disponibili."""
+        self._embeddings = {}
+        if not os.path.exists(self.known_faces_dir):
+            if self.logger:
+                self.logger.warn(f"known_faces_dir non trovata: {self.known_faces_dir}")
+            return
+        
+        count = 0
+        for person_name in os.listdir(self.known_faces_dir):
+            person_dir = os.path.join(self.known_faces_dir, person_name)
+            if not os.path.isdir(person_dir):
+                continue
+            
+            npy_path = os.path.join(person_dir, 'embedding.npy')
+            if not os.path.exists(npy_path):
+                if self.logger:
+                    self.logger.warn(f"Nessun embedding.npy per '{person_name}'. Enrollment necessario.")
+                continue
+            
+            try:
+                emb = np.load(npy_path).astype(np.float32)
+                # Verifica e normalizza L2 (per sicurezza)
+                norm = np.linalg.norm(emb)
+                if norm < 1e-6:
+                    if self.logger:
+                        self.logger.warn(f"Embedding nullo per '{person_name}', saltato.")
+                    continue
+                emb /= norm
+                self._embeddings[person_name.lower()] = emb
+                count += 1
+            except Exception as e:
+                if self.logger:
+                    self.logger.error(f"Errore caricamento embedding {npy_path}: {e}")
+        
+        if self.logger:
+            self.logger.info(f"👥 FaceDatabase: {count} identità caricate → {list(self._embeddings.keys())}")
+
+    def identify(self, embedding: np.ndarray, threshold: float = 0.45):
+        """
+        Confronta un embedding con tutti i volti noti.
+        
+        Args:
+            embedding: vettore float32 (N,) — verrà normalizzato L2 internamente
+            threshold: soglia minima di similarità coseno (0-1, default 0.45)
+            
+        Returns:
+            (name: str, score: float) — name='unknown' se sotto soglia o DB vuoto
+        """
+        if len(self._embeddings) == 0:
+            return "unknown", 0.0
+        
+        emb = np.array(embedding, dtype=np.float32).flatten()
+        norm = np.linalg.norm(emb)
+        if norm < 1e-6:
+            return "unknown", 0.0
+        emb /= norm
+        
+        best_name = "unknown"
+        best_score = -1.0
+        for name, ref_emb in self._embeddings.items():
+            # Prodotto scalare = similarità coseno (vettori già normalizzati)
+            score = float(np.dot(emb, ref_emb))
+            if score > best_score:
+                best_score = score
+                best_name = name
+        
+        if best_score < threshold:
+            return "unknown", best_score
+        return best_name, best_score
+
+    def add_face(self, name: str, embedding: np.ndarray):
+        """
+        Aggiunge o aggiorna un'identità nel DB in memoria e su disco.
+        
+        Args:
+            name: nome persona (lowercase)
+            embedding: vettore float32 512-dim (normalizzazione L2 applicata internamente)
+        """
+        emb = np.array(embedding, dtype=np.float32).flatten()
+        norm = np.linalg.norm(emb)
+        if norm < 1e-6:
+            return
+        emb /= norm
+        
+        self._embeddings[name.lower()] = emb
+        
+        # Salvataggio persistente su disco
+        person_dir = os.path.join(self.known_faces_dir, name.lower())
+        os.makedirs(person_dir, exist_ok=True)
+        npy_path = os.path.join(person_dir, 'embedding.npy')
+        np.save(npy_path, emb)
+        if self.logger:
+            self.logger.info(f"💾 Embedding salvato per '{name}' → {npy_path}")
+
+    def get_count(self) -> int:
+        return len(self._embeddings)
+
+    def get_names(self) -> list:
+        return list(self._embeddings.keys())
+
 
 class HailoBridgeNode(Node):
     def __init__(self):
@@ -149,6 +267,7 @@ class HailoBridgeNode(Node):
         self.declare_parameter('known_faces_dir', '/home/robopy/robopy/robopy_controller/known_faces')
         self.declare_parameter('publish_sim_sedia', False)
         self.declare_parameter('annotated_image_topic', '/hailo/annotated_image/compressed')
+        self.declare_parameter('face_identity_threshold', 0.45)
 
         self.hef_path = self.get_parameter('hef_path').value
         self.vlm_rate = self.get_parameter('vlm_rate_hz').value
@@ -159,6 +278,7 @@ class HailoBridgeNode(Node):
         self.known_faces_dir = self.get_parameter('known_faces_dir').value
         self.publish_sim_sedia = self.get_parameter('publish_sim_sedia').value
         self.annotated_image_topic = self.get_parameter('annotated_image_topic').value
+        self.face_identity_threshold = self.get_parameter('face_identity_threshold').value
 
         self.has_yolo = False
         self.has_scrfd = False
@@ -206,6 +326,10 @@ class HailoBridgeNode(Node):
         self.sub_offline_mode = self.create_subscription(
             Bool, '/hailo/trigger/offline_mode', self.offline_mode_callback, qos_reliable
         )
+        # Enrollment runtime: pubblica il nome persona mentre è inquadrata per aggiungere/aggiornare identità
+        self.sub_enroll_face = self.create_subscription(
+            String, '/hailo/face/enroll', self.enroll_face_callback, qos_reliable
+        )
 
         # Publishers
         self.pub_semantic_objects = self.create_publisher(
@@ -222,6 +346,10 @@ class HailoBridgeNode(Node):
         )
         self.pub_face_emotions = self.create_publisher(
             String, '/hailo/face/emotions', qos_best_effort
+        )
+        # Publisher identità riconosciuta (nome persona o 'unknown')
+        self.pub_face_identity = self.create_publisher(
+            String, '/hailo/face/identity', qos_reliable
         )
         self.pub_gaze = self.create_publisher(
             Vector3Stamped, '/hailo/gaze/direction', qos_best_effort
@@ -259,6 +387,16 @@ class HailoBridgeNode(Node):
         self.lock = threading.Lock()
         self._infer_lock = threading.Lock()
         self.bridge = CvBridge()
+        
+        # Enrollment runtime: accumulatore embedding per person name (dict: name -> list of np.arrays)
+        self._enroll_buffer: dict = {}
+        self._enroll_target_samples = 10  # Numero di campioni da accumulare prima di salvare
+        
+        # Face Database: caricamento embedding noti
+        self.face_db = FaceDatabase(
+            known_faces_dir=self._get_known_faces_dir(),
+            logger=self.get_logger()
+        )
 
         # Hailo multi-network handles
         self.hailo_device = None
@@ -428,6 +566,59 @@ class HailoBridgeNode(Node):
     def offline_mode_callback(self, msg):
         self.offline_mode = msg.data
         self.get_logger().info(f"Stato offline_mode aggiornato: {self.offline_mode}")
+
+    def enroll_face_callback(self, msg):
+        """
+        Avvia o annulla l'enrollment di un nuovo volto.
+        
+        Pubblica il nome persona su /hailo/face/enroll per avviare l'enrollment.
+        Il nodo accumula self._enroll_target_samples embedding ArcFace reali,
+        calcola la media, normalizza L2 e salva il file .npy nella known_faces_dir.
+        
+        Formato msg.data:
+          - 'luca'        → avvia enrollment per 'luca'
+          - 'cancel:luca' → annulla enrollment in corso per 'luca'
+          - 'reload'      → ricarica il FaceDatabase da disco
+        """
+        cmd = msg.data.strip().lower()
+        
+        if cmd == 'reload':
+            self.face_db.load()
+            self.get_logger().info(
+                f"🔄 FaceDatabase ricaricato: {self.face_db.get_count()} identità → {self.face_db.get_names()}"
+            )
+            return
+        
+        if cmd.startswith('cancel:'):
+            cancel_name = cmd.split(':', 1)[1].strip()
+            with self.lock:
+                removed = self._enroll_buffer.pop(cancel_name, None)
+            if removed is not None:
+                self.get_logger().info(f"❌ Enrollment annullato per '{cancel_name}'.")
+            else:
+                self.get_logger().warn(f"Nessun enrollment in corso per '{cancel_name}'.")
+            return
+        
+        # Avvio enrollment
+        person_name = cmd
+        if not person_name:
+            self.get_logger().warn("enroll_face_callback: nome persona vuoto, ignorato.")
+            return
+        
+        with self.lock:
+            if person_name in self._enroll_buffer:
+                self.get_logger().warn(
+                    f"⚠️ Enrollment per '{person_name}' già in corso "
+                    f"({len(self._enroll_buffer[person_name])}/{self._enroll_target_samples} campioni). "
+                    "Usa 'cancel:<nome>' per annullare."
+                )
+                return
+            self._enroll_buffer[person_name] = []
+        
+        self.get_logger().info(
+            f"📸 Enrollment avviato per '{person_name}'. "
+            f"Mantieni il volto visibile alla telecamera per {self._enroll_target_samples} frame..."
+        )
 
     # Inference Loops
     def vlm_inference_loop(self):
@@ -1002,16 +1193,17 @@ class HailoBridgeNode(Node):
             det_array.header.frame_id = "camera_optical_frame"
             
             face_list = []
+            recognized_names = []
             for face in faces[:3]:
                 bbox = face["bbox"]
                 landmarks = face["landmarks"]
                 score = face["score"]
                 
-                face_list.append(("face", float(score), (bbox[0]/orig_w, bbox[1]/orig_h, bbox[2]/orig_w, bbox[3]/orig_h)))
-                
                 aligned_crop = align_face(bgr, landmarks, output_size=112) if align_face else None
                 if aligned_crop is None:
                     x1, y1, x2, y2 = max(0, bbox[0]), max(0, bbox[1]), min(orig_w, bbox[2]), min(orig_h, bbox[3])
+                    if x2 <= x1 or y2 <= y1:
+                        continue
                     aligned_crop = cv2.resize(bgr[y1:y2, x1:x2], (112, 112))
                     
                 rgb_crop = cv2.cvtColor(aligned_crop, cv2.COLOR_BGR2RGB)
@@ -1019,13 +1211,44 @@ class HailoBridgeNode(Node):
                 with self._infer_lock:
                     self.bindings.input(arcface_input_name).set_buffer(rgb_crop)
                     self.bindings.output(arcface_output_name).set_buffer(self.npu_buffers[arcface_output_name])
-                    
                     self.configured_infer_model.run([self.bindings])
                 
-                embedding = self.npu_buffers[arcface_output_name].flatten().tolist()
+                raw_embedding = self.npu_buffers[arcface_output_name].flatten().astype(np.float32)
+
+                # ── Enrollment runtime: se in corso, accumula il campione ──
+                with self.lock:
+                    active_enroll = dict(self._enroll_buffer)
+                for enroll_name, enroll_samples in active_enroll.items():
+                    enroll_samples.append(raw_embedding.copy())
+                    if len(enroll_samples) >= self._enroll_target_samples:
+                        # Calcola embedding medio e normalizza L2
+                        mean_emb = np.mean(np.stack(enroll_samples, axis=0), axis=0)
+                        self.face_db.add_face(enroll_name, mean_emb)
+                        with self.lock:
+                            self._enroll_buffer.pop(enroll_name, None)
+                        self.get_logger().info(
+                            f"✅ Enrollment completato per '{enroll_name}' "
+                            f"({self._enroll_target_samples} campioni salvati)."
+                        )
+                        identity_msg = String()
+                        identity_msg.data = f"enrolled:{enroll_name}"
+                        self.pub_face_identity.publish(identity_msg)
+
+                # ── Matching coseno con FaceDatabase ──
+                identity_name, identity_score = self.face_db.identify(
+                    raw_embedding, threshold=self.face_identity_threshold
+                )
                 
+                face_list.append((
+                    identity_name,
+                    float(identity_score),
+                    (bbox[0]/orig_w, bbox[1]/orig_h, bbox[2]/orig_w, bbox[3]/orig_h)
+                ))
+                recognized_names.append(identity_name)
+                
+                # Pubblica embedding grezzo per eventuali nodi downstream
                 emb_msg = Float32MultiArray()
-                emb_msg.data = embedding
+                emb_msg.data = raw_embedding.tolist()
                 self.pub_face_embeddings.publish(emb_msg)
                 
                 det = Detection2D()
@@ -1036,16 +1259,28 @@ class HailoBridgeNode(Node):
                 det.bbox.size_y = float(bbox[3] - bbox[1])
                 
                 hyp = ObjectHypothesisWithPose()
-                hyp.hypothesis.class_id = "face"
-                hyp.hypothesis.score = float(score)
+                hyp.hypothesis.class_id = identity_name
+                hyp.hypothesis.score = float(identity_score)
                 det.results.append(hyp)
                 det_array.detections.append(det)
+                
+                self.get_logger().info(
+                    f"👤 Volto riconosciuto: {identity_name} (score={identity_score:.3f})",
+                    throttle_duration_sec=2.0
+                )
                 
             with self.lock:
                 self.latest_face_detections = face_list
 
             if det_array.detections:
                 self.pub_face_detections.publish(det_array)
+                
+                # Pubblica identità primaria (volto con score più alto)
+                if recognized_names:
+                    primary_name = recognized_names[0]
+                    identity_msg = String()
+                    identity_msg.data = primary_name
+                    self.pub_face_identity.publish(identity_msg)
                 
                 emotion_msg = String()
                 emotion_msg.data = "HAPPY"
@@ -1061,6 +1296,7 @@ class HailoBridgeNode(Node):
 
         except Exception as e:
             self.get_logger().error(f"Errore inferenza Face Hailo: {e}", throttle_duration_sec=5.0)
+
 
 
     def publish_diagnostics(self):

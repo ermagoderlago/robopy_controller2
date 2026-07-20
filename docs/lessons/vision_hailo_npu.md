@@ -124,3 +124,32 @@ Questo documento descrive le lezioni apprese su OAK-D Lite, l'acceleratore NPU H
 * **Problema:** Nel mapper C++, la dimensione del buffer veniva letta sotto un lock, per poi iterare sul buffer riacquisendo il lock per ogni singolo elemento, permettendo al thread di scrittura `syncCallback` di mutare il buffer ed invalidare l'indice, provocando corruzione o crash.
 * **Risoluzione:** Modificato il codice in `publishSemanticObjects` e `publishMarkers` per copiare localmente l'intero array degli oggetti attivi sotto un unico lock prima di processarlo ed inviarlo.
 
+---
+
+## 👥 Face Recognition Reale — Matching Embedding (Luglio 2026)
+
+### Architettura Pipeline Completa (SCRFD → ArcFace → FaceDatabase)
+* **Flusso:** 1) SCRFD rileva bounding box + 5 landmark facciali → 2) Allineamento affine (`cv2.estimateAffinePartial2D`) usando i landmark → 3) ArcFace sulla NPU estrae embedding 512-dim → 4) `FaceDatabase.identify()` confronta via prodotto scalare (coseno su vettori normalizzati L2) con i volti noti.
+* **Thread Safety NPU:** Tutte le operazioni ArcFace (sia SCRFD che embedding) avvengono sequenzialmente sotto `self._infer_lock` per evitare accessi concorrenti all'NPU.
+
+### Classe FaceDatabase
+* **Caricamento:** All'avvio di `hailo_bridge_node`, `FaceDatabase.load()` scansiona `known_faces/<nome>/embedding.npy` e carica tutti gli embedding in un dizionario in memoria. I vettori sono normalizzati L2 internamente.
+* **Matching Coseno:** `identify(embedding, threshold)` normalizza il vettore di query e calcola il prodotto scalare (equivalente alla similarità del coseno) con ogni embedding noto. Complessità: O(N) con N = numero persone note, <1ms anche per N=100.
+* **Parametro soglia:** `face_identity_threshold` (default 0.45, range 0-1). Valori consigliati: 0.40 (più permissivo) fino a 0.55 (più restrittivo). Regolare in base al numero di falsi positivi/negativi osservati.
+
+### Topic Nuovo: /hailo/face/identity
+* Pubblica il **nome della persona riconosciuta** (o `'unknown'`) come `std_msgs/String` con QoS RELIABLE ogni volta che un volto viene rilevato e comparato.
+* Formato speciale per enrollment completato: `'enrolled:<nome>'`.
+
+### Enrollment Runtime via /hailo/face/enroll
+* Pubblicare il nome persona su `/hailo/face/enroll` mentre il soggetto è inquadrato. Il nodo accumula 10 embedding ArcFace reali, calcola la media vettoriale, normalizza L2 e salva `embedding.npy`.
+* Comandi supportati: `'<nome>'` (avvia enrollment), `'cancel:<nome>'` (annulla), `'reload'` (ricarica DB da disco).
+
+### Script face_enrollment_offline.py
+* Script standalone (no ROS 2, no Hailo) per generare embedding **placeholder** da foto `.jpg` nelle cartelle `known_faces/<nome>/`.
+* Usa HOG features (128x128, 9 bin) proiettate a 512-dim tramite matrice deterministica. Normalizzazione L2 finale.
+* **LIMITAZIONE CRITICA:** I placeholder NON riconoscono i volti in modo corretto. Servono solo per testare il flusso sistema (caricamento DB, topic, annotazione) prima dell'enrollment reale su Marcus.
+* Uso: `python3 face_enrollment_offline.py --faces-dir known_faces --dim 512 --force`
+
+### Annotazione Visiva Aggiornata
+* I box dei volti sull'immagine annotata `/hailo/annotated_image/compressed` mostrano ora il **nome riconosciuto** (o `unknown`) invece del generico `face`, con lo score di similarità.
