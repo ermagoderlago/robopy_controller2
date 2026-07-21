@@ -399,7 +399,7 @@ class NavigationClient:
     async def move_relative(
         self,
         direction: str,
-        speed: float = 0.15,
+        speed: float = 0.18,
         duration: Optional[float] = None,
         degrees: Optional[float] = None,
         distance_m: Optional[float] = None,

@@ -127,15 +127,28 @@ class MotionManager:
         v_x, w_z = primitive.get_velocities()
         dur = primitive.duration or 1.0
 
-        # Calcolo impulso di spunto (stiction compensation kick) nei primi 0.15s
-        kick_factor = 1.30
-        v_kick = max(min(v_x * kick_factor, MAX_LINEAR_SPEED), -MAX_LINEAR_SPEED) if v_x != 0 else 0.0
-        w_kick = max(min(w_z * kick_factor, MAX_ANGULAR_SPEED), -MAX_ANGULAR_SPEED) if w_z != 0 else 0.0
+        # Calcolo impulso di spunto (stiction compensation kick) nei primi 0.20s
+        if v_x > 0:
+            v_kick = max(v_x * 1.35, 0.22)
+        elif v_x < 0:
+            v_kick = min(v_x * 1.35, -0.22)
+        else:
+            v_kick = 0.0
+
+        if w_z > 0:
+            w_kick = max(w_z * 1.35, 0.70)
+        elif w_z < 0:
+            w_kick = min(w_z * 1.35, -0.70)
+        else:
+            w_kick = 0.0
+
+        v_kick = max(min(v_kick, MAX_LINEAR_SPEED), -MAX_LINEAR_SPEED)
+        w_kick = max(min(w_kick, MAX_ANGULAR_SPEED), -MAX_ANGULAR_SPEED)
 
         self.logger.info(
             f"🚀 [MotionManager] Esecuzione primitivo '{primitive.direction}': "
             f"v_x={v_x:.2f}m/s, w_z={w_z:.2f}rad/s per {dur:.2f}s "
-            f"(dist={primitive.distance_m}m, deg={primitive.degrees}°, kick={v_kick:.2f}m/s)"
+            f"(dist={primitive.distance_m}m, deg={primitive.degrees}°, kick_v={v_kick:.2f}m/s, kick_w={w_kick:.2f}rad/s)"
         )
 
         t_start = time.monotonic()
@@ -143,8 +156,8 @@ class MotionManager:
         
         while time.monotonic() < t_end:
             elapsed = time.monotonic() - t_start
-            # Impulso di spunto per i primi 0.15 secondi
-            if elapsed < 0.15:
+            # Impulso di spunto per i primi 0.20 secondi
+            if elapsed < 0.20:
                 publish_twist_cb(v_kick, w_kick)
             else:
                 publish_twist_cb(v_x, w_z)

@@ -626,8 +626,8 @@ class NavigationSkill(BaseSkill):
             )
         
         # Safety-capped speed mapping
-        speed_map = {"slow": 0.10, "normal": 0.15, "fast": 0.18}
-        speed = speed_map.get(intent.get("speed", "normal"), 0.15)
+        speed_map = {"slow": 0.15, "normal": 0.18, "fast": 0.22}
+        speed = speed_map.get(intent.get("speed", "normal"), 0.18)
         duration = intent.get("duration")
         degrees = intent.get("degrees")
         distance_m = intent.get("distance_m")
