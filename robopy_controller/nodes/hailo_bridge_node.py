@@ -161,6 +161,8 @@ class FaceDatabase:
         
         count = 0
         for person_name in os.listdir(self.known_faces_dir):
+            if person_name.lower() in ('embedding', 'unknown', 'temp', 'placeholder'):
+                continue
             person_dir = os.path.join(self.known_faces_dir, person_name)
             if not os.path.isdir(person_dir):
                 continue
@@ -271,7 +273,8 @@ class HailoBridgeNode(Node):
         self.declare_parameter('known_faces_dir', '/home/robopy/robopy/robopy_controller/known_faces')
         self.declare_parameter('publish_sim_sedia', False)
         self.declare_parameter('annotated_image_topic', '/hailo/annotated_image/compressed')
-        self.declare_parameter('face_identity_threshold', 0.45)
+        self.declare_parameter('face_identity_threshold', 0.50)
+        self.declare_parameter('yolo_conf_thresh', 0.50)
 
         self.hef_path = self.get_parameter('hef_path').value
         self.vlm_rate = self.get_parameter('vlm_rate_hz').value
@@ -283,6 +286,7 @@ class HailoBridgeNode(Node):
         self.publish_sim_sedia = self.get_parameter('publish_sim_sedia').value
         self.annotated_image_topic = self.get_parameter('annotated_image_topic').value
         self.face_identity_threshold = self.get_parameter('face_identity_threshold').value
+        self.yolo_conf_thresh = self.get_parameter('yolo_conf_thresh').value
 
         self.has_yolo = False
         self.has_scrfd = False
@@ -860,7 +864,7 @@ class HailoBridgeNode(Node):
             if not raw:
                 return
 
-            detections = self._parse_yolo_output(raw, orig_w, orig_h)
+            detections = self._parse_yolo_output(raw, orig_w, orig_h, conf_thresh=self.yolo_conf_thresh)
             with self.lock:
                 self.latest_yolo_detections = detections
 
@@ -1003,6 +1007,10 @@ class HailoBridgeNode(Node):
 
     def run_face_inference_sim(self):
         """Simula il riconoscimento facciale caricando un file .npy noto per i test"""
+        if not self.sim_mode:
+            with self.lock:
+                self.latest_face_detections = []
+            return
         faces_dir = self._get_known_faces_dir()
         
         npy_files = []
