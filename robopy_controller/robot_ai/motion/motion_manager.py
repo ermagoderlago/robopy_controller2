@@ -14,10 +14,10 @@ from typing import List, Optional, Dict, Any, Callable
 from ..utils.logging_utils import get_logger
 
 # Vincoli fisici di sicurezza (Regola 14 da actuation_motor_driver.md)
-MAX_LINEAR_SPEED = 0.18   # m/s max per prevenire sottotensione e stallo
-DEFAULT_LINEAR_SPEED = 0.15 # m/s velocità di crociera consigliata
-MAX_ANGULAR_SPEED = 0.8   # rad/s max
-DEFAULT_ANGULAR_SPEED = 0.5 # rad/s (~28.6 deg/s)
+MAX_LINEAR_SPEED = 0.25     # m/s max per tollerare spunto iniziale e salite
+DEFAULT_LINEAR_SPEED = 0.18 # m/s velocità di crociera per superare strizione (stiction)
+MAX_ANGULAR_SPEED = 1.0     # rad/s max
+DEFAULT_ANGULAR_SPEED = 0.6  # rad/s (~34.4 deg/s)
 
 class MotionType(str, Enum):
     LINEAR = "linear"
@@ -114,28 +114,41 @@ class MotionSequence:
 class MotionManager:
     """
     Gestore del movimento del robot. Esegue comandi di movimento relativo o sequenze
-    con ciclo di pubblicazione cmd_vel sicuro ed arresto controllato.
+    con ciclo di pubblicazione cmd_vel sicuro, impulso di spunto iniziale (stiction kick)
+    ed arresto controllato.
     """
     def __init__(self):
         self.logger = get_logger("motion_manager")
 
     async def execute_primitive(self, primitive: MotionPrimitive, publish_twist_cb: Callable[[float, float], None]) -> None:
         """
-        Esegue un movimento primitivo singolo pubblicando cmd_vel a 10Hz.
+        Esegue un movimento primitivo singolo con impulso di spunto iniziale (0.15s) per vincere l'attrito.
         """
         v_x, w_z = primitive.get_velocities()
         dur = primitive.duration or 1.0
 
+        # Calcolo impulso di spunto (stiction compensation kick) nei primi 0.15s
+        kick_factor = 1.30
+        v_kick = max(min(v_x * kick_factor, MAX_LINEAR_SPEED), -MAX_LINEAR_SPEED) if v_x != 0 else 0.0
+        w_kick = max(min(w_z * kick_factor, MAX_ANGULAR_SPEED), -MAX_ANGULAR_SPEED) if w_z != 0 else 0.0
+
         self.logger.info(
             f"🚀 [MotionManager] Esecuzione primitivo '{primitive.direction}': "
             f"v_x={v_x:.2f}m/s, w_z={w_z:.2f}rad/s per {dur:.2f}s "
-            f"(dist={primitive.distance_m}m, deg={primitive.degrees}°)"
+            f"(dist={primitive.distance_m}m, deg={primitive.degrees}°, kick={v_kick:.2f}m/s)"
         )
 
-        t_end = time.monotonic() + dur
+        t_start = time.monotonic()
+        t_end = t_start + dur
+        
         while time.monotonic() < t_end:
-            publish_twist_cb(v_x, w_z)
-            await asyncio.sleep(0.1)  # 10Hz execution loop
+            elapsed = time.monotonic() - t_start
+            # Impulso di spunto per i primi 0.15 secondi
+            if elapsed < 0.15:
+                publish_twist_cb(v_kick, w_kick)
+            else:
+                publish_twist_cb(v_x, w_z)
+            await asyncio.sleep(0.05)  # Loop a 20Hz per maggiore precisione di spunto
 
         # Stop pulito al termine
         publish_twist_cb(0.0, 0.0)

@@ -89,5 +89,15 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
   * **Client Integrazione & Orchestratore:** Aggiornati `NavigationClient` in `navigation.py` e `_skill_move_handler` in `orchestrator.py` per inoltrare `distance_m` e `degrees` al motore `MotionManager`.
   * **Test Suite:** Verificati con successo i test unitari scratch in `test_motion.py`.
 
+---
+
+## 📈 ECO-2026-07-22-010: Stiction Compensation Kick & Torque Tuning for Low Battery Operation
+* **Stato:** ✅ **Completato, Sincronizzato e Compilato**
+* **Descrizione:** Risoluzione del problema di immobilità con ronzio motore (stiction lock su batterie parzialmente scariche) tramite impulso di spunto iniziale di coppia nei primi 150ms di movimento.
+* **Modifiche apportate:**
+  * **Stiction Kick:** Integrato in `MotionManager.execute_primitive` un impulso iniziale (150ms) con spunto di velocità $v_{kick} = 1.30 \cdot v_{cruise}$ (max 0.25 m/s) e $\omega_{kick} = 1.30 \cdot \omega_{cruise}$ (max 1.0 rad/s) per rompere l'attrito statico dei riduttori JGB37-520B prima di passare alla velocità di crociera nominale.
+  * **Tuning Velocità di Crociera:** Elevate la velocità di crociera lineare di default a $0.18$ m/s (con limite max 0.25 m/s) e la velocità angolare a $0.6$ rad/s (con limite max 1.0 rad/s).
+
+
 
 
