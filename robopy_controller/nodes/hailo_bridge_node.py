@@ -274,7 +274,7 @@ class HailoBridgeNode(Node):
         self.declare_parameter('publish_sim_sedia', False)
         self.declare_parameter('annotated_image_topic', '/hailo/annotated_image/compressed')
         self.declare_parameter('face_identity_threshold', 0.50)
-        self.declare_parameter('yolo_conf_thresh', 0.50)
+        self.declare_parameter('yolo_conf_thresh', 0.35)
 
         self.hef_path = self.get_parameter('hef_path').value
         self.vlm_rate = self.get_parameter('vlm_rate_hz').value
