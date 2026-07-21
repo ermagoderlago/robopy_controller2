@@ -464,12 +464,19 @@ class HailoBridgeNode(Node):
             
             # Prova a caricare con InferModel API (moderna API per Hailo-10H)
             try:
-                self.get_logger().info("🔄 Inizializzazione con la nuova InferModel API...")
                 self.infer_model = self.hailo_device.create_infer_model(self.hef_path)
+                
+                # Configura gli output stream su FormatType.FLOAT32 per dequantizzazione automatica
+                for outp in self.infer_model.outputs:
+                    try:
+                        outp.set_format_type(FormatType.FLOAT32)
+                    except Exception:
+                        pass
+
                 self.configured_infer_model = self.infer_model.configure()
                 self.bindings = self.configured_infer_model.create_bindings()
                 self.use_infer_model_api = True
-                self.get_logger().info("✅ Modello configurato con successo via InferModel API")
+                self.get_logger().info("✅ Modello configurato con successo via InferModel API (Output FLOAT32 dequantizzato)")
                 
                 # Identifica i model streams
                 self.has_yolo = any('yolo' in inp.name.lower() for inp in self.infer_model.inputs)
@@ -477,14 +484,14 @@ class HailoBridgeNode(Node):
                 self.has_arcface = any('arcface' in inp.name.lower() or 'resnet50' in inp.name.lower() for inp in self.infer_model.inputs)
                 self.has_netvlad = any('netvlad' in inp.name.lower() or 'mobilenet' in inp.name.lower() or 'vpr' in inp.name.lower() or 'features' in inp.name.lower() for inp in self.infer_model.inputs)
                 
-                # Preallochiamo i buffer di input e output per InferModel e li colleghiamo ai bindings
+                # Preallochiamo i buffer: input (uint8) e output (float32 dequantizzato)
                 self.npu_buffers = {}
                 for inp in self.infer_model.inputs:
                     buf = np.zeros(inp.shape, dtype=np.uint8)
                     self.npu_buffers[inp.name] = buf
                     self.bindings.input(inp.name).set_buffer(buf)
                 for outp in self.infer_model.outputs:
-                    buf = np.empty(outp.shape, dtype=np.uint8)
+                    buf = np.empty(outp.shape, dtype=np.float32)
                     self.npu_buffers[outp.name] = buf
                     self.bindings.output(outp.name).set_buffer(buf)
 
@@ -685,50 +692,115 @@ class HailoBridgeNode(Node):
     def _parse_yolo_output(self, raw_outputs, orig_w, orig_h,
                            conf_thresh=0.4, iou_thresh=0.45):
         """
-        Postprocessing YOLO (formato YOLOv6/v8 Hailo multi-output).
+        Postprocessing YOLO (formato YOLOv8 DFL multi-scale Hailo).
         raw_outputs: dict {layer_name: np.array}
         Ritorna lista di (x1,y1,x2,y2,conf,class_id) normalizzate [0,1].
         """
         boxes, scores, class_ids = [], [], []
 
-        for name, feat in raw_outputs.items():
-            feat = np.squeeze(feat).astype(np.float32)  # (H,W,anchors*(5+C)) o (N,5+C)
-            if feat.ndim == 1:
-                feat = feat.reshape(1, -1)
-            elif feat.ndim == 3:
-                feat = feat.reshape(-1, feat.shape[-1])
+        # Controlliamo se sono presenti gli head separati di YOLOv8 (bbox, cls per 3 scale)
+        scales = [
+            {'stride': 8,  'bbox': 'yolo/conv44', 'cls': 'yolo/conv45'},
+            {'stride': 16, 'bbox': 'yolo/conv60', 'cls': 'yolo/conv61'},
+            {'stride': 32, 'bbox': 'yolo/conv73', 'cls': 'yolo/conv74'},
+        ]
 
-            if feat.shape[-1] < 5:
-                continue
+        has_yolov8_heads = all(s['bbox'] in raw_outputs and s['cls'] in raw_outputs for s in scales)
 
-            num_classes = feat.shape[-1] - 5
-            obj_conf = feat[:, 4]
-            mask = obj_conf > conf_thresh
-            feat = feat[mask]
-            obj_conf = obj_conf[mask]
-            if feat.shape[0] == 0:
-                continue
+        if has_yolov8_heads:
+            def sigmoid_fn(x):
+                return 1.0 / (1.0 + np.exp(-np.clip(x, -10.0, 10.0)))
 
-            cls_conf = feat[:, 5:]
-            cls_ids = np.argmax(cls_conf, axis=1)
-            cls_scores = cls_conf[np.arange(len(cls_ids)), cls_ids]
-            final_scores = obj_conf * cls_scores
+            def decode_dfl_fn(reg_dist, reg_max=16):
+                N = reg_dist.shape[0]
+                reg_dist = reg_dist.reshape(N, 4, reg_max)
+                prob = np.exp(reg_dist - np.max(reg_dist, axis=-1, keepdims=True))
+                prob /= np.sum(prob, axis=-1, keepdims=True)
+                weights = np.arange(reg_max, dtype=np.float32)
+                return np.sum(prob * weights, axis=-1)  # (N, 4)
 
-            # cx,cy,w,h → x1,y1,x2,y2 (normalizzato)
-            cx = feat[:, 0] / self.yolo_input_w
-            cy = feat[:, 1] / self.yolo_input_h
-            bw = feat[:, 2] / self.yolo_input_w
-            bh = feat[:, 3] / self.yolo_input_h
-            x1 = cx - bw / 2
-            y1 = cy - bh / 2
-            x2 = cx + bw / 2
-            y2 = cy + bh / 2
+            for s in scales:
+                cls_head = np.squeeze(raw_outputs[s['cls']]).astype(np.float32)
+                bbox_head = np.squeeze(raw_outputs[s['bbox']]).astype(np.float32)
+                
+                H, W, C = cls_head.shape
+                cls_prob = sigmoid_fn(cls_head.reshape(-1, C))
+                
+                max_scores = np.max(cls_prob, axis=-1)
+                max_classes = np.argmax(cls_prob, axis=-1)
+                
+                mask = max_scores > conf_thresh
+                if not np.any(mask):
+                    continue
+                    
+                valid_scores = max_scores[mask]
+                valid_classes = max_classes[mask]
+                valid_bbox_raw = bbox_head.reshape(-1, 64)[mask]
+                
+                grid_y, grid_x = np.meshgrid(np.arange(H), np.arange(W), indexing='ij')
+                grid_x = grid_x.reshape(-1)[mask]
+                grid_y = grid_y.reshape(-1)[mask]
+                
+                dfl_offsets = decode_dfl_fn(valid_bbox_raw)
+                
+                cx = (grid_x + 0.5 + (dfl_offsets[:, 2] - dfl_offsets[:, 0]) / 2.0) * s['stride']
+                cy = (grid_y + 0.5 + (dfl_offsets[:, 3] - dfl_offsets[:, 1]) / 2.0) * s['stride']
+                w_px = (dfl_offsets[:, 0] + dfl_offsets[:, 2]) * s['stride']
+                h_px = (dfl_offsets[:, 1] + dfl_offsets[:, 3]) * s['stride']
+                
+                x1 = np.clip((cx - w_px / 2.0) / self.yolo_input_w, 0.0, 1.0)
+                y1 = np.clip((cy - h_px / 2.0) / self.yolo_input_h, 0.0, 1.0)
+                x2 = np.clip((cx + w_px / 2.0) / self.yolo_input_w, 0.0, 1.0)
+                y2 = np.clip((cy + h_px / 2.0) / self.yolo_input_h, 0.0, 1.0)
+                
+                for i in range(len(valid_scores)):
+                    boxes.append([float(x1[i]), float(y1[i]), float(x2[i]), float(y2[i])])
+                    scores.append(float(valid_scores[i]))
+                    class_ids.append(int(valid_classes[i]))
+        else:
+            # Fallback legacy per output concatenati singoli (es. 85+ canali)
+            for name, feat in raw_outputs.items():
+                feat = np.squeeze(feat).astype(np.float32)
+                if feat.ndim == 1:
+                    feat = feat.reshape(1, -1)
+                elif feat.ndim == 3:
+                    feat = feat.reshape(-1, feat.shape[-1])
 
-            for i in range(len(final_scores)):
-                if final_scores[i] > conf_thresh:
-                    boxes.append([x1[i], y1[i], x2[i], y2[i]])
-                    scores.append(float(final_scores[i]))
-                    class_ids.append(int(cls_ids[i]))
+                if feat.shape[-1] < 85:
+                    continue
+
+                obj_conf = feat[:, 4]
+                if np.any(obj_conf > 1.0) or np.any(obj_conf < 0.0):
+                    obj_conf = 1.0 / (1.0 + np.exp(-np.clip(obj_conf, -10.0, 10.0)))
+                    
+                mask = obj_conf > conf_thresh
+                feat = feat[mask]
+                obj_conf = obj_conf[mask]
+                if feat.shape[0] == 0:
+                    continue
+
+                cls_conf = feat[:, 5:]
+                if np.any(cls_conf > 1.0) or np.any(cls_conf < 0.0):
+                    cls_conf = 1.0 / (1.0 + np.exp(-np.clip(cls_conf, -10.0, 10.0)))
+                    
+                cls_ids = np.argmax(cls_conf, axis=1)
+                cls_scores = cls_conf[np.arange(len(cls_ids)), cls_ids]
+                final_scores = obj_conf * cls_scores
+
+                cx = feat[:, 0] / self.yolo_input_w
+                cy = feat[:, 1] / self.yolo_input_h
+                bw = feat[:, 2] / self.yolo_input_w
+                bh = feat[:, 3] / self.yolo_input_h
+                x1 = cx - bw / 2
+                y1 = cy - bh / 2
+                x2 = cx + bw / 2
+                y2 = cy + bh / 2
+
+                for i in range(len(final_scores)):
+                    if final_scores[i] > conf_thresh:
+                        boxes.append([float(x1[i]), float(y1[i]), float(x2[i]), float(y2[i])])
+                        scores.append(float(final_scores[i]))
+                        class_ids.append(int(cls_ids[i]))
 
         if not boxes:
             return []
