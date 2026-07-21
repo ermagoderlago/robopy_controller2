@@ -96,8 +96,12 @@ class NetVLADPooledCPU:
 
     def pool(self, feature_map):
         if feature_map.ndim == 4:
-            feature_map = feature_map[0]  # Rimuove dimensione batch -> (128, 7, 10)
+            feature_map = feature_map[0]  # Rimuove dimensione batch -> (128, H, W) o (H, W, 128)
         
+        # Se i canali (128) si trovano nell'ultimo asse, trasponiamo a (C, H, W)
+        if feature_map.ndim == 3 and feature_map.shape[-1] == self.dim:
+            feature_map = feature_map.transpose(2, 0, 1)
+            
         C, H, W = feature_map.shape
         x = feature_map.reshape(C, -1)  # Flatten spaziale -> (128, H * W)
         
@@ -473,12 +477,16 @@ class HailoBridgeNode(Node):
                 self.has_arcface = any('arcface' in inp.name.lower() or 'resnet50' in inp.name.lower() for inp in self.infer_model.inputs)
                 self.has_netvlad = any('netvlad' in inp.name.lower() or 'mobilenet' in inp.name.lower() or 'vpr' in inp.name.lower() or 'features' in inp.name.lower() for inp in self.infer_model.inputs)
                 
-                # Preallochiamo i buffer di input e output per InferModel
+                # Preallochiamo i buffer di input e output per InferModel e li colleghiamo ai bindings
                 self.npu_buffers = {}
                 for inp in self.infer_model.inputs:
-                    self.npu_buffers[inp.name] = np.zeros(inp.shape, dtype=np.uint8)
+                    buf = np.zeros(inp.shape, dtype=np.uint8)
+                    self.npu_buffers[inp.name] = buf
+                    self.bindings.input(inp.name).set_buffer(buf)
                 for outp in self.infer_model.outputs:
-                    self.npu_buffers[outp.name] = np.empty(outp.shape, dtype=np.float32)
+                    buf = np.empty(outp.shape, dtype=np.uint8)
+                    self.npu_buffers[outp.name] = buf
+                    self.bindings.output(outp.name).set_buffer(buf)
 
                 # Trova shape di input per YOLO
                 yolo_input = [inp for inp in self.infer_model.inputs if 'yolo' in inp.name.lower()]
@@ -684,7 +692,7 @@ class HailoBridgeNode(Node):
         boxes, scores, class_ids = [], [], []
 
         for name, feat in raw_outputs.items():
-            feat = np.squeeze(feat)  # (H,W,anchors*(5+C)) o (N,5+C)
+            feat = np.squeeze(feat).astype(np.float32)  # (H,W,anchors*(5+C)) o (N,5+C)
             if feat.ndim == 1:
                 feat = feat.reshape(1, -1)
             elif feat.ndim == 3:
@@ -751,13 +759,15 @@ class HailoBridgeNode(Node):
                     # Preprocess per YOLO
                     resized = cv2.resize(bgr, (self.yolo_input_w, self.yolo_input_h))
                     rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+                    if self.npu_buffers[yolo_input_name[0]].dtype == np.float32:
+                        rgb = (rgb.astype(np.float32) / 255.0)
                     
                     with self._infer_lock:
                         self.bindings.input(yolo_input_name[0]).set_buffer(rgb)
                         for name in yolo_output_names:
                             self.bindings.output(name).set_buffer(self.npu_buffers[name])
                             
-                        self.configured_infer_model.run([self.bindings])
+                        self.configured_infer_model.run([self.bindings], 1000)
                     raw = {name: self.npu_buffers[name] for name in yolo_output_names}
             else:
                 inp = self._preprocess_yolo(bgr)
@@ -1168,7 +1178,7 @@ class HailoBridgeNode(Node):
                 for name in scrfd_output_names:
                     self.bindings.output(name).set_buffer(self.npu_buffers[name])
                     
-                self.configured_infer_model.run([self.bindings])
+                self.configured_infer_model.run([self.bindings], 1000)
             
             raw_scrfd_outputs = {name: self.npu_buffers[name] for name in scrfd_output_names}
             faces = self._parse_scrfd_output(raw_scrfd_outputs, orig_w, orig_h)
@@ -1211,7 +1221,7 @@ class HailoBridgeNode(Node):
                 with self._infer_lock:
                     self.bindings.input(arcface_input_name).set_buffer(rgb_crop)
                     self.bindings.output(arcface_output_name).set_buffer(self.npu_buffers[arcface_output_name])
-                    self.configured_infer_model.run([self.bindings])
+                    self.configured_infer_model.run([self.bindings], 1000)
                 
                 raw_embedding = self.npu_buffers[arcface_output_name].flatten().astype(np.float32)
 
@@ -1386,9 +1396,9 @@ class HailoBridgeNode(Node):
                 self.bindings.input(netvlad_input_name).set_buffer(rgb)
                 self.bindings.output(netvlad_output_name).set_buffer(self.npu_buffers[netvlad_output_name])
                 
-                self.configured_infer_model.run([self.bindings])
+                self.configured_infer_model.run([self.bindings], 1000)
             
-            feature_map = self.npu_buffers[netvlad_output_name]
+            feature_map = self.npu_buffers[netvlad_output_name].astype(np.float32)
             vlad_descriptor = self.netvlad_pooler.pool(feature_map)
             
             msg = Float32MultiArray()

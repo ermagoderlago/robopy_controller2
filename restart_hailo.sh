@@ -170,7 +170,7 @@ nohup ros2 run robopy_controller respeaker_vui_node --ros-args \
 echo "🧠 Starting hailo_bridge_node (NPU Driver)..."
 > /home/robopy/robopy/logs/hailo_bridge_node.log
 nohup ros2 run robopy_controller hailo_bridge_node --ros-args \
-    -p hef_path:=/mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_controller/models/joined_yolo_superpoint_netvlad.hef \
+    -p hef_path:=/mnt/ssd/robopy_controller_host/joined_yolo_superpoint_netvlad.hef \
     -p sim_mode:=False \
     > /home/robopy/robopy/logs/hailo_bridge_node.log 2>&1 &
 
