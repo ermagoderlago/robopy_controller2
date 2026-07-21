@@ -153,3 +153,19 @@ Questo documento descrive le lezioni apprese su OAK-D Lite, l'acceleratore NPU H
 
 ### Annotazione Visiva Aggiornata
 * I box dei volti sull'immagine annotata `/hailo/annotated_image/compressed` mostrano ora il **nome riconosciuto** (o `unknown`) invece del generico `face`, con lo score di similarità.
+
+---
+
+## 🎯 Correzione Dequantizzazione e Decoder YOLOv8 DFL (Luglio 2026)
+
+### Dequantizzazione Automatica Output (`FormatType.FLOAT32`)
+* **Problema:** Gli output dell'API `InferModel` di HailoRT restituivano buffer raw di byte non dequantizzati (0-255 uint8). Interpretando questi dati come float32 senza configurazione del formato, le confidenze risultavano superiori a 30,000, convertendosi in score del **3,595,500%** su Foxglove 3D e saturando il frame di falsi positivi.
+* **Risoluzione:** Applicata la chiamata `outp.set_format_type(FormatType.FLOAT32)` prima di `infer_model.configure()`, forzando HailoRT a dequantizzare automaticamente gli output a `float32` ed allocando i buffer come `dtype=np.float32`.
+
+### Decoder Multi-Scala YOLOv8 DFL per Output Separati
+* **Problema:** Il parser legacy `_parse_yolo_output` iterava indistintamente su tutte le 10 viste di output (`yolo/conv44`, `yolo/conv45`, `yolo/conv46`, `yolo/conv48`, `yolo/conv60`, `yolo/conv61`, `yolo/conv62`, `yolo/conv73`, `yolo/conv74`, `yolo/conv75`). Le mappe di feature di regressione DFL (`conv44`, `conv60`, `conv73`) e proto-mask (`conv48`) venivano scambiate per coordinate + confidenza, creando oltre 3,000 falsi box al secondo su tutta l'immagine.
+* **Risoluzione:** Riscritto `_parse_yolo_output` per accoppiare rigorosamente i 3 livelli di scala di YOLOv8:
+  - Stride 8 (80x80): BBOX `conv44` (64 canali) + CLS `conv45` (80 canali)
+  - Stride 16 (40x40): BBOX `conv60` (64 canali) + CLS `conv61` (80 canali)
+  - Stride 32 (20x20): BBOX `conv73` (64 canali) + CLS `conv74` (80 canali)
+  La confidenza delle classi è estratta con la funzione `sigmoid`, e i box 2D vengono ricostruiti con la decodifica DFL (`decode_dfl_fn`). Su uno schermo buio o frame vuoto le detection scendono a 0 (0-1 detection reali).
