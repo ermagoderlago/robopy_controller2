@@ -38,6 +38,11 @@ import audioop
 # Nuovi import per DSP
 import numpy as np
 import webrtcvad
+try:
+    from scipy.signal import butter, sosfilt, sosfilt_zi
+    HAS_SCIPY = True
+except ImportError:
+    HAS_SCIPY = False
 
 # [v6.4] Audio Recovery - Force Sync for Gain 30x
 import rclpy
@@ -67,7 +72,7 @@ PRE_ROLL_FRAMES    = 25                       # 25 × 20 ms = 500 ms di pre-roll
 MAX_RING_FRAMES    = PRE_ROLL_FRAMES + 100    # 125 × 20 ms = 2.5 sec totali
 
 # Soglie VAD standard (possono essere modificate da parametri)
-MIN_SPEECH_FRAMES  = 10    # frame VAD=True consecutivi per aprire il gate (v5.8)
+MIN_SPEECH_FRAMES  = 4     # frame VAD=True consecutivi per aprire il gate (v17.0: 80ms reattività far-field)
 MAX_SILENCE_FRAMES = 25    # frame VAD=False consecutivi per chiudere il gate (v5.8: 500ms)
 MAX_RESIDUAL       = FRAME_SIZE   # dimensione buffer residuo (= FRAME_SIZE)
 
@@ -272,6 +277,20 @@ class ReSpeakerVUINode(Node):
         # Per risalire da 0.0 a 1.0 in 900ms, servono 15 chunk.
         # Quindi il guadagno aumenta di 1.0 / 15 = ~0.0667 per chunk.
         self._limiter_release_rate = 0.0667  # incremento lineare per chunk (60ms)
+
+        # ------------------------------------------------------------------ #
+        # Filtro Passa-Alto @ 140 Hz (HPF) per eliminare il ronzio ventola Pi 5 [v17.0]
+        # ------------------------------------------------------------------ #
+        if HAS_SCIPY:
+            self._hpf_sos = butter(2, 140.0, btype='highpass', fs=SAMPLE_RATE, output='sos')
+            self._hpf_zi_l = sosfilt_zi(self._hpf_sos) * 0.0
+            self._hpf_zi_r = sosfilt_zi(self._hpf_sos) * 0.0
+        else:
+            self._hpf_sos = None
+            self._hpf_prev_x_l = 0.0
+            self._hpf_prev_y_l = 0.0
+            self._hpf_prev_x_r = 0.0
+            self._hpf_prev_y_r = 0.0
 
 
         # ------------------------------------------------------------------ #
@@ -839,31 +858,56 @@ class ReSpeakerVUINode(Node):
 
             try:
                 # ---------------------------------------------------------- #
-                # Mix L+R → mono int16 (stereo → CHUNK_SIZE campioni mono)
+                # Mix L+R → mono int16 con Filtro Passa-Alto (HPF @ 140 Hz)
                 # ---------------------------------------------------------- #
                 audio_stereo = np.frombuffer(in_data, dtype=np.int16)
                 stt_gain_to_use = self.stt_gain
                 
-                # Stereo interleaved → Usiamo solo il canale sinistro (Left)
-                # Questo evita la "Phase Cancellation".
-                l_ch = audio_stereo[::2]
-                n    = min(len(l_ch), CHUNK_SIZE)
+                l_ch = audio_stereo[::2].astype(np.float32)
+                r_ch = audio_stereo[1::2].astype(np.float32)
+                n    = min(len(l_ch), len(r_ch), CHUNK_SIZE)
                 
-                # [v11.0] Calcolo continuo RMS per Auto-Volume Ambientale
-                rms_current = np.sqrt(np.mean(l_ch[:n].astype(np.float32)**2))
+                # 1. Filtro Passa-Alto @ 140 Hz (HPF) per eliminare ronzio ventola Pi 5
+                if HAS_SCIPY and self._hpf_sos is not None:
+                    hp_l, self._hpf_zi_l = sosfilt(self._hpf_sos, l_ch[:n], zi=self._hpf_zi_l)
+                    hp_r, self._hpf_zi_r = sosfilt(self._hpf_sos, r_ch[:n], zi=self._hpf_zi_r)
+                else:
+                    # RC High-Pass Filter fallback (fc ≈ 140Hz @ 16kHz)
+                    alpha_hpf = 0.9478
+                    hp_l = np.zeros(n, dtype=np.float32)
+                    hp_r = np.zeros(n, dtype=np.float32)
+                    yl, xl = self._hpf_prev_y_l, self._hpf_prev_x_l
+                    yr, xr = self._hpf_prev_y_r, self._hpf_prev_x_r
+                    for i in range(n):
+                        yl = alpha_hpf * (yl + l_ch[i] - xl)
+                        xl = l_ch[i]
+                        hp_l[i] = yl
+                        yr = alpha_hpf * (yr + r_ch[i] - xr)
+                        xr = r_ch[i]
+                        hp_r[i] = yr
+                    self._hpf_prev_y_l, self._hpf_prev_x_l = yl, xl
+                    self._hpf_prev_y_r, self._hpf_prev_x_r = yr, xr
+
+                # 2. Selezione dinamica del canale con maggior energia vocale pulita
+                rms_l_hp = np.sqrt(np.mean(hp_l ** 2))
+                rms_r_hp = np.sqrt(np.mean(hp_r ** 2))
+
+                if rms_r_hp > rms_l_hp * 1.15:
+                    selected_hp = hp_r
+                    rms_hp_current = rms_r_hp
+                else:
+                    selected_hp = hp_l
+                    rms_hp_current = rms_l_hp
                 
-                # Calcolo continuo EMA rumore ambientale (aggiornato anche durante ascolto)
-                if not self._is_tts_speaking and not self._is_music_playing and not getattr(self, '_is_playing_out', False):
-                    if rms_current < self._ambient_noise_ema * 1.5:
-                        alpha = 0.05
+                # Calcolo continuo EMA rumore ambientale (aggiornato sul segnale HPF quando l'AI non parla e VAD è inattivo)
+                if not self._is_tts_speaking and not self._is_music_playing and not getattr(self, '_is_playing_out', False) and not self._is_speech_active:
+                    if rms_hp_current < self._ambient_noise_ema * 1.5:
+                        alpha_ema = 0.05
                     else:
-                        # Se il rumore sale improvvisamente o stabilmente oltre la soglia dei transienti,
-                        # permettiamo comunque all'EMA di adeguarsi ma molto lentamente (alpha basso)
-                        # per evitare stalli permanenti del noise gate.
-                        alpha = 0.001
-                    self._ambient_noise_ema = (alpha * float(rms_current)) + ((1.0 - alpha) * self._ambient_noise_ema)
-                    # Cap fisico del rumore di fondo tra 50 e 2000 per evitare clip (il filtro transitori fa il resto)
-                    self._ambient_noise_ema = float(np.clip(self._ambient_noise_ema, 50.0, 2000.0))
+                        alpha_ema = 0.001
+                    self._ambient_noise_ema = (alpha_ema * float(rms_hp_current)) + ((1.0 - alpha_ema) * self._ambient_noise_ema)
+                    # Baseline HPF ambient tra 30.0 e 400.0 RMS
+                    self._ambient_noise_ema = float(np.clip(self._ambient_noise_ema, 30.0, 400.0))
                     
                     self._ambient_noise_chunks += 1
                     if self._ambient_noise_chunks >= 16:  # Ogni ~1 sec (@16000Hz / 960)
@@ -872,32 +916,29 @@ class ReSpeakerVUINode(Node):
                         msg.data = self._ambient_noise_ema
                         self.ambient_noise_pub.publish(msg)
 
-                # A. Auto-regolazione soglia noise gate (se abilitata)
+                # A. Auto-regolazione soglia noise gate (se abilitata) calibrata su HPF per far-field
                 if self.enable_adaptive_threshold:
-                    boosted_ambient = self._ambient_noise_ema * self.stt_gain
-                    # Ricarica dinamica: 1.50x + offset 500, protetta tra [1500.0, 32000.0]
-                    self.noise_gate_threshold = float(np.clip(boosted_ambient * 1.50 + 500.0, 1500.0, 32000.0))
+                    boosted_ambient = self._ambient_noise_ema * stt_gain_to_use
+                    # Soglia dinamica per far-field: clamped tra [800.0, 4500.0] (intercetta voce a 2-3m, RMS ~1500-3000)
+                    self.noise_gate_threshold = float(np.clip(boosted_ambient * 1.25 + 300.0, 800.0, 4500.0))
 
                 # B. Taratura adattiva del timeout silenzio (se abilitato)
                 if self.enable_adaptive_silence:
                     raw_ambient = self._ambient_noise_ema
-                    if raw_ambient < 150.0:
+                    if raw_ambient < 100.0:
                         self._cfg_max_silence = 40  # ~800ms (silenzio perfetto)
-                    elif raw_ambient < 300.0:
+                    elif raw_ambient < 200.0:
                         self._cfg_max_silence = 28  # ~560ms
-                    elif raw_ambient < 600.0:
+                    elif raw_ambient < 350.0:
                         self._cfg_max_silence = 35  # ~700ms
                     else:
                         self._cfg_max_silence = 45  # ~900ms
 
                 # Diagnostica Volume MIC (RMS ogni ~1s @ 960 chunks)
                 self._rms_chunk_count += 1
-                rms_l = rms_current
-                rms_r = 0.0
+                rms_l = rms_l_hp
+                rms_r = rms_r_hp
                 rms_boosted = 0.0
-                if self._rms_chunk_count % 16 == 0:
-                    r_ch   = audio_stereo[1::2]  # Canale destro
-                    rms_r  = np.sqrt(np.mean(r_ch[:n].astype(np.float32)**2))
                 
                 # ---------------------------------------------------------- #
                 # Controllo Parlato AI (TTS o Gemini Live playback)
@@ -948,16 +989,16 @@ class ReSpeakerVUINode(Node):
                 if self._cfg_diag_mode and self._rms_chunk_count % 16 == 0:
                     rms_boosted = rms_l * stt_gain_to_use
                     self.get_logger().info(
-                        f"🎤 [MIC] Volume: L_RMS={rms_l:.1f} | FORCED_BOOSTED={rms_boosted:.1f} | "
+                        f"🎤 [MIC] Volume HPF: L_RMS={rms_l:.1f} | R_RMS={rms_r:.1f} | BOOSTED={rms_boosted:.1f} | "
                         f"Ambient_EMA={self._ambient_noise_ema:.1f} | Gate={self.noise_gate_threshold:.1f} | "
                         f"MaxSilence={self._cfg_max_silence} frames (Gain: {stt_gain_to_use}x)")
                 
                 # ---------------------------------------------------------- #
-                # Applica stt_gain_to_use al segnale d'ingresso per VAD e Porcupine
-                # con Peak Limiter / AGC software [v16.0]
+                # Applica stt_gain_to_use al segnale d'ingresso filtrato per VAD e Porcupine
+                # con Peak Limiter / AGC software [v17.0]
                 # ---------------------------------------------------------- #
-                # 1. Applica il guadagno software iniziale (boost di sensibilità stt_gain)
-                boosted_float = l_ch[:n].astype(np.float32) * stt_gain_to_use
+                # 1. Applica il guadagno software iniziale sul segnale HPF selezionato
+                boosted_float = selected_hp[:n] * stt_gain_to_use
 
                 # 2. Peak Limiter / AGC Software in tempo reale sui chunk PCM
                 # Soglia (Threshold): 26000. Se il picco supera 26000, attiva attenuazione istantanea (Attack = 0ms)
@@ -1088,20 +1129,22 @@ class ReSpeakerVUINode(Node):
                         np.copyto(self._assembly_buf[self._vad_residual_len:],
                                   self._int16_vad_buf[:needed])
                                   
+                        selected_hp_int16 = np.clip(selected_hp[:needed], -32768, 32767).astype(np.int16)
                         np.copyto(self._assembly_raw_buf[:self._vad_residual_len],
                                   self._vad_residual_raw_buf[:self._vad_residual_len])
                         np.copyto(self._assembly_raw_buf[self._vad_residual_len:],
-                                  l_ch[:needed])
+                                  selected_hp_int16)
                                   
                         self._process_vad_frame(self._assembly_buf, self._assembly_raw_buf)
                         start_idx = needed
                         self._vad_residual_len = 0
 
                     i = start_idx
+                    selected_hp_all_int16 = np.clip(selected_hp, -32768, 32767).astype(np.int16)
                     while i + FRAME_SIZE <= CHUNK_SIZE:
                         self._process_vad_frame(
                             self._int16_vad_buf[i:i + FRAME_SIZE],
-                            l_ch[i:i + FRAME_SIZE]
+                            selected_hp_all_int16[i:i + FRAME_SIZE]
                         )
                         i += FRAME_SIZE
 
@@ -1110,7 +1153,7 @@ class ReSpeakerVUINode(Node):
                         np.copyto(self._vad_residual_buf[:residuo],
                                   self._int16_vad_buf[i:])
                         np.copyto(self._vad_residual_raw_buf[:residuo],
-                                  l_ch[i:])
+                                  selected_hp_all_int16[i:])
                         self._vad_residual_len = residuo
 
                 self._consecutive_errors = 0

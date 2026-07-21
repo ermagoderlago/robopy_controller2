@@ -327,12 +327,26 @@ class AIOrchestrator(Node):
     def _provide_camera_frame(self) -> Optional[bytes]:
         return self._latest_frame_bytes
 
-    def _skill_move_handler(self, direction: str, speed: float, duration: float, degrees: float = None):
+    def _skill_move_handler(
+        self,
+        direction: str,
+        speed: float,
+        duration: Optional[float] = None,
+        degrees: Optional[float] = None,
+        distance_m: Optional[float] = None
+    ):
         if self.nav_client:
             asyncio.run_coroutine_threadsafe(
-                self.nav_client.move_relative(direction, speed, duration, degrees),
+                self.nav_client.move_relative(
+                    direction=direction,
+                    speed=speed,
+                    duration=duration,
+                    degrees=degrees,
+                    distance_m=distance_m
+                ),
                 self._loop
             )
+
 
     def _text_input_callback(self, msg):
         if self._shutdown_flag:

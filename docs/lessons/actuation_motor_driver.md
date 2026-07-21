@@ -157,5 +157,14 @@ Con JGB37-520B a 7RPM (riduzione ~143:1), **girare la ruota manualmente è impos
 * **Causa:** La presenza di costmap interni come `global_costmap/global_costmap` e `local_costmap/local_costmap` nella lista dei nodi gestiti (`node_names`) del `lifecycle_manager_navigation` forza transizioni non registrate, mandando in timeout il bond.
 * **Risoluzione:** Rimuovere le sotto-istanze costmap dall'elenco del manager in `custom_nav2_launch.py`, lasciando che siano gestite in cascata dai rispettivi nodi padre planner e controller.
 
+### 17. Architettura di Movimento Relativo (`MotionManager`) e Calcolo Durata per Distanza/Angoli
+* **Sintomo:** I comandi vocali o testuali di avanzamento con misura (es. "muoviti in avanti di 30cm") venivano ignorati o non producevano movimento perché i parametri `distance_cm`, `distance_m` e `degrees` non erano presenti nello schema dei tool Gemini Live API, e la skill `NavigationSkill` non ispezionava gli argomenti ricevuti nel `context` né convertiva le unità metriche in tempi di esecuzione `/cmd_vel`.
+* **Causa:** Assenza di un costruttore cinematico unificato per primitivi di movimento e mancata sincronizzazione tra lo schema tool LLM ed il gestore di navigazione.
+* **Risoluzione:** 
+  1. Implementato il pacchetto `robot_ai.motion` (`MotionPrimitive`, `MotionSequence`, `MotionManager`) per calcolare la durata esatta $t = \text{distanza} / v_{lineare}$ e $t = \text{radianti} / \omega_{angolare}$ saturando le velocità a valori sicuri ($v \le 0.18$ m/s, $\omega \le 0.8$ rad/s).
+  2. Aggiornato lo schema Function Declaration di `NavigationSkill` per esporre `distance_cm`, `distance_m` e `degrees`.
+  3. Abilitato l'ispezione combinata di `context` e regex per la risoluzione trasparente sia dei tool call asincroni Gemini Live che dell'input testuale standard.
+
+
 
 

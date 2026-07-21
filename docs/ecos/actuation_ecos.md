@@ -78,4 +78,16 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
   * **Calibrazione Finale Parametri Geometrici:** Impostato `ticks_per_rev := 594` (rapporto di scala reale 1x sul Pi5) per allineare l'odometria ruote con quella visiva. Tarato il raggio dinamico a `wheel_radius := 0.0361` e la carreggiata a `wheel_separation := 0.091` ottenendo un'accuratezza sul giro a 360° pari allo **0.7%** di errore (yaw residuo di solo -2.6°).
   * **Ottimizzazione Velocità MPPI:** Elevate le velocità massime operative di Nav2 in `nav2_params_jazzy.yaml` (`vx_max := 0.18 m/s` e `wz_max := 0.8 rad/s`) per consentire al planner locale di erogare coppia fluida superiore alla soglia di strizione minima (`0.15 m/s`).
 
+---
+
+## 📈 ECO-2026-07-22-009: MotionManager Architecture & Relative Movement Schema Extension
+* **Stato:** ✅ **Completato, Sincronizzato e Validato**
+* **Descrizione:** Implementazione del pacchetto cinematico `MotionManager` e correzione dei comandi di movimento relativo a distanza/angolo (es. "muoviti in avanti di 30cm", "gira a sinistra di 90°") sia per la Voice UI (Gemini Live API Tool Calls) che per l'input testuale.
+* **Modifiche apportate:**
+  * **Modulo Motion (`robot_ai.motion`):** Creato `MotionPrimitive`, `MotionSequence` e `MotionManager` in `robopy_controller/robot_ai/motion/`. Gestione unificata del calcolo dei tempi $t = d/v$ e $t = \theta/\omega$, conversioni tra metri, centimetri e gradi, e saturazione di sicurezza ($v \le 0.18$ m/s, $\omega \le 0.8$ rad/s).
+  * **Skill Navigation:** Esteso `get_parameters_schema()` in `navigation_skill.py` con `distance_cm`, `distance_m` e `degrees`. Aggiornato `_parse_intent()` per ispezionare sia il `context` (dati strutturati da Gemini Live) sia regex avanzate su testo.
+  * **Client Integrazione & Orchestratore:** Aggiornati `NavigationClient` in `navigation.py` e `_skill_move_handler` in `orchestrator.py` per inoltrare `distance_m` e `degrees` al motore `MotionManager`.
+  * **Test Suite:** Verificati con successo i test unitari scratch in `test_motion.py`.
+
+
 

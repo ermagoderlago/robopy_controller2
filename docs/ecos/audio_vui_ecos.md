@@ -32,3 +32,16 @@ Questo documento traccia la cronologia delle modifiche ingegneristiche (ECO) app
   * Inizializzato lo stato del limitatore (`self._limiter_gain = 1.0` e `self._limiter_release_rate = 0.0667`) in `__init__`.
   * Implementato l'algoritmo vettoriale in `_audio_processing_worker` che monitora il picco assoluto di ogni chunk. Se supera `26000`, applica un'attenuazione istantanea (tempo di attacco 0ms) per bloccare i campioni entro `30000.0`.
   * Configurato il tempo di rilascio lineare (~900ms totali) per far risalire il guadagno a `1.0` eliminando gli effetti di "pompaggio" acustico.
+
+---
+
+## 📈 ECO-2026-07-21-001: Far-Field Sensitivity & Fan Noise HPF Mitigation
+* **Stato:** ✅ **Completato e Sincronizzato**
+* **Descrizione:** Risoluzione dell'insufficienza di sensibilità microfonica in far-field (1-3m) ed eliminazione dei falsi segnali di rumore inviati a Gemini Live generati dalla ventola di raffreddamento del Pi 5.
+* **Modifiche VUI:**
+  * Implementato un filtro passa-alto Butterworth 2° ordine @ 140 Hz (HPF) nel loop di acquisizione audio di `respeaker_vui_node.py` prima di VAD, Porcupine e Gemini Live, con fallback su RC filter se SciPy non presente.
+  * Corretto l'input di `webrtcvad.is_speech()` trasmettendo il segnale filtrato `selected_hp_all_int16` al posto di `l_ch` per consentire il rilevamento istantaneo della fine della frase (End-Of-Speech) e sbloccare lo stato del LED.
+  * Introdotta la selezione dinamica del canale con maggior energia vocale tra Left e Right dell'array ReSpeaker Lite.
+  * Riconfigurata l'auto-calibrazione della soglia `noise_gate_threshold` sul segnale HPF, limitando la soglia massima nell'intervallo `[800.0, 4500.0]`.
+  * Ridotto `MIN_SPEECH_FRAMES` da 10 a 4 frame (80ms) per l'apertura immediata del gate vocale.
+  * Regolato `stt_gain` predefinito a `18.0x` in `robot_ia_launch.py`.

@@ -28,6 +28,7 @@ from ..core.config_manager import ConfigManager
 from ..core.exceptions import NavigationError
 from ..core.event_bus import EventBus, EventType
 from ..utils.logging_utils import get_logger
+from ..motion import MotionManager, MotionPrimitive
 
 
 class NavigationStatus(Enum):
@@ -96,6 +97,7 @@ class NavigationClient:
         self.config = config_manager or ConfigManager()
         self.ai_config = self.config.get_config()
         self.event_bus = EventBus()
+        self.motion_manager = MotionManager()
         
         # ROS node
         self._node = node
@@ -394,51 +396,51 @@ class NavigationClient:
         self.logger.info("🗺️ Bootstrap mapping complete! Waiting 3s for costmaps...")
         await asyncio.sleep(3.0)
     
-    async def move_relative(self, direction: str, speed: float = 0.3, duration: float = 1.0, degrees: float = None) -> None:
+    async def move_relative(
+        self,
+        direction: str,
+        speed: float = 0.15,
+        duration: Optional[float] = None,
+        degrees: Optional[float] = None,
+        distance_m: Optional[float] = None,
+        distance_cm: Optional[float] = None
+    ) -> None:
         """
-        Move the robot relatively using direct cmd_vel commands.
+        Move the robot relatively using MotionManager.
         
         Args:
             direction: 'avanti', 'indietro', 'sinistra', 'destra'
             speed: Linear speed (m/s) or angular speed (rad/s)
-            duration: Movement duration in seconds
+            duration: Optional movement duration in seconds
             degrees: Optional specific rotation in degrees
+            distance_m: Optional distance in meters
+            distance_cm: Optional distance in centimeters
         """
-        linear_x = 0.0
-        angular_z = 0.0
-        
-        if direction == "avanti":
-            linear_x = abs(speed)
-        elif direction == "indietro":
-            linear_x = -abs(speed)
-        elif direction == "sinistra":
-            if degrees:
-                angular_z = math.radians(degrees) / duration
-            else:
-                angular_z = abs(speed)
-        elif direction == "destra":
-            if degrees:
-                angular_z = -math.radians(degrees) / duration
-            else:
-                angular_z = -abs(speed)
-        
-        self.logger.info(f"Moving relative: {direction} (v={linear_x}, w={angular_z}) for {duration}s")
-        
-        if not HAS_ROS or not self._cmd_vel_pub:
-            await asyncio.sleep(duration)
-            return
-            
-        twist = Twist()
-        twist.linear.x = linear_x
-        twist.angular.z = angular_z
-        
-        t_end = time.monotonic() + duration
-        while time.monotonic() < t_end:
-            self._cmd_vel_pub.publish(twist)
-            await asyncio.sleep(0.1)  # 10Hz
-            
-        # Stop
-        self._cmd_vel_pub.publish(Twist())
+        if distance_m is None and distance_cm is not None:
+            distance_m = distance_cm / 100.0
+
+        dir_lower = direction.lower().strip()
+        linear_sp = speed if dir_lower in ("avanti", "indietro", "forward", "backward") else None
+        angular_sp = speed if dir_lower in ("sinistra", "destra", "left", "right") else None
+
+        primitive = MotionPrimitive(
+            direction=direction,
+            distance_m=distance_m,
+            degrees=degrees,
+            linear_speed=linear_sp,
+            angular_speed=angular_sp,
+            duration=duration
+        )
+
+        def publish_twist(vx: float, wz: float):
+            if HAS_ROS and self._cmd_vel_pub:
+                twist = Twist()
+                twist.linear.x = vx
+                twist.angular.z = wz
+                self._cmd_vel_pub.publish(twist)
+
+        await self.motion_manager.execute_primitive(primitive, publish_twist)
+
 
     async def _cmd_vel_send(self, linear_x: float, angular_z: float, duration: float) -> None:
         """Publish cmd_vel at 10Hz for the given duration."""

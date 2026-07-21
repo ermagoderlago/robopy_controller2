@@ -47,6 +47,7 @@ class NavigationSkill(BaseSkill):
         re.compile(r'\bgira\s+a\s+(destra|sinistra)\b', re.IGNORECASE),
         re.compile(r'\b(muoviti|spostati|vai)\s+(avanti|indietro|un po)\b', re.IGNORECASE),
         re.compile(r'\b(gira|ruota|girare)\s+(di\s+)?\d+', re.IGNORECASE),
+        re.compile(r'\b(\d+\.?\d*)\s*(?:cm|centimetr[io]|m|metr[io])\b', re.IGNORECASE),
     ]
     EXPLORE_PATTERNS = [
         re.compile(r'\b(esplora|esplorare|mappa|\bmappare\b|perlustra)\b', re.IGNORECASE),
@@ -192,7 +193,7 @@ class NavigationSkill(BaseSkill):
     
     async def execute(self, text: str, context: Dict[str, Any] = None) -> SkillResult:
         """Execute navigation command."""
-        intent = self._parse_intent(text)
+        intent = self._parse_intent(text, context)
         
         if intent["action"] == "stop":
             return await self._handle_stop()
@@ -238,32 +239,56 @@ class NavigationSkill(BaseSkill):
             SkillErrorCode.INVALID_PARAMETERS,
         )
     
-    def _parse_intent(self, text: str) -> Dict[str, Any]:
-        """Parse navigation intent from text."""
+    def _parse_intent(self, text: str, context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Parse navigation intent from text and/or context."""
         intent = {
             "action": None,
             "destination": None,
-            "speed": "normal"
+            "speed": "normal",
+            "direction": None,
+            "distance_m": None,
+            "degrees": None,
+            "duration": None
         }
         
-        text_lower = text.lower()
+        # 1. Inspect context first (from Gemini Live API or structured callers)
+        if context:
+            if "action" in context:
+                intent["action"] = context["action"]
+            if "destination" in context:
+                intent["destination"] = context["destination"]
+            if "direction" in context:
+                intent["direction"] = context["direction"]
+            if "speed" in context:
+                intent["speed"] = context["speed"]
+            if "duration" in context and context["duration"] is not None:
+                intent["duration"] = float(context["duration"])
+            if "degrees" in context and context["degrees"] is not None:
+                intent["degrees"] = float(context["degrees"])
+            if "distance_m" in context and context["distance_m"] is not None:
+                intent["distance_m"] = float(context["distance_m"])
+            elif "distance_cm" in context and context["distance_cm"] is not None:
+                intent["distance_m"] = float(context["distance_cm"]) / 100.0
         
-        # Determine action
-        if any(p.search(text) for p in self.STOP_PATTERNS):
-            intent["action"] = "stop"
-        elif any(p.search(text) for p in self.FOLLOW_PATTERNS):
-            intent["action"] = "follow"
-        elif any(p.search(text) for p in self.RETURN_PATTERNS):
-            intent["action"] = "return"
-            intent["destination"] = "base"
-        elif any(p.search(text) for p in self.COME_PATTERNS):
-            intent["action"] = "come"
-        elif any(p.search(text) for p in self.GOTO_PATTERNS):
-            intent["action"] = "goto"
-        elif any(p.search(text) for p in self.EXPLORE_PATTERNS):
-            intent["action"] = "explore"
+        text_lower = text.lower() if text else ""
         
-        # Check for relative movement (before waypoint check)
+        # 2. Determine action from text if not already set by context
+        if not intent["action"]:
+            if any(p.search(text_lower) for p in self.STOP_PATTERNS):
+                intent["action"] = "stop"
+            elif any(p.search(text_lower) for p in self.FOLLOW_PATTERNS):
+                intent["action"] = "follow"
+            elif any(p.search(text_lower) for p in self.RETURN_PATTERNS):
+                intent["action"] = "return"
+                intent["destination"] = "base"
+            elif any(p.search(text_lower) for p in self.COME_PATTERNS):
+                intent["action"] = "come"
+            elif any(p.search(text_lower) for p in self.GOTO_PATTERNS):
+                intent["action"] = "goto"
+            elif any(p.search(text_lower) for p in self.EXPLORE_PATTERNS):
+                intent["action"] = "explore"
+        
+        # Check for waypoint destination in text
         has_waypoint = False
         for waypoint, data in self.WAYPOINTS.items():
             if any(alias in text_lower for alias in data["aliases"]):
@@ -271,35 +296,46 @@ class NavigationSkill(BaseSkill):
                 has_waypoint = True
                 break
         
-        # If relative movement words AND no waypoint, it's a relative move
-        if not has_waypoint and any(p.search(text) for p in self.MOVE_RELATIVE_PATTERNS):
+        # If relative movement words/context AND no waypoint, set move_relative
+        if not has_waypoint and (intent["action"] == "move_relative" or intent["direction"] or any(p.search(text_lower) for p in self.MOVE_RELATIVE_PATTERNS)):
             intent["action"] = "move_relative"
-            # Parse direction
-            if "avanti" in text_lower or "forward" in text_lower:
-                intent["direction"] = "avanti"
-            elif "indietro" in text_lower or "backward" in text_lower:
-                intent["direction"] = "indietro"
-            elif "sinistra" in text_lower or "left" in text_lower:
-                intent["direction"] = "sinistra"
-            elif "destra" in text_lower or "right" in text_lower:
-                intent["direction"] = "destra"
-            # Parse duration from text (e.g. "per 2 secondi")
-            dur_match = re.search(r'per\s+(\d+\.?\d*)\s*second', text_lower)
-            if dur_match:
-                intent["duration"] = float(dur_match.group(1))
-            else:
-                intent["duration"] = 1.5  # Default
+            
+            # Extract direction if not set by context
+            if not intent.get("direction"):
+                if "avanti" in text_lower or "forward" in text_lower:
+                    intent["direction"] = "avanti"
+                elif "indietro" in text_lower or "backward" in text_lower:
+                    intent["direction"] = "indietro"
+                elif "sinistra" in text_lower or "left" in text_lower:
+                    intent["direction"] = "sinistra"
+                elif "destra" in text_lower or "right" in text_lower:
+                    intent["direction"] = "destra"
+            
+            # Parse distance in cm / meters from text
+            if intent.get("distance_m") is None and text_lower:
+                cm_match = re.search(r'(\d+\.?\d*)\s*(?:cm|centimetr[io])', text_lower)
+                m_match = re.search(r'(\d+\.?\d*)\s*(?:m|metr[io])', text_lower)
+                if cm_match:
+                    intent["distance_m"] = float(cm_match.group(1)) / 100.0
+                elif m_match:
+                    intent["distance_m"] = float(m_match.group(1))
             
             # Parse degrees from text (e.g. "gira di 30 gradi", "ruota di 90°")
-            deg_match = re.search(r'(?:di\s+)?(\d+\.?\d*)\s*(?:grad|°)', text_lower)
-            if deg_match:
-                intent["degrees"] = float(deg_match.group(1))
-                # If we have degrees but no direction yet, infer from context
-                if not intent.get("direction"):
-                    if "sinistra" in text_lower or "left" in text_lower:
-                        intent["direction"] = "sinistra"
-                    else:
-                        intent["direction"] = "destra"  # Default to right for degree rotations
+            if intent.get("degrees") is None and text_lower:
+                deg_match = re.search(r'(?:di\s+)?(\d+\.?\d*)\s*(?:grad[oi]|°)', text_lower)
+                if deg_match:
+                    intent["degrees"] = float(deg_match.group(1))
+                    if not intent.get("direction"):
+                        if "sinistra" in text_lower or "left" in text_lower:
+                            intent["direction"] = "sinistra"
+                        else:
+                            intent["direction"] = "destra"
+            
+            # Parse duration from text (e.g. "per 2 secondi")
+            if intent.get("duration") is None and text_lower:
+                dur_match = re.search(r'per\s+(\d+\.?\d*)\s*second', text_lower)
+                if dur_match:
+                    intent["duration"] = float(dur_match.group(1))
         
         # Speed detection
         if any(w in text_lower for w in ["veloce", "presto", "rapidamente"]):
@@ -589,22 +625,38 @@ class NavigationSkill(BaseSkill):
                 SkillErrorCode.INVALID_PARAMETERS,
             )
         
-        speed_map = {"slow": 0.15, "normal": 0.3, "fast": 0.5}
-        speed = speed_map.get(intent.get("speed", "normal"), 0.3)
-        duration = intent.get("duration", 1.5)
-        degrees = intent.get("degrees")  # None if not specified
+        # Safety-capped speed mapping
+        speed_map = {"slow": 0.10, "normal": 0.15, "fast": 0.18}
+        speed = speed_map.get(intent.get("speed", "normal"), 0.15)
+        duration = intent.get("duration")
+        degrees = intent.get("degrees")
+        distance_m = intent.get("distance_m")
         
         if self.move_handler:
-            self.move_handler(direction, speed, duration, degrees)
+            try:
+                self.move_handler(direction, speed, duration, degrees, distance_m)
+            except TypeError:
+                self.move_handler(direction, speed, duration, degrees)
+
             direction_text = {
                 "avanti": "avanti", "indietro": "indietro",
                 "sinistra": "a sinistra", "destra": "a destra"
             }.get(direction, direction)
-            deg_info = f" di {degrees:.0f} gradi" if degrees else ""
+            
+            if distance_m is not None:
+                if distance_m < 1.0:
+                    dist_info = f" di {int(round(distance_m * 100))} centimetri"
+                else:
+                    dist_info = f" di {distance_m:.1f} metri"
+            elif degrees is not None:
+                dist_info = f" di {int(round(degrees))} gradi"
+            else:
+                dist_info = ""
+
             return SkillResult(
                 success=True,
-                message=f"Mi muovo {direction_text}{deg_info}",
-                speak=f"Ok, mi muovo {direction_text}{deg_info}",
+                message=f"Mi muovo {direction_text}{dist_info}",
+                speak=f"Ok, mi muovo {direction_text}{dist_info}",
             )
         else:
             return SkillResult.failure_result(
@@ -656,7 +708,7 @@ class NavigationSkill(BaseSkill):
                 "action": {
                     "type": "string",
                     "enum": ["goto", "come", "follow", "stop", "return", "move_relative", "explore"],
-                    "description": "Navigation action. Use 'move_relative' for directional commands like 'vai avanti', 'gira a sinistra'"
+                    "description": "Navigation action. Use 'move_relative' for directional commands like 'vai avanti di 30cm', 'gira a sinistra di 90 gradi'"
                 },
                 "destination": {
                     "type": "string",
@@ -667,6 +719,18 @@ class NavigationSkill(BaseSkill):
                     "enum": ["avanti", "indietro", "sinistra", "destra"],
                     "description": "Movement direction (for move_relative)"
                 },
+                "distance_cm": {
+                    "type": "number",
+                    "description": "Distance in centimeters to move (e.g., 30 for 30cm)"
+                },
+                "distance_m": {
+                    "type": "number",
+                    "description": "Distance in meters to move (e.g., 0.3 for 30cm)"
+                },
+                "degrees": {
+                    "type": "number",
+                    "description": "Angle in degrees to turn (e.g., 90 for 90 degrees)"
+                },
                 "speed": {
                     "type": "string",
                     "enum": ["slow", "normal", "fast"],
@@ -674,7 +738,7 @@ class NavigationSkill(BaseSkill):
                 },
                 "duration": {
                     "type": "number",
-                    "description": "Duration in seconds (for move_relative, default 1.5)"
+                    "description": "Optional duration in seconds (for move_relative)"
                 }
             },
             "required": ["action"]

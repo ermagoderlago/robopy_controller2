@@ -73,6 +73,7 @@ graph TB
 Marcus si muove su una base mobile differenziale, gestendo il movimento e la mappatura in modo robusto tramite ROS 2:
 
 * **Controllo Motori e Telemetria:** Il nodo `waveshare_motor_driver` comunica via seriale (`/dev/ttyUSB0`) con la board motori ESP32. Riceve comandi di velocità lineare/angolare `/cmd_vel` e pubblica i dati di odometria `/odom` calcolati dagli encoder delle ruote (1440 tick per rivoluzione). Supporta la calibrazione dinamica closed-loop (tramite la skill `calibration` V2) confrontando la posa reale di `/vo/odom` con la posa stimata di `/odom` per auto-calibrare il raggio ruota (`wheel_radius`) e la traccia (`wheel_separation`) sotto il 2% di errore residuo.
+* **Architettura di Movimento Relativo (`MotionManager`):** Il pacchetto `robot_ai.motion` (`MotionPrimitive`, `MotionSequence`, `MotionManager`) fornisce l'ossatura cinematico-temporale per l'esecuzione di comandi di movimento diretto a distanza e angolo (es. *"muoviti in avanti di 30cm"*, *"gira a sinistra di 90 gradi"*, *"spostati indietro di 0.5 metri"*). Esegue conversioni automatiche di misura, calcola la durata precisa $t = d/v$ e applica i limiti di sicurezza hardware ($v \le 0.18$ m/s, $\omega \le 0.8$ rad/s) integrandosi sia con le Live Tool Calls di Gemini che con l'input testuale.
 * **Sicurezza Attiva & Diagnostica Chassis:** Il driver motori monitora costantemente lo stato del movimento per prevenire collisioni e sovraccarichi:
   * *Stallo meccanico:* se viene impartito un comando di moto ma le ruote non girano (velocità da encoder $\approx 0$ per $> 1.0$ s).
   * *Slittamento/Ostacolo:* se le ruote girano ma il robot è fermo visivamente rispetto allo SLAM (velocità visiva $v_{vo} < 0.008$ m/s per $> 1.0$ s).
@@ -91,7 +92,7 @@ Marcus si muove su una base mobile differenziale, gestendo il movimento e la map
 
 La Voice User Interface (VUI) è il canale primario di interazione di Marcus:
 
-* **DSP & VAD (Voice Activity Detection):** Il nodo `respeaker_vui_node.py` elabora l'audio catturato dall'array microfonico USB ReSpeaker a 16kHz PCM a 16-bit. Un filtro Butterworth passa-banda (300-3400 Hz) a 5 stadi (SOS) pulisce il rumore di fondo prima del modulo VAD.
+* **DSP & VAD (Voice Activity Detection):** Il nodo `respeaker_vui_node.py` elabora l'audio catturato dall'array microfonico USB ReSpeaker a 16kHz PCM a 16-bit. Un filtro Butterworth Passa-Alto @ 140 Hz (HPF) 2° ordine elimina alla radice il ronzio a bassa frequenza della ventola del Pi 5, la selezione dinamica del canale sceglie la traccia con maggior energia vocale pulita, e la soglia ad-hoc del noise gate (`[800.0, 4500.0]`) garantisce un'elevata sensibilità sia da vicino che da lontano (1-3 metri).
 * **Barge-in Sicuro:** Marcus supporta il "barge-in". Se l'utente parla mentre Marcus sta riproducendo sintesi vocale (TTS), il robot attenua immediatamente il proprio guadagno microfonico (`stt_gain` ridotto a 0.1x) e interrompe la riproduzione audio per ascoltare la nuova frase dell'utente.
 * **Gemini Live API (WebSocket):** L'orchestratore stabilisce una connessione WebSocket persistente e bidirezionale in tempo reale con le API di Gemini. L'audio catturato viene trasmesso in streaming e il robot riceve indietro audio PCM crudo da riprodurre direttamente sull'hardware (`play_raw_pcm`), riducendo la latenza percepita di risposta a meno di 1.5 secondi.
 

@@ -69,6 +69,15 @@ Questo documento raccoglie le lezioni apprese, i bug riscontrati e le soluzioni 
 * **Problema:** A bassi volumi (5%), i chip economici attivano un noise-gate DSP hardware che spegne fisicamente l'amplificatore, causando balbuzie tra le parole.
 * **Soluzione (Dithering):** Aggiunta di rumore bianco inaudibile. Se il volume è <15%, sommare `np.random.randint(-12, 13)` al segnale digitale prima del cast a `int16` per tenere sveglio il DAC.
 
+### Sensibilità Far-Field (1-3m) e Soppressione Rumore Ventola Pi 5 (v17.0)
+* **Problema:** Il rumore a bassa frequenza della ventola del Raspberry Pi 5 (<140 Hz) veniva amplificato dal guadagno software (`stt_gain` = 25.0x), portando l'EMA del rumore ambientale a valori elevati (~400-600 RMS raw) e facendo schizzare la soglia dinamica `noise_gate_threshold` oltre i 20.000 RMS. Di conseguenza, per far ascoltare la voce da lontano bisognava urlare vicini al robot, e Gemini segnalava "ci sono rumori".
+* **Soluzione:**
+  1. **Filtro Passa-Alto Butterworth @ 140 Hz (HPF):** Applicato prima di VAD, Porcupine e dello streaming a Gemini. Elimina completamente il ronzio della ventola senza alterare le armoniche vocali umane.
+  2. **Selezione canale a maggior energia (Left/Right):** Valuta i canali Left e Right dell'array ReSpeaker Lite per usare il canale con segnale vocale pulito più forte.
+  3. **Clamp Soglia Dinamica Far-Field:** L'EMA viene calcolato strictly sul segnale filtrato HPF in assenza di parlato ed il gate dinamico viene confinato nell'intervallo `[800.0, 4500.0]`. La voce pronunciata normalmente da 1 a 3 metri (RMS ~1500-3000) attiva istantaneamente il VAD.
+  4. **Reattività VAD (MIN_SPEECH_FRAMES = 4):** Ridotto a 4 frame (80ms) per evitare il troncamento delle consonanti iniziali.
+  5. **Invio segnale HPF a WebRTC VAD (End-Of-Speech Fix):** Passaggio obbligatorio del segnale filtrato HPF (`selected_hp_all_int16`) a `webrtcvad.is_speech()` al posto del canale grezzo `l_ch`, garantendo il rilevamento immediato del silenzio post-frase e lo sblocco del turno LED.
+
 ---
 
 ## 🛑 Gestione delle Interruzioni (Barge-In)

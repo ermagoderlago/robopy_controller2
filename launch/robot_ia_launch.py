@@ -100,23 +100,21 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'wakeword_sensitivity': 0.92,
-            # [v16.0] Guadagno 25.0x per VAD e wake-word affidabile
-            'stt_gain': 25.0,
-            # [v12.0] Threshold iniziale bassa: verrà auto-calcolata dall'EMA ambientale
-            'noise_gate_threshold': 100.0,
+            # [v17.0] Guadagno 18.0x con filtro HPF @ 140 Hz per sensibilità far-field pulita
+            'stt_gain': 18.0,
+            # [v17.0] Threshold iniziale calibrata su segnale HPF
+            'noise_gate_threshold': 500.0,
             # --- Barge-In (v5.7) ---
             'enable_barge_in': True,
             'barge_in_min_tts_ms': 2500.0,
             'barge_in_min_frames': 12,
-            # --- [v12.0] Auto-calibrazione microfono ---
-            # Calcola dinamicamente noise_gate_threshold in base al rumore ambientale (EMA)
-            # Formula: clamp(EMA * stt_gain * 1.35 + 250, 1200.0, 6000.0)
+            # --- [v17.0] Auto-calibrazione microfono far-field HPF ---
+            # Calcola dinamicamente noise_gate_threshold su rumore HPF (ventola Pi 5 eliminata)
+            # Formula: clamp(EMA_HPF * stt_gain * 1.25 + 300, 800.0, 4500.0)
             'enable_adaptive_threshold': True,
-            # --- [v12.0] Silenzio VAD adattivo ---
-            # Adatta max_silence_frames in base al rumore: 22 frames (~440ms) in silenzio,
-            # 45 frames (~900ms) in ambienti rumorosi (es. ventola Pi)
+            # --- [v17.0] Silenzio VAD adattivo ---
             'enable_adaptive_silence': True,
-            # Diagnostica estesa (abilitare per test, disabilitare in produzione)
+            # Diagnostica estesa
             'diag_mode': True,
         }]
     )

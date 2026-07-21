@@ -95,7 +95,7 @@ echo "🎤 Starting respeaker_vui_node (v12.0 adaptive)..."
 nohup ros2 run robopy_controller respeaker_vui_node --ros-args \
     -r __node:=respeaker_vui_node \
     -p use_sim_time:=False \
-    -p stt_gain:=5.0 \
+    -p stt_gain:=18.0 \
     -p noise_gate_threshold:=100.0 \
     -p wakeword_sensitivity:=0.95 \
     -p enable_barge_in:=true \
