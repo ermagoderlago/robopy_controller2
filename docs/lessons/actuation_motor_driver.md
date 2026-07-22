@@ -167,6 +167,15 @@ Con JGB37-520B a 7RPM (riduzione ~143:1), **girare la ruota manualmente è impos
   2. Elevata la velocità di crociera predefinita a $0.18$ m/s e la velocità angolare a $0.6$ rad/s.
   3. Aggiornato lo schema Function Declaration di `NavigationSkill` per esporre `distance_cm`, `distance_m` e `degrees`.
 
+### 18. Alignment Cinematica Ruota Sinistra e Controllo PID Closed-Loop su Odometria Reale Encoder
+* **Sintomo:** Nel movimento in avanti, la ruota destra avanzava ma la ruota sinistra girava all'indietro (causando rotazione sul posto o nessun avanzamento). Inoltre, nei piccoli spostamenti il robot si fermava prima del target per attrito.
+* **Causa:** 
+  1. In `waveshare_motor_driver.py`, il comando per la ruota sinistra venendo calcolato come `v_L_cmd = -v_L` forzava la marcia indietro quando comandato in avanti ($v > 0$).
+  2. L'esecutore di movimento relativo era aperto in tempo (open-loop $t=d/v$) anziché in feedback closed-loop basato sulla distanza/angolo reale misurati dagli encoder.
+* **Risoluzione:**
+  1. Corretta la cinematica differenziale in `waveshare_motor_driver.py`: sia `v_L_cmd = v_L` che `v_R_cmd = v_R` ricevono ora comandi positivi per avanzare concorde.
+  2. Integrato in `MotionManager` un **anello di controllo Closed-Loop PID** agganciato al topic `/odom` (encoder reali). Se il robot trova resistenza o rallenta, il guadagno PID ed il termine integrativo $K_i \cdot \int e$ aumentano automaticamente la coppia/velocità finché l'odometria misurata non registra esattamente il raggiungimento della distanza $D_{target}$ (o dell'angolo $\theta_{target}$), fermando i motori immediatamente all'arrivo.
+
 
 
 

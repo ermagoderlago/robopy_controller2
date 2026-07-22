@@ -111,6 +111,8 @@ class NavigationClient:
                 self.logger.error(f"Failed to create /cmd_vel publisher fallback: {e}")
         self._latest_scan: Optional[LaserScan] = None
         self._scan_sub = None
+        self._current_odom_pose: Optional[tuple] = None # (x, y, yaw)
+        self._odom_sub = None
         
         if HAS_ROS and self._node:
             self._scan_sub = self._node.create_subscription(
@@ -123,8 +125,18 @@ class NavigationClient:
                     depth=1
                 )
             )
+            try:
+                from nav_msgs.msg import Odometry
+                self._odom_sub = self._node.create_subscription(
+                    Odometry,
+                    '/odom',
+                    self._odom_callback,
+                    10
+                )
+            except Exception as e:
+                self.logger.error(f"Failed to create /odom subscriber in NavigationClient: {e}")
         
-        self.logger.info("Navigation Client initialized (Wall-Following Ready)")
+        self.logger.info("Navigation Client initialized (Wall-Following & Odometry Closed-Loop Ready)")
         
         # State
         self._status = NavigationStatus.IDLE
@@ -439,7 +451,27 @@ class NavigationClient:
                 twist.angular.z = wz
                 self._cmd_vel_pub.publish(twist)
 
-        await self.motion_manager.execute_primitive(primitive, publish_twist)
+        await self.motion_manager.execute_primitive(
+            primitive,
+            publish_twist_cb=publish_twist,
+            get_odom_cb=self.get_odom_pose
+        )
+
+    def _odom_callback(self, msg) -> None:
+        """Track current real-time odometry pose from encoders."""
+        try:
+            x = msg.pose.pose.position.x
+            y = msg.pose.pose.position.y
+            qz = msg.pose.pose.orientation.z
+            qw = msg.pose.pose.orientation.w
+            yaw = 2.0 * math.atan2(qz, qw)
+            self._current_odom_pose = (x, y, yaw)
+        except Exception:
+            pass
+
+    def get_odom_pose(self) -> Optional[tuple]:
+        """Returns current (x, y, yaw) from odometry or None."""
+        return self._current_odom_pose
 
 
     async def _cmd_vel_send(self, linear_x: float, angular_z: float, duration: float) -> None:

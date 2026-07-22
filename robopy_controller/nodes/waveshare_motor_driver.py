@@ -223,30 +223,15 @@ class WaveshareMotorDriver(Node):
         # - Solo SX in avanti (linear=-0.1, angular=0.69) -> muove RUOTA SINISTRA in avanti.
         #   Quindi per angular > 0, dobbiamo comandare la SINISTRA in avanti (con segno negativo).
         #
-        # Calcoliamo le velocità ideali:
+        # Cinematica differenziale standard:
+        # Quando v > 0 e w = 0, sia la ruota sinistra (v_L) che la ruota destra (v_R)
+        # ricevono valori POSITIVI per muovere lo chassis in avanti.
         v_L = v - (w * self.wheel_separation / 2.0)
         v_R = v + (w * self.wheel_separation / 2.0)
 
-        # Applichiamo i segni di marcia determinati fisicamente:
-        # Ruota destra ha segno POSITIVO per andare in avanti (v_R_cmd = v_R)
-        # Ruota sinistra ha segno NEGATIVO per andare in avanti (v_L_cmd = -v_L)
+        v_L_cmd = v_L
         v_R_cmd = v_R
-        v_L_cmd = -v_L
 
-        # Swap dei canali:
-        # Dai test fisici:
-        # Il comando Twist (linear=0.1, angular=0.69) -> target v_R = 0.2, v_L = 0.0.
-        # E questo faceva girare la ruota DESTRA.
-        # Nella chiamata send_speeds(L_serial, R_serial):
-        # Se inviamo send_speeds(v_L_cmd, v_R_cmd):
-        # - per solo DX in avanti: v_L_cmd = 0.0, v_R_cmd = 0.2. Invia L=0.0, R=0.2.
-        #   La seriale riceve R=0.2 che aziona la ruota destra fisica.
-        # - per solo SX in avanti: v_L_cmd = 0.2, v_R_cmd = 0.0. Invia L=0.2, R=0.0.
-        #   La seriale riceve L=0.2 che aziona la ruota sinistra fisica (ed essendo v_L_cmd invertito è concorde).
-        # Quindi la mappatura seriale corretta è:
-        # L_serial = v_L_cmd (velocità sinistra invertita)
-        # R_serial = v_R_cmd (velocità destra)
-        
         self.send_speeds(v_L_cmd, v_R_cmd)
         
         # Feed watchdog

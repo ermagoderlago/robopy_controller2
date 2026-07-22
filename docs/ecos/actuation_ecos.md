@@ -98,6 +98,17 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
   * **Stiction Kick:** Integrato in `MotionManager.execute_primitive` un impulso iniziale (150ms) con spunto di velocità $v_{kick} = 1.30 \cdot v_{cruise}$ (max 0.25 m/s) e $\omega_{kick} = 1.30 \cdot \omega_{cruise}$ (max 1.0 rad/s) per rompere l'attrito statico dei riduttori JGB37-520B prima di passare alla velocità di crociera nominale.
   * **Tuning Velocità di Crociera:** Elevate la velocità di crociera lineare di default a $0.18$ m/s (con limite max 0.25 m/s) e la velocità angolare a $0.6$ rad/s (con limite max 1.0 rad/s).
 
+---
+
+## 📈 ECO-2026-07-22-011: Left Wheel Kinematic Alignment & Real Encoder PID Closed-Loop Motion Control
+* **Stato:** ✅ **Completato, Sincronizzato e Validato**
+* **Descrizione:** Correzione della direzione della ruota sinistra per avanzamento concordato e introduzione dell'anello di controllo Closed-Loop PID su odometria reale per comandi di movimento relativo.
+* **Modifiche apportate:**
+  * **Cinematica Driver Motori:** Modificata la formula in `waveshare_motor_driver.py` impostando `v_L_cmd = v_L` e `v_R_cmd = v_R`. Questo assicura che comandando la marcia in avanti ($v > 0$), entrambe le ruote ricevano comandi di velocità positivi avazando in sintonia invece di far girare la ruota sinistra al contrario.
+  * **Odometria Reale da Encoder:** Verificato che la pubblicazione dell'odometria `/odom` calcoli $\Delta s$ e $\Delta \theta$ rigorosamente dalle variazioni reali dei tick registrati dagli encoder fisici dei motori (`odl`, `odr`).
+  * **Controllo PID Closed-Loop (`MotionManager`):** Integrata in `MotionManager.execute_primitive` e `NavigationClient` la sottoscrizione alla posa reale di `/odom`. Se il robot incontra resistenza o si muove lentamente nei piccoli spostamenti, il loop PID aumenta dinamicamente la velocità e la coppia erogata fino al raggiungimento esatto della distanza $D_{target}$ o dell'angolo $\theta_{target}$, arrestando i motori con precisione centrimetrica.
+
+
 
 
 
