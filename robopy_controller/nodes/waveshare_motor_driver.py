@@ -26,13 +26,13 @@ class WaveshareMotorDriver(Node):
         # --- Parameter Declaration ---
         self.declare_parameter('serial_port', '/dev/ttyUSB0')
         self.declare_parameter('baud_rate', 115200)
-        self.declare_parameter('wheel_radius', 0.0361)      # in meters
-        self.declare_parameter('wheel_separation', 0.091)   # track width in meters
-        self.declare_parameter('ticks_per_rev', 594)      # encoder ticks per wheel revolution
+        self.declare_parameter('wheel_radius', 0.0325)      # in meters (65mm diameter)
+        self.declare_parameter('wheel_separation', 0.29)    # track width in meters (290mm)
+        self.declare_parameter('ticks_per_rev', 594)       # encoder ticks per wheel revolution
         
-        self.declare_parameter('invert_left_motor', True)
+        self.declare_parameter('invert_left_motor', False)
         self.declare_parameter('invert_right_motor', False)
-        self.declare_parameter('invert_left_encoder', True)
+        self.declare_parameter('invert_left_encoder', False)
         self.declare_parameter('invert_right_encoder', False)
         self.declare_parameter('encoder_dead_zone', 2)        # ticks: ignore deltas <= this when both wheels below threshold
         self.declare_parameter('publish_tf', True)             # set False when another node (e.g. fast_flow_vo) owns odom->base_link TF
