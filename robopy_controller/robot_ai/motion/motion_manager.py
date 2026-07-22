@@ -147,8 +147,8 @@ class MotionManager:
             target_rad = math.radians(abs(primitive.degrees)) if primitive.degrees is not None else None
             
             # Guadagni PID e spunto per superare l'attrito dei riduttori
-            Kp_lin, Ki_lin = 1.5, 0.4
-            Kp_ang, Ki_ang = 1.8, 0.5
+            Kp_lin, Ki_lin = 2.5, 0.8
+            Kp_ang, Ki_ang = 2.5, 0.8
             accum_error = 0.0
             
             t_start = time.monotonic()
