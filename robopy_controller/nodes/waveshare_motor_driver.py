@@ -263,6 +263,11 @@ class WaveshareMotorDriver(Node):
                 self.motors_stopped = True
                 self.cmd_linear_x = 0.0
                 self.cmd_angular_z = 0.0
+            else:
+                # Resend stop command periodically every 1s to ensure ESP32 hardware safety
+                if not hasattr(self, '_last_stop_resend') or (time.time() - self._last_stop_resend > 1.0):
+                    self.send_speeds(0.0, 0.0)
+                    self._last_stop_resend = time.time()
                 
         # Rilevamento Stallo / Slittamento / Assorbimento Eccessivo
         cmd_active = (abs(self.cmd_linear_x) > 0.05 or abs(self.cmd_angular_z) > 0.1)
