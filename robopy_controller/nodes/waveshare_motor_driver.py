@@ -238,11 +238,14 @@ class WaveshareMotorDriver(Node):
         self.motors_stopped = False
 
     def send_speeds(self, left, right):
-        """Formats speeds as JSON and writes to serial port."""
+        """Formats speeds as JSON and writes to serial port.
+        Note: Waveshare ESP32 board channel 'L' drives physical Right motor
+        and channel 'R' drives physical Left motor. We swap left->R and right->L.
+        """
         cmd = {
             "T": 1,
-            "L": round(left, 4),
-            "R": round(right, 4)
+            "L": round(right, 4),
+            "R": round(left, 4)
         }
         cmd_str = json.dumps(cmd, separators=(',', ':')) + "\n"
         
@@ -385,7 +388,10 @@ class WaveshareMotorDriver(Node):
                 time.sleep(1.0)
 
     def process_encoder_feedback(self, left_ticks, right_ticks):
-        """Calculates and publishes robot odometry and tf from encoder ticks."""
+        """Calculates and publishes robot odometry and tf from encoder ticks.
+        Note: On the Waveshare ESP32 board, channel 'L' (odl) drives the physical Right motor
+        and channel 'R' (odr) drives the physical Left motor. We swap them.
+        """
         current_time = self.get_clock().now().nanoseconds / 1e9
         dt = current_time - self.last_odom_time
         
@@ -395,9 +401,9 @@ class WaveshareMotorDriver(Node):
             self.last_odom_time = current_time
             return
             
-        # Delta ticks
-        delta_ticks_left = left_ticks - self.prev_left_ticks
-        delta_ticks_right = right_ticks - self.prev_right_ticks
+        # Delta ticks (Note: channel L is physical Right wheel, channel R is physical Left wheel)
+        delta_ticks_right = left_ticks - self.prev_left_ticks
+        delta_ticks_left = right_ticks - self.prev_right_ticks
         
         # Gracefully handle wrap-around/reset: if single step change is absurdly large, ignore it.
         # Max reasonable ticks in 30Hz: ticks_per_rev * 10 max RPM / 60s * (1/30) = ticks_per_rev * 0.005.
@@ -437,11 +443,10 @@ class WaveshareMotorDriver(Node):
         delta_s_left = delta_ticks_left * meters_per_tick
         delta_s_right = delta_ticks_right * meters_per_tick
         
-        # ROS 2 Right-Hand Coordinate System (+Z = CCW / Antiorario):
-        # When turning CCW (antiorario), delta_theta must be positive (> 0).
-        # Swapped physical encoder feedback mapping: delta_s_left is physical right and delta_s_right is physical left.
+        # Standard ROS 2 Right-Hand Coordinate System (+Z = CCW / Antiorario):
+        # Right wheel moves forward (+), Left wheel moves backward (-) during CCW turn -> delta_s_right - delta_s_left > 0
         delta_s = (delta_s_right + delta_s_left) / 2.0
-        delta_theta = (delta_s_left - delta_s_right) / self.rotational_wheel_separation
+        delta_theta = (delta_s_right - delta_s_left) / self.rotational_wheel_separation
         
         # Integrate pose
         self.x += delta_s * math.cos(self.theta + delta_theta / 2.0)
