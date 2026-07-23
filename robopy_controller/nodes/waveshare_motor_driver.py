@@ -223,16 +223,12 @@ class WaveshareMotorDriver(Node):
         # - Solo SX in avanti (linear=-0.1, angular=0.69) -> muove RUOTA SINISTRA in avanti.
         #   Quindi per angular > 0, dobbiamo comandare la SINISTRA in avanti (con segno negativo).
         #
-        # Cinematica differenziale standard:
-        # Quando v > 0 e w = 0, sia la ruota sinistra (v_L) che la ruota destra (v_R)
-        # ricevono valori POSITIVI per muovere lo chassis in avanti.
-        v_L = v - (w * self.wheel_separation / 2.0)
-        v_R = v + (w * self.wheel_separation / 2.0)
+        # Kinematics: positive w_z = Turn Left (Counter-Clockwise)
+        # Corrected sign for Waveshare motor polarity: v_L increases and v_R decreases when w > 0
+        v_L = v + (w * self.wheel_separation / 2.0)
+        v_R = v - (w * self.wheel_separation / 2.0)
 
-        v_L_cmd = v_L
-        v_R_cmd = v_R
-
-        self.send_speeds(v_L_cmd, v_R_cmd)
+        self.send_speeds(v_L, v_R)
         
         # Feed watchdog
         self.last_cmd_vel_time = time.time()
