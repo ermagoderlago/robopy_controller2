@@ -437,8 +437,11 @@ class WaveshareMotorDriver(Node):
         delta_s_left = delta_ticks_left * meters_per_tick
         delta_s_right = delta_ticks_right * meters_per_tick
         
+        # ROS 2 Right-Hand Coordinate System (+Z = CCW / Antiorario):
+        # When turning CCW (antiorario), delta_theta must be positive (> 0).
+        # Swapped physical encoder feedback mapping: delta_s_left is physical right and delta_s_right is physical left.
         delta_s = (delta_s_right + delta_s_left) / 2.0
-        delta_theta = (delta_s_right - delta_s_left) / self.rotational_wheel_separation
+        delta_theta = (delta_s_left - delta_s_right) / self.rotational_wheel_separation
         
         # Integrate pose
         self.x += delta_s * math.cos(self.theta + delta_theta / 2.0)
