@@ -176,6 +176,12 @@ Con JGB37-520B a 7RPM (riduzione ~143:1), **girare la ruota manualmente è impos
   1. Corretta la cinematica differenziale in `waveshare_motor_driver.py`: sia `v_L_cmd = v_L` che `v_R_cmd = v_R` ricevono ora comandi positivi per avanzare concorde.
   2. Integrato in `MotionManager` un **anello di controllo Closed-Loop PID** agganciato al topic `/odom` (encoder reali). Se il robot trova resistenza o rallenta, il guadagno PID ed il termine integrativo $K_i \cdot \int e$ aumentano automaticamente la coppia/velocità finché l'odometria misurata non registra esattamente il raggiungimento della distanza $D_{target}$ (o dell'angolo $\theta_{target}$), fermando i motori immediatamente all'arrivo.
 
+### 19. Calibrazione Empirica Risoluzione Encoder Ticks/Rev per la Scheda Waveshare ESP32
+* **Sintomo:** Comandando un avanzamento di 30 cm con odometria `/odom` corretta, il robot percorreva fisicamente a terra ~38 cm (o ~2 metri quando configurato a 594 ticks/rev).
+* **Causa:** Il firmware ESP32 della scheda Waveshare accumula ed invia i fronti di quadratura degli encoder con un fattore di scala reale di **`70` ticks per giro completo di ruota** (con ruote da $D = 65\text{ mm}$, circonferenza $C = 0.2042\text{ m}$).
+* **Risoluzione:** Tarato il parametro `ticks_per_rev := 70` sia in `restart.sh` che in `waveshare_motor_driver.py`, ed impostati i guadagni PID a $K_p = 2.5, K_i = 0.8$. Lo spostamento calcolato da `/odom` risponde ora con precisione millimetrica allo spostamento misurato col metro sul pavimento.
+
+
 
 
 

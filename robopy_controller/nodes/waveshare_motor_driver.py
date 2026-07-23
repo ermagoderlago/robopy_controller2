@@ -28,7 +28,7 @@ class WaveshareMotorDriver(Node):
         self.declare_parameter('baud_rate', 115200)
         self.declare_parameter('wheel_radius', 0.0325)      # in meters (65mm diameter)
         self.declare_parameter('wheel_separation', 0.29)    # track width in meters (290mm)
-        self.declare_parameter('ticks_per_rev', 89)        # encoder ticks per wheel revolution (ESP32 feedback scale)
+        self.declare_parameter('ticks_per_rev', 70)        # encoder ticks per wheel revolution (ESP32 feedback scale)
         
         self.declare_parameter('invert_left_motor', False)
         self.declare_parameter('invert_right_motor', False)
