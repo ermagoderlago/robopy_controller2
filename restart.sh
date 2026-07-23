@@ -67,7 +67,8 @@ nohup ros2 run robopy_controller waveshare_motor_driver --ros-args \
     -p serial_port:=/dev/ttyUSB0 \
     -p baud_rate:=115200 \
     -p wheel_radius:=0.0325 \
-    -p wheel_separation:=0.29 \
+    -p wheel_separation:=0.285 \
+    -p rotational_wheel_separation:=0.510 \
     -p ticks_per_rev:=70 \
     -p encoder_dead_zone:=0 \
     -p invert_left_motor:=False \

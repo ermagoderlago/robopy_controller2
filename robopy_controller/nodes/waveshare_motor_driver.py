@@ -27,7 +27,8 @@ class WaveshareMotorDriver(Node):
         self.declare_parameter('serial_port', '/dev/ttyUSB0')
         self.declare_parameter('baud_rate', 115200)
         self.declare_parameter('wheel_radius', 0.0325)      # in meters (65mm diameter)
-        self.declare_parameter('wheel_separation', 0.29)    # track width in meters (290mm)
+        self.declare_parameter('wheel_separation', 0.285)   # track width in meters (285mm)
+        self.declare_parameter('rotational_wheel_separation', 0.510) # effective rotational track width for 1:1 angular odometry (510mm)
         self.declare_parameter('ticks_per_rev', 70)        # encoder ticks per wheel revolution (ESP32 feedback scale)
         
         self.declare_parameter('invert_left_motor', False)
@@ -42,6 +43,7 @@ class WaveshareMotorDriver(Node):
         self.baud_rate = self.get_parameter('baud_rate').value
         self.wheel_radius = self.get_parameter('wheel_radius').value
         self.wheel_separation = self.get_parameter('wheel_separation').value
+        self.rotational_wheel_separation = self.get_parameter('rotational_wheel_separation').value
         self.ticks_per_rev = self.get_parameter('ticks_per_rev').value
         
         self.invert_left_motor = self.get_parameter('invert_left_motor').value
@@ -223,10 +225,11 @@ class WaveshareMotorDriver(Node):
         # - Solo SX in avanti (linear=-0.1, angular=0.69) -> muove RUOTA SINISTRA in avanti.
         #   Quindi per angular > 0, dobbiamo comandare la SINISTRA in avanti (con segno negativo).
         #
-        # Kinematics: positive w_z = Turn Left (Counter-Clockwise)
-        # Corrected sign for Waveshare motor polarity: v_L increases and v_R decreases when w > 0
-        v_L = v + (w * self.wheel_separation / 2.0)
-        v_R = v - (w * self.wheel_separation / 2.0)
+        # Standard ROS differential drive kinematics:
+        # v_L = v - (w * B / 2.0)  -> Left wheel goes backward when w > 0 (Turn Left)
+        # v_R = v + (w * B / 2.0)  -> Right wheel goes forward when w > 0 (Turn Left)
+        v_L = v - (w * self.wheel_separation / 2.0)
+        v_R = v + (w * self.wheel_separation / 2.0)
 
         self.send_speeds(v_L, v_R)
         
@@ -435,7 +438,7 @@ class WaveshareMotorDriver(Node):
         delta_s_right = delta_ticks_right * meters_per_tick
         
         delta_s = (delta_s_right + delta_s_left) / 2.0
-        delta_theta = (delta_s_right - delta_s_left) / self.wheel_separation
+        delta_theta = (delta_s_right - delta_s_left) / self.rotational_wheel_separation
         
         # Integrate pose
         self.x += delta_s * math.cos(self.theta + delta_theta / 2.0)
