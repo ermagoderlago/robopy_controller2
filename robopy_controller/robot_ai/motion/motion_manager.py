@@ -182,7 +182,10 @@ class MotionManager:
                     
                     cmd_v = min(max(abs(cmd_v), 0.15), MAX_LINEAR_SPEED)
                     cmd_vx = cmd_v if v_x >= 0 else -cmd_v
-                    publish_twist_cb(cmd_vx, 0.0)
+                    # Heading Lock PID per evitare deviazioni a destra/sinistra
+                    yaw_err = (yaw0 - cyaw + math.pi) % (2.0 * math.pi) - math.pi
+                    w_corr = min(max(2.0 * yaw_err, -0.4), 0.4)
+                    publish_twist_cb(cmd_vx, w_corr)
 
                 elif primitive.motion_type == MotionType.ANGULAR and target_rad is not None:
                     # Calcolo rotazione accumulata
