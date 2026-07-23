@@ -34,7 +34,7 @@ class WaveshareMotorDriver(Node):
         self.declare_parameter('invert_right_motor', False)
         self.declare_parameter('invert_left_encoder', False)
         self.declare_parameter('invert_right_encoder', False)
-        self.declare_parameter('encoder_dead_zone', 2)        # ticks: ignore deltas <= this when both wheels below threshold
+        self.declare_parameter('encoder_dead_zone', 0)        # ticks: ignore deltas <= this when both wheels below threshold (0 to disable tick dropping)
         self.declare_parameter('publish_tf', True)             # set False when another node (e.g. fast_flow_vo) owns odom->base_link TF
         
         # --- Retrieve Parameters ---
