@@ -143,6 +143,9 @@ echo "🗺️ Starting RTAB-Map SLAM..."
 > /home/robopy/robopy/logs/rtabmap.log
 nohup ros2 run rtabmap_slam rtabmap --delete_db_on_start --ros-args \
     --params-file /mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_controller/config/rtabmap.yaml \
+    -p Grid/Sensor:=1 \
+    -p Grid/FromDepth:=true \
+    -p Grid/3D:=false \
     -r rgb/image:=/rgb/image \
     -r rgb/camera_info:=/camera/camera_info \
     -r depth/image:=/camera/depth/image_raw \

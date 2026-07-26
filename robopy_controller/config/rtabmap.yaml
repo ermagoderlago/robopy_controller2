@@ -39,10 +39,11 @@ rtabmap:
     Optimizer/Iterations: "30"
     Optimizer/Slam2D: "true"
 
-    # Griglia occupancy
+    # Griglia occupancy da Depth Camera (2.5D Proiezione)
     Grid/RangeMin: "0.25"
     Grid/RangeMax: "5.0"
-    Grid/Sensor: "2"              # depth camera
+    Grid/Sensor: "1"              # 1 = Depth Camera / 3D Point Cloud -> 2D Occupancy Grid
+    Grid/FromDepth: "true"
     Grid/RayTracing: "true"
     Grid/MaxObstacleHeight: "1.5"
     Grid/MaxGroundHeight: "0.05"
