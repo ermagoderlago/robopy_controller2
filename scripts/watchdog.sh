@@ -58,14 +58,14 @@ engine.runAndWait()
 " 2>/dev/null || echo "Avaria sistema cognitivo, ripristino versione precedente"
             
             # 4. Riavvio stack completo
-            FROM_WATCHDOG=1 bash /mnt/ssd/robopy_controller_host/restart.sh >> "$LOG_FILE" 2>&1
+            FROM_WATCHDOG=1 bash /mnt/ssd/robopy_controller_host/restart_hailo.sh >> "$LOG_FILE" 2>&1
             
             # Reset cronologia per evitare loop infiniti di rollback
             CRASH_TIMES=()
         else
             # Riavvio semplice
             echo "$(date '+%Y-%m-%d %H:%M:%S') - Eseguo riavvio semplice di Marcus..." >> "$LOG_FILE"
-            FROM_WATCHDOG=1 bash /mnt/ssd/robopy_controller_host/restart.sh >> "$LOG_FILE" 2>&1
+            FROM_WATCHDOG=1 bash /mnt/ssd/robopy_controller_host/restart_hailo.sh >> "$LOG_FILE" 2>&1
         fi
     fi
     sleep 5
