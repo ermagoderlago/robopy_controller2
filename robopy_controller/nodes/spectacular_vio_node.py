@@ -2,18 +2,25 @@
 """
 spectacular_vio_node.py — VIO Node per Marcus (OAK-D Lite)
 ============================================================
-Implementa Visual-Inertial Odometry (VIO) usando il pipeline
-integrato nell'SDK DepthAI (depthai), che include il motore VIO
-nativo del chip VPU MyriadX / RVC2 dell'OAK-D Lite.
+Implementa Visual-Inertial Odometry (VIO) per Marcus usando:
+- IMU BMI270 OAK-D Lite letta via topic ROS2 `/oak/imu/data`
+  (il driver `oak_superpoint_odometry_cpp` tiene aperta la pipeline
+   DepthAI — non possiamo aprirne una seconda in parallelo)
+- Odometria encoder ruote `/odom` (waveshare_motor_driver)
 
 ARCHITETTURA:
 - Autorità TF: odom → base_link  (30 Hz, unica autorità)
-- Input:  OAK-D Lite (stereo camera + IMU BMI270 a 400 Hz via USB)
-- Output: TF odom→base_link, /odometry/filtered, /vio/pose
-- Failsafe: se VIO perde tracking → fallback a odometria encoder
+- Input A: /oak/imu/data (sensor_msgs/Imu, ~50 Hz da oak_superpoint_odometry_cpp)
+- Input B: /odom (nav_msgs/Odometry, encoder ruote)
+- Output:  TF odom→base_link, /odometry/filtered, /vio/pose
+- Failsafe: encoder-only se IMU non disponibile
 
-NON usa spectacularAI (non disponibile su ARM64).
-Usa l'SDK depthai nativo con il modulo SLAM integrato nel VPU.
+FUSIONE HEADING (ibrida Gyro + Encoder):
+  θ_fusa = w_gyro * θ_gyro_integrato + (1-w_gyro) * θ_encoder
+  dove w_gyro = 0.85 (default)
+
+POSIZIONE:
+  x, y: sempre da encoder (più stabile per traslazione breve)
 
 Autore: Marcus AI Stack
 Data: 2026
@@ -29,28 +36,14 @@ from tf2_ros import TransformBroadcaster
 import math
 import threading
 import time
-import numpy as np
-
-try:
-    import depthai as dai
-    DEPTHAI_AVAILABLE = True
-except ImportError:
-    DEPTHAI_AVAILABLE = False
 
 
 class SpectacularVIONode(Node):
     """
-    Nodo VIO basato su DepthAI SDK nativo.
+    Nodo VIO per Marcus.
 
-    Strategia:
-    1. Apre pipeline DepthAI con IMU (BMI270) + stereo camera
-    2. Legge i dati IMU a ~400 Hz dal chip OAK-D
-    3. Implementa integrazione semplice di quaternion per heading
-    4. Fonde con l'odometria encoder via subscriber /odom
-    5. Pubblica TF odom→base_link a 30 Hz (autorità unica)
-
-    In assenza di OAK-D (failsafe), ri-pubblica il TF
-    direttamente dall'encoder con un warning.
+    Fusione Gyro (OAK-D BMI270 via ROS2 topic) + Encoder Ruote.
+    Pubblica TF odom→base_link a 30 Hz come unica autorità.
     """
 
     def __init__(self):
@@ -62,7 +55,8 @@ class SpectacularVIONode(Node):
         self.declare_parameter('base_link_frame', 'base_link')
         self.declare_parameter('imu_frame', 'imu_link')
         self.declare_parameter('use_encoder_fallback', True)
-        self.declare_parameter('imu_gyro_weight', 0.85)   # peso giroscopio vs encoder
+        self.declare_parameter('imu_gyro_weight', 0.85)
+        self.declare_parameter('imu_timeout_sec', 2.0)   # switch a fallback dopo N sec senza IMU
 
         self.publish_rate = self.get_parameter('publish_rate_hz').value
         self.odom_frame = self.get_parameter('odom_frame').value
@@ -70,245 +64,180 @@ class SpectacularVIONode(Node):
         self.imu_frame = self.get_parameter('imu_frame').value
         self.use_fallback = self.get_parameter('use_encoder_fallback').value
         self.gyro_weight = self.get_parameter('imu_gyro_weight').value
+        self.imu_timeout = self.get_parameter('imu_timeout_sec').value
 
         # --- Publishers e TF ---
         self.tf_broadcaster = TransformBroadcaster(self)
         self.odom_pub = self.create_publisher(Odometry, '/odometry/filtered', 10)
         self.pose_pub = self.create_publisher(PoseStamped, '/vio/pose', 10)
 
-        # --- Subscriber odometria encoder (fallback/fusione) ---
-        self.encoder_odom_sub = self.create_subscription(
+        # --- Subscribers ---
+        self.imu_sub = self.create_subscription(
+            Imu, '/oak/imu/data', self._imu_cb, 10)
+        self.encoder_sub = self.create_subscription(
             Odometry, '/odom', self._encoder_odom_cb, 10)
 
         # --- Stato interno ---
         self._lock = threading.Lock()
 
-        # Pose fusa (x, y, theta in radianti)
+        # Stato pose fusa
         self._x = 0.0
         self._y = 0.0
-        self._theta = 0.0  # heading yaw
+        self._theta_gyro = 0.0      # heading integrato dal giroscopio
+        self._theta_encoder = 0.0   # heading dagli encoder
+        self._theta_fused = 0.0     # heading fuso finale
 
         # Velocità
         self._vx = 0.0
-        self._vy = 0.0
-        self._wz = 0.0  # angular velocity Z
+        self._wz = 0.0
 
-        # IMU stato
-        self._gyro_z = 0.0          # giroscopio Z (rad/s) da OAK
-        self._last_imu_ts = None    # timestamp ultimo dato IMU
-        self._imu_valid = False     # flag: IMU dati disponibili
+        # IMU
+        self._last_imu_time = None
+        self._imu_valid = False
+        self._imu_sample_count = 0
 
-        # Encoder stato
-        self._encoder_theta = 0.0   # heading da encoder
-        self._encoder_x = 0.0
-        self._encoder_y = 0.0
-        self._encoder_vx = 0.0
-        self._encoder_wz = 0.0
+        # Gyro bias calibration (primi 150 campioni = ~3s @ 50Hz)
+        self._gyro_bias_z = 0.0
+        self._bias_samples = []
+        self._bias_calibrated = False
+        self._BIAS_CAL_N = 150
+
+        # Encoder
         self._encoder_valid = False
 
-        # Tracking status
-        self._vio_active = False
-        self._failsafe_active = False
-        self._last_publish_time = time.time()
+        # Diagnostics
+        self._last_log_time = time.time()
 
-        # --- DepthAI pipeline ---
-        self._device = None
-        self._imu_queue = None
-        self._pipeline_ready = False
-
-        if DEPTHAI_AVAILABLE:
-            self._init_depthai_pipeline()
-        else:
-            self.get_logger().error(
-                '⚠️  depthai non disponibile! Installare con: pip install depthai\n'
-                '   Attivazione fallback encoder puro.')
-            self._failsafe_active = True
-
-        # --- Timer principale pubblicazione TF (30 Hz) ---
+        # --- Timer TF 30 Hz ---
         self.create_timer(1.0 / self.publish_rate, self._publish_tf)
 
-        # --- Thread lettura IMU da DepthAI (non-blocking) ---
-        if self._pipeline_ready:
-            self._imu_thread = threading.Thread(
-                target=self._imu_read_loop, daemon=True)
-            self._imu_thread.start()
-            self.get_logger().info(
-                f'✅ SpectacularVIO Node avviato — VIO attivo (OAK-D IMU + stereo)')
-        else:
-            self.get_logger().warn(
-                '⚠️  SpectacularVIO: VIO non attivo — modalità fallback encoder')
+        self.get_logger().info(
+            f'✅ SpectacularVIO Node avviato (Gyro+Encoder fusion @ {self.publish_rate:.0f}Hz)\n'
+            f'   IMU: /oak/imu/data | Encoder: /odom\n'
+            f'   Gyro weight: {self.gyro_weight:.0%} | Calibrazione bias: {self._BIAS_CAL_N} campioni')
 
     # =========================================================
-    # DEPTHAI PIPELINE INIT
+    # IMU CALLBACK (da /oak/imu/data, pubblicato da oak_superpoint)
     # =========================================================
-    def _init_depthai_pipeline(self):
+    def _imu_cb(self, msg: Imu):
         """
-        Inizializza pipeline DepthAI con IMU BMI270 dell'OAK-D Lite.
-        L'IMU viene letto tramite la coda depthai (non ROS).
+        Processa dati IMU OAK-D BMI270 (GYROSCOPE_RAW):
+        - Integra giroscopio Z per stimare heading
+        - Calibra bias automaticamente sui primi campioni
         """
-        try:
-            pipeline = dai.Pipeline()
+        gz_raw = msg.angular_velocity.z
 
-            # IMU Node — BMI270 sul OAK-D Lite
-            imu_node = pipeline.create(dai.node.IMU)
-            imu_node.enableIMUSensor([
-                dai.IMUSensor.GYROSCOPE_CALIBRATED,
-                dai.IMUSensor.ACCELEROMETER_CALIBRATED,
-            ], 200)  # 200 Hz (max stabile BMI270)
-            imu_node.setBatchReportThreshold(1)
-            imu_node.setMaxBatchReports(10)
+        with self._lock:
+            now = time.time()
 
-            # XLink output per IMU
-            xout_imu = pipeline.create(dai.node.XLinkOut)
-            xout_imu.setStreamName("imu")
-            imu_node.out.link(xout_imu.input)
+            # === FASE 1: Calibrazione bias ===
+            if not self._bias_calibrated:
+                self._bias_samples.append(gz_raw)
+                if len(self._bias_samples) >= self._BIAS_CAL_N:
+                    self._gyro_bias_z = sum(self._bias_samples) / len(self._bias_samples)
+                    self._bias_calibrated = True
+                    self.get_logger().info(
+                        f'🎯 Gyro bias calibrato: {self._gyro_bias_z:.6f} rad/s '
+                        f'(su {self._BIAS_CAL_N} campioni)')
+                return  # non integrare durante calibrazione
 
-            # Apertura device
-            self._device = dai.Device(pipeline)
-            self._imu_queue = self._device.getOutputQueue(
-                name="imu", maxSize=50, blocking=False)
-            self._pipeline_ready = True
-            self._vio_active = True
+            # === FASE 2: Integrazione heading ===
+            gz_corrected = gz_raw - self._gyro_bias_z
 
-            self.get_logger().info(
-                '🎯 DepthAI pipeline IMU attiva: BMI270 @ 200Hz (GYRO + ACCEL)')
+            # Noise gate: ignora rumore sotto ~0.002 rad/s
+            if abs(gz_corrected) < 0.002:
+                gz_corrected = 0.0
 
-        except Exception as e:
-            self.get_logger().warn(
-                f'⚠️  DepthAI pipeline fallita: {e}\n'
-                f'   Attivazione modalità fallback encoder.')
-            self._pipeline_ready = False
-            self._failsafe_active = True
+            if self._last_imu_time is not None:
+                dt = now - self._last_imu_time
+                if 0.0 < dt < 0.1:  # solo step ragionevoli (< 100ms)
+                    self._theta_gyro += gz_corrected * dt
+                    # Normalizza in [-pi, pi]
+                    self._theta_gyro = math.atan2(
+                        math.sin(self._theta_gyro),
+                        math.cos(self._theta_gyro))
+
+            self._wz = gz_corrected
+            self._last_imu_time = now
+            self._imu_valid = True
+            self._imu_sample_count += 1
 
     # =========================================================
-    # IMU READ LOOP (Thread separato)
-    # =========================================================
-    def _imu_read_loop(self):
-        """
-        Loop di lettura dati IMU dalla coda DepthAI.
-        Integra il giroscopio Z per stimare lo yaw heading.
-        Gira in un thread daemon separato.
-        """
-        gyro_bias_z = 0.0
-        bias_samples = 0
-        MAX_BIAS_SAMPLES = 100  # calibrazione bias iniziale
-        GYRO_NOISE_GATE = 0.002  # rad/s — sotto questa soglia = rumore
-
-        while rclpy.ok():
-            try:
-                if self._imu_queue is None:
-                    time.sleep(0.01)
-                    continue
-
-                imu_data = self._imu_queue.tryGet()
-                if imu_data is None:
-                    time.sleep(0.002)
-                    continue
-
-                for pkt in imu_data.packets:
-                    gyro = pkt.gyroscope
-                    ts_sec = pkt.gyroscope.getTimestampDevice().total_seconds()
-
-                    # Calibrazione bias iniziale (robot fermo)
-                    if bias_samples < MAX_BIAS_SAMPLES:
-                        gyro_bias_z += gyro.z
-                        bias_samples += 1
-                        if bias_samples == MAX_BIAS_SAMPLES:
-                            gyro_bias_z /= MAX_BIAS_SAMPLES
-                            self.get_logger().info(
-                                f'🎯 Gyro bias calibrato: {gyro_bias_z:.5f} rad/s')
-                        continue
-
-                    # Correzione bias
-                    gz_corrected = gyro.z - gyro_bias_z
-
-                    # Noise gate
-                    if abs(gz_corrected) < GYRO_NOISE_GATE:
-                        gz_corrected = 0.0
-
-                    with self._lock:
-                        now = time.time()
-                        if self._last_imu_ts is not None:
-                            dt = now - self._last_imu_ts
-                            if 0.0 < dt < 0.05:  # max 50ms step
-                                # Integrazione yaw
-                                self._theta += gz_corrected * dt
-                                # Normalizza in [-pi, pi]
-                                self._theta = math.atan2(
-                                    math.sin(self._theta),
-                                    math.cos(self._theta))
-
-                        self._gyro_z = gz_corrected
-                        self._last_imu_ts = now
-                        self._imu_valid = True
-
-            except Exception as e:
-                self.get_logger().warn(f'IMU read error: {e}', throttle_duration_sec=5.0)
-                time.sleep(0.01)
-
-    # =========================================================
-    # ENCODER ODOMETRY CALLBACK
+    # ENCODER CALLBACK (da /odom)
     # =========================================================
     def _encoder_odom_cb(self, msg: Odometry):
         """
-        Riceve l'odometria encoder da waveshare_motor_driver.
-        Usata per:
-        1. Posizione x,y (encoder più affidabile per traslazione)
-        2. Velocità lineare e angolare
-        3. Fallback heading se IMU non disponibile
+        Riceve odometria encoder (waveshare_motor_driver).
+        - Posizione x,y: usata come fonte principale
+        - Heading: usato come backup se IMU non disponibile
+        - Velocità lineare: usata sempre
         """
         with self._lock:
-            self._encoder_x = msg.pose.pose.position.x
-            self._encoder_y = msg.pose.pose.position.y
-            self._encoder_vx = msg.twist.twist.linear.x
-            self._encoder_wz = msg.twist.twist.angular.z
+            self._x = msg.pose.pose.position.x
+            self._y = msg.pose.pose.position.y
+            self._vx = msg.twist.twist.linear.x
 
-            # Estrai yaw dall'encoder
+            # Estrai yaw quaternion
             q = msg.pose.pose.orientation
-            self._encoder_theta = math.atan2(
+            self._theta_encoder = math.atan2(
                 2.0 * (q.w * q.z + q.x * q.y),
                 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
 
             self._encoder_valid = True
 
-            # Se IMU non valida, usa encoder come heading
-            if not self._imu_valid or self._failsafe_active:
-                self._theta = self._encoder_theta
-                self._gyro_z = self._encoder_wz
-
-            # Posizione sempre da encoder (più stabile del VIO puro per traslazione)
-            self._x = self._encoder_x
-            self._y = self._encoder_y
-            self._vx = self._encoder_vx
+            # Se encoder fornisce wz e IMU non disponibile, usalo
+            if not self._imu_valid:
+                self._wz = msg.twist.twist.angular.z
 
     # =========================================================
-    # PUBLISH TF (30 Hz timer callback)
+    # PUBLISH TF (30 Hz timer)
     # =========================================================
     def _publish_tf(self):
         """
-        Pubblica TF odom → base_link, /odometry/filtered, /vio/pose.
-        Chiamato a 30 Hz dal timer ROS2.
-
-        Fusione ibrida:
-        - Posizione (x, y): da encoder (più stabile)
-        - Heading (theta): da IMU giroscopio integrato (meno drift)
-        - Fallback: encoder puro se IMU non disponibile
+        Calcola heading fuso e pubblica:
+        - TF odom → base_link
+        - /odometry/filtered
+        - /vio/pose
         """
-        if not self._encoder_valid and not self._imu_valid:
-            # Nessun dato — pubblica identità
+        with self._lock:
+            # Controllo timeout IMU
+            imu_active = False
+            if self._imu_valid and self._last_imu_time is not None:
+                imu_age = time.time() - self._last_imu_time
+                imu_active = (imu_age < self.imu_timeout)
+
+            # Calcolo heading fuso
+            if imu_active and self._bias_calibrated:
+                # Fusione pesata: 85% gyro + 15% encoder (correzione drift lento)
+                w = self.gyro_weight
+                # Differenza angolare pesata (gestisce wrap-around)
+                d_theta = math.atan2(
+                    math.sin(self._theta_gyro - self._theta_encoder),
+                    math.cos(self._theta_gyro - self._theta_encoder))
+                self._theta_fused = self._theta_encoder + w * d_theta
+                self._theta_fused = math.atan2(
+                    math.sin(self._theta_fused),
+                    math.cos(self._theta_fused))
+                mode = "VIO"
+            else:
+                # Fallback encoder puro
+                self._theta_fused = self._theta_encoder
+                mode = "Encoder-Fallback"
+
+            theta = self._theta_fused
+            x = self._x
+            y = self._y
+            vx = self._vx
+            wz = self._wz
+
+        if not self._encoder_valid:
+            # Pubblica identità se nessun dato
             self._publish_identity_tf()
             return
 
-        with self._lock:
-            x = self._x
-            y = self._y
-            theta = self._theta
-            vx = self._vx
-            wz = self._gyro_z
-
         now = self.get_clock().now()
 
-        # Quaternion da yaw
+        # Quaternion da yaw 2D
         qz = math.sin(theta / 2.0)
         qw = math.cos(theta / 2.0)
 
@@ -338,36 +267,33 @@ class SpectacularVIONode(Node):
         odom_msg.pose.pose.orientation.y = 0.0
         odom_msg.pose.pose.orientation.z = qz
         odom_msg.pose.pose.orientation.w = qw
-
-        # Covarianze calibrate per Marcus (2D encoder + gyro)
-        odom_msg.pose.covariance[0] = 0.01   # x
-        odom_msg.pose.covariance[7] = 0.01   # y
-        odom_msg.pose.covariance[35] = 0.005 # yaw (gyro bassa varianza)
-
+        # Covarianze calibrate per Marcus
+        odom_msg.pose.covariance[0] = 0.01    # σ²_x
+        odom_msg.pose.covariance[7] = 0.01    # σ²_y
+        odom_msg.pose.covariance[35] = 0.003 if mode == "VIO" else 0.01  # σ²_yaw
         odom_msg.twist.twist.linear.x = vx
         odom_msg.twist.twist.angular.z = wz
         odom_msg.twist.covariance[0] = 0.01
-        odom_msg.twist.covariance[35] = 0.01
-
+        odom_msg.twist.covariance[35] = 0.003 if mode == "VIO" else 0.01
         self.odom_pub.publish(odom_msg)
 
-        # --- /vio/pose (per Foxglove debug) ---
+        # --- /vio/pose (Foxglove debug) ---
         pose_msg = PoseStamped()
         pose_msg.header.stamp = now.to_msg()
         pose_msg.header.frame_id = self.odom_frame
         pose_msg.pose = odom_msg.pose.pose
         self.pose_pub.publish(pose_msg)
 
-        # Log periodico
-        if time.time() - self._last_publish_time > 10.0:
-            mode = "VIO+Encoder" if self._imu_valid else "Encoder-Only (fallback)"
+        # Log periodico (ogni 10s)
+        if time.time() - self._last_log_time > 10.0:
             self.get_logger().info(
-                f'📍 VIO [{mode}] x={x:.3f} y={y:.3f} θ={math.degrees(theta):.1f}° '
-                f'vx={vx:.3f} wz={wz:.3f}')
-            self._last_publish_time = time.time()
+                f'📍 [{mode}] x={x:.3f}m y={y:.3f}m θ={math.degrees(theta):.1f}° '
+                f'vx={vx:.3f}m/s wz={wz:.4f}rad/s | '
+                f'IMU_active={imu_active} bias_ok={self._bias_calibrated}')
+            self._last_log_time = time.time()
 
     def _publish_identity_tf(self):
-        """Pubblica TF identità (x=0,y=0,theta=0) in assenza di dati."""
+        """Pubblica TF identità in assenza di dati encoder."""
         now = self.get_clock().now()
         tf_msg = TransformStamped()
         tf_msg.header.stamp = now.to_msg()
@@ -375,14 +301,6 @@ class SpectacularVIONode(Node):
         tf_msg.child_frame_id = self.base_frame
         tf_msg.transform.rotation.w = 1.0
         self.tf_broadcaster.sendTransform(tf_msg)
-
-    def destroy_node(self):
-        if self._device is not None:
-            try:
-                self._device.close()
-            except Exception:
-                pass
-        super().destroy_node()
 
 
 def main(args=None):
