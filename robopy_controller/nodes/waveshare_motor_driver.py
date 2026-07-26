@@ -71,6 +71,7 @@ class WaveshareMotorDriver(Node):
         
         # --- Watchdog & Control State ---
         self.last_cmd_vel_time = time.time()
+        self.last_active_cmd_time = 0.0
         self.motors_stopped = True
         self.is_commanded_stop = True
         self.cmd_linear_x = 0.0
@@ -194,6 +195,17 @@ class WaveshareMotorDriver(Node):
         """Processes geometry_msgs/Twist, computes differential drive differential kinematics, and sends JSON."""
         v = msg.linear.x
         w = msg.angular.z
+        
+        now = time.time()
+        is_zero = (abs(v) < 0.005 and abs(w) < 0.005)
+        
+        if not is_zero:
+            self.last_active_cmd_time = now
+        elif hasattr(self, 'last_active_cmd_time') and (now - self.last_active_cmd_time) < 0.35:
+            # Ignore intermittent zero commands from idle nodes (Nav2 controller_server)
+            # while an active command is being published
+            return
+
         self.get_logger().info(f"📥 Received cmd_vel: v={v:.4f}, w={w:.4f}")
         
         self.cmd_linear_x = v
