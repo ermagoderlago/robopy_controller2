@@ -60,8 +60,16 @@ pkill -9 -f bt_navigator || true
 pkill -9 -f lifecycle_manager || true
 pkill -9 -f ultrasonic_sensor || true
 pkill -9 -f bluedot_node || true
+
+# Kill VIO/odometry legacy nodes (NO EKF in questo stack)
 pkill -9 -f robot_localization || true
 pkill -9 -f ekf_node || true
+pkill -9 -f spectacular_vio_node || true
+pkill -9 -f fast_flow_vo || true
+pkill -9 -f superpoint_node || true
+pkill -9 -f madgwick_node || true
+pkill -9 -f oak_visual_odometry_cpp || true
+pkill -9 -f rgbd_odometry || true
 
 # Reset ROS 2 Daemon
 ros2 daemon stop || true
@@ -94,12 +102,18 @@ nohup ros2 run tf2_ros static_transform_publisher --x 0.0 --y 0.0 --z 0.0 --yaw 
 nohup ros2 run tf2_ros static_transform_publisher --x 0.0 --y 0.0 --z 0.0 --yaw 0.0 --pitch 0.0 --roll 0.0 --frame-id base_link --child-frame-id imu_link > /home/robopy/robopy/logs/tf_imu.log 2>&1 &
 nohup ros2 run tf2_ros static_transform_publisher --x 0.12 --y 0.0 --z 0.05 --yaw 0.0 --pitch 0.0 --roll 0.0 --frame-id base_link --child-frame-id ultrasonic_sensor > /home/robopy/robopy/logs/tf_ultrasonic.log 2>&1 &
 
-echo "🔀 Starting EKF Sensor Fusion (robot_localization)..."
-> /home/robopy/robopy/logs/ekf_localization.log
-nohup ros2 run robot_localization ekf_node --ros-args \
-    --params-file /mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_controller/config/ekf.yaml \
-    -r odometry/filtered:=/odometry/filtered \
-    > /home/robopy/robopy/logs/ekf_localization.log 2>&1 &
+echo "🎯 Starting SpectacularVIO Node (IMU OAK-D + Encoder Fusion → TF odom→base_link @ 30Hz)..."
+> /home/robopy/robopy/logs/spectacular_vio_node.log
+nohup ros2 run robopy_controller spectacular_vio_node --ros-args \
+    -p publish_rate_hz:=30.0 \
+    -p odom_frame:=odom \
+    -p base_link_frame:=base_link \
+    -p imu_frame:=imu_link \
+    -p use_encoder_fallback:=True \
+    -p imu_gyro_weight:=0.85 \
+    > /home/robopy/robopy/logs/spectacular_vio_node.log 2>&1 &
+# Attesa breve per inizializzazione IMU e bias calibration (~3s)
+sleep 3
 
 echo "📷 Starting OAK SuperPoint camera (C++ Driver)..."
 mkdir -p /home/robopy/robopy/logs

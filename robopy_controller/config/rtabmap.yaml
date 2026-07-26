@@ -1,53 +1,48 @@
-rgbd_odometry:
-  ros__parameters:
-    frame_id: "base_link"
-    odom_frame_id: "odom"
-    publish_tf: false  # ECO00020: fast_flow_vo è l'unica autorità TF odom→base_link
-    wait_for_transform: 0.2
-    approx_sync: true
-    queue_size: 5
-    Odom/Strategy: "0"
-    Odom/ResetCountdown: "1"
-    Odom/GuessSmoothingDelay: "0.5"
-    Vis/FeatureType: "6"
-    Vis/MaxFeatures: "500"
-    Vis/MinInliers: "20"
-    Vis/InlierDistance: "0.05"
-    Reg/Strategy: "1"
-    Icp/VoxelSize: "0.05"
-    Icp/PointToPlane: "true"
-    Icp/Iterations: "5"
-    Icp/Epsilon: "0.001"
-    Reg/Force3DoF: "true"
-
 rtabmap:
   ros__parameters:
     frame_id: "base_link"
     odom_frame_id: "odom"
     map_frame_id: "map"
+
+    # Sorgenti dati
     subscribe_rgb: true
     subscribe_depth: true
     subscribe_scan: true
-    subscribe_odom_info: false
+    subscribe_odom_info: false   # VIO non espone odom_info
+
+    # Sincronizzazione
     approx_sync: true
     queue_size: 5
-    publish_tf: true
+
+    # TF
+    publish_tf: true             # RTAB-Map è l'autorità map→odom
+
+    # Creazione nodi
     Rtabmap/CreateIntermediateNodes: "false"
     Mem/NotLinkedNodesKept: "true"
     Mem/SaveRawData: "false"
     Mem/IncrementalMemory: "true"
+
+    # Timing e performance (RPi5 4GB)
     Rtabmap/TimeThr: "0"
     Rtabmap/MemoryThr: "300"
-    Rtabmap/DetectionRate: "2.0"  # 2 Hz for dense visual keyframe matching & loop closures
+    Rtabmap/DetectionRate: "2.0"  # 2 Hz — bilanciamento qualità/CPU
+
+    # RGBD
     RGBD/ProximityBySpace: "true"
-    RGBD/AngularUpdate: "0.087"
-    RGBD/LinearUpdate: "0.10"
-    RGBD/OptimizeMaxError: "3.0"    # Allow loop closures with up to 3.0 stddev angular/spatial drift
-    Optimizer/Strategy: "1"
+    RGBD/AngularUpdate: "0.087"   # ~5° di rotazione minima per nuovo nodo
+    RGBD/LinearUpdate: "0.10"     # 10cm di traslazione minima
+    RGBD/OptimizeMaxError: "3.0"
+
+    # Ottimizzatore grafo
+    Optimizer/Strategy: "1"       # GTSAM
     Optimizer/Iterations: "30"
+    Optimizer/Slam2D: "true"
+
+    # Griglia occupancy
     Grid/RangeMin: "0.25"
     Grid/RangeMax: "5.0"
-    Grid/Sensor: "2"
+    Grid/Sensor: "2"              # depth camera
     Grid/RayTracing: "true"
     Grid/MaxObstacleHeight: "1.5"
     Grid/MaxGroundHeight: "0.05"
@@ -57,10 +52,14 @@ rtabmap:
     Grid/FootprintLength: "0.22"
     Grid/FootprintWidth: "0.18"
     Grid/FootprintHeight: "0.10"
+
+    # Loop Closure — DBoW2 nativo C++ (NO SuperPoint Python)
     Kp/MaxFeatures: "1000"
-    Vis/FeatureType: "6"
-    Vis/MinInliers: "20"             # Allow loop closures with moderate motion blur
-    Rtabmap/LoopThr: "0.15"         # Balanced similarity threshold for loop closure
+    Vis/FeatureType: "6"          # GFTT/BRIEF — veloce su RPi5
+    Vis/MinInliers: "20"
+    Vis/CorType: "0"              # Features nativo (NO SuperPoint)
+    Rtabmap/LoopThr: "0.15"
     RGBD/LoopClosureReextractFeatures: "true"
+
+    # 3DoF forzato (robot 2D)
     Reg/Force3DoF: "true"
-    Optimizer/Slam2D: "true"

@@ -161,6 +161,7 @@ setup(
             "cpu_superpoint_node = robopy_controller.nodes.cpu_superpoint_node:main",
             "system_monitor_node = robopy_controller.nodes.system_monitor_node:main",
             "superpoint_node = robopy_controller.nodes.superpoint_node:main",
+            "spectacular_vio_node = robopy_controller.nodes.spectacular_vio_node:main",
             "camera_info_publisher = robopy_controller.nodes.camera_info_publisher:main",
             "nav2_bridge_node = robopy_controller.nodes.nav2_bridge_node:main",
             "teleop_bridge_node = robopy_controller.nodes.teleop_bridge_node:main",

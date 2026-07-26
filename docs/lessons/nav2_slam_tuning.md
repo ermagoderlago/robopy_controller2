@@ -48,3 +48,45 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
 ### Waypoint e Memorie Dinamiche filtrate per Sessione
 * **Problema:** Quando si opera su sessioni diverse, i vecchi waypoint o le memorie visive non più allineate geometricamente con il sistema di coordinate locale dell'odometria corrente possono indurre in errore la navigazione.
 * **Soluzione:** Sottoscrivere al topic `/rtabmap/info` per estrarre l'active session ID (`map_id`) pubblicato nelle statistiche interne di RTAB-Map. Filtrare le query in ChromaDB (`MemoryType.LOCATION` e `MemoryType.VISUAL_OBSERVATION`) per l'ID della sessione attiva prima di considerare i waypoint storici o statici di fallback.
+
+---
+
+## 🔧 EKF (robot_localization) — Problemi noti su Marcus
+
+### OAK-D IMU: `orientation_covariance[0] = -1.0` blocca l'EKF
+* **Causa Radice:** Il driver OAK-D DepthAI SDK pubblica `orientation_covariance[0] = -1.0` nel messaggio `sensor_msgs/Imu`. Secondo lo standard ROS2, questo flag indica "dati di orientamento non disponibili". Il nodo `ekf_filter_node` di `robot_localization` interpreta questo flag e **non inizializza** il filtro se non riceve un messaggio con orientamento valido, quindi **non pubblica mai il TF `odom→base_link`** anche con `publish_tf: true` nel YAML.
+* **Fix applicato:** Aggiunta di `initial_estimate_covariance` al `ekf.yaml` con valori grandi → l'EKF si inizializza senza aspettare l'orientamento IMU.
+* **Fix definitivo:** Sostituzione EKF con `spectacular_vio_node.py` (vedi sotto).
+
+### Zombie EKF: istanze multiple dal multi-restart
+* **Causa:** Ogni `restart_hailo.sh` lanciato manualmente aggiunge una nuova istanza `robot_localization` se il pkill non termina la precedente in tempo.
+* **Effetto:** Saturazione DDS (`Failed to find a free participant index for domain 42`).
+* **Fix:** Il blocco `pkill` in `restart_hailo.sh` ora include esplicitamente `robot_localization`, `ekf_node`, `spectacular_vio_node`, `fast_flow_vo`, `superpoint_node`.
+
+---
+
+## 🎯 SpectacularVIO — Architettura Nodo VIO Nativo
+
+### Struttura `spectacular_vio_node.py`
+* **Nodo:** `robopy_controller.nodes.spectacular_vio_node`
+* **Autorità TF:** Unica autorità su `odom → base_link` a **30 Hz**
+* **Strategia di fusione (ibrida Gyro + Encoder):**
+  - **Heading (θ):** Integrazione giroscopio BMI270 OAK-D a 200 Hz (via DepthAI SDK nativo). Meno drift angolare rispetto agli encoder discreti.
+  - **Posizione (x, y):** Encoder ruote (odometria differenziale). Più stabile del VIO puro per traslazioni corte.
+  - **Velocità:** Encoder (lineare) + Giroscopio (angolare).
+* **Calibrazione bias:** I primi 100 campioni IMU vengono usati per stimare il bias del giroscopio Z (robot fermo all'avvio).
+* **Failsafe:** Se OAK-D non è accessibile → modalità encoder-only automatica.
+* **Topic output:**
+  - TF `odom → base_link` (30 Hz)
+  - `/odometry/filtered` (nav_msgs/Odometry, consumato da RTAB-Map)
+  - `/vio/pose` (geometry_msgs/PoseStamped, per Foxglove debug)
+
+### Perché NON spectacularAI pip package
+* Il pacchetto pip `spectacularAI` **non ha wheel per ARM64** (RPi5). Richiede licensing commerciale per l'SDK ARM.
+* Soluzione alternativa: uso del modulo IMU nativo di DepthAI SDK (`depthai>=2.31.0`), già installato su Marcus.
+
+### RTAB-Map post-VIO
+* `rtabmap.yaml` non ha più sezione `rgbd_odometry` (rimossa).
+* Loop closure: `Vis/CorType: 0` → GFTT/BRIEF nativo C++ (DBoW2), **no SuperPoint Python**.
+* `Vis/FeatureType: 6` → GFTT/BRIEF: veloce, stabile su RPi5.
+

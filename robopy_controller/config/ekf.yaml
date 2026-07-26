@@ -4,7 +4,7 @@ ekf_filter_node:
     two_d_mode: true
     publish_tf: true
     publish_acceleration: false
-    
+
     map_frame: map
     odom_frame: odom
     base_link_frame: base_link
@@ -26,24 +26,53 @@ ekf_filter_node:
     odom0_queue_size: 10
 
     # ---------------------------------------------------------------
-    # INPUT 1: OAK-D Lite IMU (/oak/imu/data at ~42Hz)
-    # The OAK-D Lite has a BNO085 IMU with hardware sensor fusion.
-    # Trust: angular velocity wz (gyroscope - much more stable than
-    #        encoder-derived yaw for heading estimation)
-    # NOTE: orientation is identity quaternion (no Madgwick), so we
-    #       only use angular_velocity.z (gyro yaw rate).
+    # INPUT 1: OAK-D Lite IMU (/oak/imu/data at ~50Hz)
+    # OAK-D IMU pubblica orientation_covariance[0] = -1.0 (FLAG ROS2
+    # che indica "orientamento non disponibile"). Quindi:
+    # - YAW (orientamento assoluto): DISABILITATO → usiamo solo ruote
+    # - VYAW (gyro yaw rate): ABILITATO → giroscopio affidabile
+    # - Accelerazione lineare: DISABILITATA (imu0_ignore_acceleration)
     # frame_id: imu_link (static TF imu_link -> base_link exists)
     # ---------------------------------------------------------------
     imu0: /oak/imu/data
     imu0_config: [false, false, false,   # x, y, z
-                  false, false, false,   # roll, pitch, YAW - disabled (no Madgwick filter)
+                  false, false, false,   # roll, pitch, YAW - disabled (orientation_covariance[0]=-1)
                   false, false, false,   # vx, vy, vz
-                  false, false, true,    # vroll, vpitch, VYAW (trust gyro yaw rate!)
+                  false, false, true,    # vroll, vpitch, VYAW (gyro yaw rate - affidabile!)
                   false, false, false]   # ax, ay, az
     imu0_differential: false
     imu0_relative: false
-    imu0_remove_gravitational_acceleration: true
+    imu0_remove_gravitational_acceleration: false  # disabled: accel non usata
     imu0_queue_size: 10
+    imu0_nodelay: false
+
+    # CRITICAL FIX: l'EKF NON deve aspettare i dati di orientamento IMU
+    # per inizializzarsi (orientation_covariance[0]=-1 causerebbe blocco)
+    # Forziamo l'inizializzazione basata solo sulle ruote.
+    permit_corrected_publication: false
+
+    # ---------------------------------------------------------------
+    # Initial estimate covariance (15x15 diagonal)
+    # Permette all'EKF di inizializzarsi immediatamente senza aspettare
+    # misurazioni precise. Valori grandi = "non sono sicuro dove sono".
+    # ---------------------------------------------------------------
+    initial_estimate_covariance: [
+      1.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  1.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  1.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  1.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  1.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.1,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.5,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.5,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.5,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.01, 0.0,  0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.01, 0.0,  0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.005,0.0,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.5,  0.0,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.5,  0.0,
+      0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.5
+    ]
 
     # Process noise covariance (15x15 diagonal)
     # Tuned for 2D differential drive with gyro correction

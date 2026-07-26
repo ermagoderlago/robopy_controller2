@@ -33,3 +33,42 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
   * Aggiornato `add_waypoint` per persistere i nuovi landmark su ChromaDB.
   * Sincronizzata la sessione anche su `visual_memory_service.py` per associare le osservazioni all'active session ID.
   * Risolto un bug nel fallback locale Qwen2-VL che sovrascriveva la risposta VQA corretta con un NameError su `response.text`.
+
+---
+
+## 📈 ECO-2026-07-26-001: Sostituzione EKF con SpectacularVIO — Refactoring Stack Odometria
+
+* **Stato:** ✅ **Implementato — In attesa di verifica su robot fisico**
+* **Descrizione:** Rimozione completa di `robot_localization` (EKF) e sostituzione con nodo VIO nativo `spectacular_vio_node.py` basato su DepthAI SDK. Il nuovo nodo è l'unica autorità TF `odom→base_link` a 30 Hz. Rimosso SuperPoint Python dalla loop closure di RTAB-Map.
+
+* **Causa che ha motivato il cambio:**
+  * `robot_localization` EKF non pubblicava il TF `odom→base_link` perché il driver OAK-D pubblica `orientation_covariance[0] = -1.0` (flag ROS2 = "orientamento non disponibile") → l'EKF si bloccava in attesa di un orientamento valido.
+  * Soluzione temporanea applicata: `initial_estimate_covariance` nel YAML → EKF tornato operativo.
+  * Soluzione definitiva: Sostituzione con fusione nativa IMU+Encoder.
+
+* **Modifiche strutturali:**
+  * **[NUOVO]** `robopy_controller/nodes/spectacular_vio_node.py` — Nodo VIO con:
+    - Lettura IMU BMI270 via DepthAI SDK a 200 Hz (pipeline DAI nativa)
+    - Calibrazione bias giroscopio automatica all'avvio (100 campioni)
+    - Fusione heading: giroscopio integrato (85% peso) + encoder (fallback)
+    - Posizione x,y: encoder ruote (più stabile per traslazione breve)
+    - Failsafe automatico a encoder-only se OAK-D non disponibile
+  * **[MODIFICATO]** `restart_hailo.sh`:
+    - Rimosso blocco `ekf_node` / `robot_localization`
+    - Aggiunto avvio `spectacular_vio_node`
+    - Kill section aggiornata: `spectacular_vio_node`, `fast_flow_vo`, `superpoint_node`, `madgwick_node`, `oak_visual_odometry_cpp`, `rgbd_odometry`
+  * **[MODIFICATO]** `robopy_controller/config/rtabmap.yaml`:
+    - Rimossa sezione `rgbd_odometry` (non più usata)
+    - Confermato `Vis/CorType: 0` (GFTT/BRIEF nativo, NO SuperPoint)
+  * **[MODIFICATO]** `setup.py`: aggiunto entry point `spectacular_vio_node`
+  * **[MODIFICATO]** `docs/lessons/nav2_slam_tuning.md`: documentate cause EKF + architettura VIO
+
+* **Architettura TF risultante:**
+  ```
+  map ──(RTAB-Map, 2Hz)──► odom ──(SpectacularVIO, 30Hz)──► base_link
+  ```
+
+* **Note su spectacularAI pip:**
+  * Il pacchetto `spectacularAI` su PyPI non ha wheel ARM64 (solo x86_64).
+  * Implementato VIO equivalente con DepthAI SDK nativo (`depthai==2.31.0`), già installato.
+
