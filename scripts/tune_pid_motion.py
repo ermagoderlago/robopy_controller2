@@ -18,6 +18,7 @@ from typing import Optional, Tuple
 try:
     import rclpy
     from rclpy.node import Node
+    from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
     from geometry_msgs.msg import Twist
     from nav_msgs.msg import Odometry
     HAS_ROS = True
@@ -34,7 +35,15 @@ class PIDMotionTunerNode(Node if HAS_ROS else object):
         self.get_logger().info("🎯 Inizializzazione PID Motion Tuner Node...")
         
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
-        self.odom_sub = self.create_subscription(Odometry, '/odom', self._odom_cb, 10)
+        
+        # QoS flessibile per compatibilità con sia RELIABLE che BEST_EFFORT
+        qos = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=10
+        )
+        self.odom_sub = self.create_subscription(Odometry, '/odom', self._odom_cb, qos)
+        self.odom_sub_rel = self.create_subscription(Odometry, '/odom', self._odom_cb, 10)
         
         self.current_x: Optional[float] = None
         self.current_y: Optional[float] = None
@@ -105,7 +114,6 @@ async def run_pid_movement(
     
     dt = 0.05
     while time.monotonic() < t_max:
-        rclpy.spin_once(tuner, timeout_sec=0.01)
         curr_pose = tuner.get_pose()
         if curr_pose is None:
             await asyncio.sleep(dt)
@@ -190,15 +198,19 @@ async def main():
     rclpy.init()
     tuner = PIDMotionTunerNode()
     
+    import threading
+    spin_thread = threading.Thread(target=rclpy.spin, args=(tuner,), daemon=True)
+    spin_thread.start()
+    
     print("=" * 60)
     print(" 🤖 TEST & TUNING PID MOVIMENTO RELATIVO MARCUS")
     print("=" * 60)
     print("Attesa connessione odometria /odom...")
     
-    for _ in range(40):
-        rclpy.spin_once(tuner, timeout_sec=0.1)
+    for _ in range(50):
         if tuner.odom_received:
             break
+        await asyncio.sleep(0.1)
             
     if not tuner.odom_received:
         print("❌ Impossibile connettersi al topic /odom. Verificare che waveshare_motor_driver sia attivo!")

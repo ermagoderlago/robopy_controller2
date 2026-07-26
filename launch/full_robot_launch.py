@@ -143,14 +143,15 @@ def generate_launch_description():
         parameters=[{
             'serial_port': '/dev/ttyUSB0',
             'baud_rate': 115200,
-            'wheel_radius': 0.0361,
-            'wheel_separation': 0.091,
-            'ticks_per_rev': 594,
+            'wheel_radius': 0.0325,
+            'wheel_separation': 0.285,
+            'rotational_wheel_separation': 0.285,
+            'ticks_per_rev': 70,
             'invert_left_motor': False,
             'invert_right_motor': False,
-            'invert_left_encoder': True,
+            'invert_left_encoder': False,
             'invert_right_encoder': False,
-            'publish_tf': False,
+            'publish_tf': True,
         }]
     )
 

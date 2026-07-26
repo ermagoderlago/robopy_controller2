@@ -60,6 +60,8 @@ pkill -9 -f bt_navigator || true
 pkill -9 -f lifecycle_manager || true
 pkill -9 -f ultrasonic_sensor || true
 pkill -9 -f bluedot_node || true
+pkill -9 -f robot_localization || true
+pkill -9 -f ekf_node || true
 
 # Reset ROS 2 Daemon
 ros2 daemon stop || true
@@ -75,14 +77,15 @@ echo "⚙️ Starting waveshare_motor_driver..."
 nohup ros2 run robopy_controller waveshare_motor_driver --ros-args \
     -p serial_port:=/dev/ttyUSB0 \
     -p baud_rate:=115200 \
-    -p wheel_radius:=0.0361 \
-    -p wheel_separation:=0.091 \
-    -p ticks_per_rev:=594 \
+    -p wheel_radius:=0.0325 \
+    -p wheel_separation:=0.285 \
+    -p rotational_wheel_separation:=0.285 \
+    -p ticks_per_rev:=280 \
     -p invert_left_motor:=False \
     -p invert_right_motor:=False \
     -p invert_left_encoder:=True \
     -p invert_right_encoder:=False \
-    -p publish_tf:=True \
+    -p publish_tf:=False \
     > /home/robopy/robopy/logs/waveshare_motor_driver.log 2>&1 &
 
 echo "📐 Starting static TF publishers..."
@@ -90,6 +93,13 @@ nohup ros2 run tf2_ros static_transform_publisher --x 0.05 --y 0.0 --z 0.08 --ya
 nohup ros2 run tf2_ros static_transform_publisher --x 0.0 --y 0.0 --z 0.0 --yaw -1.5708 --pitch 0.0 --roll -1.5708 --frame-id camera_link --child-frame-id camera_optical_frame > /home/robopy/robopy/logs/tf_camera_opt.log 2>&1 &
 nohup ros2 run tf2_ros static_transform_publisher --x 0.0 --y 0.0 --z 0.0 --yaw 0.0 --pitch 0.0 --roll 0.0 --frame-id base_link --child-frame-id imu_link > /home/robopy/robopy/logs/tf_imu.log 2>&1 &
 nohup ros2 run tf2_ros static_transform_publisher --x 0.12 --y 0.0 --z 0.05 --yaw 0.0 --pitch 0.0 --roll 0.0 --frame-id base_link --child-frame-id ultrasonic_sensor > /home/robopy/robopy/logs/tf_ultrasonic.log 2>&1 &
+
+echo "🔀 Starting EKF Sensor Fusion (robot_localization)..."
+> /home/robopy/robopy/logs/ekf_localization.log
+nohup ros2 run robot_localization ekf_node --ros-args \
+    --params-file /mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_controller/config/ekf.yaml \
+    -r odometry/filtered:=/odometry/filtered \
+    > /home/robopy/robopy/logs/ekf_localization.log 2>&1 &
 
 echo "📷 Starting OAK SuperPoint camera (C++ Driver)..."
 mkdir -p /home/robopy/robopy/logs
@@ -134,7 +144,7 @@ nohup ros2 run rtabmap_slam rtabmap --delete_db_on_start --ros-args \
     -r rgb/camera_info:=/camera/camera_info \
     -r depth/image:=/camera/depth/image_raw \
     -r scan:=/scan \
-    -r odom:=/odom \
+    -r odom:=/odometry/filtered \
     > /home/robopy/robopy/logs/rtabmap.log 2>&1 &
 
 echo "🔌 Starting respeaker_interface_node..."

@@ -28,12 +28,12 @@ class WaveshareMotorDriver(Node):
         self.declare_parameter('baud_rate', 115200)
         self.declare_parameter('wheel_radius', 0.0325)      # in meters (65mm diameter)
         self.declare_parameter('wheel_separation', 0.285)   # track width in meters (285mm)
-        self.declare_parameter('rotational_wheel_separation', 0.510) # effective rotational track width for 1:1 angular odometry (510mm)
-        self.declare_parameter('ticks_per_rev', 70)        # encoder ticks per wheel revolution (ESP32 feedback scale)
+        self.declare_parameter('rotational_wheel_separation', 0.285) # pure kinematic wheel separation (285mm)
+        self.declare_parameter('ticks_per_rev', 280)        # exact calibrated ticks per wheel rev (280 CPR)
         
         self.declare_parameter('invert_left_motor', False)
         self.declare_parameter('invert_right_motor', False)
-        self.declare_parameter('invert_left_encoder', False)
+        self.declare_parameter('invert_left_encoder', True)
         self.declare_parameter('invert_right_encoder', False)
         self.declare_parameter('encoder_dead_zone', 0)        # ticks: ignore deltas <= this when both wheels below threshold (0 to disable tick dropping)
         self.declare_parameter('publish_tf', True)             # set False when another node (e.g. fast_flow_vo) owns odom->base_link TF
@@ -72,6 +72,7 @@ class WaveshareMotorDriver(Node):
         # --- Watchdog & Control State ---
         self.last_cmd_vel_time = time.time()
         self.motors_stopped = True
+        self.is_commanded_stop = True
         self.cmd_linear_x = 0.0
         self.cmd_angular_z = 0.0
         self.v_robot = 0.0
@@ -235,7 +236,12 @@ class WaveshareMotorDriver(Node):
         
         # Feed watchdog
         self.last_cmd_vel_time = time.time()
-        self.motors_stopped = False
+        if abs(v) < 0.005 and abs(w) < 0.005:
+            self.is_commanded_stop = True
+            self.motors_stopped = True
+        else:
+            self.is_commanded_stop = False
+            self.motors_stopped = False
 
     def send_speeds(self, left, right):
         """Formats speeds as JSON and writes to serial port.
@@ -343,12 +349,8 @@ class WaveshareMotorDriver(Node):
                 except json.JSONDecodeError:
                     continue
                 
-                # Look for chassis feedback
-                if data.get('T') == 1001:
-                    # Dagli esperimenti di moto:
-                    # - La ruota DESTRA fisica (R sulla seriale) è legata al canale 'odr'
-                    # - La ruota SINISTRA fisica (L sulla seriale) è legata al canale 'odl'
-                    # Quindi mappiamo:
+                t_val = data.get('T')
+                if t_val in [1001, 1002, 1003, 1004] or 'ax' in data or 'r' in data or 'roll' in data or 'gx' in data:
                     left_ticks = data.get('odl')
                     right_ticks = data.get('odr')
                     
@@ -372,7 +374,7 @@ class WaveshareMotorDriver(Node):
                     gy = data.get('gy')
                     gz = data.get('gz')
                     
-                    if roll is not None and pitch is not None and yaw is not None:
+                    if roll is not None or ax is not None or gx is not None:
                         self.process_imu_feedback(roll, pitch, yaw, ax, ay, az, gx, gy, gz)
                         
             except Exception as e:
@@ -405,6 +407,9 @@ class WaveshareMotorDriver(Node):
         delta_ticks_right = left_ticks - self.prev_left_ticks
         delta_ticks_left = right_ticks - self.prev_right_ticks
         
+        if abs(delta_ticks_right) > 0 or abs(delta_ticks_left) > 0:
+            self.get_logger().info(f"[ENCODER_RAW] d_right={delta_ticks_right}, d_left={delta_ticks_left}", throttle_duration_sec=0.2)
+        
         # Gracefully handle wrap-around/reset: if single step change is absurdly large, ignore it.
         # Max reasonable ticks in 30Hz: ticks_per_rev * 10 max RPM / 60s * (1/30) = ticks_per_rev * 0.005.
         # If the delta is larger than 5 * ticks_per_rev, it's likely a wrap-around or a reset.
@@ -414,17 +419,9 @@ class WaveshareMotorDriver(Node):
             delta_ticks_right = 0
         
         # --- ZERO-VELOCITY LOCK ---
-        # When motors are stopped (no cmd_vel for >500ms), force delta to zero.
+        # When motors are stopped (no cmd_vel or v=0, w=0 commanded), force delta to zero.
         # This is the primary defense against encoder noise drift at standstill.
-        if self.motors_stopped:
-            delta_ticks_left = 0
-            delta_ticks_right = 0
-        
-        # --- DEAD-ZONE FILTER ---
-        # If BOTH wheel deltas are within the dead-zone threshold, treat as noise.
-        # At 20Hz, even 0.01 m/s produces ~4-5 ticks/cycle, so 2 ticks is safe.
-        if (abs(delta_ticks_left) <= self.encoder_dead_zone and
-                abs(delta_ticks_right) <= self.encoder_dead_zone):
+        if self.motors_stopped or self.is_commanded_stop:
             delta_ticks_left = 0
             delta_ticks_right = 0
             
@@ -446,7 +443,7 @@ class WaveshareMotorDriver(Node):
         # Standard ROS 2 Right-Hand Coordinate System (+Z = CCW / Antiorario):
         # Right wheel moves forward (+), Left wheel moves backward (-) during CCW turn -> delta_s_right - delta_s_left > 0
         delta_s = (delta_s_right + delta_s_left) / 2.0
-        delta_theta = (delta_s_right - delta_s_left) / self.rotational_wheel_separation
+        delta_theta = (delta_s_left - delta_s_right) / self.rotational_wheel_separation
         
         # Integrate pose
         self.x += delta_s * math.cos(self.theta + delta_theta / 2.0)
@@ -615,9 +612,9 @@ class WaveshareMotorDriver(Node):
 
     def process_imu_feedback(self, roll, pitch, yaw, ax=None, ay=None, az=None, gx=None, gy=None, gz=None):
         """Processes IMU orientation (Euler angles in degrees) and publishes sensor_msgs/Imu."""
-        r_rad = math.radians(roll)
-        p_rad = math.radians(pitch)
-        y_rad = math.radians(yaw)
+        r_rad = math.radians(float(roll)) if roll is not None else 0.0
+        p_rad = math.radians(float(pitch)) if pitch is not None else 0.0
+        y_rad = math.radians(float(yaw)) if yaw is not None else 0.0
         
         imu_msg = Imu()
         imu_msg.header.stamp = self.get_clock().now().to_msg()
@@ -628,23 +625,28 @@ class WaveshareMotorDriver(Node):
         
         if ax is not None and ay is not None and az is not None:
             # Check if accel is in g or m/s^2. ROS standard is m/s^2.
-            # Usually, ESP32 raw is scaled to g. If mean gravity is ~1.0, convert to m/s^2.
             ax_f, ay_f, az_f = float(ax), float(ay), float(az)
             mag = math.sqrt(ax_f**2 + ay_f**2 + az_f**2)
             if 0.5 < mag < 2.0:
                 ax_f *= 9.81
                 ay_f *= 9.81
                 az_f *= 9.81
-            imu_msg.linear_acceleration.x = ax_f
-            imu_msg.linear_acceleration.y = ay_f
-            imu_msg.linear_acceleration.z = az_f
+            # Remap axes for 90-degree chassis IMU rotation (REP-103):
+            # Forward (+X ROS) -> +az
+            # Left (+Y ROS)    -> +ax
+            # Up (+Z ROS)      -> +ay (Gravity ~ 9.81 m/s^2)
+            imu_msg.linear_acceleration.x = az_f
+            imu_msg.linear_acceleration.y = ax_f
+            imu_msg.linear_acceleration.z = ay_f
             
         if gx is not None and gy is not None and gz is not None:
-            # Check if gyro is in deg/s or rad/s. ROS standard is rad/s.
-            # ESP32 usually outputs deg/s.
+            # Remap gyro axes for 90-degree chassis IMU rotation (REP-103):
+            # Yaw (+Z ROS)     -> +gy
+            # Pitch (+Y ROS)   -> +gz
+            # Roll (+X ROS)    -> +gx
             imu_msg.angular_velocity.x = math.radians(float(gx))
-            imu_msg.angular_velocity.y = math.radians(float(gy))
-            imu_msg.angular_velocity.z = math.radians(float(gz))
+            imu_msg.angular_velocity.y = math.radians(float(gz))
+            imu_msg.angular_velocity.z = math.radians(float(gy))
             
         # Add small default covariances to avoid warnings in EKF
         imu_msg.orientation_covariance = [0.01, 0.0, 0.0, 0.0, 0.01, 0.0, 0.0, 0.0, 0.01]

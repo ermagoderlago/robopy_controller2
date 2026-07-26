@@ -181,6 +181,17 @@ Con JGB37-520B a 7RPM (riduzione ~143:1), **girare la ruota manualmente è impos
 * **Causa:** Il firmware ESP32 della scheda Waveshare accumula ed invia i fronti di quadratura degli encoder con un fattore di scala reale di **`70` ticks per giro completo di ruota** (con ruote da $D = 65\text{ mm}$, circonferenza $C = 0.2042\text{ m}$).
 * **Risoluzione:** Tarato il parametro `ticks_per_rev := 70` sia in `restart.sh` che in `waveshare_motor_driver.py`, ed impostati i guadagni PID a $K_p = 2.5, K_i = 0.8$. Lo spostamento calcolato da `/odom` risponde ora con precisione millimetrica allo spostamento misurato col metro sul pavimento.
 
+### 20. Fusione Sensoriale EKF (Odometria Ruote + IMU OAK-D Lite BNO085) e Nome Nodo YAML
+* **Sintomo:** Il nodo `robot_localization` `ekf_node` si avviava senza errori ma non pubblicava il TF `odom → base_link` né l'odometria fusa `/odometry/filtered`, facendo fallire RTAB-Map SLAM per mancanza di TF.
+* **Causa:** 
+  1. Il file `ekf.yaml` aveva come intestazione radice `ekf_localization:`, mentre il nome registrato nel grafo ROS 2 dal binario `ekf_node` è `/ekf_filter_node`. Di conseguenza, il parser dei parametri ROS 2 ignorava silenziosamente tutta la configurazione.
+  2. L'IMU della scheda Waveshare ESP32 non trasmette pacchetti telemetrici con accelerazione/giroscopio (`/imu/esp32` silenzioso).
+* **Risoluzione:**
+  1. Rinominata la radice YAML in `ekf_filter_node:` in `ekf.yaml`.
+  2. Reindirizzata la fusione IMU sull'**IMU integrata della OAK-D Lite (`/oak/imu/data`)**, equipaggiata con sensore BNO085 che trasmette a **42 Hz** stabili.
+  3. Configurato l'EKF per utilizzare la velocità angolare giroscopica $w_z$ dall'OAK IMU unita alla posizione lineare $(x,y)$ ed alla velocità $v_x$ dall'odometria ruote, generando `/odometry/filtered` a 30Hz ed il TF `odom → base_link`.
+
+
 
 
 

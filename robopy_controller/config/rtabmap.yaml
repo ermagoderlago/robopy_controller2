@@ -38,11 +38,11 @@ rtabmap:
     Mem/IncrementalMemory: "true"
     Rtabmap/TimeThr: "0"
     Rtabmap/MemoryThr: "300"
-    Rtabmap/DetectionRate: "0.5"
+    Rtabmap/DetectionRate: "2.0"  # 2 Hz for dense visual keyframe matching & loop closures
     RGBD/ProximityBySpace: "true"
-    RGBD/AngularUpdate: "0.15"
-    RGBD/LinearUpdate: "0.3"
-    RGBD/OptimizeMaxError: "3.0"
+    RGBD/AngularUpdate: "0.087"
+    RGBD/LinearUpdate: "0.10"
+    RGBD/OptimizeMaxError: "3.0"    # Allow loop closures with up to 3.0 stddev angular/spatial drift
     Optimizer/Strategy: "1"
     Optimizer/Iterations: "30"
     Grid/RangeMin: "0.25"
@@ -59,7 +59,8 @@ rtabmap:
     Grid/FootprintHeight: "0.10"
     Kp/MaxFeatures: "1000"
     Vis/FeatureType: "6"
-    Rtabmap/LoopThr: "0.08"
+    Vis/MinInliers: "20"             # Allow loop closures with moderate motion blur
+    Rtabmap/LoopThr: "0.15"         # Balanced similarity threshold for loop closure
     RGBD/LoopClosureReextractFeatures: "true"
     Reg/Force3DoF: "true"
     Optimizer/Slam2D: "true"

@@ -68,12 +68,11 @@ nohup ros2 run robopy_controller waveshare_motor_driver --ros-args \
     -p baud_rate:=115200 \
     -p wheel_radius:=0.0325 \
     -p wheel_separation:=0.285 \
-    -p rotational_wheel_separation:=0.510 \
-    -p ticks_per_rev:=70 \
-    -p encoder_dead_zone:=0 \
+    -p rotational_wheel_separation:=0.285 \
+    -p ticks_per_rev:=280 \
     -p invert_left_motor:=False \
     -p invert_right_motor:=False \
-    -p invert_left_encoder:=False \
+    -p invert_left_encoder:=True \
     -p invert_right_encoder:=False \
     -p publish_tf:=True \
     > /home/robopy/robopy/logs/waveshare_motor_driver.log 2>&1 &

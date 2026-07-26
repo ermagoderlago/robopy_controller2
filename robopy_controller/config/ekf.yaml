@@ -1,6 +1,6 @@
-ekf_localization:
+ekf_filter_node:
   ros__parameters:
-    frequency: 50.0
+    frequency: 30.0
     two_d_mode: true
     publish_tf: true
     publish_acceleration: false
@@ -10,43 +10,57 @@ ekf_localization:
     base_link_frame: base_link
     world_frame: odom
 
-    # INPUT 1: VELOCITY (from fast_flow_vo)
-    odom0: /fast_flow/velocity
-    odom0_config: [false, false, false,
-                   false, false, false,
-                   true,  true,  false,
-                   false, false, true,
-                   false, false, false]
+    # ---------------------------------------------------------------
+    # INPUT 0: Wheel Odometry (/odom from waveshare_motor_driver)
+    # Trust: position x/y (good for linear), velocity vx (good),
+    #        angular velocity wz (noisy due to encoder discretization)
+    # ---------------------------------------------------------------
+    odom0: /odom
+    odom0_config: [true,  true,  false,   # x, y, z
+                   false, false, false,   # roll, pitch, yaw (NOT from wheels - too noisy)
+                   true,  false, false,   # vx, vy, vz
+                   false, false, true,    # vroll, vpitch, vyaw (trust wheel angular velocity!)
+                   false, false, false]   # ax, ay, az
     odom0_differential: false
     odom0_relative: false
+    odom0_queue_size: 10
 
-    # INPUT 2: POSE (from rgbd_odometry, REMOVED due to rubber-banding)
-    # odom1 disabled in favor of pure velocity integration
-
-    # INPUT 3: IMU (from madgwick)
-    imu0: /imu/data
-    imu0_config: [false, false, false,
-                  false, false, true,
-                  false, false, false,
-                  false, false, true,
-                  false, false, false]
+    # ---------------------------------------------------------------
+    # INPUT 1: OAK-D Lite IMU (/oak/imu/data at ~42Hz)
+    # The OAK-D Lite has a BNO085 IMU with hardware sensor fusion.
+    # Trust: angular velocity wz (gyroscope - much more stable than
+    #        encoder-derived yaw for heading estimation)
+    # NOTE: orientation is identity quaternion (no Madgwick), so we
+    #       only use angular_velocity.z (gyro yaw rate).
+    # frame_id: imu_link (static TF imu_link -> base_link exists)
+    # ---------------------------------------------------------------
+    imu0: /oak/imu/data
+    imu0_config: [false, false, false,   # x, y, z
+                  false, false, false,   # roll, pitch, YAW - disabled (no Madgwick filter)
+                  false, false, false,   # vx, vy, vz
+                  false, false, true,    # vroll, vpitch, VYAW (trust gyro yaw rate!)
+                  false, false, false]   # ax, ay, az
     imu0_differential: false
     imu0_relative: false
+    imu0_remove_gravitational_acceleration: true
+    imu0_queue_size: 10
 
+    # Process noise covariance (15x15 diagonal)
+    # Tuned for 2D differential drive with gyro correction
     process_noise_covariance: [
-      0.03, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-      0.0, 0.03, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-      0.0, 0.0, 0.04, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-      0.0, 0.0, 0.0, 0.02, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-      0.0, 0.0, 0.0, 0.0, 0.02, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-      0.0, 0.0, 0.0, 0.0, 0.0, 0.02, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+      0.01, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.01, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.06, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.03, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.03, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0, 0.005, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
       0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.02, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
       0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.02, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-      0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.03, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.04, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
       0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.01, 0.0, 0.0, 0.0, 0.0, 0.0,
       0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.01, 0.0, 0.0, 0.0, 0.0,
-      0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.015, 0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.005, 0.0, 0.0, 0.0,
       0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.01, 0.0, 0.0,
       0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.01, 0.0,
-      0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.01
+      0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.015
     ]
