@@ -21,7 +21,7 @@ class Spin360TestNode(Node):
     def __init__(self):
         super().__init__('spin_360_test_node')
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
-        self.odom_sub = self.create_subscription(Odometry, '/odometry/filtered', self._odom_cb, 10)
+        self.odom_sub = self.create_subscription(Odometry, '/odom', self._odom_cb, 10)
         self.raw_odom_sub = self.create_subscription(Odometry, '/odom', self._raw_odom_cb, 10)
 
         self.odom_received = False

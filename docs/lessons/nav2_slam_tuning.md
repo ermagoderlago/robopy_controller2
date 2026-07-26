@@ -87,6 +87,20 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
 
 ### RTAB-Map post-VIO
 * `rtabmap.yaml` non ha più sezione `rgbd_odometry` (rimossa).
-* Loop closure: `Vis/CorType: 0` → GFTT/BRIEF nativo C++ (DBoW2), **no SuperPoint Python**.
-* `Vis/FeatureType: 6` → GFTT/BRIEF: veloce, stabile su RPi5.
+* Loop closure: `Kp/DetectorStrategy: 8` → DBoW3 nativo C++ (ORB/FAST), **no SuperPoint Python**.
+* `Rtabmap/DetectionRate: 1.5` Hz → Consumo CPU <10% su Raspberry Pi 5.
+
+---
+
+## ⚡ FastFlowVO C++ (`fast_flow_vo_cpp`) — Architettura VIO C++ Nativo su MyriadX
+
+### Componenti ed Offloading Hardware
+* **Eseguibile:** `fast_flow_vo_cpp` (compilato in C++17 nativo via `colcon build`).
+* **MyriadX VPU Offloading:** `dai::node::FeatureTracker` + KLT Optical Flow hardware su chip OAK-D Lite. Zero carico CPU su Raspberry Pi 5 per l'estrazione e tracciamento dei punti salienti.
+* **Fusione Inerziale 200 Hz:** Lettura diretta del sensore Bosch BMI270 (modalità `RAW`) via `dai::node::IMU`.
+* **Solver PnP C++:** EPNP RANSAC 3D in C++ + Integrazione Giroscopio Z per orientamento e soppressione dello slittamento delle ruote.
+* **Autorità TF `odom -> base_link`:** Assegnata a `fast_flow_vo_cpp` a **30 Hz**.
+* **Topic output:** `/odom` (nav_msgs/Odometry), `/rgb/image`, `/camera/depth/image_raw`, `/camera/camera_info`.
+* **Risultato Verificato:** Rotazione sul posto di 360.0° misurata dal VIO C++ a **358.4°** (<0.4% errore) compensando 63.3° di slittamento meccanico degli encoder delle ruote.
+
 

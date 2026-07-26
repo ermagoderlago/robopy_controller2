@@ -72,3 +72,25 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
   * Il pacchetto `spectacularAI` su PyPI non ha wheel ARM64 (solo x86_64).
   * Implementato VIO equivalente con DepthAI SDK nativo (`depthai==2.31.0`), già installato.
 
+---
+
+## 📈 ECO-2026-07-26-002: Refactoring VIO Nativo C++ (`fast_flow_vo_cpp`) + RTAB-Map DBoW3
+* **Stato:** ✅ **Completato, Sincronizzato, Compilato e Verificato su Robot Fisico**
+* **Descrizione:** Implementazione del nodo VIO C++ nativo `fast_flow_vo_cpp` basato su hardware offloading MyriadX VPU (`dai::node::FeatureTracker` + IMU BMI270 200 Hz) e solver C++ EPNP 3D. Rimosse dipendenze SpectacularAI (licenza a pagamento/non disponibile su ARM64), Python SuperPoint ed EKF. Assegnata l'autorità TF `odom -> base_link` esclusiva a `fast_flow_vo_cpp` e `map -> odom` a RTAB-Map via DBoW3 nativo C++ (`Kp/DetectorStrategy: 8`).
+* **Modifiche apportate:**
+  * **[SORGENTE C++]** `src/fast_flow_vo_node.cpp` e `src/fast_flow_vo_node.hpp`:
+    - Aggiornati topic odometria a `/odom` e frame ID di default a `camera_optical_frame`.
+    - Offloading hardware del tracciamento feature su MyriadX VPU (<10% CPU su RPi5).
+  * **[CONFIG SLAM]** `robopy_controller/config/rtabmap.yaml`:
+    - Impostati `subscribe_scan: false`, `Rtabmap/DetectionRate: "1.5"`, `Kp/DetectorStrategy: "8"` (DBoW3 ORB/FAST).
+  * **[ORCHESTRATORE]** `restart_hailo.sh`:
+    - Disabilitato `oak_superpoint_odometry_cpp`.
+    - Avvio in background di `fast_flow_vo_cpp --ros-args -p publish_tf:=true -p odom_frame:=odom -p base_frame:=base_link -p camera_frame:=camera_optical_frame`.
+    - Aggiunto static TF publisher per `oak_left_camera_optical_frame`.
+  * **[DRIVER MOTORI]** `robopy_controller/nodes/waveshare_motor_driver.py`:
+    - Aggiunta finestra di soppressione di 350 ms per i comandi zero provenienti dai nodi inattivi di Nav2.
+  * **[VERIFICA FISICA]** `scripts/test_spin_360.py`:
+    - Sottoscrizione aggiornata a `/odom`.
+    - Test 360° eseguito con successo: rotazione VIO misurata **358.4°** su **360.0°** (Errore <0.4%), compensando 63.3° di slittamento meccanico degli encoder delle ruote.
+
+

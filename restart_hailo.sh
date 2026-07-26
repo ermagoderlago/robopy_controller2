@@ -65,6 +65,7 @@ pkill -9 -f bluedot_node || true
 pkill -9 -f robot_localization || true
 pkill -9 -f ekf_node || true
 pkill -9 -f spectacular_vio_node || true
+pkill -9 -f fast_flow_vo_cpp || true
 pkill -9 -f fast_flow_vo || true
 pkill -9 -f superpoint_node || true
 pkill -9 -f madgwick_node || true
@@ -99,20 +100,18 @@ nohup ros2 run robopy_controller waveshare_motor_driver --ros-args \
 echo "📐 Starting static TF publishers..."
 nohup ros2 run tf2_ros static_transform_publisher --x 0.05 --y 0.0 --z 0.08 --yaw 0.0 --pitch -0.1535 --roll 0.0 --frame-id base_link --child-frame-id camera_link > /home/robopy/robopy/logs/tf_camera.log 2>&1 &
 nohup ros2 run tf2_ros static_transform_publisher --x 0.0 --y 0.0 --z 0.0 --yaw -1.5708 --pitch 0.0 --roll -1.5708 --frame-id camera_link --child-frame-id camera_optical_frame > /home/robopy/robopy/logs/tf_camera_opt.log 2>&1 &
+nohup ros2 run tf2_ros static_transform_publisher --x 0.0 --y 0.0 --z 0.0 --yaw -1.5708 --pitch 0.0 --roll -1.5708 --frame-id camera_link --child-frame-id oak_left_camera_optical_frame > /home/robopy/robopy/logs/tf_camera_oak_left.log 2>&1 &
 nohup ros2 run tf2_ros static_transform_publisher --x 0.0 --y 0.0 --z 0.0 --yaw 0.0 --pitch 0.0 --roll 0.0 --frame-id base_link --child-frame-id imu_link > /home/robopy/robopy/logs/tf_imu.log 2>&1 &
 nohup ros2 run tf2_ros static_transform_publisher --x 0.12 --y 0.0 --z 0.05 --yaw 0.0 --pitch 0.0 --roll 0.0 --frame-id base_link --child-frame-id ultrasonic_sensor > /home/robopy/robopy/logs/tf_ultrasonic.log 2>&1 &
 
-echo "🎯 Starting SpectacularVIO Node (IMU OAK-D + Encoder Fusion → TF odom→base_link @ 30Hz)..."
-> /home/robopy/robopy/logs/spectacular_vio_node.log
-nohup ros2 run robopy_controller spectacular_vio_node --ros-args \
-    -p publish_rate_hz:=30.0 \
+echo "👁️ Starting fast_flow_vo_cpp (Native C++ ARM64 Visual-Inertial VO → TF odom→base_link @ 30Hz)..."
+> /home/robopy/robopy/logs/fast_flow_vo.log
+nohup ros2 run robopy_controller fast_flow_vo_cpp --ros-args \
+    -p publish_tf:=true \
     -p odom_frame:=odom \
-    -p base_link_frame:=base_link \
-    -p imu_frame:=imu_link \
-    -p use_encoder_fallback:=True \
-    -p imu_gyro_weight:=0.85 \
-    > /home/robopy/robopy/logs/spectacular_vio_node.log 2>&1 &
-# Attesa breve per inizializzazione IMU e bias calibration (~3s)
+    -p base_frame:=base_link \
+    -p camera_frame:=camera_optical_frame \
+    > /home/robopy/robopy/logs/fast_flow_vo.log 2>&1 &
 sleep 3
 
 echo "📷 Starting OAK SuperPoint camera (C++ Driver)..."
@@ -158,7 +157,7 @@ nohup ros2 run rtabmap_slam rtabmap --delete_db_on_start --ros-args \
     -r rgb/camera_info:=/camera/camera_info \
     -r depth/image:=/camera/depth/image_raw \
     -r scan:=/scan \
-    -r odom:=/odometry/filtered \
+    -r odom:=/odom \
     > /home/robopy/robopy/logs/rtabmap.log 2>&1 &
 
 echo "🔌 Starting respeaker_interface_node..."

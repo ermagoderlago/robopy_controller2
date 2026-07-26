@@ -22,7 +22,7 @@ FastFlowVONode::FastFlowVONode(const rclcpp::NodeOptions& options)
     // Load parameters
     config_.odom_frame = declare_parameter<std::string>("odom_frame", "odom");
     config_.base_frame = declare_parameter<std::string>("base_frame", "base_link");
-    config_.camera_frame = declare_parameter<std::string>("camera_frame", "oak_left_camera_optical_frame");
+    config_.camera_frame = declare_parameter<std::string>("camera_frame", "camera_optical_frame");
     config_.publish_tf = declare_parameter<bool>("publish_tf", false);
     
     // Initialize TF broadcaster if enabled
@@ -123,7 +123,7 @@ FastFlowVONode::FastFlowVONode(const rclcpp::NodeOptions& options)
     computeCameraTransform();
     
     // ROS Publishers
-    odom_pub_ = create_publisher<nav_msgs::msg::Odometry>("/vo/odom", 10);
+    odom_pub_ = create_publisher<nav_msgs::msg::Odometry>("/odom", 10);
     diag_pub_ = create_publisher<diagnostic_msgs::msg::DiagnosticArray>("/diagnostics", 10);
     tracking_pub_ = create_publisher<std_msgs::msg::Bool>("/vo/tracking_ok", 10);
     

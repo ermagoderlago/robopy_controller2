@@ -81,7 +81,7 @@ private:
         // Frames
         std::string odom_frame = "odom";
         std::string base_frame = "base_link";
-        std::string camera_frame = "oak_left_camera_optical_frame";
+        std::string camera_frame = "camera_optical_frame";
         bool publish_tf = false;  // TF publishing (usually RTAB-Map handles this)
         
         // FAST Detection

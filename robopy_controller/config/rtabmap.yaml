@@ -7,7 +7,7 @@ rtabmap:
     # Sorgenti dati
     subscribe_rgb: true
     subscribe_depth: true
-    subscribe_scan: true
+    subscribe_scan: false
     subscribe_odom_info: false   # VIO non espone odom_info
 
     # Sincronizzazione
@@ -26,7 +26,7 @@ rtabmap:
     # Timing e performance (RPi5 4GB)
     Rtabmap/TimeThr: "0"
     Rtabmap/MemoryThr: "300"
-    Rtabmap/DetectionRate: "2.0"  # 2 Hz — bilanciamento qualità/CPU
+    Rtabmap/DetectionRate: "1.5"  # 1.5 Hz — bilanciamento qualità/CPU su Pi 5
 
     # RGBD
     RGBD/ProximityBySpace: "true"
@@ -53,11 +53,12 @@ rtabmap:
     Grid/FootprintWidth: "0.18"
     Grid/FootprintHeight: "0.10"
 
-    # Loop Closure — DBoW2 nativo C++ (NO SuperPoint Python)
+    # Loop Closure — DBoW3 nativo C++ (ORB/FAST)
     Kp/MaxFeatures: "1000"
+    Kp/DetectorStrategy: "8"      # 8 = ORB / FAST (DBoW3 nativo C++)
     Vis/FeatureType: "6"          # GFTT/BRIEF — veloce su RPi5
     Vis/MinInliers: "20"
-    Vis/CorType: "0"              # Features nativo (NO SuperPoint)
+    Vis/CorType: "0"              # Features nativo C++
     Rtabmap/LoopThr: "0.15"
     RGBD/LoopClosureReextractFeatures: "true"
 
