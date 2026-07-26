@@ -64,6 +64,7 @@ pkill -9 -f bluedot_node || true
 # Kill VIO/odometry legacy nodes (NO EKF in questo stack)
 pkill -9 -f robot_localization || true
 pkill -9 -f ekf_node || true
+pkill -9 -f vins_node || true
 pkill -9 -f spectacular_vio_node || true
 pkill -9 -f fast_flow_vo_cpp || true
 pkill -9 -f fast_flow_vo || true
@@ -104,29 +105,18 @@ nohup ros2 run tf2_ros static_transform_publisher --x 0.0 --y 0.0 --z 0.0 --yaw 
 nohup ros2 run tf2_ros static_transform_publisher --x 0.0 --y 0.0 --z 0.0 --yaw 0.0 --pitch 0.0 --roll 0.0 --frame-id base_link --child-frame-id imu_link > /home/robopy/robopy/logs/tf_imu.log 2>&1 &
 nohup ros2 run tf2_ros static_transform_publisher --x 0.12 --y 0.0 --z 0.05 --yaw 0.0 --pitch 0.0 --roll 0.0 --frame-id base_link --child-frame-id ultrasonic_sensor > /home/robopy/robopy/logs/tf_ultrasonic.log 2>&1 &
 
-echo "👁️ Starting fast_flow_vo_cpp (Native C++ ARM64 Visual-Inertial VO → TF odom→base_link @ 30Hz)..."
-> /home/robopy/robopy/logs/fast_flow_vo.log
+echo "👁️ Starting VINS / FastFlow C++ VIO Node..."
+mkdir -p /home/robopy/robopy/logs/vins_output /home/robopy/robopy/logs/vins_pose_graph
+> /home/robopy/robopy/logs/vins_fusion.log
 nohup ros2 run robopy_controller fast_flow_vo_cpp --ros-args \
     -p publish_tf:=true \
     -p odom_frame:=odom \
     -p base_frame:=base_link \
     -p camera_frame:=camera_optical_frame \
-    > /home/robopy/robopy/logs/fast_flow_vo.log 2>&1 &
+    > /home/robopy/robopy/logs/vins_fusion.log 2>&1 &
 sleep 3
 
-echo "📷 Starting OAK SuperPoint camera (C++ Driver)..."
-mkdir -p /home/robopy/robopy/logs
-> /home/robopy/robopy/logs/oak_camera.log
-nohup ros2 run robopy_controller oak_superpoint_odometry_cpp --ros-args \
-    -p superpoint_blob_path:=/mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_controller/models/superpoint.blob \
-    -p yolo_blob_path:=/mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_controller/models/yolov6nr1_coco_640x352.blob \
-    -p enable_yolo:=False \
-    -p publish_tf:=False \
-    -p depth_fps:=12.0 \
-    -p depth_resolution:=400p \
-    -p depth_pub_width:=320 \
-    -p depth_pub_height:=200 \
-    > /home/robopy/robopy/logs/oak_camera.log 2>&1 &
+
 
 echo "📡 Starting depthimage_to_laserscan..."
 > /home/robopy/robopy/logs/depthimage_to_laserscan.log

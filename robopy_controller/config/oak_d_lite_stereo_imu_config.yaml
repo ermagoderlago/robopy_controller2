@@ -1,0 +1,98 @@
+%YAML:1.0
+
+# Common parameters
+is_stereo: 1
+is_imu: 1
+imu: 1
+num_of_cam: 2
+
+imu_topic: "/oak/imu/data"
+image0_topic: "/oak/stereo/left/image_raw"
+image1_topic: "/oak/stereo/right/image_raw"
+output_path: "/home/robopy/robopy/logs/vins_output/"
+
+# Camera calibration parameters for OAK-D Lite 640x480
+model_type: PINHOLE
+camera_name: camera
+image_width: 640
+image_height: 480
+
+# Left Camera Intrinsic parameters (Pinhole fx, fy, cx, cy)
+cam0:
+  projection_parameters:
+    fx: 460.0
+    fy: 460.0
+    cx: 320.0
+    cy: 240.0
+  distortion_parameters:
+    k1: 0.0
+    k2: 0.0
+    p1: 0.0
+    p2: 0.0
+
+# Right Camera Intrinsic parameters
+cam1:
+  projection_parameters:
+    fx: 460.0
+    fy: 460.0
+    cx: 320.0
+    cy: 240.0
+  distortion_parameters:
+    k1: 0.0
+    k2: 0.0
+    p1: 0.0
+    p2: 0.0
+
+# Extrinsic parameter between IMU and Camera 0 (Left)
+estimate_extrinsic: 1
+body_T_cam0: !!opencv-matrix
+   rows: 4
+   cols: 4
+   dt: d
+   data: [0, 0, 1, 0.05,
+          -1, 0, 0, 0.035,
+          0, -1, 0, 0.08,
+          0, 0, 0, 1]
+
+# Extrinsic parameter between IMU and Camera 1 (Right)
+body_T_cam1: !!opencv-matrix
+   rows: 4
+   cols: 4
+   dt: d
+   data: [0, 0, 1, 0.05,
+          -1, 0, 0, -0.035,
+          0, -1, 0, 0.08,
+          0, 0, 0, 1]
+
+# Feature tracker parameters
+max_cnt: 150
+min_dist: 20
+freq: 20
+F_threshold: 1.0
+show_track: 0
+flow_back: 1
+
+# Optimization parameters
+max_solver_time: 0.04
+max_num_iterations: 8
+keyframe_parallax: 10.0
+
+# IMU parameters (Bosch BMI270)
+acc_n: 0.2          # accelerometer measurement noise standard deviation
+gyr_n: 0.02         # gyroscope measurement noise standard deviation
+acc_w: 0.002        # accelerometer bias random walk noise standard deviation
+gyr_w: 0.0002       # gyroscope bias random walk noise standard deviation
+g_norm: 9.81        # gravity magnitude
+
+# Unsynchronization parameters
+estimate_td: 0
+td: 0.0
+
+# Rolling shutter parameters
+rolling_shutter: 0
+
+# Loop closure parameters
+loop_closure: 1
+load_previous_pose_graph: 0
+pose_graph_save_path: "/home/robopy/robopy/logs/vins_pose_graph/"
+fast_relocalization: 1
