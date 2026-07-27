@@ -15,6 +15,20 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
 * **Causa:** Il frame associato ai messaggi del topic `/scan` generati da `depthimage_to_laserscan` non corrisponde all'albero statico delle trasformazioni geometriche.
 * **Risoluzione:** Allineare i parametri di `depthimage_to_laserscan` impostando l'argomento `-p output_frame:=camera_link` per agganciarlo alla static TF `base_link ➔ camera_link`.
 
+### Mappatura 2D Occupancy Grid Senza LiDAR (`Grid/FromDepth: true`)
+* **Problema:** `/map` non viene pubblicato se RTAB-Map è sottoscritto a `/scan` ma `approx_sync` attende il sincronismo perfetto tra 4 topic (`/rgb/image`, `/camera/depth/image_raw`, `/camera/camera_info`, `/scan`). Inoltre un guard `has_rtabmap_sub` nel publisher VIO impediva la scoperta DDS dei topic delle immagini.
+* **Soluzione:**
+  1. Rimuovere il guard di sottoscrizione in `fast_flow_vo_node.cpp` per garantire la pubblicazione continua di RGB, Depth e CameraInfo a 20 Hz.
+  2. Impostare `subscribe_scan: false` in `rtabmap.yaml` e rimuovere `-r scan:=/scan` da `restart_hailo.sh`.
+  3. RTAB-Map con `Grid/Sensor: 1` e `Grid/FromDepth: true` genera nativamente la griglia d'occupabilità 2D `/map` direttamente dall'immagine di profondità RGB-D a 1.5 Hz.
+
+### Risoluzione Cicli TF (`base_link -> base_link`) e Matching `/camera/camera_info`
+* **Problema:** Foxglove e tf2 segnalavano `Transform tree cycle detected: parent "base_link" -> child "base_link"` e un warning `!` su `/camera/camera_info`.
+* **Causa:** Il publisher `/vo/guess` in `fast_flow_vo_node.cpp` impostava sia `frame_id` che `child_frame_id` a `base_link`. Inoltre Foxglove richiede `/rgb/camera_info` accoppiato a `/rgb/image`.
+* **Soluzione:**
+  1. Impostato `msg.header.frame_id = config_.odom_frame` ("odom") e `msg.child_frame_id = config_.base_frame` ("base_link") in `publishGuess()`.
+  2. Aggiunto il publisher duplicato `/rgb/camera_info` in `fast_flow_vo_node.cpp` per eliminare l'allarme dei visualizzatori ROS.
+
 ---
 
 ## 📐 Trasformazioni Geometriche (Static TFs)

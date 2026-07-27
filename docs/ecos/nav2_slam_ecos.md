@@ -142,4 +142,22 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
     - Impostate velocità di test sicure per ambienti interni ($v_x = 0.15$ m/s, $w_z = 0.4$ rad/s).
     - Calcola esattamente i rapporti di scala $s_{linear}$ e $s_{angular}$ e salva i valori consigliati di `ticks_per_rev` e `rotational_wheel_separation` in `/home/robopy/robopy/logs/calibration_report.md`.
 
+---
+
+## 📈 ECO-2026-07-27-004: RTAB-Map Pure RGB-D 2D Grid Mapping, TF Cycle Resolution & CameraInfo Matching
+* **Stato:** ✅ **Completato e Verificato su Robot Fisico**
+* **Descrizione:** Correzione dell'inclinazione fisica della telecamera a 8° verso l'alto (-0.1396 rad pitch), risoluzione dello stallo di generazione della mappa 2D d'occupabilità (`/map`), eliminazione del ciclo TF `base_link -> base_link`, e pubblicazione del topic accoppiato `/rgb/camera_info`.
+* **Modifiche apportate:**
+  * **[STATIC TF & URDF CAMERA PITCH]** `restart_hailo.sh` e `urdf/robopy.urdf`:
+    - Impostato pitch static TF `--pitch -0.1396` (-8° inclinazione verso l'alto) per `base_link -> oak_camera_link`.
+    - Aggiornato `camera_joint` origin in `robopy.urdf` con `rpy="0 -0.1396 0"`.
+  * **[RTAB-MAP 2D OCCUPANCY GRID MAPPING]** `robopy_controller/config/rtabmap.yaml` e `restart_hailo.sh`:
+    - Impostato `subscribe_scan: false` in `rtabmap.yaml` e rimosso `-r scan:=/scan` dal comando di avvio RTAB-Map in `restart_hailo.sh`.
+    - RTAB-Map genera direttamente la griglia d'occupabilità 2D `/map` da RGB-D (`Grid/FromDepth: true`, `Grid/Sensor: 1`) a 1.5 Hz senza stalli DDS.
+  * **[DDS DISCOVERY DEADLOCK FIX]** `src/fast_flow_vo_node.cpp`:
+    - Rimosso il guard di sottoscrizione `has_rtabmap_sub` in `publishImages()`.
+  * **[RISOLUZIONE CICLO TF & CAMERA_INFO]** `src/fast_flow_vo_node.hpp` e `src/fast_flow_vo_node.cpp`:
+    - Corretto `publishGuess()`: impostato `msg.header.frame_id = config_.odom_frame` ("odom") e `msg.child_frame_id = config_.base_frame` ("base_link"), eliminando l'errore `Transform tree cycle detected: parent "base_link" -> child "base_link"`.
+    - Aggiunto publisher `rgb_camera_info_pub_` sul topic `/rgb/camera_info` in sintonia con `/rgb/image`, eliminando i warning di Foxglove Studio.
+
 

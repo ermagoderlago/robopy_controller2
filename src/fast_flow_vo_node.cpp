@@ -132,6 +132,7 @@ FastFlowVONode::FastFlowVONode(const rclcpp::NodeOptions& options)
     rgb_pub_ = create_publisher<sensor_msgs::msg::Image>("/rgb/image", 10);
     depth_pub_ = create_publisher<sensor_msgs::msg::Image>("/camera/depth/image_raw", 10);
     camera_info_pub_ = create_publisher<sensor_msgs::msg::CameraInfo>("/camera/camera_info", 10);
+    rgb_camera_info_pub_ = create_publisher<sensor_msgs::msg::CameraInfo>("/rgb/camera_info", 10);
     camera_info_scan_pub_ = create_publisher<sensor_msgs::msg::CameraInfo>("/camera/camera_info_scan", 10);
     
     // Compressed publishers for Foxglove
@@ -1343,7 +1344,7 @@ void FastFlowVONode::publishGuess(const rclcpp::Time& stamp) {
     
     geometry_msgs::msg::TransformStamped msg;
     msg.header.stamp = stamp;
-    msg.header.frame_id = config_.base_frame;
+    msg.header.frame_id = config_.odom_frame;
     msg.child_frame_id = config_.base_frame;
     
     // Delta translation (motion since last frame)
@@ -1488,6 +1489,7 @@ void FastFlowVONode::publishImages(const cv::Mat& gray, const cv::Mat& depth,
     camera_info_msg.d = {0.0, 0.0, 0.0, 0.0, 0.0};
     
     camera_info_pub_->publish(camera_info_msg);
+    rgb_camera_info_pub_->publish(camera_info_msg);
     
     // camera_info_scan_pub_ pubblica SEMPRE (depthimage_to_laserscan ne ha bisogno)
     sensor_msgs::msg::CameraInfo camera_info_scan_msg;
