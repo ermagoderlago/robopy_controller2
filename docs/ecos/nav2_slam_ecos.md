@@ -126,4 +126,20 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
   * **[ORCHESTRATORE]** `restart_hailo.sh`:
     - Rinominato il file di log da `vins_fusion.log` a `fast_flow_vo.log` per riflettere accuratamente l'engine in esecuzione.
 
+---
+
+## 📈 ECO-2026-07-27-003: Auto-Calibrazione Online Ruote-VIO, Covarianza Dinamica Adattiva e Upgrade CalibrationSkill
+* **Stato:** ✅ **Implementato e Committato in Workspace Locale (Pronto per Sincronizzazione)**
+* **Descrizione:** Implementazione dei 5 miglioramenti ad alto impatto per l'odometria ed il tracciamento di Marcus: stima online in continuo del fattore di scala e dell'offset angolare ruote-VIO in `fast_flow_vo_cpp`, covarianza dinamica adattiva su `/odom`, e rifattorizzazione completa della skill AI `calibration_skill.py`.
+* **Modifiche apportate:**
+  * **[AUTO-CALIBRAZIONE ONLINE RUOTE-VIO]** `src/fast_flow_vo_node.hpp` e `src/fast_flow_vo_node.cpp`:
+    - In regime visivo valido (`TRACKING_GOOD`), stima in continuo il fattore di scala ruote `wheel_scale_` ed il disallineamento angolare `wheel_yaw_offset_`.
+    - Durante il fallback ruote su parete spoglia, applica la trasformazione ruota scalata e ruotata secondo gli ultimi parametri calibrati, azzerando i salti di heading.
+  * **[COVARIANZA DINAMICA ADATTIVA]** `src/fast_flow_vo_node.cpp`:
+    - In `publishOdometry()`, imposta la covarianza diagonale in modo dinamico: $10^{-5}$ per `TRACKING_GOOD`, $10^{-3}$ per `TRACKING_WEAK`, e $10^{-2}$ per `using_wheel_fallback_`.
+  * **[SKILL AI CALIBRAZIONE]** `robopy_controller/robot_ai/skills/builtin/calibration_skill.py`:
+    - Doppia sottoscrizione contemporanea su `/odom` (VIO) e `/odom_wheel` (Encoder ESP32).
+    - Impostate velocità di test sicure per ambienti interni ($v_x = 0.15$ m/s, $w_z = 0.4$ rad/s).
+    - Calcola esattamente i rapporti di scala $s_{linear}$ e $s_{angular}$ e salva i valori consigliati di `ticks_per_rev` e `rotational_wheel_separation` in `/home/robopy/robopy/logs/calibration_report.md`.
+
 

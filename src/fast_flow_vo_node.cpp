@@ -1210,14 +1210,29 @@ void FastFlowVONode::publishOdometry(const rclcpp::Time& stamp) {
         odom_msg.pose.pose.orientation.z = orientation.z();
         odom_msg.pose.pose.orientation.w = orientation.w();
         
-        // Populate valid covariance
+        // Dynamic Covariance Matrix based on visual tracking state
+        double pose_cov = 1e-5;
+        double twist_cov = 1e-4;
+        
+        int state = tracking_state_.load(std::memory_order_acquire);
+        if (using_wheel_fallback_.load(std::memory_order_acquire)) {
+            pose_cov = 1e-2;
+            twist_cov = 1e-2;
+        } else if (state == static_cast<int>(TrackingState::TRACKING_WEAK)) {
+            pose_cov = 1e-3;
+            twist_cov = 1e-3;
+        } else if (state == static_cast<int>(TrackingState::TRACKING_LOST)) {
+            pose_cov = 5e-2;
+            twist_cov = 5e-2;
+        }
+
         std::fill(odom_msg.pose.covariance.begin(), odom_msg.pose.covariance.end(), 0.0);
-        odom_msg.pose.covariance[0]  = 0.05;
-        odom_msg.pose.covariance[7]  = 0.05;
-        odom_msg.pose.covariance[14] = 0.05;
-        odom_msg.pose.covariance[21] = 0.1;
-        odom_msg.pose.covariance[28] = 0.1;
-        odom_msg.pose.covariance[35] = 0.1;
+        odom_msg.pose.covariance[0]  = pose_cov;
+        odom_msg.pose.covariance[7]  = pose_cov;
+        odom_msg.pose.covariance[14] = pose_cov;
+        odom_msg.pose.covariance[21] = pose_cov * 2.0;
+        odom_msg.pose.covariance[28] = pose_cov * 2.0;
+        odom_msg.pose.covariance[35] = pose_cov * 2.0;
 
         // Broadcast TF
         if (tf_broadcaster_) {
