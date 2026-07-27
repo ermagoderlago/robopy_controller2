@@ -79,9 +79,8 @@
   <joint name="camera_joint" type="fixed">
     <parent link="base_link"/>
     <child link="camera_link"/>
-    <!-- posizione e inclinazione REALI della OAK-D Lite -->
-    <!-- pitch -0.1535 rad = ~-8.8° (inclinata verso il basso) -->
-    <origin xyz="0.05 0.0 0.08" rpy="0 -0.1535 0"/>
+    <!-- posizione e inclinazione REALI della OAK-D Lite: 8° inclinata verso l'ALTO (-0.1396 rad) -->
+    <origin xyz="0.0332 0.0 0.2616" rpy="0 -0.1396 0"/>
   </joint>
 
   <link name="camera_optical_frame"/>

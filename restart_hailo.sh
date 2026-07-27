@@ -99,10 +99,10 @@ nohup ros2 run robopy_controller waveshare_motor_driver --ros-args \
     -p odom_topic:=/odom_wheel \
     > /home/robopy/robopy/logs/waveshare_motor_driver.log 2>&1 &
 
-echo "📐 Starting CAD static TF publishers (OAK-D Lite 8° pitch, Z=0.2616m)..."
+echo "📐 Starting CAD static TF publishers (OAK-D Lite 8° pitch UP, Z=0.2616m)..."
 nohup ros2 run tf2_ros static_transform_publisher \
   --x 0.0332 --y 0.0 --z 0.2616 \
-  --roll 0.0 --pitch 0.1396 --yaw 0.0 \
+  --roll 0.0 --pitch -0.1396 --yaw 0.0 \
   --frame-id base_link --child-frame-id oak_camera_link \
   > /home/robopy/robopy/logs/tf_camera.log 2>&1 &
 
