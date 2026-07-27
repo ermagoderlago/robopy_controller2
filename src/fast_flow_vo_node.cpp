@@ -15,8 +15,8 @@ using namespace std::chrono_literals;
 
 FastFlowVONode::FastFlowVONode(const rclcpp::NodeOptions& options)
     : Node("fast_flow_vo", options),
-      last_diag_time_(this->now()),
       last_good_tracking_time_(this->now()),
+      last_diag_time_(this->now()),
       start_time_(this->now())
 {
     // Load parameters
@@ -46,8 +46,8 @@ FastFlowVONode::FastFlowVONode(const rclcpp::NodeOptions& options)
     // Depth
     config_.min_depth = declare_parameter<double>("min_depth", 0.3);
     config_.max_depth = declare_parameter<double>("max_depth", 8.0);
-    config_.depth_fps = declare_parameter<double>("depth_fps", 30.0);
-    config_.camera_fps = declare_parameter<double>("camera_fps", 30.0);  // Stereo camera FPS
+    config_.depth_fps = declare_parameter<double>("depth_fps", 20.0);
+    config_.camera_fps = declare_parameter<double>("camera_fps", 20.0);  // 20 FPS for USB 2.0 stability
     config_.enable_depth_filter = declare_parameter<bool>("enable_depth_filter", true);
     
     // LaserScan Offset
@@ -207,13 +207,13 @@ bool FastFlowVONode::initializeDepthAI() {
         auto xoutRect = pipeline_->create<dai::node::XLinkOut>();
         xoutRect->setStreamName("rect_left");
         xoutRect->input.setBlocking(false);
-        xoutRect->input.setQueueSize(1);
+        xoutRect->input.setQueueSize(4);
         stereo->rectifiedLeft.link(xoutRect->input);
         
         auto xoutDepth = pipeline_->create<dai::node::XLinkOut>();
         xoutDepth->setStreamName("depth");
         xoutDepth->input.setBlocking(false);
-        xoutDepth->input.setQueueSize(1);
+        xoutDepth->input.setQueueSize(4);
         stereo->depth.link(xoutDepth->input);
         
         auto config = stereo->initialConfig.get();
@@ -1233,6 +1233,14 @@ void FastFlowVONode::publishOdometry(const rclcpp::Time& stamp) {
         odom_msg.pose.covariance[21] = pose_cov * 2.0;
         odom_msg.pose.covariance[28] = pose_cov * 2.0;
         odom_msg.pose.covariance[35] = pose_cov * 2.0;
+
+        std::fill(odom_msg.twist.covariance.begin(), odom_msg.twist.covariance.end(), 0.0);
+        odom_msg.twist.covariance[0]  = twist_cov;
+        odom_msg.twist.covariance[7]  = twist_cov;
+        odom_msg.twist.covariance[14] = twist_cov;
+        odom_msg.twist.covariance[21] = twist_cov * 2.0;
+        odom_msg.twist.covariance[28] = twist_cov * 2.0;
+        odom_msg.twist.covariance[35] = twist_cov * 2.0;
 
         // Broadcast TF
         if (tf_broadcaster_) {
