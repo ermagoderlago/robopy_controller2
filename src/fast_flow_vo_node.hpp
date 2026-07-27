@@ -291,6 +291,17 @@ private:
     void cmdVelCallback(const geometry_msgs::msg::Twist::SharedPtr msg);
     bool isRobotMoving();
     void processIMU(const std::shared_ptr<dai::IMUData>& imuData);
+
+    // Wheel Odometry Fallback State
+    rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr wheel_odom_sub_;
+    std::atomic<bool> using_wheel_fallback_{false};
+    mutable std::mutex wheel_odom_mutex_;
+    nav_msgs::msg::Odometry prev_wheel_odom_;
+    bool has_prev_wheel_odom_ = false;
+    double wheel_delta_x_ = 0.0;
+    double wheel_delta_y_ = 0.0;
+    double wheel_delta_yaw_ = 0.0;
+    void wheelOdomCallback(const nav_msgs::msg::Odometry::SharedPtr msg);
     
     // IMU Pitch Calibration (auto-calibrates camera pitch from gravity vector at startup)
     std::atomic<bool> pitch_calibrated_{false};

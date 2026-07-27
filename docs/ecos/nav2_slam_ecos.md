@@ -112,4 +112,18 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
     - Configurato `Grid/Sensor: "1"` e `Grid/FromDepth: "true"` (2D occupancy grid dal depth).
     - Aggiunti guardrail per pareti spoglie: `Kp/MinFeatures: "30"`, `Vis/MinInliers: "15"`, e `RGBD/LoopClosureRejectionWithGraph: "true"`.
 
+---
+
+## 📈 ECO-2026-07-27-002: State Machine Fallback Odometria Ruote in `fast_flow_vo_cpp`
+* **Stato:** ✅ **Implementato e Compilato in Workspace Locale**
+* **Descrizione:** Risoluzione della disconnessione tra l'odometria ruote ESP32 ed il tracciamento visivo VIO. Integrata una State Machine di Fallback in `fast_flow_vo_cpp` per consumare il topic `/odom_wheel` e garantire la continuità ininterrotta della TF `odom -> base_link` a 30 Hz in caso di perdita temporanea di tracciamento visivo (pareti spoglie, blackout, blip USB).
+* **Modifiche apportate:**
+  * **[ENGINE C++ VIO]** `src/fast_flow_vo_node.hpp` e `src/fast_flow_vo_node.cpp`:
+    - Sottoscritto topic `/odom_wheel` (`nav_msgs/msg/Odometry`).
+    - Implementato `wheelOdomCallback` per accumulare i delta di movimento della base $(\Delta x, \Delta y, \Delta \theta)_{wheel}$.
+    - In `processFrame()`, quando il PnP visivo ha successo, aggiorna la posa con la VIO e resetta i delta ruota accumulati.
+    - Quando la VIO perde il tracciamento visivo (`TRACKING_LOST` o inliers insufficienti), applica atomicamente i delta dell'odometria ruote alla posa $T_{odom \to base}$, mantenendo attiva e fluida la TF `odom -> base_link` senza strappi o nodi EKF secondari.
+  * **[ORCHESTRATORE]** `restart_hailo.sh`:
+    - Rinominato il file di log da `vins_fusion.log` a `fast_flow_vo.log` per riflettere accuratamente l'engine in esecuzione.
+
 

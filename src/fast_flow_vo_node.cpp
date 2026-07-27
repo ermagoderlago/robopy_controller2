@@ -156,6 +156,12 @@ FastFlowVONode::FastFlowVONode(const rclcpp::NodeOptions& options)
         RCLCPP_INFO(get_logger(), "Motion Gate ENABLED: VO updates only when motors/IMU active");
     }
     
+    // Wheel Odometry Fallback: Subscribe to /odom_wheel
+    wheel_odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
+        "/odom_wheel", 10,
+        std::bind(&FastFlowVONode::wheelOdomCallback, this, std::placeholders::_1));
+    RCLCPP_INFO(get_logger(), "Wheel Odometry Fallback ENABLED: Subscribed to /odom_wheel");
+    
     // Start processing thread
     running_ = true;
     processing_thread_ = std::thread(&FastFlowVONode::processLoop, this);
@@ -544,6 +550,15 @@ void FastFlowVONode::processFrame(const cv::Mat& gray, const cv::Mat& depth,
                     updatePose(result);
                     publishGuess(stamp);  // Provide motion hint to RTAB-Map
                     tracking_ok = true;
+                    using_wheel_fallback_.store(false, std::memory_order_release);
+                    
+                    // Reset wheel deltas when visual PnP is healthy
+                    {
+                        std::lock_guard<std::mutex> lock(wheel_odom_mutex_);
+                        wheel_delta_x_ = 0.0;
+                        wheel_delta_y_ = 0.0;
+                        wheel_delta_yaw_ = 0.0;
+                    }
                 }
             }
             
@@ -557,6 +572,31 @@ void FastFlowVONode::processFrame(const cv::Mat& gray, const cv::Mat& depth,
         } else if (config_.publish_debug) {
             // If KLT failed completely, just draw the original points with empty inliers
             publishDebugView(gray, prev_pts, curr_pts, {}, stamp);
+        }
+        
+        // Wheel Odometry Fallback: If visual tracking failed while robot is moving, apply wheel odometry delta
+        if (!tracking_ok && isRobotMoving()) {
+            std::lock_guard<std::mutex> lock(wheel_odom_mutex_);
+            if (has_prev_wheel_odom_ && (std::abs(wheel_delta_x_) > 1e-5 || std::abs(wheel_delta_y_) > 1e-5 || std::abs(wheel_delta_yaw_) > 1e-5)) {
+                Eigen::Vector3d t_wheel(wheel_delta_x_, wheel_delta_y_, 0.0);
+                Eigen::Isometry3d T_delta = Eigen::Isometry3d::Identity();
+                T_delta.translation() = t_wheel;
+                T_delta.linear() = Eigen::AngleAxisd(wheel_delta_yaw_, Eigen::Vector3d::UnitZ()).toRotationMatrix();
+                
+                {
+                    std::lock_guard<std::mutex> pose_lock(state_mutex_);
+                    pose_ = pose_ * T_delta;
+                }
+                
+                using_wheel_fallback_.store(true, std::memory_order_release);
+                RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
+                    "⚠️ VIO visual tracking lost — wheel odometry fallback active (dx=%.3f, dy=%.3f, dyaw=%.3f)",
+                    wheel_delta_x_, wheel_delta_y_, wheel_delta_yaw_);
+                    
+                wheel_delta_x_ = 0.0;
+                wheel_delta_y_ = 0.0;
+                wheel_delta_yaw_ = 0.0;
+            }
         }
         
         // [CORREZIONE] Se il robot è fermo + tracking fallito → NON penalizzare lo stato.
@@ -1596,6 +1636,35 @@ bool FastFlowVONode::isRobotMoving() {
     
     // Robot is moving if motors are active OR IMU detects motion
     return cmd_vel_active || imu_motion_detected_.load(std::memory_order_acquire);
+}
+
+void FastFlowVONode::wheelOdomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
+    std::lock_guard<std::mutex> lock(wheel_odom_mutex_);
+    
+    if (has_prev_wheel_odom_) {
+        double dx = msg->pose.pose.position.x - prev_wheel_odom_.pose.pose.position.x;
+        double dy = msg->pose.pose.position.y - prev_wheel_odom_.pose.pose.position.y;
+        
+        // Extract yaw from quaternions
+        auto q_curr = msg->pose.pose.orientation;
+        auto q_prev = prev_wheel_odom_.pose.pose.orientation;
+        
+        double yaw_curr = std::atan2(2.0 * (q_curr.w * q_curr.z + q_curr.x * q_curr.y),
+                                     1.0 - 2.0 * (q_curr.y * q_curr.y + q_curr.z * q_curr.z));
+        double yaw_prev = std::atan2(2.0 * (q_prev.w * q_prev.z + q_prev.x * q_prev.y),
+                                     1.0 - 2.0 * (q_prev.y * q_prev.y + q_prev.z * q_prev.z));
+        
+        double dyaw = yaw_curr - yaw_prev;
+        while (dyaw > M_PI) dyaw -= 2.0 * M_PI;
+        while (dyaw < -M_PI) dyaw += 2.0 * M_PI;
+        
+        wheel_delta_x_ += dx;
+        wheel_delta_y_ += dy;
+        wheel_delta_yaw_ += dyaw;
+    }
+    
+    prev_wheel_odom_ = *msg;
+    has_prev_wheel_odom_ = true;
 }
 
 // ===================== Main Function =====================

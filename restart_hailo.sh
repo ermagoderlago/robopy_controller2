@@ -130,15 +130,14 @@ nohup ros2 run tf2_ros static_transform_publisher \
   --frame-id base_link --child-frame-id ultrasonic_sensor \
   > /home/robopy/robopy/logs/tf_ultrasonic.log 2>&1 &
 
-echo "👁️ Starting VINS-Fusion VIO Node..."
-mkdir -p /home/robopy/robopy/logs/vins_output /home/robopy/robopy/logs/vins_pose_graph
-> /home/robopy/robopy/logs/vins_fusion.log
+echo "👁️ Starting FastFlow C++ VIO Node..."
+> /home/robopy/robopy/logs/fast_flow_vo.log
 nohup ros2 run robopy_controller fast_flow_vo_cpp --ros-args \
     -p publish_tf:=true \
     -p odom_frame:=odom \
     -p base_frame:=base_link \
     -p camera_frame:=camera_optical_frame \
-    > /home/robopy/robopy/logs/vins_fusion.log 2>&1 &
+    > /home/robopy/robopy/logs/fast_flow_vo.log 2>&1 &
 sleep 3
 
 echo "📡 Starting depthimage_to_laserscan (Floor Anti-Reflection Filter)..."
