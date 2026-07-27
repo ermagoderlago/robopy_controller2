@@ -36,7 +36,8 @@ class WaveshareMotorDriver(Node):
         self.declare_parameter('invert_left_encoder', True)
         self.declare_parameter('invert_right_encoder', False)
         self.declare_parameter('encoder_dead_zone', 0)        # ticks: ignore deltas <= this when both wheels below threshold (0 to disable tick dropping)
-        self.declare_parameter('publish_tf', True)             # set False when another node (e.g. fast_flow_vo) owns odom->base_link TF
+        self.declare_parameter('publish_tf', False)            # set False when another node (e.g. VIO) owns odom->base_link TF
+        self.declare_parameter('odom_topic', '/odom_wheel')    # separate wheel odometry topic from VIO /odom
         
         # --- Retrieve Parameters ---
         self.serial_port = self.get_parameter('serial_port').value
@@ -52,6 +53,7 @@ class WaveshareMotorDriver(Node):
         self.invert_right_encoder = self.get_parameter('invert_right_encoder').value
         self.encoder_dead_zone = self.get_parameter('encoder_dead_zone').value
         self.publish_tf = self.get_parameter('publish_tf').value
+        self.odom_topic = self.get_parameter('odom_topic').value
         
         # Register dynamic parameter callback
         self.add_on_set_parameters_callback(self.parameter_callback)
@@ -91,7 +93,7 @@ class WaveshareMotorDriver(Node):
         self.is_voltage_overload = False
         
         # --- Publishers & Broadcasters ---
-        self.odom_pub = self.create_publisher(Odometry, '/odom', 10)
+        self.odom_pub = self.create_publisher(Odometry, self.odom_topic, 10)
         self.imu_pub = self.create_publisher(Imu, '/imu/esp32', 10)  # separate from madgwick /imu/data to avoid topic collision
         self.battery_pub = self.create_publisher(BatteryState, '/battery_state', 10)
         self.diag_pub = self.create_publisher(DiagnosticArray, '/diagnostics', 10)

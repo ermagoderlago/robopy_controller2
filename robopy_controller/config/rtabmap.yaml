@@ -7,7 +7,7 @@ rtabmap:
     # Sorgenti dati
     subscribe_rgb: true
     subscribe_depth: true
-    subscribe_scan: false
+    subscribe_scan: true
     subscribe_odom_info: false   # VIO non espone odom_info
 
     # Sincronizzazione
@@ -33,6 +33,7 @@ rtabmap:
     RGBD/AngularUpdate: "0.087"   # ~5° di rotazione minima per nuovo nodo
     RGBD/LinearUpdate: "0.10"     # 10cm di traslazione minima
     RGBD/OptimizeMaxError: "3.0"
+    RGBD/LoopClosureRejectionWithGraph: "true"
 
     # Ottimizzatore grafo
     Optimizer/Strategy: "1"       # GTSAM
@@ -57,9 +58,10 @@ rtabmap:
 
     # Loop Closure — DBoW3 nativo C++ (ORB/FAST)
     Kp/MaxFeatures: "1000"
+    Kp/MinFeatures: "30"          # Scarta frame con meno di 30 feature visive (guardrail pareti spoglie)
     Kp/DetectorStrategy: "8"      # 8 = ORB / FAST (DBoW3 nativo C++)
     Vis/FeatureType: "6"          # GFTT/BRIEF — veloce su RPi5
-    Vis/MinInliers: "20"
+    Vis/MinInliers: "15"          # Almeno 15 match 3D stabili per convalidare lo spostamento
     Vis/CorType: "0"              # Features nativo C++
     Rtabmap/LoopThr: "0.15"
     RGBD/LoopClosureReextractFeatures: "true"

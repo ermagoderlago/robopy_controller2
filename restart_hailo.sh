@@ -87,7 +87,7 @@ echo "⚙️ Starting waveshare_motor_driver..."
 nohup ros2 run robopy_controller waveshare_motor_driver --ros-args \
     -p serial_port:=/dev/ttyUSB0 \
     -p baud_rate:=115200 \
-    -p wheel_radius:=0.0325 \
+    -p wheel_radius:=0.0335 \
     -p wheel_separation:=0.285 \
     -p rotational_wheel_separation:=0.285 \
     -p ticks_per_rev:=280 \
@@ -96,16 +96,41 @@ nohup ros2 run robopy_controller waveshare_motor_driver --ros-args \
     -p invert_left_encoder:=True \
     -p invert_right_encoder:=False \
     -p publish_tf:=False \
+    -p odom_topic:=/odom_wheel \
     > /home/robopy/robopy/logs/waveshare_motor_driver.log 2>&1 &
 
-echo "📐 Starting static TF publishers..."
-nohup ros2 run tf2_ros static_transform_publisher --x 0.05 --y 0.0 --z 0.08 --yaw 0.0 --pitch -0.1535 --roll 0.0 --frame-id base_link --child-frame-id camera_link > /home/robopy/robopy/logs/tf_camera.log 2>&1 &
-nohup ros2 run tf2_ros static_transform_publisher --x 0.0 --y 0.0 --z 0.0 --yaw -1.5708 --pitch 0.0 --roll -1.5708 --frame-id camera_link --child-frame-id camera_optical_frame > /home/robopy/robopy/logs/tf_camera_opt.log 2>&1 &
-nohup ros2 run tf2_ros static_transform_publisher --x 0.0 --y 0.0 --z 0.0 --yaw -1.5708 --pitch 0.0 --roll -1.5708 --frame-id camera_link --child-frame-id oak_left_camera_optical_frame > /home/robopy/robopy/logs/tf_camera_oak_left.log 2>&1 &
-nohup ros2 run tf2_ros static_transform_publisher --x 0.0 --y 0.0 --z 0.0 --yaw 0.0 --pitch 0.0 --roll 0.0 --frame-id base_link --child-frame-id imu_link > /home/robopy/robopy/logs/tf_imu.log 2>&1 &
-nohup ros2 run tf2_ros static_transform_publisher --x 0.12 --y 0.0 --z 0.05 --yaw 0.0 --pitch 0.0 --roll 0.0 --frame-id base_link --child-frame-id ultrasonic_sensor > /home/robopy/robopy/logs/tf_ultrasonic.log 2>&1 &
+echo "📐 Starting CAD static TF publishers (OAK-D Lite 8° pitch, Z=0.2616m)..."
+nohup ros2 run tf2_ros static_transform_publisher \
+  --x 0.0332 --y 0.0 --z 0.2616 \
+  --roll 0.0 --pitch 0.1396 --yaw 0.0 \
+  --frame-id base_link --child-frame-id oak_camera_link \
+  > /home/robopy/robopy/logs/tf_camera.log 2>&1 &
 
-echo "👁️ Starting VINS / FastFlow C++ VIO Node..."
+nohup ros2 run tf2_ros static_transform_publisher \
+  --x 0.0 --y 0.0 --z 0.0 \
+  --roll 0.0 --pitch 0.0 --yaw 0.0 \
+  --frame-id oak_camera_link --child-frame-id oak_imu_frame \
+  > /home/robopy/robopy/logs/tf_imu.log 2>&1 &
+
+nohup ros2 run tf2_ros static_transform_publisher \
+  --x 0.0 --y 0.0 --z 0.0 \
+  --roll -1.5708 --pitch 0.0 --yaw -1.5708 \
+  --frame-id oak_camera_link --child-frame-id camera_optical_frame \
+  > /home/robopy/robopy/logs/tf_camera_opt.log 2>&1 &
+
+nohup ros2 run tf2_ros static_transform_publisher \
+  --x 0.0 --y 0.0 --z 0.0 \
+  --roll -1.5708 --pitch 0.0 --yaw -1.5708 \
+  --frame-id oak_camera_link --child-frame-id oak_left_camera_optical_frame \
+  > /home/robopy/robopy/logs/tf_camera_oak_left.log 2>&1 &
+
+nohup ros2 run tf2_ros static_transform_publisher \
+  --x 0.12 --y 0.0 --z 0.05 \
+  --roll 0.0 --pitch 0.0 --yaw 0.0 \
+  --frame-id base_link --child-frame-id ultrasonic_sensor \
+  > /home/robopy/robopy/logs/tf_ultrasonic.log 2>&1 &
+
+echo "👁️ Starting VINS-Fusion VIO Node..."
 mkdir -p /home/robopy/robopy/logs/vins_output /home/robopy/robopy/logs/vins_pose_graph
 > /home/robopy/robopy/logs/vins_fusion.log
 nohup ros2 run robopy_controller fast_flow_vo_cpp --ros-args \
@@ -116,15 +141,13 @@ nohup ros2 run robopy_controller fast_flow_vo_cpp --ros-args \
     > /home/robopy/robopy/logs/vins_fusion.log 2>&1 &
 sleep 3
 
-
-
-echo "📡 Starting depthimage_to_laserscan..."
+echo "📡 Starting depthimage_to_laserscan (Floor Anti-Reflection Filter)..."
 > /home/robopy/robopy/logs/depthimage_to_laserscan.log
-nohup ros2 run depthimage_to_laserscan depthimage_to_laserscan_node --ros-args \
-    -r depth:=/camera/depth/image_raw \
-    -r depth_camera_info:=/camera/camera_info \
-    -r scan:=/scan \
-    -p output_frame:=camera_link \
+nohup ros2 run depthimage_to_laserscan depthimage_to_laserscan_node \
+    --ros-args -r image:=/camera/depth/image_raw -r scan:=/scan \
+    -p target_frame:=base_link \
+    -p min_height:=0.04 -p max_height:=0.80 \
+    -p range_min:=0.3 -p range_max:=4.0 \
     > /home/robopy/robopy/logs/depthimage_to_laserscan.log 2>&1 &
 
 echo "📡 Starting ultrasonic_sensor..."

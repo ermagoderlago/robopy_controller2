@@ -93,4 +93,23 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
     - Sottoscrizione aggiornata a `/odom`.
     - Test 360° eseguito con successo: rotazione VIO misurata **358.4°** su **360.0°** (Errore <0.4%), compensando 63.3° di slittamento meccanico degli encoder delle ruote.
 
+---
+
+## 📈 ECO-2026-07-27-001: Refactoring VIO VINS-Fusion C++, CAD Static TFs, Anti-Reflection Floor Filter e White Wall Guardrails
+* **Stato:** ✅ **Implementato e Committato in Workspace Locale (Pronto per Sincronizzazione)**
+* **Descrizione:** Integrazione completa del refactoring per odometria visivo-inerziale VINS-Fusion C++, allineamento delle trasformate statiche alle quote esatte CAD 3D, applicazione del filtro ground clearance anti-riflesso per la costmap 2D, e configurazione dei guardrail di stabilità RTAB-Map per pareti spoglie.
+* **Modifiche apportate:**
+  * **[DRIVER MOTORI ESP32]** `robopy_controller/nodes/waveshare_motor_driver.py`:
+    - Impostato `publish_tf` default a `False` per non pubblicare la TF `odom -> base_link` (riservata a VIO).
+    - Aggiunto parametro `odom_topic` con valore `/odom_wheel` per isolare la telemetria ruote da `/odom`.
+  * **[CAD STATIC TRANSFORMS]** `restart_hailo.sh`:
+    - Aggiornate quote CAD: `base_link -> oak_camera_link` con $X=0.0332$ m, $Y=0.0$, $Z=0.2616$ m, Pitch $=8.00^\circ$ ($0.1396$ rad).
+    - Definite TF statiche per `oak_imu_frame`, `camera_optical_frame`, e `oak_left_camera_optical_frame`.
+  * **[FILTRO ANTI-RIFLESSO PAVIMENTO]** `restart_hailo.sh`:
+    - Configurato `depthimage_to_laserscan_node` con `target_frame:=base_link`, `min_height:=0.04` (4cm dal suolo) e `max_height:=0.80`. Scarta i riflessi del pavimento a $Z \le 0$.
+  * **[GUARDRAIL RTAB-MAP & SLAM]** `robopy_controller/config/rtabmap.yaml`:
+    - Abilitato `subscribe_scan: true` per il LaserScan 2D sintetico.
+    - Configurato `Grid/Sensor: "1"` e `Grid/FromDepth: "true"` (2D occupancy grid dal depth).
+    - Aggiunti guardrail per pareti spoglie: `Kp/MinFeatures: "30"`, `Vis/MinInliers: "15"`, e `RGBD/LoopClosureRejectionWithGraph: "true"`.
+
 
