@@ -7,7 +7,7 @@ rtabmap:
     # Sorgenti dati
     subscribe_rgb: true
     subscribe_depth: true
-    subscribe_scan: true
+    subscribe_scan: false        # Grid/FromDepth: true crea la mappa 2D direttamente da RGB-D
     subscribe_odom_info: false   # VIO non espone odom_info
 
     # Sincronizzazione

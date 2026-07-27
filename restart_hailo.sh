@@ -143,7 +143,7 @@ sleep 3
 echo "📡 Starting depthimage_to_laserscan (Floor Anti-Reflection Filter)..."
 > /home/robopy/robopy/logs/depthimage_to_laserscan.log
 nohup ros2 run depthimage_to_laserscan depthimage_to_laserscan_node \
-    --ros-args -r image:=/camera/depth/image_raw -r scan:=/scan \
+    --ros-args -r image:=/camera/depth/image_raw -r camera_info:=/camera/camera_info_scan -r scan:=/scan \
     -p target_frame:=base_link \
     -p min_height:=0.04 -p max_height:=0.80 \
     -p range_min:=0.3 -p range_max:=4.0 \
@@ -168,7 +168,6 @@ nohup ros2 run rtabmap_slam rtabmap --delete_db_on_start --ros-args \
     -r rgb/image:=/rgb/image \
     -r rgb/camera_info:=/camera/camera_info \
     -r depth/image:=/camera/depth/image_raw \
-    -r scan:=/scan \
     -r odom:=/odom \
     > /home/robopy/robopy/logs/rtabmap.log 2>&1 &
 

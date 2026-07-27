@@ -1445,56 +1445,49 @@ std::string FastFlowVONode::stateToString(TrackingState state) const {
 
 void FastFlowVONode::publishImages(const cv::Mat& gray, const cv::Mat& depth, 
                                     const rclcpp::Time& stamp) {
-    // [OPT 2] Pubblica RGB/depth solo se c'è almeno un subscriber RTAB-Map attivo
-    bool has_rtabmap_sub =
-        rgb_pub_->get_subscription_count() > 0 ||
-        depth_pub_->get_subscription_count() > 0;
+    // Always publish RGB, Depth and CameraInfo so subscribers (RTAB-Map & depthimage_to_laserscan) get data immediately
+    cv::Mat rgb;
+    cv::cvtColor(gray, rgb, cv::COLOR_GRAY2BGR);
     
-    if (has_rtabmap_sub) {
-        // Publish grayscale as RGB (RTAB-Map expects /rgb/image)
-        cv::Mat rgb;
-        cv::cvtColor(gray, rgb, cv::COLOR_GRAY2BGR);
-        
-        auto rgb_msg = cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", rgb).toImageMsg();
-        rgb_msg->header.stamp = stamp;
-        rgb_msg->header.frame_id = config_.camera_frame;
-        rgb_pub_->publish(*rgb_msg);
-        
-        // STAGGER PUBLISHING (Fix for Pi 5 DDS UDP Buffer Overflow dropping massive frames)
-        std::this_thread::sleep_for(std::chrono::milliseconds(2));
-        
-        // Publish depth as 16UC1 (millimeters)
-        auto depth_msg = cv_bridge::CvImage(std_msgs::msg::Header(), 
-                                            sensor_msgs::image_encodings::TYPE_16UC1, 
-                                            depth).toImageMsg();
-        depth_msg->header.stamp = stamp;
-        depth_msg->header.frame_id = config_.camera_frame;
-        depth_pub_->publish(*depth_msg);
-        
-        // Publish camera info
-        sensor_msgs::msg::CameraInfo camera_info_msg;
-        camera_info_msg.header.stamp = stamp;
-        camera_info_msg.header.frame_id = config_.camera_frame;
-        camera_info_msg.width = gray.cols;
-        camera_info_msg.height = gray.rows;
-        camera_info_msg.distortion_model = "plumb_bob";
-        
-        camera_info_msg.k = {fx_, 0.0, cx_, 
-                            0.0, fy_, cy_, 
-                            0.0, 0.0, 1.0};
-        
-        camera_info_msg.p = {fx_, 0.0, cx_, 0.0,
-                            0.0, fy_, cy_, 0.0,
-                            0.0, 0.0, 1.0, 0.0};
-        
-        camera_info_msg.r = {1.0, 0.0, 0.0,
-                            0.0, 1.0, 0.0,
-                            0.0, 0.0, 1.0};
-        
-        camera_info_msg.d = {0.0, 0.0, 0.0, 0.0, 0.0};
-        
-        camera_info_pub_->publish(camera_info_msg);
-    }
+    auto rgb_msg = cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", rgb).toImageMsg();
+    rgb_msg->header.stamp = stamp;
+    rgb_msg->header.frame_id = config_.camera_frame;
+    rgb_pub_->publish(*rgb_msg);
+    
+    // STAGGER PUBLISHING (Fix for Pi 5 DDS UDP Buffer Overflow dropping massive frames)
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    
+    // Publish depth as 16UC1 (millimeters)
+    auto depth_msg = cv_bridge::CvImage(std_msgs::msg::Header(), 
+                                        sensor_msgs::image_encodings::TYPE_16UC1, 
+                                        depth).toImageMsg();
+    depth_msg->header.stamp = stamp;
+    depth_msg->header.frame_id = config_.camera_frame;
+    depth_pub_->publish(*depth_msg);
+    
+    // Publish camera info
+    sensor_msgs::msg::CameraInfo camera_info_msg;
+    camera_info_msg.header.stamp = stamp;
+    camera_info_msg.header.frame_id = config_.camera_frame;
+    camera_info_msg.width = gray.cols;
+    camera_info_msg.height = gray.rows;
+    camera_info_msg.distortion_model = "plumb_bob";
+    
+    camera_info_msg.k = {fx_, 0.0, cx_, 
+                        0.0, fy_, cy_, 
+                        0.0, 0.0, 1.0};
+    
+    camera_info_msg.p = {fx_, 0.0, cx_, 0.0,
+                        0.0, fy_, cy_, 0.0,
+                        0.0, 0.0, 1.0, 0.0};
+    
+    camera_info_msg.r = {1.0, 0.0, 0.0,
+                        0.0, 1.0, 0.0,
+                        0.0, 0.0, 1.0};
+    
+    camera_info_msg.d = {0.0, 0.0, 0.0, 0.0, 0.0};
+    
+    camera_info_pub_->publish(camera_info_msg);
     
     // camera_info_scan_pub_ pubblica SEMPRE (depthimage_to_laserscan ne ha bisogno)
     sensor_msgs::msg::CameraInfo camera_info_scan_msg;
