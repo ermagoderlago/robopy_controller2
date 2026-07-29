@@ -556,6 +556,8 @@ class HailoBridgeNode(Node):
     def rgb_callback(self, msg):
         with self.lock:
             self.latest_rgb = msg
+            depth_msg = self.latest_depth
+        self.annotate_and_publish_image(msg, depth_msg)
 
     def depth_callback(self, msg):
         with self.lock:
@@ -985,9 +987,6 @@ class HailoBridgeNode(Node):
                 with self.lock:
                     self.latest_semantic_objects = []
                     self.latest_yolo_detections = []
-
-        # Annotate and publish image (both in simulation and real mode)
-        self.annotate_and_publish_image(rgb_msg, depth_msg)
 
     def execute_single_vlm(self, query):
         """Esegui VLM sincrono ad hoc guidato da prompt testuale"""

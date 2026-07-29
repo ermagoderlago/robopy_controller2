@@ -205,6 +205,8 @@ install(PROGRAMS
   scripts/engagement_monitor
   scripts/cloud_watchdog_node
   scripts/speaker_id_node
+  scripts/localization_fuser_node
+  scripts/robot_health_supervisor
   DESTINATION lib/${PROJECT_NAME}
 )
 

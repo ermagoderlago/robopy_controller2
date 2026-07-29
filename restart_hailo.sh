@@ -208,6 +208,18 @@ nohup ros2 run robopy_controller hailo_bridge_node --ros-args \
     -p sim_mode:=False \
     > /home/robopy/robopy/logs/hailo_bridge_node.log 2>&1 &
 
+echo "🛡️ Starting localization_fuser_node (Dedicated EKF/VIO Fuser)..."
+> /home/robopy/robopy/logs/localization_fuser_node.log
+nohup ros2 run robopy_controller localization_fuser_node \
+    > /home/robopy/robopy/logs/localization_fuser_node.log 2>&1 &
+
+echo "🚑 Starting robot_health_supervisor (System Health & Safety)..."
+> /home/robopy/robopy/logs/robot_health_supervisor.log
+nohup ros2 run robopy_controller robot_health_supervisor \
+    > /home/robopy/robopy/logs/robot_health_supervisor.log 2>&1 &
+
+
+
 echo "🗣️ Starting speaker_id_node (Biometric Verifier)..."
 > /home/robopy/robopy/logs/speaker_id_node.log
 nohup ros2 run robopy_controller speaker_id_node --ros-args \

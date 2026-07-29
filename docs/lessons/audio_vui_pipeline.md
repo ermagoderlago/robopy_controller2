@@ -90,3 +90,15 @@ Questo documento raccoglie le lezioni apprese, i bug riscontrati e le soluzioni 
   3. L'orchestratore riceve la preemption e cancella il turno corrente sul LLM (`cancel_current_turn()`), svuotando le code audio.
 * **Unificazione Stati:** In `respeaker_vui_node.py` lo stato `speaking` deve combinare sia il TTS classico (`_is_tts_speaking`) che lo stream Live API (`_is_playing_out`).
 * **Regola Permanente:** Nessun componente deve pubblicare `mic_mute=True` durante il TTS. La soppressione dell'eco del parlato del robot si ottiene abbattendo temporaneamente lo `stt_gain` a **0.1x** nel nodo VUI, lasciando il microfono aperto per interruzioni tramite wake-word ("Marcus" o "Zitto Marcus").
+
+---
+
+## 🔑 Picovoice Free Tier EOL & Transizione Wake Word
+
+### Dismissione Free Tier Picovoice Porcupine (Giugno 2026)
+* **Problema:** Picovoice ha ufficialmente disattivato il piano gratuito ("Free Tier AccessKeys"). Tutte le AccessKey gratuite esistenti sono state invalidate lato server, bloccando l'inizializzazione del motore Porcupine nei nodi VUI.
+* **Impatto:** All'avvio di `respeaker_vui_node` o `wake_word_node`, l'SDK `pvporcupine` restituisce errore di attivazione licenza, disabilitando la risposta alla parola chiave "Hey Marcus".
+* **Soluzione / Alternativa Architetturale:**
+  1. **Soluzione Temporanea:** Utilizzare una chiave con piano Trial attivo per il test rapido.
+  2. **Soluzione Definitiva Open-Source:** Migrare da Picovoice Porcupine ad **openWakeWord** (oppure modelli ONNX locali), un motore wake word 100% locale, open-source e privo di chiavi o validazioni remote.
+

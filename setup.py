@@ -179,6 +179,8 @@ setup(
             "engagement_monitor = robopy_controller.nodes.engagement_monitor:main",
             "cloud_watchdog_node = robopy_controller.nodes.cloud_watchdog_node:main",
             "speaker_id_node = robopy_controller.nodes.speaker_id_node:main",
+            "localization_fuser_node = robopy_controller.nodes.localization_fuser_node:main",
+            "robot_health_supervisor = robopy_controller.nodes.robot_health_supervisor:main",
             # === Cognitive Brain ===
             "chroma_synaptic_manager = robopy_controller.robot_ai.cognitive.chroma_synaptic_manager:main",
             "cognitive_amygdala = robopy_controller.robot_ai.cognitive.cognitive_amygdala:main",

@@ -164,8 +164,30 @@ Questo documento descrive le lezioni apprese su OAK-D Lite, l'acceleratore NPU H
 
 ### Decoder Multi-Scala YOLOv8 DFL per Output Separati
 * **Problema:** Il parser legacy `_parse_yolo_output` iterava indistintamente su tutte le 10 viste di output (`yolo/conv44`, `yolo/conv45`, `yolo/conv46`, `yolo/conv48`, `yolo/conv60`, `yolo/conv61`, `yolo/conv62`, `yolo/conv73`, `yolo/conv74`, `yolo/conv75`). Le mappe di feature di regressione DFL (`conv44`, `conv60`, `conv73`) e proto-mask (`conv48`) venivano scambiate per coordinate + confidenza, creando oltre 3,000 falsi box al secondo su tutta l'immagine.
-* **Risoluzione:** Riscritto `_parse_yolo_output` per accoppiare rigorosamente i 3 livelli di scala di YOLOv8:
-  - Stride 8 (80x80): BBOX `conv44` (64 canali) + CLS `conv45` (80 canali)
-  - Stride 16 (40x40): BBOX `conv60` (64 canali) + CLS `conv61` (80 canali)
-  - Stride 32 (20x20): BBOX `conv73` (64 canali) + CLS `conv74` (80 canali)
-  La confidenza delle classi è estratta con la funzione `sigmoid`, e i box 2D vengono ricostruiti con la decodifica DFL (`decode_dfl_fn`). Su uno schermo buio o frame vuoto le detection scendono a 0 (0-1 detection reali).
+
+---
+
+## 🚀 Optimized Hailo Multiplexing & Camera Geometry (Luglio 2026)
+
+### Single Network Group HEF Multiplexing
+* **Contesto:** Switchare tra due contesti HEF (Group 1: 15Hz segmentazione, Group 2: 2-3Hz YOLO) genera un overhead di 10-25ms per switch dal firmware.
+* **Soluzione:** Compilazione unificata tramite `hailo compiler --join` producendo `joined_yolo_superpoint_netvlad.hef` con contesto unico di esecuzione (Zero context switching overhead su NPU).
+
+### Standardizzazione Risoluzione & HFOV Overlap Verification
+* **Risoluzione Standard:** Flussi RGB e stereo depth fisso a **640x480 @ 30 FPS**.
+* **HFOV Luxonis OAK-D Lite:** RGB HFOV = 69°, Mono Depth HFOV = 71.8°.
+* **Passo Angolare Scansione 35°:** Con la regola del 50% overlap, $0.5 \times 69^\circ = 34.5^\circ \approx 35^\circ$. Garantito $\ge 50\%$ di sovrapposizione visiva delle feature.
+
+---
+
+## ⚡ Real-Time Streaming Annotato a 30 FPS & Filtro Euristico Bounding Box (Luglio 2026)
+
+### Sgancio dello Streaming Annotato dal Loop VLM (30 FPS Real-time)
+* **Problema:** Il topic `/hailo/annotated_image/compressed` non si aggiornava in tempo reale sul dashboard/Foxglove, rimanendo congelato o aggiornandosi alla bassa frequenza del loop VLM (~1.5 Hz).
+* **Causa:** La chiamata a `annotate_and_publish_image` era posizionata all'interno del loop di inferenza lenta del VLM anziché nel callback di ricezione dei fotogrammi della fotocamera.
+* **Risoluzione:** Spostata la chiamata `annotate_and_publish_image` direttamente all'interno di `rgb_callback` a 30 Hz. L'immagine annotata viene ora compressa JPEG e pubblicata a frequenza di frame nativa.
+
+### Filtro Euristico per Bounding Box Full-Frame a Bassa Confidenza
+* **Problema:** In particolari condizioni di luce, YOLO generava rilevamenti spuri a schermo intero ($W \times H \approx \text{area totale}$) con confidenza medio-bassa ($<0.75$).
+* **Risoluzione:** Inserito un filtro euristico in `_parse_yolo_output`: se un bounding box copre oltre l'80% dell'immagine ed ha confidenza $<0.75$, viene automaticamente scartato.
+

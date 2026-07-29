@@ -35,3 +35,25 @@ Risolvere il drift angolare dell'odometria meccanica durante le rotazioni sul po
 - **Accuratezza Angolare:** Rotazione su 36 step ($360^\circ$) completata con uno scarto inferiore al $6\%$ ($381.3^\circ$ accumulati).
 - **Chiusura del Loop:** Verificata l'accettazione visiva delle chiusure di loop con l'unione dell'anello di mappa senza spazi aperti o sdoppiamenti dei muri.
 - **Stabilità RPi5:** Utilizzo RAM stazionario sotto i 400 MB per RTAB-Map, compatibile con i 4GB di bordo.
+
+---
+
+## 🚀 ECO-00022 (Luglio 2026) - Fusione Odometria Ruote/VIO Dedicata & Supervisor di Sicurezza
+
+**ECO ID:** ECO-00022  
+**Data:** 2026-07-28  
+**Modulo:** `localization_fuser_node.py` / `robot_health_supervisor.py` / `marcus_bringup.launch.py`  
+**Autore:** Antigravity / Marcus AI  
+
+### 📐 Modifiche Effettuate
+1. **Fusione Ruote/VIO Dedicata (`localization_fuser_node.py`):**
+   - Implementato nodo fuser dedicato con monitoraggio confidenza VIO su `/vins/quality_metrics` ($C \in [0, 100]$).
+   - Inflazione di covarianza $R_{VIO}$ regolata dall'equazione master $R_{VIO} = R_{base} \cdot \min(M_{max}, S(C_{smooth}) \cdot e^{\alpha \Delta t})$ con saturazione rigida $M_{max} = 100.0$.
+   - Wheel slip detection via confronto $\left| \omega_{wheels} - \omega_{IMU} \right| > 0.25\,\text{rad/s}$.
+   - Piano pavimento dinamico ruotato a 200 Hz tramite gli angoli istantanei di Roll ($\phi$) e Pitch ($\theta$) misurati dall'IMU OAK-D.
+2. **Supervisor di Sicurezza & Arbitraggio (`robot_health_supervisor.py`):**
+   - Soglie numeriche per stati GREEN / YELLOW / RED basate su confidenza VIO, temperatura CPU, occupazione RAM e tensione batteria.
+   - Arbitraggio ad alta priorità (Priority 0) su `/cmd_vel_mux/input/safety_override` per blocco immediato in caso di anomalie critiche.
+3. **Orchestrazione Launch Nativa (`marcus_bringup.launch.py`):**
+   - Sostituiti gli script bash con launchfile ROS 2 nativo. Integrazione demone RouDi per DDS Zero-Copy e pinning CPU Core 2,3 per nodi NPU/visione.
+

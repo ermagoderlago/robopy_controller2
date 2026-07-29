@@ -1,0 +1,20 @@
+#!/usr/bin/env python3
+import sys
+import rclpy
+import signal
+from robopy_controller.nodes.localization_fuser_node import main
+
+def signal_handler(sig, frame):
+    pass
+
+if __name__ == '__main__':
+    signal.signal(signal.SIGINT, signal_handler)
+    try:
+        main(sys.argv)
+    except KeyboardInterrupt:
+        pass
+    except SystemExit:
+        pass
+    except Exception as e:
+        print(f"Error in localization_fuser_node wrapper: {e}", file=sys.stderr)
+        sys.exit(1)

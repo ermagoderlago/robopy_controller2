@@ -115,6 +115,21 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
 * **Solver PnP C++:** EPNP RANSAC 3D in C++ + Integrazione Giroscopio Z per orientamento e soppressione dello slittamento delle ruote.
 * **Autorità TF `odom -> base_link`:** Assegnata a `fast_flow_vo_cpp` a **30 Hz**.
 * **Topic output:** `/odom` (nav_msgs/Odometry), `/rgb/image`, `/camera/depth/image_raw`, `/camera/camera_info`.
-* **Risultato Verificato:** Rotazione sul posto di 360.0° misurata dal VIO C++ a **358.4°** (<0.4% errore) compensando 63.3° di slittamento meccanico degli encoder delle ruote.
+
+---
+
+## 🛡️ Dedicated Localization Fuser & Health Supervisor (Luglio 2026)
+
+### Architettura Fuser Dedicato (`localization_fuser_node.py`)
+* **Metriche Qualità VIO:** Pubblica la confidenza VIO $C \in [0, 100]$ su `/vins/quality_metrics` combinando numero di feature attive ($N_{target}=150$), errore di riproiezione ($E_{thresh}=3.0\,\text{px}$) e condizionamento Hessiana di marginalizzazione.
+* **Inflazione Covarianza Scalata & Saturata:** L'inflazione $R_{VIO}$ segue la funzione master $R_{VIO} = R_{base} \cdot \min(M_{max}, S(C_{smooth}) \cdot e^{\alpha \Delta t})$ dove $M_{max} = 100.0$ costituisce il tetto rigido contro instabilità numeriche nell'EKF.
+* **Smoothing Adattivo Window Switching:** La finestra EMA $T_{EMA}$ passa da $0.5\,\text{s}$ a $0.1\,\text{s}$ durante rotazioni rapide ($\omega_{IMU} > 0.3\,\text{rad/s}$) per rilevare sfarfallii e cali di confidenza entro 100 ms.
+* **Wheel Slip Detection:** Confronto continuo $\left| \omega_{wheels} - \omega_{IMU} \right| > 0.25\,\text{rad/s}$. In caso di slittamento, la fusione riduce temporaneamente il peso dell'odometria ruote.
+* **Piano Pavimento Dinamico (200 Hz):** Vettore normale $\hat{n}_{floor}(t) = [-\sin\theta, \sin\phi\cos\theta, \cos\phi\cos\theta]^T$ ricalcolato ad ogni pacchetto IMU per adeguare la tolleranza del pavimento a rampe ed inclinazioni reali.
+
+### System Health Supervisor (`robot_health_supervisor.py`)
+* **Stati:** GREEN (normal), YELLOW (velocità max -50%), RED (arresto immediato).
+* **Hard Arbitration Priority 0:** Pubblica pacchetti di frenata attiva su `/cmd_vel_mux/input/safety_override`, prevaricando Nav2 e teleoperazione sul nodo `twist_mux`.
+
 
 

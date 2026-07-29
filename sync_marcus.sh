@@ -10,7 +10,7 @@
 
 set -e  # Esci subito in caso di errore
 
-TARGET_HOST="marcus"
+TARGET_HOST="robopy@marcus"
 TARGET_DIR="/mnt/ssd/robopy_controller_host"
 
 # --- Configurazione SSH ---
@@ -22,7 +22,7 @@ if [ -n "$COMSPEC" ] && ! grep -qE "(Microsoft|WSL)" /proc/version 2>/dev/null; 
     RSYNC_SSH="ssh.exe"
 else
     CTRL_SOCK="/tmp/ssh_ctrl_marcus_sync"
-    SSH_OPTS="-o ControlMaster=auto -o ControlPath=${CTRL_SOCK} -o ControlPersist=60 -o ConnectTimeout=10"
+    SSH_OPTS="-o BatchMode=yes -o ControlMaster=auto -o ControlPath=${CTRL_SOCK} -o ControlPersist=60 -o ConnectTimeout=10"
     SSH_CMD="ssh ${SSH_OPTS}"
     RSYNC_SSH="ssh ${SSH_OPTS}"
 fi
@@ -110,6 +110,10 @@ rsync -avz -e "${RSYNC_SSH}" \
     --exclude='*.pyc' \
     --exclude='*' \
     robopy_controller/ ${TARGET_HOST}:${TARGET_DIR}/${SITE_PKGS}/robopy_controller/
+
+rsync -avz -e "${RSYNC_SSH}" \
+    --exclude='__pycache__/' --exclude='*.pyc' \
+    robopy_controller/nodes/ ${TARGET_HOST}:${TARGET_DIR}/install/robopy_controller/lib/robopy_controller/
 
 rsync -avz -e "${RSYNC_SSH}" \
     --exclude='__pycache__/' --exclude='*.pyc' \
