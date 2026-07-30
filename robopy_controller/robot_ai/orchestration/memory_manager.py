@@ -51,11 +51,19 @@ class MemoryManager:
                     if len(self._embedding_cache) < self._max_cache:
                         self._embedding_cache[cache_key] = embedding
 
+                metadata = {"timestamp": time.time()}
+                importance = 0.5
+                if mem_type in (MemoryType.LEARNED_FACT, MemoryType.USER_PREFERENCE):
+                    importance = 1.0
+                    metadata["amygdala_protected"] = "true"
+                    metadata["synaptic_strength"] = 100.0
+
                 memory = Memory(
                     id="", content=content,
                     memory_type=mem_type,
                     embedding=embedding,
-                    metadata={"timestamp": time.time()}
+                    metadata=metadata,
+                    importance=importance
                 )
                 self.memory_store.add(memory)
                 self._logger.debug(f"Stored background memory: {mem_type}")

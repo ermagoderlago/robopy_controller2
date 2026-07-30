@@ -15,3 +15,10 @@ Quando ti viene richiesto di analizzare, correggere o implementare un modulo o u
 4. **Verifica Cognitiva (`[COGNITIVE_CHECK]`):** Prima di emettere qualsiasi codice modificato, produci all'inizio della tua risposta un blocco di testo chiaramente visibile prefissato con **`[COGNITIVE_CHECK]`**. In questo blocco devi:
    - Attestare esplicitamente il rispetto dei vincoli fisici di `marcus_core_rules.md` applicati al codice che stai per scrivere.
    - Dichiarare quali file di lezioni (`/docs/lessons/`), registri ECO (`/docs/ecos/`) o guide (`marcus_robot_guide.md`) hai letto ed eventualmente aggiornato per rispecchiare la modifica.
+5. **Integrazione FMEA-Lite (DFMEA):** Prima di iniziare l'implementazione o modificare codice, DEVI ispezionare il database DFMEA (`fmea/dfmea.yaml`) tramite tool di lettura file per identificare i rischi storici correlati. 
+   - Se risolvi un guasto o introduci un nuovo rischio, aggiorna `fmea/dfmea.yaml` (creando un nodo o aggiornando history e punteggi residui).
+   - Esegui autonomamente lo script `python fmea/calculate_and_report_fmea.py` tramite `run_command` per ricalcolare i Risk Priority Number (RPN) e generare il report esecutivo, prima di chiudere il task.
+6. **Gestione Compartimentata dei Progetti di Miglioramento (Anti-Saturazione Contesto):**
+   - Ogni Failure Mode (o gruppo di failure correlati) genera un **Progetto di Miglioramento autonomo** salvato come file Markdown isolato in `docs/improvements/IMP-XXX.md`.
+   - **DIVIETO DI CARICAMENTO GLOBALE:** È severamente vietato leggere tutti i file di miglioramento contemporaneamente. Per evitare la saturazione della finestra di contesto dell'IA, consulta l'indice leggero `fmea/IMPROVEMENT_INDEX.yaml`.
+   - Quando vieni incaricato di sviluppare o programmare una specifica mitigazione, **DEVI leggere esclusivamente il singolo file `docs/improvements/IMP-XXX.md` associato a quel task**, operando a compartimenti stagni.

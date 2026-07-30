@@ -1,0 +1,45 @@
+# Indice dei Progetti di Miglioramento Compartimentati (Improvement Index)
+# Mappatura tra Failure ID (DFMEA) e il rispettivo file di progetto/workaround in docs/improvements/
+
+improvements:
+  FM-NAV-009:
+    title: "Miglioramento Navigazione: Rilevamento Ostacoli Negativi e Prevenzione Caduta Scale"
+    file: "docs/improvements/IMP-NAV-009_negative_obstacles.md"
+    status: "PLANNED"
+    domain: "nav2_slam"
+
+  FM-SYS-004:
+    title: "Miglioramento Alimentazione: Demone OS Graceful Shutdown per Anti-Battery Cliff"
+    file: "docs/improvements/IMP-SYS-004_battery_cliff.md"
+    status: "PLANNED"
+    domain: "hardware_power"
+
+  FM-LLM-004:
+    title: "Miglioramento AI: Pre-flight Kinematic Sandbox per Skill Dinamiche"
+    file: "docs/improvements/IMP-LLM-004_skill_sandbox.md"
+    status: "PLANNED"
+    domain: "ai_langgraph"
+
+  FM-LLM-005:
+    title: "Miglioramento AI: Multi-Tier Fallback Gateway con Qwen2 su Hailo-10H NPU"
+    file: "docs/improvements/IMP-LLM-005_hailo_qwen_fallback.md"
+    status: "PLANNED"
+    domain: "ai_langgraph"
+
+  FM-COG-001:
+    title: "Miglioramento Cognitivo: Homeostatic Dopamine Reuptake & Efficacy Audit"
+    file: "docs/improvements/IMP-COG-001_dopamine_homeostasis.md"
+    status: "PLANNED"
+    domain: "cognitive_ai"
+
+  FM-SIM-001:
+    title: "Miglioramento Testing: Immutable Copy-on-Write Shadow Memory Sandbox"
+    file: "docs/improvements/IMP-SIM-001_shadow_memory_sandbox.md"
+    status: "PLANNED"
+    domain: "testing_simulation"
+
+  FM-COG-002:
+    title: "Miglioramento Cognitivo: MARCUS Acronym Identity & Active RAG Retrieval"
+    file: "docs/improvements/IMP-COG-002_rag_retrieval_and_acronym_memory.md"
+    status: "COMPLETED"
+    domain: "cognitive_ai"

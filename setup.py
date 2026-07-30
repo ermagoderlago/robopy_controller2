@@ -175,6 +175,7 @@ setup(
             "respeaker_vui_node = robopy_controller.nodes.respeaker_vui_node:main",
             "ai_chat = scripts.ai_chat:main",
             "hailo_bridge_node = robopy_controller.nodes.hailo_bridge_node:main",
+            "hailo_vlm_node = robopy_controller.nodes.hailo_vlm_node:main",
             "semantic_costmap_injector = robopy_controller.nodes.semantic_costmap_injector:main",
             "engagement_monitor = robopy_controller.nodes.engagement_monitor:main",
             "cloud_watchdog_node = robopy_controller.nodes.cloud_watchdog_node:main",

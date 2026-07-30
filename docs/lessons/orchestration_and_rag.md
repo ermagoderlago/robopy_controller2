@@ -65,3 +65,21 @@ dove $\Delta t$ rappresenta il tempo trascorso (in ore) dall'ultimo aggiornament
 Tutti i record che presentano una forza sinaptica $S(t) < 30.0$ e che sono stati richiamati meno di due volte (`recall_count` < 2) vengono fisicamente eliminati da ChromaDB. Questo processo riduce la frammentazione e previene il crash da esaurimento di memoria RAM.
 Dopo la potatura, il sistema invoca un Garbage Collection (`gc.collect()`) forzato per liberare la memoria dell'host.
 
+---
+
+## 🏷️ Identità dell'Acronimo e Ricerca Semantica RAG Attiva (Sprint 6)
+
+### 1. Dichiarazione Residente dell'Acronimo MARCUS
+* **Problema:** Marcus non riconosceva o allucinava la definizione del suo nome quando interrogato.
+* **Causa:** Il parametro `system_prompt` predefinito in `llm_service.py` non conteneva l'espansione dell'acronimo.
+* **Risoluzione:** Registrazione esplicita nel system prompt residente dell'identità:
+  `MARCUS — Modular Autonomous Robotic Control Unit System`.
+
+### 2. Recupero Semantico RAG nel Flusso Conversazionale
+* **Problema:** Le memorie venivano archiviate su ChromaDB in background ma mai richiamate durante il dialogo.
+* **Causa:** `ConversationManager` non eseguiva alcuna query vettoriale prima di generare la risposta dell'LLM.
+* **Risoluzione:** Integrazione della chiamata `memory_store.search(clean_text, top_k=3)` in `_process_locked`. I risultati rilevanti (score $\ge 0.40$) vengono iniettati nella sezione `[MEMORIE EPISODICHE E FATTI APPRESI (RAG)]` del prompt.
+
+### 3. Protezione Fatti Appresi (`LEARNED_FACT`)
+* **Meccanismo:** Le affermazioni fattuali o le definizioni fornite dall'utente vengono classificate come `MemoryType.LEARNED_FACT` con `importance=1.0`, `synaptic_strength=100.0` e `amygdala_protected="true"`, rendendole immuni all'oblio Ebbinghaus notturno.
+

@@ -1,0 +1,1905 @@
+- id: FM-SYS-001
+  subsystem: System/DDS
+  component: build_system
+  function: Compilazione sequenziale e sicura del workspace ROS 2 su Raspberry Pi
+    5 senza esaurimento della RAM host
+  failure_mode: Out-Of-Memory (OOM) Kill indotto dal compilatore C++ clang++ durante
+    la build
+  potential_cause: Avvio della compilazione in parallelo con worker multipli su sistema
+    host dotato di 4GB di RAM
+  potential_effect: Corruzione del processo di build, fallimento della compilazione
+    e freeze temporaneo del kernel Linux
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids: []
+  initial_scoring:
+    severity: 9
+    occurrence: 9
+    detection: 2
+    rpn: 162
+  prevention_controls: 'Impostazione vincolante dei flag di build sequenziale: MAKEFLAGS=''-j1''
+    colcon build --parallel-workers 1'
+  detection_controls: Codice di errore di uscita da colcon e log di dmesg per la cattura
+    dell'evento Out-Of-Memory
+  residual_scoring:
+    severity: 9
+    occurrence: 1
+    detection: 1
+    rpn: 9
+  risk_level: REVISION_MANDATORY
+  mitigation_status: CLOSED
+  recommended_action: Imporre l'uso esclusivo degli script di compilazione preconfigurati
+    sync_marcus.sh e compile_wsl.sh
+  verification_method: Stress test di compilazione completa del workspace
+  eco_ref: docs/lessons/dev_and_deployment.md#compilazione
+  lesson_ref: marcus_core_rules.md#1-memoria-ram-e-limite-host
+  date_identified: '2026-05-15'
+  last_updated: '2026-07-29'
+  history:
+  - date: '2026-05-15'
+    change: Identificato crash OOM durante la build parallela con 4 worker
+    rpn_old: 162
+    rpn_new: 9
+- id: FM-SYS-002
+  subsystem: System/DDS
+  component: system_scripts
+  function: Esecuzione corretta e trasparente degli script shell di avvio e manutenzione
+    del robot
+  failure_mode: 'Errore di esecuzione script: OSError [Errno 8] Exec format error'
+  potential_cause: 'Presenza della sequenza di byte UTF-8 Byte Order Mark (BOM: \xEF\xBB\xBF)
+    all''inizio dei file .sh'
+  potential_effect: Impossibilità di avviare i servizi di avvio automatico (systemd/restart.sh),
+    causando il blocco del robot
+  classification: PERFORMANCE
+  estimation_basis: inferred
+  related_ids: []
+  initial_scoring:
+    severity: 6
+    occurrence: 7
+    detection: 2
+    rpn: 84
+  prevention_controls: Rimozione automatica del BOM UTF-8 dagli script tramite filtri
+    di sincronizzazione Git/sync
+  detection_controls: Eccezione esplicita generata dall'interprete Bash/Python al
+    tentativo di launch
+  residual_scoring:
+    severity: 6
+    occurrence: 1
+    detection: 1
+    rpn: 6
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Sanificazione preventiva di tutti i file di script shell mediante
+    dos2unix / script Python dedicato
+  verification_method: Test di esecuzione su ambiente Linux target
+  eco_ref: docs/lessons/dev_and_deployment.md#bom
+  lesson_ref: marcus_core_rules.md#1-memoria-ram-e-limite-host
+  date_identified: '2026-05-20'
+  last_updated: '2026-07-29'
+  history:
+  - date: '2026-05-20'
+    change: Aggiunto controllo preventivo BOM negli script di avvio
+    rpn_old: 84
+    rpn_new: 6
+- id: FM-NAV-001
+  subsystem: Nav2
+  component: nav2_costmap_2d
+  function: Generazione della costmap locale per l'evitamento ostacoli senza saturare
+    le risorse CPU del Pi 5
+  failure_mode: Saturazione CPU indotta da STVL 3D (Spatiotemporal Voxel Layer) con
+    freeze del sistema
+  potential_cause: Utilizzo della mappatura volumetrica continua 3D con raycasting
+    ad alto carico computazionale su CPU
+  potential_effect: Stallo del planner locale Nav2, perdita del controllo cinematico
+    e rischio di collisione per freeze del nodo
+  classification: SAFETY
+  estimation_basis: measured
+  related_ids: []
+  initial_scoring:
+    severity: 9
+    occurrence: 8
+    detection: 6
+    rpn: 432
+  prevention_controls: Divieto assoluto di uso di STVL sancito in marcus_core_rules.md;
+    adozione del filtro semantico 2.5D
+  detection_controls: Monitoraggio della percentuale di carico CPU tramite system_inspector.py
+    e diagnostica ROS
+  residual_scoring:
+    severity: 9
+    occurrence: 1
+    detection: 1
+    rpn: 9
+  risk_level: REVISION_MANDATORY
+  mitigation_status: CLOSED
+  recommended_action: Sostituzione completa di STVL con il nodo semantic_costmap_injector.py
+    a proiezione geometrica 2.5D
+  verification_method: Stress test di navigazione prolungata in ambienti complessi
+  eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-06-10-001
+  lesson_ref: docs/lessons/nav2_slam_tuning.md#25d-costmap
+  date_identified: '2026-06-10'
+  last_updated: '2026-07-29'
+  history:
+  - date: '2026-06-10'
+    change: Rimossa dipendenza STVL ed implementato filtro 2.5D
+    rpn_old: 432
+    rpn_new: 9
+- id: FM-NAV-002
+  subsystem: Nav2
+  component: oak_superpoint_odometry_node
+  function: Stima continua e robusta dell'odometria visiva (VO) tramite la telecamera
+    stereo DepthAI
+  failure_mode: Stallo del tracciamento VO con blocco permanente della posa a 0.000m
+  potential_cause: Perdita di feature trasversali in aree povere di texture o movimenti
+    troppo rapidi (stato LOST)
+  potential_effect: Disallineamento critico della localizzazione Nav2 e fallimento
+    sistematico dei goal di navigazione
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-NAV-003
+  initial_scoring:
+    severity: 8
+    occurrence: 7
+    detection: 5
+    rpn: 280
+  prevention_controls: Implementazione del meccanismo di Auto-Reset automatico dopo
+    3s (60 frame) di stato LOST
+  detection_controls: Monitor continuo dello stato di tracking e pubblicazione diagnostica
+    sul topic /vo/odom
+  residual_scoring:
+    severity: 8
+    occurrence: 2
+    detection: 2
+    rpn: 32
+  risk_level: LOW
+  mitigation_status: MITIGATED
+  recommended_action: Attivare il reset autonomo delle pose storiche per ripartire
+    dal frame corrente
+  verification_method: Test di oscuramento temporaneo della telecamera durante la
+    marcia
+  eco_ref: docs/ecos/actuation_ecos.md#ECO-2026-07-18-008
+  lesson_ref: docs/lessons/nav2_slam_tuning.md#visual-odometry
+  date_identified: '2026-07-18'
+  last_updated: '2026-07-29'
+  history:
+  - date: '2026-07-18'
+    change: Introdotta routine di Auto-Reset nel nodo C++ oak_superpoint_odometry
+    rpn_old: 280
+    rpn_new: 32
+- id: FM-NAV-003
+  subsystem: Nav2
+  component: lifecycle_manager_navigation
+  function: Orchestrazione transizioni di stato dei nodi di navigazione (unconfigured
+    -> inactive -> active)
+  failure_mode: Crash all'avvio dello stack Nav2 per mancata corrispondenza nei nomi
+    dei nodi controllati
+  potential_cause: Inserimento nella lista node_names di stringhe obsolete/errate
+    (es. global_costmap/global_costmap)
+  potential_effect: Impossibilità di attivare i server di pianificazione e controllo,
+    bloccando la navigazione autonomo
+  classification: MISSION_CRITICAL
+  estimation_basis: inferred
+  related_ids: []
+  initial_scoring:
+    severity: 8
+    occurrence: 9
+    detection: 2
+    rpn: 144
+  prevention_controls: Rettifica formale della lista dei nodi gestiti nel file di
+    launch custom_nav2_launch.py
+  detection_controls: Controllo dello stato del lifecycle manager tramite chiamata
+    al servizio /lifecycle_manager/get_state
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Allineare i nomi dei nodi nel launch file alla configurazione
+    effettivo dei nodi ROS 2 Jazzy
+  verification_method: Avvio automatico dello stack di navigazione e verifica dello
+    stato 'active'
+  eco_ref: docs/ecos/actuation_ecos.md#ECO-2026-07-18-008
+  lesson_ref: docs/lessons/nav2_slam_tuning.md#lifecycle
+  date_identified: '2026-07-18'
+  last_updated: '2026-07-29'
+  history:
+  - date: '2026-07-18'
+    change: Rimosse stringhe fittizie da lifecycle_manager_navigation
+    rpn_old: 144
+    rpn_new: 8
+- id: FM-VUI-001
+  subsystem: VUI Audio
+  component: respeaker_vui_node
+  function: Cattura diretta dell'audio PCM multicanale dall'array microfonico ReSpeaker
+    Lite USB
+  failure_mode: Microfono completamente silenzioso (RMS ~40) indotto dal routing errato
+    su PipeWire
+  potential_cause: Apertura automatica da parte di PyAudio del virtual device PipeWire
+    anziché del device hardware ALSA
+  potential_effect: Mancata ricezione di qualsiasi comando vocale da parte dell'utente
+    e stallo dell'interazione VUI
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-VUI-002
+  initial_scoring:
+    severity: 7
+    occurrence: 8
+    detection: 5
+    rpn: 280
+  prevention_controls: Ricerca prioritaria esplicita del device hardware target ('ReSpeaker')
+    per forzare l'apertura su hw:0,0
+  detection_controls: Monitoraggio continuo del livello RMS di fondo nei log del nodo
+    VUI (valore atteso > 50)
+  residual_scoring:
+    severity: 7
+    occurrence: 1
+    detection: 2
+    rpn: 14
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Forzare il binding diretto sulla scheda hardware ALSA escludendo
+    i server audio di sistema
+  verification_method: Test di cattura audio con verifica dei livelli RMS stazionari
+  eco_ref: docs/ecos/audio_vui_ecos.md#ECO-2026-05-27-002
+  lesson_ref: docs/lessons/audio_vui_pipeline.md#hardware-capture
+  date_identified: '2026-05-27'
+  last_updated: '2026-07-29'
+  history:
+  - date: '2026-05-27'
+    change: Invertita la logica di selezione device forzando l'hardware ReSpeaker
+    rpn_old: 280
+    rpn_new: 14
+- id: FM-VUI-002
+  subsystem: VUI Audio
+  component: respeaker_vui_node
+  function: Garantire un segnale audio PCM pulito, privo di distorsioni da clipping
+    per la Gemini Live API
+  failure_mode: Distorsione acustica da clipping digitale per saturazione dell'ampiezza
+    dei campioni PCM 16-bit
+  potential_cause: Guadagno software elevato applicato a suoni ad alta intensità o
+    parlato a breve distanza dal microfono
+  potential_effect: Scarto dei pacchetti audio da parte della Cloud API con risposte
+    vocali errate o fallite
+  classification: PERFORMANCE
+  estimation_basis: measured
+  related_ids: []
+  initial_scoring:
+    severity: 5
+    occurrence: 7
+    detection: 4
+    rpn: 140
+  prevention_controls: Implementazione del Peak Limiter / AGC software vettoriale
+    in tempo reale con attacco 0ms
+  detection_controls: Conteggio e notifica a log delle attenuazioni istantanee applicate
+    sopra la soglia 26000
+  residual_scoring:
+    severity: 5
+    occurrence: 2
+    detection: 2
+    rpn: 20
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Applicare limitatore software sul buffer di cattura con tempo
+    di rilascio lineare a ~900ms
+  verification_method: Test di parlato ad alto volume in prossimità del microfono
+  eco_ref: docs/ecos/audio_vui_ecos.md#ECO-2026-06-02-001
+  lesson_ref: docs/lessons/audio_vui_pipeline.md#peak-limiter
+  date_identified: '2026-06-02'
+  last_updated: '2026-07-29'
+  history:
+  - date: '2026-06-02'
+    change: Integrazione algoritmo Peak Limiter vettoriale in respeaker_vui_node.py
+    rpn_old: 140
+    rpn_new: 20
+- id: FM-VUI-003
+  subsystem: VUI Audio
+  component: respeaker_vui_node
+  function: Filtraggio del rumore acustico ambientale (ventola Pi 5) per il rilevamento
+    far-field della voce
+  failure_mode: Falsi rilevamenti di presenza vocale (VAD) ed invio continuo di rumore
+    di fondo a Gemini Live
+  potential_cause: Rumore a bassa frequenza generato dalla ventola di raffreddamento
+    del Pi 5 adiacente al microfono
+  potential_effect: Impossibilità di rilevare la fine della frase dell'utente (End-Of-Speech)
+    e consumo inutile di quota API
+  classification: PERFORMANCE
+  estimation_basis: measured
+  related_ids: []
+  initial_scoring:
+    severity: 6
+    occurrence: 8
+    detection: 6
+    rpn: 288
+  prevention_controls: Filtro passa-alto Butterworth di 2° ordine @ 140Hz applicato
+    direttamente al flusso audio PCM
+  detection_controls: Verifica della soglia di rumore ricalibrata e tassi di apertura
+    del gate vocale
+  residual_scoring:
+    severity: 6
+    occurrence: 2
+    detection: 2
+    rpn: 24
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Applicare filtro HPF prima dei nodi VAD, Porcupine e dello streaming
+    WebSocket Gemini
+  verification_method: Test di attivazione vocale da 2 metri di distanza con ventola
+    Pi 5 al massimo dei giri
+  eco_ref: docs/ecos/audio_vui_ecos.md#ECO-2026-07-21-001
+  lesson_ref: docs/lessons/audio_vui_pipeline.md#hpf-filter
+  date_identified: '2026-07-21'
+  last_updated: '2026-07-29'
+  history:
+  - date: '2026-07-21'
+    change: Implementato filtro HPF Butterworth 140Hz in respeaker_vui_node.py
+    rpn_old: 288
+    rpn_new: 24
+- id: FM-VIS-001
+  subsystem: Vision
+  component: oak_superpoint_odometry_node
+  function: Estrarre feature SuperPoint per la stima dell'odometria visiva senza corruzione
+    di memoria
+  failure_mode: Crash per lettura Heap Out-Of-Bounds durante il parsing dei tensor
+    di output dell'NPU Hailo
+  potential_cause: Disallineamento della risoluzione di ridimensionamento del frame
+    (480x360 vs 320x200 nativo del modello)
+  potential_effect: Crash improvviso del nodo di odometria visiva C++ e perdita della
+    tracciamento stereo
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids: []
+  initial_scoring:
+    severity: 8
+    occurrence: 7
+    detection: 8
+    rpn: 448
+  prevention_controls: Allineamento risoluzione SuperPoint a 320x200 e parsing tensor
+    relativo (data0.size() > data1.size())
+  detection_controls: Analisi post-mortem delle eccezioni di segfault e stack trace
+    C++
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 2
+    rpn: 16
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Sostituire le soglie rigide di dimensione dei buffer con controlli
+    relativi di dimensione
+  verification_method: Esecuzione prolungata del nodo C++ su flusso video continuo
+  eco_ref: docs/ecos/vision_hailo_ecos.md#ECO-2026-06-25-001
+  lesson_ref: docs/lessons/vision_hailo_npu.md#memory-safety
+  date_identified: '2026-06-25'
+  last_updated: '2026-07-29'
+  history:
+  - date: '2026-06-25'
+    change: Allineata risoluzione a 320x200 e corretto parsing memoria
+    rpn_old: 448
+    rpn_new: 16
+- id: FM-VIS-002
+  subsystem: Vision
+  component: hailo_bridge_node
+  function: Esecuzione concorrente e thread-safe dei tre modelli AI (YOLO, ArcFace,
+    NetVLAD) su Hailo-10H NPU
+  failure_mode: Race condition e crash dell'infezione NPU con errore HAILO_INVALID_OPERATION
+  potential_cause: Chiamate concorrenti non sincronizzate dai thread Python sui binding
+    C++ condivisi dell'NPU
+  potential_effect: Blocco del comparto di visione artificiale, perdita dei bounding
+    box YOLO e del riconoscimento facciale
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids: []
+  initial_scoring:
+    severity: 8
+    occurrence: 9
+    detection: 7
+    rpn: 504
+  prevention_controls: Protezione delle chiamate di inferenza NPU tramite mutex globale
+    (self._infer_lock)
+  detection_controls: Cattura eccezione runtime Hailo e log di diagnostica su /diagnostics
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 2
+    rpn: 16
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Sincronizzare rigidamente l'accesso all'infrastruttura InferModel
+    API tramite lock
+  verification_method: Stress test concorrente con richieste simultanee di rilevamento
+    oggetti e volti
+  eco_ref: docs/ecos/vision_hailo_ecos.md#ECO-2026-07-19-001
+  lesson_ref: docs/lessons/vision_hailo_npu.md#npu-concurrency
+  date_identified: '2026-07-19'
+  last_updated: '2026-07-29'
+  history:
+  - date: '2026-07-19'
+    change: Introdotto lock globale self._infer_lock per tutte le inferenze NPU
+    rpn_old: 504
+    rpn_new: 16
+- id: FM-ACT-001
+  subsystem: Hardware/Power
+  component: waveshare_motor_driver
+  function: Spunto di coppia sicuro per superare l'attrito statico dei riduttori (stiction)
+    anche a batteria scarica
+  failure_mode: Immobilità del robot con ronzio prolungato dei motori in condizioni
+    di stiction o batteria scarica
+  potential_cause: Coppia di spunto iniziale insufficiente erogata dai driver PWM
+    sotto la tensione limite (< 11.0V)
+  potential_effect: Surriscaldamento degli avvolgimenti dei motori, consumo anomalo
+    di corrente e rischio di stallo permanente
+  classification: HW_DAMAGE
+  estimation_basis: measured
+  related_ids:
+  - FM-ACT-003
+  initial_scoring:
+    severity: 9
+    occurrence: 8
+    detection: 5
+    rpn: 360
+  prevention_controls: Impulso di spunto iniziale Torque Kick (150ms a v_kick = 1.30
+    * v_cruise) in MotionManager
+  detection_controls: Diagnostica attiva di stallo basata su confronto velocità comandata
+    vs variazioni tick encoder
+  residual_scoring:
+    severity: 9
+    occurrence: 2
+    detection: 2
+    rpn: 36
+  risk_level: REVISION_MANDATORY
+  mitigation_status: CLOSED
+  recommended_action: Inizializzare ogni movimento relativo con impulso di coppia
+    ed arrestare i motori in caso di stallo > 2s
+  verification_method: Test di partenza su superficie ad alto attrito a tensione di
+    10.8V
+  eco_ref: docs/ecos/actuation_ecos.md#ECO-2026-07-22-010
+  lesson_ref: docs/lessons/actuation_motor_driver.md#stiction-kick
+  date_identified: '2026-07-22'
+  last_updated: '2026-07-29'
+  history:
+  - date: '2026-07-22'
+    change: Integrato impulso Torque Kick ed aumentate le velocità di crociera standard
+    rpn_old: 360
+    rpn_new: 36
+- id: FM-ACT-002
+  subsystem: ESP32
+  component: waveshare_motor_driver
+  function: Comunicazione seriale JSON fluida e deterministica tra host Raspberry
+    Pi 5 e la scheda Waveshare ESP32
+  failure_mode: Blocco del parser seriale ESP32 e scarto sistematico dei pacchetti
+    di comando di velocità
+  potential_cause: 'Presenza di spazi bianchi inseriti dalla formattazione standard
+    json.dumps() di Python (''T'': 1)'
+  potential_effect: Mancata risposta dei motori ai comandi /cmd_vel e attivazione
+    del watchdog di stop dell'ESP32
+  classification: SAFETY
+  estimation_basis: measured
+  related_ids: []
+  initial_scoring:
+    severity: 8
+    occurrence: 9
+    detection: 7
+    rpn: 504
+  prevention_controls: Formattazione JSON compatta e rigida mediante separators=(',',
+    ':') nella serializzazione
+  detection_controls: Watchdog di comunicazione seriale a 500ms lato ESP32 e log di
+    timeout lato driver ROS
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Rimuovere tutti gli spazi bianchi dai pacchetti JSON inviati
+    sulla porta seriale /dev/ttyUSB0
+  verification_method: Test di invio pacchetti seriali continuativi ad alta frequenza
+    (50Hz)
+  eco_ref: docs/ecos/actuation_ecos.md#ECO-2026-07-16-003
+  lesson_ref: docs/lessons/actuation_motor_driver.md#esp32-protocol
+  date_identified: '2026-07-16'
+  last_updated: '2026-07-29'
+  history:
+  - date: '2026-07-16'
+    change: Formattata serializzazione JSON con separators=(',', ':')
+    rpn_old: 504
+    rpn_new: 8
+- id: FM-ACT-003
+  subsystem: Hardware/Power
+  component: waveshare_motor_driver
+  function: Lettura accurata dell'odometria ruota da entrambi i canali in quadratura
+    degli encoder fisici
+  failure_mode: Guasto hardware sul canale encoder sinistro (odl) con lettura bloccata
+    a pochi tick
+  potential_cause: Danneggiamento del sensore ad effetto Hall o rottura del cablaggio
+    del motore sinistro
+  potential_effect: Calcolo di una traiettoria di rotazione fittizia permanente a
+    sinistra ed errata localizzazione
+  classification: SAFETY
+  estimation_basis: measured
+  related_ids:
+  - FM-ACT-001
+  - FM-ACT-004
+  initial_scoring:
+    severity: 9
+    occurrence: 3
+    detection: 2
+    rpn: 54
+  prevention_controls: Monitoraggio attivo del rapporto di tick encoder (odl vs odr)
+    nel nodo di attuazione
+  detection_controls: Pubblicazione automatica di un allarme CRITICAL sul topic /diagnostics
+    in caso di disallineamento
+  residual_scoring:
+    severity: 9
+    occurrence: 1
+    detection: 1
+    rpn: 9
+  risk_level: REVISION_MANDATORY
+  mitigation_status: IN_PROGRESS
+  recommended_action: Richiedere l'intervento dell'utente per la sostituzione o riparazione
+    del gruppo encoder sinistro
+  verification_method: Test seriale di basso livello test_raw_serial.py
+  eco_ref: docs/ecos/actuation_ecos.md#ECO-2026-07-17-005
+  lesson_ref: docs/lessons/actuation_motor_driver.md#encoder-diagnostics
+  date_identified: '2026-07-17'
+  last_updated: '2026-07-29'
+  history:
+  - date: '2026-07-17'
+    change: Diagnosticato guasto hardware sull'encoder sinistro durante i test di
+      rettilineità
+    rpn_old: 54
+    rpn_new: 9
+- id: FM-ACT-004
+  subsystem: Hardware/Power
+  component: waveshare_motor_driver
+  function: Garantire la sintonia cinematica delle polarità motori per il movimento
+    differenziale del robot
+  failure_mode: Cancellazione delle velocità differenziali per inversione speculare
+    dei tick dell'encoder destro
+  potential_cause: Montaggio fisico speculare del motore destro che inverte il verso
+    naturale di rotazione
+  potential_effect: Falso allarme di stallo immediato all'avvio del moto e rotazione
+    incontrollata su se stesso
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids: []
+  initial_scoring:
+    severity: 8
+    occurrence: 9
+    detection: 3
+    rpn: 216
+  prevention_controls: Mappatura cinematica seriale L_serial = -v_left, R_serial =
+    v_right e inversione polarità encoder
+  detection_controls: Test di verifica della posa /odom durante i movimenti di traslazione
+    e rotazione
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Allineare i parametri di polarità encoder nei default del driver
+    e negli script di launch
+  verification_method: Test di moto avanti/indietro test_forward_back.py
+  eco_ref: docs/ecos/actuation_ecos.md#ECO-2026-07-18-007
+  lesson_ref: docs/lessons/actuation_motor_driver.md#kinematics
+  date_identified: '2026-07-18'
+  last_updated: '2026-07-29'
+  history:
+  - date: '2026-07-18'
+    change: Definita la corretta polarità cinematica in waveshare_motor_driver.py
+    rpn_old: 216
+    rpn_new: 8
+- id: FM-LLM-001
+  subsystem: AI/LangGraph
+  component: respeaker_vui_node
+  function: Riproduzione vocale fluida e naturale del flusso audio sintetizzato restituito
+    da Gemini Live API
+  failure_mode: Effetto 'Darth Vader' / 'Chipmunk' (audio accelerato o gravemente
+    alterato) in riproduzione
+  potential_cause: Invio diretto dello stream PCM a 16kHz al DAC hardware audio locale
+    operante nativamente a 48kHz
+  potential_effect: Incomprensibilità del parlato sintetizzato dal robot ed esperienza
+    utente degradata
+  classification: PERFORMANCE
+  estimation_basis: measured
+  related_ids: []
+  initial_scoring:
+    severity: 4
+    occurrence: 8
+    detection: 2
+    rpn: 64
+  prevention_controls: Resampling software obbligatorio 16kHz -> 48kHz tramite audioop.ratecv
+    prima della scrittura su PyAudio
+  detection_controls: Verifica della frequenza di campionamento nativa dell'hardware
+    tramite _out_hw_rate
+  residual_scoring:
+    severity: 4
+    occurrence: 1
+    detection: 1
+    rpn: 4
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Eseguire sempre la conversione di frequenza se la scheda audio
+    DAC non supporta nativamente i 16kHz
+  verification_method: Test di riproduzione audio con lo script list_audio.py
+  eco_ref: docs/ecos/audio_vui_ecos.md#ECO-2026-05-25-001
+  lesson_ref: marcus_core_rules.md#3-pipeline-vui-e-audio-pcm-streaming
+  date_identified: '2026-05-25'
+  last_updated: '2026-07-29'
+  history:
+  - date: '2026-05-25'
+    change: Integrato il resampling audioop.ratecv per la riproduzione su DAC 48kHz
+    rpn_old: 64
+    rpn_new: 4
+- id: FM-SYS-003
+  subsystem: Hardware/Power
+  component: usb_bus_power
+  function: Alimentazione stabile periferiche USB ad alto assorbimento (OAK-D, ReSpeaker)
+  failure_mode: Caduta di tensione (Brownout) sul bus USB del Pi 5 all'accensione
+    della telecamera OAK-D
+  potential_cause: Spunto di corrente capacitivo della telecamera stereo superiore
+    alla tolleranza del controller USB Pi 5
+  potential_effect: Riavvio forzato controller USB, disconnessione SSD NVMe in sola
+    lettura, Kernel Panic
+  classification: HW_DAMAGE
+  estimation_basis: measured
+  related_ids: []
+  initial_scoring:
+    severity: 9
+    occurrence: 9
+    detection: 3
+    rpn: 243
+  prevention_controls: Introduzione di un USB Hub alimentato esternamente dedicato
+    alle periferiche ad alto assorbimento
+  detection_controls: Monitoraggio dmesg per under-voltage o reset bus USB
+  residual_scoring:
+    severity: 9
+    occurrence: 1
+    detection: 1
+    rpn: 9
+  risk_level: REVISION_MANDATORY
+  mitigation_status: CLOSED
+  recommended_action: Mantenere l'hub USB alimentato indipendente, non collegare OAK-D
+    direttamente al Pi 5
+  verification_method: Test di accensione ciclica hardware
+  eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-07-29-brownout
+  lesson_ref: marcus_core_rules.md
+  date_identified: '2026-07-29'
+  last_updated: '2026-07-29'
+  history:
+  - date: '2026-07-29'
+    change: Inserimento post-mortem da ECO
+    rpn_old: 243
+    rpn_new: 9
+- id: FM-NAV-004
+  subsystem: Nav2
+  component: robot_localization_ekf
+  function: Fusione sensoriale odometria ruote + odometria visiva tramite filtro EKF
+  failure_mode: Blocco pubblicazione TF odom->base_link da parte del nodo robot_localization
+  potential_cause: Sensore OAK-D pubblica orientation_covariance[0] = -1.0, che secondo
+    lo standard ROS2 blocca l'EKF
+  potential_effect: Stallo completo della navigazione per assenza dell'albero TF principale
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids: []
+  initial_scoring:
+    severity: 8
+    occurrence: 10
+    detection: 2
+    rpn: 160
+  prevention_controls: Rimozione nodo ekf_node, pubblicazione diretta odom->base_link
+    da parte di waveshare_motor_driver
+  detection_controls: Comando tf2_tools view_frames o warning di nav2 planner
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Evitare robot_localization EKF se il sensore visivo non fornisce
+    covarianze standard 3D
+  verification_method: Monitoraggio albero TF
+  eco_ref: docs/ecos/nav2_slam_ecos.md
+  lesson_ref: docs/lessons/nav2_slam_tuning.md
+  date_identified: '2026-07-29'
+  last_updated: '2026-07-29'
+  history:
+  - date: '2026-07-29'
+    change: Inserimento post-mortem da ECO
+    rpn_old: 160
+    rpn_new: 8
+- id: FM-LLM-002
+  subsystem: AI/LangGraph
+  component: llm_live_api
+  function: Elaborazione singolare dell'input vocale verso l'IA Cloud
+  failure_mode: Risposte multiple e sovrapposte ('doppia voce') ad una singola frase
+    dell'utente
+  potential_cause: Race condition tra stream audio Live API e trascrizione text-based
+    locale (Foxglove/WebUI)
+  potential_effect: Confusione conversazionale, interruzioni continue e spreco quota
+    API
+  classification: PERFORMANCE
+  estimation_basis: measured
+  related_ids: []
+  initial_scoring:
+    severity: 5
+    occurrence: 7
+    detection: 3
+    rpn: 105
+  prevention_controls: Filtro ASR duplicati in conversation.py con tolleranza < 3.5s
+    dall'ultimo input microfonico
+  detection_controls: Log su invio multiplo di context
+  residual_scoring:
+    severity: 5
+    occurrence: 1
+    detection: 2
+    rpn: 10
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Mantenere filtro temporale rigido su input misti audio/testo
+  verification_method: Test simultaneo testo/voce
+  eco_ref: docs/ecos/llm_live_ecos.md
+  lesson_ref: docs/lessons/llm_live_api.md
+  date_identified: '2026-07-29'
+  last_updated: '2026-07-29'
+  history:
+  - date: '2026-07-29'
+    change: Inserimento post-mortem da ECO
+    rpn_old: 105
+    rpn_new: 10
+- id: FM-NAV-005
+  subsystem: Nav2
+  component: semantic_costmap_injector / rtabmap
+  function: Costruzione affidabile della mappa di occupazione 2D/3D senza corruzione
+    da superfici trasparenti o ostacoli fuori dal FoV della telecamera
+  failure_mode: Corruzione permanente della mappa RTAB-Map ed inserimento di ostacoli
+    fantasma o mancato rilevamento di ostacoli trasparenti (vetri/specchi) e sotto/sopra
+    la Pitch della telecamera
+  potential_cause: Campo visivo limitato dell'OAK-D Lite (75° H / 50° V), cieco nella
+    parte inferiore (< 20cm dal suolo) e incapacità di stimare la profondità di superfici
+    trasparenti/riflettenti
+  potential_effect: Trappole di navigazione, pianificazione di percorsi su ostacoli
+    invisibili (collisione con piedi di tavoli/sedie) o blocco permanente del planner
+    locale per finti muri generati da riflessi
+  classification: SAFETY
+  estimation_basis: measured
+  related_ids:
+  - FM-NAV-001
+  initial_scoring:
+    severity: 8
+    occurrence: 8
+    detection: 6
+    rpn: 384
+  prevention_controls: Integrazione sensore LiDAR 2D 360° per scansione planare diretta
+    OPPURE Neural Depth Completion monoculare su NPU Hailo-10H con raycasting semantico
+    2.5D
+  detection_controls: Verifica della consistenza temporale della mappa e conteggio
+    celle modificate in tempo reale
+  residual_scoring:
+    severity: 8
+    occurrence: 2
+    detection: 2
+    rpn: 32
+  risk_level: LOW
+  mitigation_status: IN_PROGRESS
+  recommended_action: Valutare l'integrazione hardware di un LiDAR 2D 360° (es. RPLiDAR
+    C1 / STL-27L) o implementare una pipeline software di Neural Depth Completion
+    su NPU Hailo-10H
+  verification_method: Test di navigazione in ambiente con specchi, pareti in vetro
+    e sedia a sbalzo
+  eco_ref: docs/ecos/nav2_slam_ecos.md
+  lesson_ref: docs/lessons/nav2_slam_tuning.md#25d-costmap
+  date_identified: '2026-07-30'
+  last_updated: '2026-07-30'
+  history:
+  - date: '2026-07-30'
+    change: Audit approfondito del codebase e identificazione rischio corruzione mappa
+    rpn_old: 384
+    rpn_new: 32
+- id: FM-NAV-006
+  subsystem: Nav2
+  component: waveshare_motor_driver / oak_superpoint_odometry
+  function: Stima accurata della posa e del movimento reale del robot senza derive
+    da slittamento su superfici a basso attrito
+  failure_mode: Slittamento ruote (Wheel Slip) su piastrelle/tappeti con conseguente
+    deriva odometrica accumulata e disallineamento della posa globale
+  potential_cause: Variazione improvvisa del coefficiente di attrito del suolo (mu)
+    o brusca accelerazione comandata dal planner MPPI senza riscontro immediato di
+    trazione
+  potential_effect: Il robot ritiene di essere in una posa corretta ma si trova fisicamente
+    spostato di diversi centimetri/gradi, causando collisioni contro pareti o ostacoli
+    fissi
+  classification: SAFETY
+  estimation_basis: measured
+  related_ids:
+  - FM-ACT-001
+  - FM-ACT-004
+  initial_scoring:
+    severity: 9
+    occurrence: 7
+    detection: 5
+    rpn: 315
+  prevention_controls: Traction Control Closed-Loop basato su Gating a 3 vie con Distanza
+    di Mahalanobis (Encoder + VO + Accelerometro IMU 6-assi)
+  detection_controls: Diagnostica ROS 2 su scostamento relativo tra velocità angolare
+    ruote e accelerazione lineare IMU
+  residual_scoring:
+    severity: 9
+    occurrence: 2
+    detection: 2
+    rpn: 36
+  risk_level: REVISION_MANDATORY
+  mitigation_status: OPEN
+  recommended_action: Implementare un filtro di validazione cinematico a 3 vie (Mahalanobis
+    Distance Gating) in MotionManager per tagliare la coppia erogata in caso di slip
+  verification_method: Test di accelerazione su superficie lucida/piastrella bagnata
+  eco_ref: docs/ecos/actuation_ecos.md
+  lesson_ref: docs/lessons/actuation_motor_driver.md
+  date_identified: '2026-07-30'
+  last_updated: '2026-07-30'
+  history:
+  - date: '2026-07-30'
+    change: Audit approfondito codebase e rilevamento rischio wheel slip
+    rpn_old: 315
+    rpn_new: 36
+- id: FM-LLM-003
+  subsystem: AI/LangGraph
+  component: live_connection_manager
+  function: Mantenimento della sessione conversazionale fluida in streaming WebSocket
+    con Gemini Live API
+  failure_mode: Stallo conversazionale e congelamento dello stato VUI (robot bloccato
+    in 'THINKING' senza risposta)
+  potential_cause: Perdita di pacchetti Wi-Fi o jitter di rete durante lo streaming
+    dei chunk audio PCM, causando il drop del frame 'End-Of-Turn'
+  potential_effect: L'utente rimane in attesa indefinita di una risposta vocale, con
+    conseguente percezione di blocco del sistema
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-VUI-001
+  initial_scoring:
+    severity: 7
+    occurrence: 7
+    detection: 4
+    rpn: 196
+  prevention_controls: Circuit Breaker asincrono zero-downtime con fallback istantaneo
+    su LLM locale (Ollama / Qwen2-VL su Hailo-10H NPU) entro un timeout di 2.5s
+  detection_controls: Watchdog di latenza WebSocket con heartbeat a 500ms su /ai/live/status
+  residual_scoring:
+    severity: 7
+    occurrence: 2
+    detection: 2
+    rpn: 28
+  risk_level: LOW
+  mitigation_status: OPEN
+  recommended_action: Implementare l'architettura Circuit Breaker con commutazione
+    trasparente tra Cloud WebSocket e Local Edge NPU Inference
+  verification_method: Test di disconnessione Wi-Fi forzata durante la conversazione
+    vocale
+  eco_ref: docs/ecos/llm_live_ecos.md
+  lesson_ref: docs/lessons/llm_live_api.md
+  date_identified: '2026-07-30'
+  last_updated: '2026-07-30'
+  history:
+  - date: '2026-07-30'
+    change: Audit codebase per stallo conversazionale da pacchetti dropped
+    rpn_old: 196
+    rpn_new: 28
+- id: FM-VUI-004
+  subsystem: VUI Audio
+  component: respeaker_vui_node
+  function: Isolamento vocale avanzato per distinguere il parlato dell'utente dalla
+    riproduzione TTS del robot (Barge-In pulito)
+  failure_mode: Acoustic Echo Leakage ed auto-interruzione continua della sintesi
+    vocale del robot
+  potential_cause: L'audio emesso dagli altoparlanti del robot viene ri-catturato
+    dall'array ReSpeaker a causa di riflessioni acustiche ambientali (riverbero)
+  potential_effect: Il robot interpreta il proprio rientro audio come un'interruzione
+    dell'utente (barge-in), bloccando sistematicamente l'emissione del parlato
+  classification: PERFORMANCE
+  estimation_basis: measured
+  related_ids:
+  - FM-VUI-002
+  - FM-VUI-003
+  initial_scoring:
+    severity: 6
+    occurrence: 8
+    detection: 3
+    rpn: 144
+  prevention_controls: Adaptive Subtraction Loopback Filter in PyAudio che sottrae
+    il canale di riferimento speaker prima del nodo VAD + Attenuazione dinamica sensibilità
+  detection_controls: Monitoraggio della correlazione incrociata (Cross-Correlation)
+    tra audio in uscita ed audio in entrata
+  residual_scoring:
+    severity: 6
+    occurrence: 2
+    detection: 2
+    rpn: 24
+  risk_level: LOW
+  mitigation_status: OPEN
+  recommended_action: Implementare la sottrazione software in tempo reale del buffer
+    PCM riprodotto dal buffer di cattura microfonica
+  verification_method: Test di sintesi vocale a volume 100% in stanza ad elevato riverbero
+    acustico
+  eco_ref: docs/ecos/audio_vui_ecos.md
+  lesson_ref: docs/lessons/audio_vui_pipeline.md#peak-limiter
+  date_identified: '2026-07-30'
+  last_updated: '2026-07-30'
+  history:
+  - date: '2026-07-30'
+    change: Audit codebase per autointestazione da rientro acustico speaker
+    rpn_old: 144
+    rpn_new: 24
+- id: FM-ACT-005
+  subsystem: Hardware/Power
+  component: waveshare_motor_driver
+  function: Erogazione controllata di corrente ai motori senza provocare cali di tensione
+    dannosi sulla linea principale
+  failure_mode: Reset improvviso della scheda ESP32 (Brownout Microcontrollore) per
+    picco di assorbimento in accelerazione
+  potential_cause: Comandi di accelerazione lineare/angolare repentini dal planner
+    MPPI in presenza di batteria parzialmente scarica (< 10.5V)
+  potential_effect: Perdita immediata della comunicazione seriale /dev/ttyUSB0, arresto
+    imprevisto del robot e reset dello stato di attuazione
+  classification: HW_DAMAGE
+  estimation_basis: measured
+  related_ids:
+  - FM-ACT-001
+  initial_scoring:
+    severity: 9
+    occurrence: 6
+    detection: 3
+    rpn: 162
+  prevention_controls: Predictive Current-Slew-Rate Limiter cinematico che modula
+    il gradiente di accelerazione max (dv/dt) in funzione del livello di tensione
+    batteria letto via ADC
+  detection_controls: Lettura continua della tensione batteria dal feedback seriale
+    ESP32 e pubblicazione su /diagnostics
+  residual_scoring:
+    severity: 9
+    occurrence: 1
+    detection: 2
+    rpn: 18
+  risk_level: REVISION_MANDATORY
+  mitigation_status: OPEN
+  recommended_action: Integrare nel driver motori la limitazione dinamica della derivata
+    prima della velocità comandata
+  verification_method: Test di accelerazione da 0 a 0.25 m/s a tensione batteria di
+    10.2V
+  eco_ref: docs/ecos/actuation_ecos.md
+  lesson_ref: docs/lessons/actuation_motor_driver.md
+  date_identified: '2026-07-30'
+  last_updated: '2026-07-30'
+  history:
+  - date: '2026-07-30'
+    change: Audit codebase su transitori elettrici e brownout ESP32
+    rpn_old: 162
+    rpn_new: 18
+- id: FM-VUI-005
+  subsystem: VUI Audio
+  component: respeaker_vui_node
+  function: Cattura affidabile della voce utente (ASR) a diverse distanze e livelli
+    di rumore ambientale
+  failure_mode: Trascrizione ASR incomprensibile o allucinata ('Voce Distorta / Sorgente
+    Lontana')
+  potential_cause: Utente fuori dal raggio di efficienza ottimale del microfono (es.
+    > 3 metri) o settaggio statico del gain di cattura (ALSA/PipeWire) inadatto al
+    riverbero locale
+  potential_effect: Il LLM riceve un prompt sporco o fuori contesto e genera risposte
+    incoerenti, minando la fiducia dell'utente nelle capacità cognitive del robot
+  classification: PERFORMANCE
+  estimation_basis: theoretical
+  related_ids: []
+  initial_scoring:
+    severity: 6
+    occurrence: 8
+    detection: 3
+    rpn: 144
+  prevention_controls: Controllo del guadagno automatico statico a livello OS (insufficiente
+    in ambienti molto ampi)
+  detection_controls: Analisi offline dei log di trascrizione ASR
+  residual_scoring:
+    severity: 6
+    occurrence: 8
+    detection: 3
+    rpn: 144
+  risk_level: MEDIUM
+  mitigation_status: OPEN
+  recommended_action: 'MIGLIORIA: Implementare nodo AI Semantic Coherence Gating in
+    LangGraph (se il prompt è incoerente col contesto, il robot chiede di ripetere)
+    e Dynamic AGC (regolazione a caldo del volume di input)'
+  verification_method: 'Piano prova: Test vocale a passi di 1, 3, e 5 metri con rumore
+    bianco in background'
+  eco_ref: ''
+  lesson_ref: docs/lessons/telemetry_and_autotuning.md
+  date_identified: '2026-07-30'
+  last_updated: '2026-07-30'
+  history:
+  - date: '2026-07-30'
+    change: Inserimento per analisi preventiva setup VUI e tuning parametri
+    rpn_old: 144
+    rpn_new: 144
+- id: FM-VUI-006
+  subsystem: VUI Audio
+  component: respeaker_vui_node
+  function: Riproduzione vocale (TTS) chiara, naturale e priva di distorsioni meccaniche
+  failure_mode: Distorsione audio meccanica dell'altoparlante (Clipping fisico e saturazione)
+  potential_cause: Gain di riproduzione (Master Volume) impostato troppo alto o curva
+    di equalizzazione TTS errata per le frequenze risonanti del case del robot
+  potential_effect: Qualità della voce sgradevole, distorsione armonica (crackle)
+    e rischio di rottura prematura della membrana dello speaker nel lungo periodo
+  classification: HW_DAMAGE
+  estimation_basis: theoretical
+  related_ids:
+  - FM-VUI-004
+  initial_scoring:
+    severity: 8
+    occurrence: 6
+    detection: 5
+    rpn: 240
+  prevention_controls: Volume settato fisso in alsamixer (spesso bypassato da reset
+    software)
+  detection_controls: Percezione uditiva umana
+  residual_scoring:
+    severity: 8
+    occurrence: 6
+    detection: 5
+    rpn: 240
+  risk_level: HIGH
+  mitigation_status: OPEN
+  recommended_action: 'MIGLIORIA: Introdurre Software Dynamic Range Compression (DRC)
+    sulla pipeline di uscita e limitatore di picco. Registrare i log di picco RMS
+    per abbassare autonomamente il volume master in background se si superano le soglie.'
+  verification_method: 'Piano prova: Sweep di frequenze sinusoidali e generazione
+    TTS a volume 100% monitorando i picchi PCM'
+  eco_ref: ''
+  lesson_ref: docs/lessons/telemetry_and_autotuning.md
+  date_identified: '2026-07-30'
+  last_updated: '2026-07-30'
+  history:
+  - date: '2026-07-30'
+    change: Inserimento per analisi preventiva salvaguardia speaker
+    rpn_old: 240
+    rpn_new: 240
+- id: FM-NAV-007
+  subsystem: Nav2
+  component: rtabmap
+  function: Mantenimento del tracciamento SLAM e Feature Matching in ambienti eterogenei
+  failure_mode: Perdita del Tracking SLAM per mancanza di Inliers in ambienti non
+    strutturati (es. corridoi bianchi)
+  potential_cause: Parametri di setup RTAB-Map statici (es. Vis/MinInliers, Kp/MaxFeatures)
+    non adatti a transizioni tra stanze fortemente texturizzate e corridoi spogli
+  potential_effect: Disallineamento della mappa globale, RTAB-Map cessa di estrarre
+    feature e il robot si affida unicamente all'odometria ruote (che accumula drift)
+  classification: MISSION_CRITICAL
+  estimation_basis: theoretical
+  related_ids: []
+  initial_scoring:
+    severity: 7
+    occurrence: 7
+    detection: 4
+    rpn: 196
+  prevention_controls: Tuning medio manuale dei parametri YAML (inefficiente per ambienti
+    variabili)
+  detection_controls: Nessuna reazione software real-time. Visibile solo rviz via
+    TF discontinuità
+  residual_scoring:
+    severity: 7
+    occurrence: 7
+    detection: 4
+    rpn: 196
+  risk_level: MEDIUM
+  mitigation_status: OPEN
+  recommended_action: 'MIGLIORIA: Sviluppare un nodo di Auto-Tuning a caldo. Il nodo
+    ascolta /rtabmap/info e, se visual_inliers scende, esegue chiamate dinamiche a
+    SetParameters per abbassare Vis/MinInliers o alzare Kp/MaxFeatures sul momento.'
+  verification_method: 'Piano prova: Transizione salotto-corridoio e monitoraggio
+    grafici inliers via rqt'
+  eco_ref: ''
+  lesson_ref: docs/lessons/telemetry_and_autotuning.md
+  date_identified: '2026-07-30'
+  last_updated: '2026-07-30'
+  history:
+  - date: '2026-07-30'
+    change: Analisi difetti parametri hardcoded per tuning dinamico
+    rpn_old: 196
+    rpn_new: 196
+- id: FM-NAV-008
+  subsystem: Nav2
+  component: local_planner_mppi
+  function: Navigazione fluida e priva di collisioni microscopiche con ostacoli
+  failure_mode: Urti sistematici o micro-oscillazioni della traiettoria per incompatibilità
+    parametrica di lungo termine
+  potential_cause: I parametri globali di footprint, velocity max o costmap inflation
+    margin non sono ottimizzati per lo specifico coefficiente di frizione e ristrettezza
+    della casa dell'utente
+  potential_effect: Il robot riesce a navigare, ma con movimenti nervosi, frequenti
+    stop-and-go e strisciamenti lievi lungo i battiscopa, dando un'impressione di
+    scarsa intelligenza
+  classification: PERFORMANCE
+  estimation_basis: theoretical
+  related_ids: []
+  initial_scoring:
+    severity: 5
+    occurrence: 9
+    detection: 7
+    rpn: 315
+  prevention_controls: Configurazione YAML generica per il robot
+  detection_controls: Feedback visivo dell'utente, urti non gravi
+  residual_scoring:
+    severity: 5
+    occurrence: 9
+    detection: 7
+    rpn: 315
+  risk_level: HIGH
+  mitigation_status: OPEN
+  recommended_action: 'MIGLIORIA: Offline Background Optimization. Registrare le discrepanze
+    MPPI/Odom e /diagnostics su un Rosbag locale. Lanciare un job notturno in background
+    per eseguire Grid Search / Bayesian Optimization sui dati storici per sovrascrivere
+    automaticamente i parametri ideali.'
+  verification_method: 'Piano prova: Analisi statistica della variazione del Cost
+    Path prima e dopo la prima notte di ricarica'
+  eco_ref: ''
+  lesson_ref: docs/lessons/telemetry_and_autotuning.md
+  date_identified: '2026-07-30'
+  last_updated: '2026-07-30'
+  history:
+  - date: '2026-07-30'
+    change: Analisi ottimizzazione fine traiettorie via background learning
+    rpn_old: 315
+    rpn_new: 315
+- id: FM-SYS-004
+  subsystem: Hardware/Power
+  component: battery_management / OS
+  function: Alimentazione continua e spegnimento sicuro del sistema operativo (Graceful
+    Shutdown)
+  failure_mode: Corruzione del filesystem (SSD/SD) per spegnimento brutale dovuto
+    a 'Battery Cliff' (crollo improvviso di tensione)
+  potential_cause: 'La stima dello State of Charge (SoC) basata unicamente sulla tensione
+    (senza Coulomb Counting) inganna il sistema: la batteria raggiunge il ''cliff''
+    di scarica e il BMS taglia l''alimentazione hardware di netto'
+  potential_effect: Danni irreversibili ai database di RTAB-Map, corruzione del bootloader
+    del Raspberry Pi 5 e necessità di reinstallazione completa del sistema operativo
+  classification: HW_DAMAGE
+  estimation_basis: theoretical
+  related_ids:
+  - FM-ACT-005
+  initial_scoring:
+    severity: 9
+    occurrence: 5
+    detection: 7
+    rpn: 315
+  prevention_controls: Avvisi vocali di batteria scarica (affidati unicamente alla
+    lettura lineare della tensione, spesso inaffidabile sotto carico)
+  detection_controls: Nessun meccanismo OS di auto-protezione hardware
+  residual_scoring:
+    severity: 9
+    occurrence: 5
+    detection: 7
+    rpn: 315
+  risk_level: REVISION_MANDATORY
+  mitigation_status: OPEN
+  recommended_action: 'MIGLIORIA: Sviluppare un demone di OS-level Graceful Shutdown.
+    Se la tensione filtrata (Kalman 1D) scende sotto 9.8V per più di 15 secondi, il
+    demone forza un `systemctl isolate poweroff.target` prima dell''intervento brutale
+    del BMS hardware.'
+  verification_method: 'Piano prova: Scarica forzata della batteria fino al cut-off
+    e verifica del salvataggio file aperti'
+  eco_ref: ''
+  lesson_ref: docs/lessons/dev_and_deployment.md
+  date_identified: '2026-07-30'
+  last_updated: '2026-07-30'
+  history:
+  - date: '2026-07-30'
+    change: Analisi rischio corruzione OS da battery cliff
+    rpn_old: 315
+    rpn_new: 315
+- id: FM-SYS-005
+  subsystem: System/Compute
+  component: pi5_thermal_manager
+  function: Mantenimento dei rate di esecuzione real-time dei nodi critici (Nav2,
+    Audio)
+  failure_mode: Perdita scadenze real-time (Deadline Miss) e movimento a scatti causati
+    da Thermal Throttling della CPU
+  potential_cause: Carico computazionale simultaneo estremo (YOLOv8 + SLAM + TTS)
+    che porta la temperatura del SoC Pi 5 sopra gli 80°C, innescando il downclock
+    hardware forzato (da 2.4GHz a 1.5GHz)
+  potential_effect: Il local planner MPPI non riesce a calcolare le traiettorie a
+    20Hz, il robot si muove a scatti o va in stallo di sicurezza. L'audio TTS inizia
+    a balbettare
+  classification: PERFORMANCE
+  estimation_basis: theoretical
+  related_ids:
+  - FM-NAV-001
+  initial_scoring:
+    severity: 6
+    occurrence: 8
+    detection: 4
+    rpn: 192
+  prevention_controls: Dissipatore passivo/attivo hardware (spesso insufficiente d'estate
+    o in ambienti chiusi)
+  detection_controls: Monitoraggio temperatura OS, ma senza feedback ai nodi ROS 2
+  residual_scoring:
+    severity: 6
+    occurrence: 8
+    detection: 4
+    rpn: 192
+  risk_level: MEDIUM
+  mitigation_status: OPEN
+  recommended_action: 'MIGLIORIA: Thermal-Aware Task Orchestrator. Un demone monitora
+    `vcgencmd measure_temp`. Se T > 78°C, usa `SetParameters` per degradare dolcemente
+    le frequenze operative (es. abbassa rate SLAM da 5Hz a 2Hz, limita inferenza Hailo)
+    permettendo il raffreddamento senza crash.'
+  verification_method: 'Piano prova: Esecuzione di stress test `stress-ng` contemporaneo
+    alla navigazione Nav2'
+  eco_ref: ''
+  lesson_ref: docs/lessons/telemetry_and_autotuning.md
+  date_identified: '2026-07-30'
+  last_updated: '2026-07-30'
+  history:
+  - date: '2026-07-30'
+    change: Aggiunta rischio Thermal Throttling e degrado real-time
+    rpn_old: 192
+    rpn_new: 192
+- id: FM-VIS-003
+  subsystem: Vision/Hardware
+  component: oak_d_mount / tf_broadcaster
+  function: Proiezione spaziale accurata della nuvola di punti (PointCloud2) sulla
+    Costmap 2.5D
+  failure_mode: Falso rilevamento ostacoli (Muri Inesistenti) o mancata rilevazione
+    pavimento causati da Drift Meccanico (Sag) della telecamera
+  potential_cause: Vibrazioni prolungate causate dai motori che allentano il supporto
+    fisico della OAK-D Lite, alterando il suo angolo di Pitch (inclinazione) reale
+    rispetto a quello hardcoded nel file URDF/TF
+  potential_effect: Se la camera si inclina verso il basso (sag), il pavimento entra
+    nel FoV e viene scambiato per un ostacolo continuo davanti al robot (Stallo permanente).
+    Se si alza, il robot diventa cieco agli ostacoli bassi (Collisione)
+  classification: SAFETY
+  estimation_basis: theoretical
+  related_ids: []
+  initial_scoring:
+    severity: 8
+    occurrence: 6
+    detection: 7
+    rpn: 336
+  prevention_controls: Fissaggio hardware con frenafiletti (soggetto a usura)
+  detection_controls: Nessun controllo automatico, richiede ispezione manuale in RViz
+  residual_scoring:
+    severity: 8
+    occurrence: 6
+    detection: 7
+    rpn: 336
+  risk_level: HIGH
+  mitigation_status: OPEN
+  recommended_action: 'MIGLIORIA: Continuous Extrinsic Auto-Calibration. Un nodo diagnostico
+    analizza il piano dominante (il pavimento) dalla PointCloud. Se il vettore normale
+    devia sistematicamente da [0,0,1] nel frame `base_link`, aggiorna dinamicamente
+    il TF della camera per compensare il cedimento meccanico.'
+  verification_method: 'Piano prova: Modifica artificiale del TF Pitch in URDF e verifica
+    ricalibrazione autonoma del piano terra'
+  eco_ref: ''
+  lesson_ref: docs/lessons/telemetry_and_autotuning.md
+  date_identified: '2026-07-30'
+  last_updated: '2026-07-30'
+  history:
+  - date: '2026-07-30'
+    change: Analisi derive meccaniche e calibrazione estrinsica adattiva
+    rpn_old: 336
+    rpn_new: 336
+- id: FM-SYS-006
+  subsystem: System/DDS
+  component: fastdds_middleware
+  function: Comunicazione inter-processo (IPC) e su rete LAN affidabile a bassa latenza
+  failure_mode: Caduta dell'albero TF e latenza critica dei topic ROS 2 causata da
+    Multicast Discovery Storm
+  potential_cause: Configurazione DDS predefinita che inonda la rete Wi-Fi locale
+    di pacchetti UDP Multicast per la discovery dei nodi, specialmente in presenza
+    di dispositivi mobili o temporanee disconnessioni Wi-Fi del router
+  potential_effect: Saturazione della CPU del Pi 5 per processare il traffico di rete
+    inutile, perdita di messaggi critici (es. `/cmd_vel`), disconnessione di RViz/Foxglove
+    in remoto
+  classification: MISSION_CRITICAL
+  estimation_basis: theoretical
+  related_ids: []
+  initial_scoring:
+    severity: 8
+    occurrence: 6
+    detection: 4
+    rpn: 192
+  prevention_controls: Nessuna, affidamento al profilo FastDDS di default
+  detection_controls: Monitoraggio ping e uso CPU network stack
+  residual_scoring:
+    severity: 8
+    occurrence: 6
+    detection: 4
+    rpn: 192
+  risk_level: MEDIUM
+  mitigation_status: OPEN
+  recommended_action: 'MIGLIORIA: Creare un Profilo XML FastDDS specifico per Marcus.
+    Forzare il trasporto SHM (Shared Memory) puro per tutti i nodi interni al Pi 5
+    (localhost), disabilitando il Multicast in uscita e abilitando Unicast Discovery
+    limitato al solo IP del PC sviluppatore.'
+  verification_method: 'Piano prova: Analisi traffico Wireshark sull''interfaccia
+    wlan0 durante l''esecuzione dell''intero stack'
+  eco_ref: ''
+  lesson_ref: docs/lessons/dev_and_deployment.md
+  date_identified: '2026-07-30'
+  last_updated: '2026-07-30'
+  history:
+  - date: '2026-07-30'
+    change: Analisi middleware ROS 2 e ottimizzazione QoS / FastDDS
+    rpn_old: 192
+    rpn_new: 192
+- id: FM-NAV-009
+  subsystem: Nav2/Vision
+  component: semantic_costmap_injector / oak_d_lite
+  function: Rilevamento di ostacoli negativi (vuoti, precipizi) per garantire la sicurezza
+    fisica del robot
+  failure_mode: Caduta dalle scale o da dislivelli (Negative Obstacle Fall)
+  potential_cause: La telecamera 3D e il LiDAR 2D proiettano nuvole di punti in positivo.
+    Un precipizio (scale in discesa) genera un'assenza di punti che la Costmap 2.5D
+    interpreta erroneamente come 'spazio libero e navigabile'
+  potential_effect: Caduta fatale del robot, distruzione dell'hardware (chassis, telecamera,
+    Raspberry Pi) e potenziali danni a persone o cose sottostanti
+  classification: SAFETY
+  estimation_basis: theoretical
+  related_ids: []
+  initial_scoring:
+    severity: 10
+    occurrence: 7
+    detection: 8
+    rpn: 560
+  prevention_controls: Nessuna prevenzione nativa nei layer standard di Nav2 per ostacoli
+    negativi
+  detection_controls: Rilevamento IMU di caduta libera (troppo tardi per evitare il
+    danno)
+  residual_scoring:
+    severity: 10
+    occurrence: 7
+    detection: 8
+    rpn: 560
+  risk_level: REVISION_MANDATORY
+  mitigation_status: OPEN
+  recommended_action: 'MIGLIORIA (Software): ''Depth-Gradient Hole Raycasting'' ->
+    Analizzare la derivata spaziale della Depth Map (Z-drop). Se Z scende bruscamente
+    sotto il piano terra stimato, iniettare costi letali (Lethal Obstacles) nella
+    Costmap. MIGLIORIA (Hardware): Integrare 3 sensori Cliff IR (Infrarossi a corto
+    raggio) rivolti verso il basso sul paraurti anteriore, cablati all''ESP32 con
+    override hardware sui motori.'
+  verification_method: 'Piano prova: Test di navigazione verso un gradino con imbracatura
+    di sicurezza'
+  eco_ref: ''
+  lesson_ref: docs/lessons/nav2_slam_tuning.md
+  date_identified: '2026-07-30'
+  last_updated: '2026-07-30'
+  history:
+  - date: '2026-07-30'
+    change: Analisi vulnerabilità ad ostacoli negativi (scale)
+    rpn_old: 560
+    rpn_new: 560
+- id: FM-LLM-004
+  subsystem: AI/LangGraph
+  component: dynamic_skill_creator
+  function: Generazione ed esecuzione dinamica di codice Python (Skills) richiesto
+    dall'utente
+  failure_mode: Esecuzione di codice auto-generato (Skill) pericoloso, instabile o
+    fuori controllo (AI Code Hazard)
+  potential_cause: Il LLM genera una Skill sintatticamente corretta ma logicamente
+    distruttiva (es. loop infinito di pubblicazione velocità massima su /cmd_vel,
+    comandi di sistema OS `rm -rf`, allocazione di memoria esaurita)
+  potential_effect: Comportamento impazzito del robot (collisione a massima velocità),
+    cancellazione di file di sistema, o crash immediato dell'intero middleware ROS
+    2 per saturazione risorse
+  classification: MISSION_CRITICAL
+  estimation_basis: theoretical
+  related_ids: []
+  initial_scoring:
+    severity: 9
+    occurrence: 6
+    detection: 6
+    rpn: 324
+  prevention_controls: Prompt di sistema che istruisce l'LLM a scrivere codice sicuro
+    (debole, bypassabile da allucinazioni)
+  detection_controls: Nessun controllo a runtime durante l'esecuzione di eval/exec
+    in Python
+  residual_scoring:
+    severity: 9
+    occurrence: 6
+    detection: 6
+    rpn: 324
+  risk_level: REVISION_MANDATORY
+  mitigation_status: OPEN
+  recommended_action: 'MIGLIORIA: ''Pre-flight Kinematic Sandbox & Semantic Gating''.
+    Le skill generate non hanno accesso diretto ai publisher ROS 2. Vengono eseguite
+    prima in un contesto Python isolato (AST locale) contro un simulatore cinematico
+    fittizio. Se la skill richiede v > 0.4m/s o monopolizza la CPU per > 2s, il demone
+    la killa preventivamente e notifica l''utente.'
+  verification_method: 'Piano prova: Richiedere deliberatamente all''AI di generare
+    una skill che ruota all''infinito a velocità massima e verificare l''intervento
+    del Sandbox'
+  eco_ref: ''
+  lesson_ref: docs/lessons/llm_live_api.md
+  date_identified: '2026-07-30'
+  last_updated: '2026-07-30'
+  history:
+  - date: '2026-07-30'
+    change: Analisi rischio esecuzione codice dinamico non supervisionato
+    rpn_old: 324
+    rpn_new: 324
+- id: FM-ACT-006
+  subsystem: Hardware/Power
+  component: waveshare_motor_driver / IMU
+  function: Arresto sicuro in caso di perdita di contatto col suolo (Kidnapped Robot
+    Problem)
+  failure_mode: Il robot viene sollevato da terra (in volo) mentre è in movimento,
+    le ruote continuano a girare a vuoto alla massima velocità
+  potential_cause: Sollevamento manuale da parte dell'utente senza preventivo blocco
+    di sicurezza (E-Stop). Assenza di un meccanismo di rilevamento del peso o del
+    distacco dal suolo
+  potential_effect: Rischio di lesioni alle dita dell'utente per l'alta velocità delle
+    ruote a vuoto. Quando il robot viene rimesso a terra, il contatto brusco delle
+    ruote in rotazione causa salti meccanici, usura del riduttore e completa dislocazione
+    dell'odometria
+  classification: SAFETY
+  estimation_basis: theoretical
+  related_ids: []
+  initial_scoring:
+    severity: 8
+    occurrence: 7
+    detection: 5
+    rpn: 280
+  prevention_controls: Nessuna, il PID dei motori compensa la mancanza di attrito
+    accelerando al massimo (Windup)
+  detection_controls: Discrepanza tra odometria visiva (ferma) e ruote (in rotazione),
+    ma senza intervento hardware
+  residual_scoring:
+    severity: 8
+    occurrence: 7
+    detection: 5
+    rpn: 280
+  risk_level: HIGH
+  mitigation_status: OPEN
+  recommended_action: 'MIGLIORIA: ''Zero-G / Kidnap Cut-off''. L''ESP32 o il controller
+    analizza l''accelerazione asse Z dell''IMU e il mismatch VO/Encoder. Se rileva
+    Free-fall (accelerazione prossima allo zero) o ruote al massimo con telecamera
+    ferma, toglie istantaneamente corrente ai motori PWM (Cut-off) e manda ROS 2 in
+    stato HALT.'
+  verification_method: 'Piano prova: Sollevare fisicamente il robot durante la marcia
+    e misurare il tempo di reazione per l''arresto ruote (< 200ms)'
+  eco_ref: ''
+  lesson_ref: docs/lessons/actuation_motor_driver.md
+  date_identified: '2026-07-30'
+  last_updated: '2026-07-30'
+  history:
+  - date: '2026-07-30'
+    change: Aggiunta rischio sollevamento e ruote in volo
+    rpn_old: 280
+    rpn_new: 280
+- id: FM-ACT-007
+  subsystem: Hardware/Power
+  component: chassis / IMU
+  function: Mantenimento dell'equilibrio statico e dinamico per evitare danni strutturali
+  failure_mode: Ribaltamento fisico del robot (Tipped Over / Rollover)
+  potential_cause: Urti accidentali, pendenze laterali eccessive, superamento di cavi
+    spessi o frenate d'emergenza con baricentro alto. Le ruote spingono il robot inclinato
+    contro il pavimento
+  potential_effect: Danni hardware gravi (rottura OAK-D Lite, Raspberry Pi), stallo
+    termico dei motori che spingono contro un ostacolo inamovibile e possibile cortocircuito
+    della batteria
+  classification: HW_DAMAGE
+  estimation_basis: theoretical
+  related_ids: []
+  initial_scoring:
+    severity: 9
+    occurrence: 5
+    detection: 4
+    rpn: 180
+  prevention_controls: Design meccanico del baricentro (passivo)
+  detection_controls: Il driver continua a dare corrente finché non brucia
+  residual_scoring:
+    severity: 9
+    occurrence: 5
+    detection: 4
+    rpn: 180
+  risk_level: REVISION_MANDATORY
+  mitigation_status: OPEN
+  recommended_action: 'MIGLIORIA: ''Electronic Tilt-Switch Hardware Stop''. L''IMU
+    monitora costantemente Roll e Pitch. Se l''angolo di inclinazione supera i 45
+    gradi, viene attivato un E-Stop hardware inesorabile che stacca i motori (0 PWM)
+    per prevenire incendi e danni meccanici, emettendo un fischio di SOS dall''altoparlante.'
+  verification_method: 'Piano prova: Inclinare il robot manualmente su un fianco fino
+    a 50° e verificare il blocco PID e la caduta del PWM a 0'
+  eco_ref: ''
+  lesson_ref: docs/lessons/actuation_motor_driver.md
+  date_identified: '2026-07-30'
+  last_updated: '2026-07-30'
+  history:
+  - date: '2026-07-30'
+    change: Analisi vulnerabilità meccanica a ribaltamento laterale
+    rpn_old: 180
+    rpn_new: 180
+- id: FM-LLM-005
+  subsystem: AI/LangGraph
+  component: cloud_llm_gateway / hailo_qwen_fallback
+  function: Risposta vocale fluida e ininterrotta mediante integrazione con Gemini
+    Cloud API e fallback Edge locale
+  failure_mode: Mancata risposta vocale dell'AI al parlato dell'utente per errore
+    API Cloud (Quota 429, Auth 403, Billing/Abbonamento o Outage Google)
+  potential_cause: Esaurimento crediti abbonamento Gemini, superamento rate limit
+    (RPM/TPM), chiave API invalida o disservizio lato server Google Cloud
+  potential_effect: Il robot rimane completamente muto dopo che l'utente ha parlato,
+    o restituisce un errore generico, spezzando l'interazione naturale
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-LLM-003
+  - FM-VUI-001
+  initial_scoring:
+    severity: 8
+    occurrence: 6
+    detection: 4
+    rpn: 192
+  prevention_controls: Nessuna prevenzione sul server cloud esterno
+  detection_controls: Controllo status code HTTP/WebSocket nella libreria client Python
+  residual_scoring:
+    severity: 8
+    occurrence: 2
+    detection: 2
+    rpn: 32
+  risk_level: LOW
+  mitigation_status: OPEN
+  recommended_action: 'MIGLIORIA: ''Multi-Tier Cloud-to-Edge Fallback Chain''. Se
+    la chiamata a Gemini restituisce errore (429/403/5xx/timeout > 1.8s), il gateway
+    commuta trasparentemente entro 300ms sul LLM locale Qwen2-VL / Qwen2.5 (ottimizzato
+    ed eseguito sulla NPU Hailo-10H tramite Hailo RT). Il robot risponde in locale
+    senza interruzione e avvisa con tono discreto: ''Sto usando la mia NPU locale
+    perché il Cloud non è disponibile''.'
+  verification_method: 'Piano prova: Simulazione di HTTP 429 Rate Limit forzato nel
+    client Gemini e verifica del passaggio istantaneo a Qwen2 su Hailo-10H senza percepibili
+    pause del TTS'
+  eco_ref: docs/ecos/llm_live_ecos.md
+  lesson_ref: docs/lessons/llm_live_api.md
+  date_identified: '2026-07-30'
+  last_updated: '2026-07-30'
+  history:
+  - date: '2026-07-30'
+    change: Analisi fallimento abbonamento/API Gemini e integrazione fallback Qwen
+      su Hailo-10H
+    rpn_old: 192
+    rpn_new: 192
+- id: FM-COG-001
+  subsystem: AI/Cognitive
+  component: CriticEvaluatorNode / PredictiveRouterNode
+  function: Regolazione biomimetica dell'allineamento comportamentale tramite Reward
+    Prediction Error (RPE)
+  failure_mode: Saturazione Dopaminergica ed Entrapment Comportamentale (Ciclo Positivo
+    Continuo / Dipendenza)
+  potential_cause: Assenza di smorzamento temporale (decay) sul valore RPE accumulato
+    in CriticEvaluatorNode; un pattern di interazione viene sovra-ricompensato dal
+    modello
+  potential_effect: Il robot manifesta comportamenti ossessivi/ripetitivi (es. esegue
+    continuamente la stessa skill o risponde con lo stesso pattern stilistico), rifiutando
+    di variare la strategia anche quando il contesto utente cambia
+  classification: MISSION_CRITICAL
+  estimation_basis: theoretical
+  related_ids: []
+  initial_scoring:
+    severity: 7
+    occurrence: 7
+    detection: 6
+    rpn: 294
+  prevention_controls: Nessuna prevenzione nativa nel grafo; soglia fissa |RPE| >=
+    0.3 per la scrittura in ChromaDB
+  detection_controls: Nessun test dinamico o suite di validazione automatica implementata
+    a runtime
+  residual_scoring:
+    severity: 7
+    occurrence: 2
+    detection: 3
+    rpn: 42
+  risk_level: LOW
+  mitigation_status: OPEN
+  recommended_action: 'MIGLIORIA (Design FMEA): ''Homeostatic Dopamine Reuptake &
+    Efficacy Audit''. Implementare un fattore di decadimento esponenziale del livello
+    dopaminergico (Riassorbimento Sinaptico) e un modulo di Controllo di Efficacia
+    (Efficacy Monitor) che misura l''Entropia Comportamentale (diversità delle decisioni).
+    Se l''entropia scende sotto una soglia minima (fissazione), la baseline dopaminergica
+    viene forzatamente clampata a zero.'
+  verification_method: 'Piano prova: Test di stimolazione continua con feedback positivo
+    ripetuto per 50 cicli e verifica dell''intervento del clamping omcostatico'
+  eco_ref: docs/ecos/orchestration_rag_ecos.md
+  lesson_ref: docs/lessons/orchestration_and_rag.md
+  date_identified: '2026-07-30'
+  last_updated: '2026-07-30'
+  history:
+  - date: '2026-07-30'
+    change: Analisi rischio saturazione RPE e progettazione controllo di efficacia
+      omcostatico
+    rpn_old: 294
+    rpn_new: 294
+- id: FM-COG-002
+  subsystem: AI/Cognitive
+  component: PredictiveRouterNode / Amigdala Digitale
+  function: Inibizione sinaptica selettiva per evitare l'esecuzione di azioni ad alto
+    rischio o penalizzate
+  failure_mode: Inibizione Sinaptica Eccessiva e Paralisi Decisionale ('Anedonia /
+    Helplessness Learned')
+  potential_cause: Serie di RPE negativi accumulati a seguito di fallimenti temporanei
+    di rete o errori utente, memorizzati permanentemente in ChromaDB senza decadimento
+    del peso di punizione
+  potential_effect: Il robot rifiuta di eseguire comandi perfettamente legittimi o
+    blocca intere skill (es. navigazione o controllo domotico) per paura di punizione,
+    cadendo in uno stato di stallo conversazionale
+  classification: MISSION_CRITICAL
+  estimation_basis: theoretical
+  related_ids:
+  - FM-LLM-004
+  initial_scoring:
+    severity: 8
+    occurrence: 6
+    detection: 5
+    rpn: 240
+  prevention_controls: Intercettazione eccezioni skill con flag_tool_failure()
+  detection_controls: Log su file senza metriche di efficacia o alert automatici
+  residual_scoring:
+    severity: 8
+    occurrence: 2
+    detection: 3
+    rpn: 48
+  risk_level: LOW
+  mitigation_status: OPEN
+  recommended_action: 'MIGLIORIA (Design FMEA): ''Dynamic Epsilon-Exploration & Fear
+    Extinction''. Introdurre un tasso di esplorazione probabilistico (epsilon-greedy)
+    nel PredictiveRouterNode che forza il ri-test controllato di skill inibite dopo
+    un intervallo di cooling-off, accoppiato a un benchmark di estinzione dell''avversione.'
+  verification_method: 'Piano prova: Iniezione di 10 fallimenti consecutivi su una
+    skill e verifica del ripristino progressivo dell''esecutibilità dopo il periodo
+    di cooling-off'
+  eco_ref: docs/ecos/orchestration_rag_ecos.md
+  lesson_ref: docs/lessons/orchestration_and_rag.md
+  date_identified: '2026-07-30'
+  last_updated: '2026-07-30'
+  history:
+  - date: '2026-07-30'
+    change: Analisi rischio paralisi decisionale da avversione dopaminergica
+    rpn_old: 240
+    rpn_new: 240
+- id: FM-COG-003
+  subsystem: AI/Cognitive
+  component: chroma_synaptic_manager / RAG
+  function: Archiviazione e potatura delle memorie vettoriali guidata dall'indice
+    dopaminergico RPE
+  failure_mode: Inquinamento Vettoriale di ChromaDB da Errate Interpretazioni di RPE
+    (Sarcasmo / Falsi Positivi)
+  potential_cause: Fraintendimento del tono dell'utente (es. frase sarcastica 'bravissimo!'
+    valutata come RPE +1.0 anziché punizione/ironia) con conseguente salvataggio vettoriale
+    persistente
+  potential_effect: Alterazione permanente dell'Amigdala Digitale e del RAG con memorizzazione
+    di preferenze e comportamenti opposti al reale gradimento dell'utente
+  classification: PERFORMANCE
+  estimation_basis: theoretical
+  related_ids:
+  - FM-VUI-005
+  initial_scoring:
+    severity: 6
+    occurrence: 8
+    detection: 7
+    rpn: 336
+  prevention_controls: Validazione vettoriale embedding a 768 dimensioni
+  detection_controls: Nessun controllo semantico cross-modale sull'RPE generato
+  residual_scoring:
+    severity: 6
+    occurrence: 3
+    detection: 3
+    rpn: 54
+  risk_level: MEDIUM
+  mitigation_status: OPEN
+  recommended_action: 'MIGLIORIA (Design FMEA): ''Multi-Modal Sentiment Cross-Check
+    & Synaptic Pruning Audit''. L''RPE viene registrato come ''candidato'' e confermato
+    in memoria a lungo termine solo se validato da un secondo controllo sul sentiment
+    vocale (prosodia) o da conferma esplicita dell''utente nelle iterazioni successive.
+    Esecuzione di uno script notturno di Audit Efficacia Memoria per rilevare e potare
+    cluster ad alta entropia.'
+  verification_method: 'Piano prova: Simulazione di 20 frasi sarcastiche e verifica
+    del tasso di rigetto dei falsi RPE positivi'
+  eco_ref: docs/ecos/orchestration_rag_ecos.md
+  lesson_ref: docs/lessons/orchestration_and_rag.md
+  date_identified: '2026-07-30'
+  last_updated: '2026-07-30'
+  history:
+  - date: '2026-07-30'
+    change: Analisi inquinamento memoria vettoriale da RPE spuri e progettazione test
+      efficacia notturno
+    rpn_old: 336
+    rpn_new: 336
+- id: FM-SIM-001
+  subsystem: Simulation/Testing
+  component: shadow_memory_store / sandbox_evaluator
+  function: Isolamento stagno dell'ambiente di simulazione vettoriale rispetto alla
+    memoria di produzione
+  failure_mode: Inquinamento della Memoria di Produzione da Dati Sintetici (Shadow
+    Memory Leakage)
+  potential_cause: Condivisione involontaria della connessione al database ChromaDB
+    o mancato isolamento delle chiavi di namespace tra l'ambiente virtuale di test
+    e il live store
+  potential_effect: Marcus inizia a rievocare memorie fittizie o risposte sintetiche
+    generate durante la simulazione nelle interazioni reali con l'utente, allucinando
+    eventi o preferenze mai create
+  classification: MISSION_CRITICAL
+  estimation_basis: theoretical
+  related_ids:
+  - FM-COG-003
+  initial_scoring:
+    severity: 8
+    occurrence: 6
+    detection: 7
+    rpn: 336
+  prevention_controls: Nessuna prevenzione nativa se si usa la stessa istanza ChromaDB
+    senza containerizzazione
+  detection_controls: Ispezione manuale delle tabelle di metadati
+  residual_scoring:
+    severity: 8
+    occurrence: 2
+    detection: 2
+    rpn: 32
+  risk_level: LOW
+  mitigation_status: OPEN
+  recommended_action: 'MIGLIORIA (Design FMEA): ''Immutable Copy-on-Write Shadow Sandbox''.
+    L''ambiente virtuale lavora su un''istanza SQLite/ChromaDB effimera in-memory
+    (RAM) o su una cartella isolata `ChromaDB_Shadow_Sandbox`. La produzione viene
+    montata in sola lettura (Read-Only) ed ogni iniezione di prova muore al termine
+    del test senza mai persistere sul DB live.'
+  verification_method: 'Piano prova: Iniezione di 100 memorie sintetiche in sandbox
+    e verifica della totale assenza di esse nel DB di produzione dopo il reboot'
+  eco_ref: docs/ecos/orchestration_rag_ecos.md
+  lesson_ref: docs/lessons/orchestration_and_rag.md
+  date_identified: '2026-07-30'
+  last_updated: '2026-07-30'
+  history:
+  - date: '2026-07-30'
+    change: Analisi rischio inquinamento memoria reale da ambiente di simulazione
+    rpn_old: 336
+    rpn_new: 336
+- id: FM-SIM-002
+  subsystem: Simulation/Testing
+  component: synthetic_scenario_generator
+  function: Simulazione accurata di contesti complessi e rumore reale per validare
+    la robustezza di RAG e LLM
+  failure_mode: Divergenza tra Simulazione e Realtà ('Sim-to-Real Cognitive Gap')
+  potential_cause: I prompt sintetici e le frasi iniettate nel test virtuale sono
+    troppo puliti, perfetti e privi del rumore tipico dell'ambiente reale (es. errori
+    ASR, interruzioni vocali, frasi monche, latenza di rete)
+  potential_effect: Il RAG e il motore di ragionamento superano al 100% i test nel
+    sandbox virtuale, ma falliscono catastroficamente in casa dell'utente reale appena
+    la voce viene leggermente distorta
+  classification: PERFORMANCE
+  estimation_basis: theoretical
+  related_ids:
+  - FM-VUI-005
+  - FM-LLM-003
+  initial_scoring:
+    severity: 7
+    occurrence: 7
+    detection: 6
+    rpn: 294
+  prevention_controls: Generazione di prompt tramite LLM sintetico
+  detection_controls: Metriche di test accuratezza su testo sintetico ideale
+  residual_scoring:
+    severity: 7
+    occurrence: 3
+    detection: 3
+    rpn: 63
+  risk_level: MEDIUM
+  mitigation_status: OPEN
+  recommended_action: 'MIGLIORIA (Design FMEA): ''Adversarial Noise & Multi-Turn Stress
+    Injector''. La suite di simulazione applica trasformazioni avversarie ai prompt
+    prima dell''iniezione: aggiunta automatica di errori ASR (Phonetic Swap), simulazione
+    di perdita pacchetti di rete, iniezione di frasi contraddittorie e test di ragionamento
+    a 10 turni complessi.'
+  verification_method: 'Piano prova: Esecuzione di 50 scenari avversari con rumore
+    fonetico e confronto dell''indice di accuratezza RAG rispetto a prompt ideali'
+  eco_ref: docs/ecos/orchestration_rag_ecos.md
+  lesson_ref: docs/lessons/orchestration_and_rag.md
+  date_identified: '2026-07-30'
+  last_updated: '2026-07-30'
+  history:
+  - date: '2026-07-30'
+    change: Analisi divario Sim-to-Real nel ragionamento RAG e iniezione rumore avversario
+    rpn_old: 294
+    rpn_new: 294
+- id: FM-COG-004
+  subsystem: AI/Cognitive
+  component: rag_context_builder / llm_reasoner
+  function: Ragionamento su contesti complessi e multi-dominio mediante recupero vettoriale
+    mirato
+  failure_mode: Saturazione del Contesto e Allucinazione per Conflitto Vettoriale
+    in Contesti Complessi
+  potential_cause: In presenza di molte memorie correlate recuperate dal RAG (es.
+    preferenze utente discordanti o istruzioni sovrapposte), l'LLM non riesce a risolvere
+    le contraddizioni e genera azioni/risposte incoerenti
+  potential_effect: Il robot esegue azioni in aperto contrasto con i desideri dell'utente
+    o cade in loop di ragionamento indefiniti per esaurimento del budget di token
+    nel prompt
+  classification: MISSION_CRITICAL
+  estimation_basis: theoretical
+  related_ids:
+  - FM-LLM-004
+  initial_scoring:
+    severity: 8
+    occurrence: 6
+    detection: 6
+    rpn: 288
+  prevention_controls: Recupero top-k vettoriale semplice basato su distanza coseno
+  detection_controls: Nessun controllo prima dell'invio al prompt LLM
+  residual_scoring:
+    severity: 8
+    occurrence: 2
+    detection: 3
+    rpn: 48
+  risk_level: LOW
+  mitigation_status: OPEN
+  recommended_action: 'MIGLIORIA (Design FMEA): ''Cross-Encoder Reranking & Constraint
+    Conflict Resolver''. Integrare un layer di Reranking (es. Cross-Encoder locale
+    o Cohere Rerank su Hailo) che ordina i documenti vettoriali per rilevanza semantica
+    rispetto al prompt istantaneo ed elide i vettori contraddittori prima di formattare
+    il contesto finale.'
+  verification_method: 'Piano prova: Iniezione nel sandbox di 30 memorie fortemente
+    contraddittorie e verifica della risoluzione pulita da parte del Reranker'
+  eco_ref: docs/ecos/orchestration_rag_ecos.md
+  lesson_ref: docs/lessons/orchestration_and_rag.md
+  date_identified: '2026-07-30'
+  last_updated: '2026-07-30'
+  history:
+  - date: '2026-07-30'
+    change: Analisi conflitto vettoriale su contesti complessi e introduzione Reranker
+      su NPU
+    rpn_old: 288
+    rpn_new: 288
+- id: FM-COG-002
+  subsystem: AI/Cognitive
+  component: conversation_manager / llm_service
+  function: Conservazione dell'identità del robot (acronimo MARCUS) e recupero semantico
+    RAG attivo
+  failure_mode: Perdita dell'acronimo di identità e mancata ricerca RAG in conversazione
+  potential_cause: System prompt sprovvisto della definizione dell'acronimo MARCUS
+    e assenza di query semantica RAG prima della generazione del prompt
+  potential_effect: Inserimento di risposte errate/allucinate sulla propria identità
+    e incapacità di ricordare fatti forniti dall'utente nei turni precedenti
+  classification: PERFORMANCE
+  estimation_basis: measured
+  related_ids: []
+  initial_scoring:
+    severity: 7
+    occurrence: 8
+    detection: 6
+    rpn: 336
+  prevention_controls: Inclusione dell'acronimo MARCUS nel system prompt residente
+    e query semantica RAG attiva in ConversationManager
+  detection_controls: Unit test test_rag_acronym_memory.py e verifica delle risposte
+    sull'identità
+  residual_scoring:
+    severity: 7
+    occurrence: 1
+    detection: 1
+    rpn: 7
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Integrare il system prompt esteso e la ricerca semantica RAG
+    asincrona con protezione dei fatti appresi
+  verification_method: Esecuzione di test/unit/test_rag_acronym_memory.py
+  eco_ref: docs/ecos/orchestration_rag_ecos.md#ECO-2026-07-30-002
+  lesson_ref: docs/lessons/orchestration_and_rag.md#identita-dellacronimo-e-ricerca-semantica-rag-attiva
+  date_identified: '2026-07-30'
+  last_updated: '2026-07-30'
+  history:
+  - date: '2026-07-30'
+    change: Risolto malfunzionamento identità acronimo ed integrata query RAG attiva
+      in conversation.py
+    rpn_old: 336
+    rpn_new: 7

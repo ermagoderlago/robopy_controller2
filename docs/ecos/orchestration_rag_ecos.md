@@ -52,3 +52,14 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
   * Modificato `servo_coda_node.py` per accogliere le variazioni di scodinzolio in base a `/ai/conversation/mood`.
   * Registrati gli entry points in `setup.py` per consentire il lancio dei nodi via ROS 2.
 
+---
+
+## 📈 ECO-2026-07-30-002: MARCUS Acronym Identity & RAG Retrieval Activation (Sprint 6)
+* **Stato:** ✅ **Completato, Sincronizzato e Collaudato**
+* **Descrizione:** Correzione dell'identità del robot con registrazione esplicita dell'acronimo MARCUS (Modular Autonomous Robotic Control Unit System) nel system prompt e attivazione del recupero semantico RAG attivo durante le interlocuzioni con l'utente.
+* **Modifiche apportate:**
+  * Modificato `llm_service.py`: aggiornato il prompt di sistema di default per includere *"MARCUS — Modular Autonomous Robotic Control Unit System"*.
+  * Modificato `conversation.py`: integrata la query semantica asincrona `memory_store.search(clean_text, top_k=3)` in `_process_locked` ed iniezione delle memorie rilevanti nella sezione `[MEMORIE EPISODICHE E FATTI APPRESI (RAG)]` del prompt.
+  * Modificato `memory_manager.py`: impostati `importance=1.0`, `synaptic_strength=100.0` e `amygdala_protected="true"` sui ricordi di tipo `LEARNED_FACT` per prevenire la potatura sinaptica notturna.
+  * Creato `test/unit/test_rag_acronym_memory.py`: unit test per la verifica dell'acronimo e dell'iniezione RAG.
+

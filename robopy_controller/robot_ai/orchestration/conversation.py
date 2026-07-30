@@ -272,7 +272,20 @@ class ConversationManager:
             }
         })
 
-        augmented_prompt = self._build_prompt(clean_text, ha_context, repeated_prompt_note)
+        # Active RAG Semantic Memory Retrieval
+        rag_memories = []
+        try:
+            if self.config.get_config().rag.enabled and hasattr(self.memory_manager, 'memory_store') and self.memory_manager.memory_store:
+                search_results = await self.memory_manager.memory_store.search(clean_text, top_k=3)
+                for res in search_results:
+                    if hasattr(res, 'score') and res.score >= 0.40:
+                        rag_memories.append(res.memory.content)
+                if rag_memories:
+                    self._logger.info(f"🧠 [RAG Retrieval] Recuperate {len(rag_memories)} memorie rilevanti per: '{clean_text}'")
+        except Exception as e:
+            self._logger.warning(f"Errore durante il recupero RAG in conversazione: {e}")
+
+        augmented_prompt = self._build_prompt(clean_text, ha_context, repeated_prompt_note, rag_memories)
 
         # Timeout dall'oggetto config.llm.timeout (di base accesskey)
         llm_timeout = 20.0
@@ -426,7 +439,9 @@ class ConversationManager:
                  self.response_callback(response_text)
 
         if response_text and self.config.get_config().rag.enabled:
-            await self.memory_manager.store_background(clean_text, response_text, "conversation")
+            is_factual = bool(re.search(r'\b(significa|acronimo|definizione|ricordati|mi chiamo|chiamami|impara|nota)\b', clean_text, re.IGNORECASE))
+            mem_type = "learned_fact" if is_factual else "conversation"
+            await self.memory_manager.store_background(clean_text, response_text, mem_type)
 
         return True
 
@@ -459,7 +474,7 @@ class ConversationManager:
         except Exception as e:
             return f"Errore durante l'analisi visiva: {e}"
 
-    def _build_prompt(self, user_text: str, ha_context: str, repeated_note: str = "") -> str:
+    def _build_prompt(self, user_text: str, ha_context: str, repeated_note: str = "", rag_memories: list = None) -> str:
         from zoneinfo import ZoneInfo
         now = datetime.datetime.now(ZoneInfo("Europe/Rome")).strftime("%A %d %B %Y, ore %H:%M")
         prompt = f"[DATA LOCALE: {now} (fuso orario: Europe/Rome)]\n"
@@ -467,6 +482,11 @@ class ConversationManager:
             prompt += f"{repeated_note}\n"
         if ha_context:
             prompt += f"{ha_context}\n"
+
+        if rag_memories:
+            prompt += "\n[MEMORIE EPISODICHE E FATTI APPRESI (RAG)]\n"
+            for mem in rag_memories:
+                prompt += f"- {mem}\n"
             
         # Inietta le notifiche email recenti in modo che l'LLM possa farvi riferimento
         email_skill = self.skill_executor.registry.get("check_emails")
