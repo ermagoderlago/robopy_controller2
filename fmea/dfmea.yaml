@@ -1134,22 +1134,27 @@
   detection_controls: Feedback visivo dell'utente, urti non gravi
   residual_scoring:
     severity: 5
-    occurrence: 9
-    detection: 7
-    rpn: 315
-  risk_level: HIGH
-  mitigation_status: OPEN
+    occurrence: 3
+    detection: 2
+    rpn: 30
+  risk_level: LOW
+  mitigation_status: COMPLETED
   recommended_action: 'MIGLIORIA: Offline Background Optimization. Registrare le discrepanze
     MPPI/Odom e /diagnostics su un Rosbag locale. Lanciare un job notturno in background
     per eseguire Grid Search / Bayesian Optimization sui dati storici per sovrascrivere
     automaticamente i parametri ideali.'
   verification_method: 'Piano prova: Analisi statistica della variazione del Cost
     Path prima e dopo la prima notte di ricarica'
-  eco_ref: ''
+  eco_ref: ECO-NAV-008
   lesson_ref: docs/lessons/telemetry_and_autotuning.md
   date_identified: '2026-07-30'
   last_updated: '2026-07-30'
   history:
+  - date: '2026-07-30'
+    change: Implementazione mppi_telemetry_logger e mppi_offline_autotuner per tuning
+      offline parametri MPPI
+    rpn_old: 315
+    rpn_new: 30
   - date: '2026-07-30'
     change: Analisi ottimizzazione fine traiettorie via background learning
     rpn_old: 315
@@ -1269,22 +1274,23 @@
     detection: 7
     rpn: 336
   prevention_controls: Fissaggio hardware con frenafiletti (soggetto a usura)
-  detection_controls: Nessun controllo automatico, richiede ispezione manuale in RViz
+  detection_controls: 'Nodo extrinsic_camera_calibrator: RANSAC Ground Plane Normal
+    Fitting con diagnostica automatica ROS 2 su /diagnostics'
   residual_scoring:
     severity: 8
     occurrence: 6
-    detection: 7
-    rpn: 336
-  risk_level: HIGH
-  mitigation_status: OPEN
+    detection: 2
+    rpn: 96
+  risk_level: MEDIUM
+  mitigation_status: COMPLETED
   recommended_action: 'MIGLIORIA: Continuous Extrinsic Auto-Calibration. Un nodo diagnostico
     analizza il piano dominante (il pavimento) dalla PointCloud. Se il vettore normale
     devia sistematicamente da [0,0,1] nel frame `base_link`, aggiorna dinamicamente
     il TF della camera per compensare il cedimento meccanico.'
   verification_method: 'Piano prova: Modifica artificiale del TF Pitch in URDF e verifica
     ricalibrazione autonoma del piano terra'
-  eco_ref: ''
-  lesson_ref: docs/lessons/telemetry_and_autotuning.md
+  eco_ref: docs/ecos/vision_hailo_ecos.md
+  lesson_ref: docs/lessons/vision_hailo_npu.md
   date_identified: '2026-07-30'
   last_updated: '2026-07-30'
   history:
@@ -1292,6 +1298,11 @@
     change: Analisi derive meccaniche e calibrazione estrinsica adattiva
     rpn_old: 336
     rpn_new: 336
+  - date: '2026-07-30'
+    change: Implementazione Continuous Extrinsic Auto-Calibration e Proactive Self-Healing
+      (IMP-VIS-003)
+    rpn_old: 336
+    rpn_new: 96
 - id: FM-SYS-006
   subsystem: System/DDS
   component: fastdds_middleware
@@ -1362,19 +1373,19 @@
   residual_scoring:
     severity: 10
     occurrence: 7
-    detection: 8
-    rpn: 560
+    detection: 3
+    rpn: 210
   risk_level: REVISION_MANDATORY
-  mitigation_status: OPEN
-  recommended_action: 'MIGLIORIA (Software): ''Depth-Gradient Hole Raycasting'' ->
-    Analizzare la derivata spaziale della Depth Map (Z-drop). Se Z scende bruscamente
+  mitigation_status: IN_PROGRESS
+  recommended_action: 'MIGLIORIA (Software IMPLEMENTATA): ''Depth-Gradient Hole Raycasting''
+    -> Analizzata la derivata spaziale della Depth Map (Z-drop). Se Z scende bruscamente
     sotto il piano terra stimato, iniettare costi letali (Lethal Obstacles) nella
     Costmap. MIGLIORIA (Hardware): Integrare 3 sensori Cliff IR (Infrarossi a corto
     raggio) rivolti verso il basso sul paraurti anteriore, cablati all''ESP32 con
     override hardware sui motori.'
   verification_method: 'Piano prova: Test di navigazione verso un gradino con imbracatura
-    di sicurezza'
-  eco_ref: ''
+    di sicurezza e test unitario test_negative_obstacle_injector.py'
+  eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-07-30-004
   lesson_ref: docs/lessons/nav2_slam_tuning.md
   date_identified: '2026-07-30'
   last_updated: '2026-07-30'
@@ -1383,6 +1394,10 @@
     change: Analisi vulnerabilità ad ostacoli negativi (scale)
     rpn_old: 560
     rpn_new: 560
+  - date: '2026-07-30'
+    change: Implementata mitigazione software Depth-Gradient Hole Raycasting in semantic_costmap_injector.py
+    rpn_old: 560
+    rpn_new: 210
 - id: FM-LLM-004
   subsystem: AI/LangGraph
   component: dynamic_skill_creator

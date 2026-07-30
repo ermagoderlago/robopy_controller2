@@ -112,3 +112,15 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
     - Abilitato `obstacle_layer` nella lista dei plugins di `global_costmap`.
   * **`launch/hailo_vision_launch.py`**:
     - Creato launch file unificato per avviare in modo pulito ed integrato tutti e tre i nodi del comparto AI.
+
+---
+
+## 📈 ECO-2026-07-30-001: Continuous Extrinsic Auto-Calibration & Proactive Sag Compensation (FM-VIS-003)
+* **Stato:** ✅ **Completato, Sincronizzato e Testato**
+* **Descrizione:** Risoluzione del Failure Mode `FM-VIS-003` mediante la creazione del nodo di diagnosi ed auto-calibrazione dinamica dell'inclinazione della fotocamera OAK-D Lite per compensare il cedimento meccanico da vibrazioni (pitch sag).
+* **Modifiche apportate:**
+  * Creato `extrinsic_camera_calibrator.py`: Esegue regressione RANSAC del piano terra dalla matrice di profondità, calcola l'angolo di pitch sag e pubblica lo stato su `/diagnostics` e `/robot/health_status` (Consapevolezza).
+  * Modificato `dynamic_camera_tf_node.py`: Aggiunta la sottoscrizione a `/camera/extrinsic_pitch_correction` per applicare dynamic pitch compensation a caldo sul TF `base_link` $\rightarrow$ `camera_link_stabilized` (Self-Healing).
+  * Modificato `semantic_costmap_injector.py`: Aggiunta la sottoscrizione a `/semantic_costmap/clear` per eseguire il flush istantaneo degli ostacoli spuri nella costmap al momento della ricalibrazione.
+  * Creato il progetto di miglioramento isolato `docs/improvements/IMP-VIS-003_extrinsic_camera_calibration.md` ed aggiornato il database DFMEA (`fmea/dfmea.yaml`, RPN ridotto da 336 a 96).
+

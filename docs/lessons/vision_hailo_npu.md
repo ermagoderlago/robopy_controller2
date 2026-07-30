@@ -195,4 +195,16 @@ Questo documento descrive le lezioni apprese su OAK-D Lite, l'acceleratore NPU H
 * **Problema:** `/hailo/annotated_image/compressed` risultava vuoto (0 Hz) se il driver OAK-D pubblicava su `/oak/rgb/image_raw` o `/camera/rgb/image_raw` anziché sul topic cablato `/rgb/image`.
 * **Risoluzione:** Aggiunti i parametri ROS 2 `rgb_topic` (default `/rgb/image`) e `depth_topic` (default `/camera/depth/image_raw`) a `hailo_bridge_node.py` per consentire la riconfigurazione dinamica tramite launch file o `--ros-args -p rgb_topic:=/oak/rgb/image_raw`.
 
+---
+
+## 📐 Autocalibrazione Estrinsica Continua e Self-Healing Camera Sag (FM-VIS-003)
+
+### Drift Meccanico e Muri Inesistenti (Ghost Obstacles)
+* **Problema:** Le vibrazioni continue prodotte dai motori allentano progressivamente la staffa fisica di supporto della fotocamera OAK-D Lite, variandone il pitch (inclinazione) reale rispetto a quello configurato nell'URDF statico. Se la camera cede verso il basso (+pitch sag), la superficie del pavimento entra nel FOV e viene scambiata dal costmap injector per un ostacolo continuo (muro inesistente), causando lo stallo permanente del robot.
+* **Soluzione Diagnostica & Consapevolezza:** Implementato il nodo `extrinsic_camera_calibrator.py`. Analizza la regione inferiore della Depth Map tramite fit RANSAC del piano del terreno $Ax + By + Cz + D = 0$. Calcola la normale $\vec{n}$ in `base_link` e deriva la deviazione di pitch $\Delta \theta_{pitch} = \arcsin(n_x)$. Pubblica lo stato su `/diagnostics` (Hardware ID: `OAK-D-Lite`) e `/robot/health_status`.
+* **Soluzione Proattiva (Self-Healing a Caldo):**
+  1. Il nodo calcola l'angolo correttivo e lo trasmette su `/camera/extrinsic_pitch_correction` a `dynamic_camera_tf_node.py`, che aggiorna a caldo il transform `base_link` $\rightarrow$ `camera_link_stabilized`.
+  2. Invia un segnale di flush su `/semantic_costmap/clear` a `semantic_costmap_injector.py`, rimuovendo all'istante i ghost obstacles dalla costmap 2.5D.
+
+
 

@@ -9,6 +9,7 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
 ### Divieto di STVL e Proiezione 2.5D
 * **Regola:** Non implementare la mappatura volumetrica continua 3D (STVL) su Raspberry Pi 5. La CPU ed il bus di memoria non sono in grado di sostenerne il calcolo.
 * **Soluzione:** Proiettare gli ostacoli 3D estratti dalla visione artificiale in ostacoli costmap 2D localizzati (2.5D). Il nodo `semantic_costmap_injector.py` converte i bounding box tridimensionali in coordinate 2D e li inietta nel costmap Nav2 con un decadimento temporale associato.
+* **Rilevamento Ostacoli Negativi (Scale / Dislivelli - FM-NAV-009):** Il nodo `semantic_costmap_injector.py` sottoscrive `/camera/depth/image_raw` ed esegue il *Depth-Gradient Hole Raycasting* lungo i campioni verticali dell'immagine. Quando rileva un dislivello $\Delta Z > 15\text{ cm}$ sotto il piano del terreno ($Z_{base} = 0.0\text{m}$), inietta ostacoli letali sul topic `/hailo_semantic_obstacles_pc` per forzare Nav2 ad evitare il bordo del precipizio.
 
 ### Allineamento dei Frame ID e `/scan`
 * **Errore:** RTAB-Map fallisce l'aggiornamento con il messaggio `Could not convert laser scan msg! Aborting rtabmap update...`.
@@ -130,6 +131,14 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
 ### System Health Supervisor (`robot_health_supervisor.py`)
 * **Stati:** GREEN (normal), YELLOW (velocità max -50%), RED (arresto immediato).
 * **Hard Arbitration Priority 0:** Pubblica pacchetti di frenata attiva su `/cmd_vel_mux/input/safety_override`, prevaricando Nav2 e teleoperazione sul nodo `twist_mux`.
+
+---
+
+## 📈 MPPI Trajectory Telemetry & Offline Background Optimization (FM-NAV-008)
+
+### Architettura Telemetria & Autotuning (`mppi_telemetry_logger.py` & `mppi_offline_autotuner.py`)
+* **Telemetry Logger:** Registra a 1 Hz lo scostamento trasversale (Cross-Track Error $e_{ct}$), l'oscillazione angolare (Angular Jitter $J_\omega$) ed i cambi di ritmo stop-and-go in `~/.marcus/telemetry/mppi_nav_telemetry.jsonl` con impatto CPU <1% su RPi5.
+* **Offline Autotuner:** Job notturno / idle che calcola la funzione di costo $J = 15 J_\omega + 25 \bar{e}_{ct} + 2 N_{stop}$ per ottimizzare euristica `inflation_radius`, `cost_scaling_factor` e i pesi MPPI (`PathAlign`, `Obstacle`) aggiornando automaticamente `nav2_params.yaml`.
 
 
 

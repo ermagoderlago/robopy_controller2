@@ -32,22 +32,19 @@ class DynamicCameraTF(Node):
         self.filtered_pitch = 0.0
         self.filtered_roll = 0.0
         self.calibrated = False
+        self.extrinsic_pitch_correction = 0.0
 
-        # subscribe to calibration flag and IMU
+        # subscribe to calibration flag, IMU, and extrinsic pitch auto-calibration
         self.create_subscription(Imu, '/imu/data', self.imu_cb, 50)
-        self.create_subscription(
-            # calibration flag
-            type(self).get_parameter_descriptor,  # dummy to avoid lint; we use topic below
-            '/imu/calibrated',
-            lambda msg: self._on_calib(msg),
-            1
-        )
-
-        # better: create a real subscription to /imu/calibrated bool
-        from std_msgs.msg import Bool
+        from std_msgs.msg import Bool, Float32
         self.create_subscription(Bool, '/imu/calibrated', lambda m: self._on_calib(m), 1)
+        self.create_subscription(Float32, '/camera/extrinsic_pitch_correction', self._on_extrinsic_corr, 10)
 
         self.get_logger().info("dynamic_camera_tf node started")
+
+    def _on_extrinsic_corr(self, msg: Float32):
+        self.extrinsic_pitch_correction = float(msg.data)
+        self.get_logger().info(f"Updated dynamic camera pitch correction: {math.degrees(self.extrinsic_pitch_correction):+.2f} deg")
 
     def _on_calib(self, msg):
         # calibration completed
@@ -85,9 +82,9 @@ class DynamicCameraTF(Node):
         self.filtered_pitch = self.filtered_pitch*(1.0-self.alpha) + pitch*self.alpha
         self.filtered_roll = self.filtered_roll*(1.0-self.alpha) + roll*self.alpha
 
-        # compensation - invert sign if needed
+        # compensation - invert sign if needed + extrinsic sag correction
         compensation = -self.filtered_pitch * self.compensation_factor
-        total_pitch = self.camera_offset + compensation
+        total_pitch = self.camera_offset + self.extrinsic_pitch_correction + compensation
 
         self._publish_tf(total_pitch)
 

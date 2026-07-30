@@ -8,6 +8,12 @@ improvements:
     status: "PLANNED"
     domain: "nav2_slam"
 
+  FM-NAV-008:
+    title: "Miglioramento Navigazione: Telemetria e Optimization Offline dei Parametri MPPI Controller"
+    file: "docs/improvements/IMP-NAV-008_mppi_autotuning.md"
+    status: "COMPLETED"
+    domain: "nav2_slam"
+
   FM-SYS-004:
     title: "Miglioramento Alimentazione: Demone OS Graceful Shutdown per Anti-Battery Cliff"
     file: "docs/improvements/IMP-SYS-004_battery_cliff.md"
@@ -49,4 +55,11 @@ improvements:
     file: "docs/improvements/IMP-004-HAILO_VUI_VOICEPRINT.md"
     status: "PLANNED"
     domain: "audio_vui"
+
+  FM-VIS-003:
+    title: "Miglioramento Visione: Continuous Extrinsic Auto-Calibration e Proactive Pitch Sag Compensation"
+    file: "docs/improvements/IMP-VIS-003_extrinsic_camera_calibration.md"
+    status: "COMPLETED"
+    domain: "vision_hailo"
+
 

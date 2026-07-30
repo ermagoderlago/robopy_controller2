@@ -160,4 +160,40 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
     - Corretto `publishGuess()`: impostato `msg.header.frame_id = config_.odom_frame` ("odom") e `msg.child_frame_id = config_.base_frame` ("base_link"), eliminando l'errore `Transform tree cycle detected: parent "base_link" -> child "base_link"`.
     - Aggiunto publisher `rgb_camera_info_pub_` sul topic `/rgb/camera_info` in sintonia con `/rgb/image`, eliminando i warning di Foxglove Studio.
 
+---
+
+## 📈 ECO-2026-07-30-004: Implementazione Software Rilevamento Ostacoli Negativi (Depth-Gradient Hole Raycasting - FM-NAV-009)
+* **Stato:** ✅ **Implementato e Validato con Test Unitario**
+* **Descrizione:** Implementazione dell'algoritmo di mitigazione software per l'ostacolo critico FM-NAV-009 (caduta dalle scale/dislivelli). Sottoscrizione al topic di profondità `/camera/depth/image_raw` nel nodo `semantic_costmap_injector.py` ed iniezione di ostacoli letali su `/hailo_semantic_obstacles_pc`.
+* **Modifiche apportate:**
+  * **[NODO ROS 2]** `robopy_controller/nodes/semantic_costmap_injector.py`:
+    - Aggiunti parametri `enable_negative_obstacles` (default: `True`), `depth_topic` (default: `'/camera/depth/image_raw'`), `min_drop_height_m` (default: `0.15`), `max_floor_distance_m` (default: `2.5`).
+    - Sottoscritto topic `sensor_msgs/Image` ed implementato `depth_callback`: decodifica matriciale NumPy (16UC1 / 32FC1), raycasting a matrice campionata (passo 16x8), trasformazione TF2 3D nel frame costmap ed identificazione dislivelli $\Delta Z > 15\text{ cm}$ sotto il livello del suolo.
+    - Inserimento dei bordi di dislivello in `active_obstacles` e pubblicazione dei punti letali su `/hailo_semantic_obstacles_pc` consumato da Nav2 Costmap.
+    - Personalizzazione marker RViz/Foxglove in colore arancione brillante con namespace `negative_obstacles`.
+  * **[TEST UNITARIO]** `test/unit/test_negative_obstacle_injector.py`:
+    - Creato test di sintesi matriciale e callback mock: verificate la decodifica depth e l'iniezione attiva degli ostacoli negativi.
+  * **[FMEA DATABASE]** `fmea/dfmea.yaml` e `fmea/FMEA_EXECUTIVE_REPORT.md`:
+    - Aggiornato stato mitigazione di `FM-NAV-009` a `IN_PROGRESS`, riducendo l'RPN Residuo da **560** a **210** ($D_{res}: 8 \to 3$).
+
+---
+
+## 📈 ECO-2026-07-30-005: Telemetria Continua MPPI e Background Autotuning Offline (FM-NAV-008)
+* **Stato:** ✅ **Implementato e Validato con Test Unitario**
+* **Descrizione:** Risoluzione del Failure Mode `FM-NAV-008` (RPN 315 -> 30). Introduzione del nodo `mppi_telemetry_logger.py` a basso impatto CPU (<1% su RPi5) e dello script di ottimizzazione offline background `mppi_offline_autotuner.py` per affinare i parametri del controller locale MPPI e la costmap di Nav2 in `nav2_params.yaml`.
+* **Modifiche apportate:**
+  * **[NODO TELEMETRIA]** `robopy_controller/nodes/mppi_telemetry_logger.py`:
+    - Sottoscrive `/plan`, `/odometry/filtered`, `/cmd_vel` e `/diagnostics`.
+    - Calcola Cross-Track Error $e_{ct}$, Angular Jitter $J_\omega$ (varianza su finestra mobile) ed eventi stop-and-go.
+    - Scrittura asincrona in `~/.marcus/telemetry/mppi_nav_telemetry.jsonl`.
+  * **[AUTOTUNER OFFLINE]** `robopy_controller/nodes/mppi_offline_autotuner.py`:
+    - Calcolo del costo $J = 15 J_\omega + 25 \bar{e}_{ct} + 2 N_{stop}$.
+    - Grid search euristico su `inflation_radius`, `cost_scaling_factor` e critici MPPI `PathAlign`/`Obstacle`.
+    - Aggiornamento automatico e sicuro di `nav2_params.yaml`.
+  * **[SUITE TEST UNITARIO]** `test/unit/test_mppi_autotuner.py`:
+    - Validazione calcolo metriche, simulazione dati ad alto jitter ed aggiornamento configurazioni YAML (100% PASS).
+  * **[FMEA DATABASE]** `fmea/dfmea.yaml` e `fmea/FMEA_EXECUTIVE_REPORT.md`:
+    - Aggiornato stato mitigazione di `FM-NAV-008` a `COMPLETED`, riducendo l'RPN da **315** a **30** ($O_{res}: 3$, $D_{res}: 2$).
+
+
 
