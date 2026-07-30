@@ -62,9 +62,9 @@ Questo documento documenta la gestione del bidi-streaming vocale, la latenza dei
 * **Integrazione Client-Side ASR (Doppia Chiamata / Doppia Voce):**
   * **Problema:** Se l'utente usa un client con ASR integrata (es. Foxglove o web app), il client transceve e invia la trascrizione sul topic `/ai/input/text` (con `source="text"`), provocando comunque la doppia risposta (quella nativa Live e quella REST locale).
   * **Soluzione [v15.2]:** Memorizzare le trascrizioni recenti utente della Live API in `LiveConnectionManager.recent_user_transcripts`. In `ConversationManager.process_input`, se arriva un input di testo che corrisponde (o è substring) a una delle trascrizioni Live recenti (finestra di 15 secondi) o in corso, l'input testuale duplicato viene scartato silenziosamente.
-  * **Filtro Temporale Anti-Allucinazione ASR [v15.2]:**
-    - Se l'ASR di Gemini Live allucina la trascrizione in un'altra lingua (es. italiano trascritto come portoghese a causa di disturbi), il controllo testuale di uguaglianza fallisce.
-    - **Soluzione:** Tracciare `_last_mic_audio_time` ad ogni chunk registrato dal microfono fisico del robot. Qualsiasi messaggio testuale (`source="text"`) che giunge entro **3.5 secondi** dall'ultimo input del microfono viene catalogato come ASR client-side concorrente e scartato a prescindere dal testo.
+  * **Rimozione Filtro Temporale time_since_mic per Chat Testuale [v15.4]:**
+    - **Problema:** Il controllo `time_since_mic < 3.5s` scartava il 100% dei messaggi digitati in chat dall'utente in presenza del microfono attivo in background, poiché `_last_mic_audio_time` veniva aggiornato continuamente dal flusso PCM. La risposta su `/ai/conversation/response` non veniva quindi mai pubblicata (o solo dopo tentativi se il mic andava in idle).
+    - **Soluzione:** Rimosso il controllo indiscriminato su `time_since_mic < 3.5s` mantenendo esclusivamente la verifica di duplicazione reale `is_duplicate_text` sulle trascrizioni effettive. Ora la chat testuale riceve risposte immediate e consistenti ad ogni invio.
   * **Silenziamento Conversazione da Chat [v15.3]:**
     - Per evitare che Marcus risponda a voce quando l'utente comunica via tastiera/chat, si effettua un wrapping dinamico di `self.tts.speak` in `ConversationManager.__init__`. Se `_current_source == "text"`, il parlato locale gTTS viene soppresso loggando l'evento `[MUTE]`.
 

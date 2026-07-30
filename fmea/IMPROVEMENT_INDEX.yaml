@@ -43,3 +43,10 @@ improvements:
     file: "docs/improvements/IMP-COG-002_rag_retrieval_and_acronym_memory.md"
     status: "COMPLETED"
     domain: "cognitive_ai"
+
+  FM-VUI-004:
+    title: "Miglioramento VUI: Hailo-10H Continuous Listening, Voice Print & Memory Decay Engine"
+    file: "docs/improvements/IMP-004-HAILO_VUI_VOICEPRINT.md"
+    status: "PLANNED"
+    domain: "audio_vui"
+

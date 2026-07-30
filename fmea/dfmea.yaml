@@ -1903,3 +1903,223 @@
       in conversation.py
     rpn_old: 336
     rpn_new: 7
+- id: FM-VUI-004
+  subsystem: VUI Audio
+  component: wake_word_node / respeaker_vui_node
+  function: Inizializzazione ed ascolto continuo della parola chiave 'Marcus' tramite
+    Picovoice Porcupine
+  failure_mode: Blocco dell'avvio o eccezione di licenza per Picovoice Porcupine EOL
+    / passaggio a piano a pagamento
+  potential_cause: Invalidazione server-side delle chiavi Free Tier Picovoice o scadenza
+    licenza
+  potential_effect: Mancata risposta alla wake word 'Marcus', con conseguente incapacità
+    di attivare l'interazione vocale
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids: []
+  initial_scoring:
+    severity: 9
+    occurrence: 9
+    detection: 2
+    rpn: 162
+  prevention_controls: Eliminazione completa di Picovoice Porcupine dal workspace
+    e transizione a motore Keyword Spotting (KWS) 100% locale su NPU Hailo-10H / ONNX
+  detection_controls: Log di inizializzazione del motore KWS su Hailo-10H ed assenza
+    di chiavi remote
+  residual_scoring:
+    severity: 9
+    occurrence: 1
+    detection: 1
+    rpn: 9
+  risk_level: REVISION_MANDATORY
+  mitigation_status: IN_PROGRESS
+  recommended_action: Migrare la pipeline di wake word su modello KWS compilato per
+    NPU Hailo-10H o modello ONNX locale privo di cloud auth
+  verification_method: Pronuncia della parola 'Marcus' ed ascolto del segnale audio
+    di attivazione
+  eco_ref: docs/ecos/audio_vui_ecos.md#ECO-2026-07-30-003
+  lesson_ref: docs/lessons/audio_vui_pipeline.md#picovoice-free-tier-eol
+  date_identified: '2026-07-30'
+  last_updated: '2026-07-30'
+  history:
+  - date: '2026-07-30'
+    change: Identificata dismissione piano gratuito Picovoice e pianificata sostituzione
+      con Hailo-10H KWS
+    rpn_old: 162
+    rpn_new: 9
+- id: FM-VUI-005
+  subsystem: VUI Audio
+  component: hailo_voiceprint_node / hailo_bridge_node
+  function: Estrarre continuous speaker embeddings (impronta vocale) sul flusso mic
+    16kHz via Hailo-10H NPU
+  failure_mode: Latenza elevata ed accumulo buffer audio (audio drift) per overhead
+    computazionale dell'NPU durante l'inferenza di speaker ID
+  potential_cause: Esecuzione dell'estrazione embedding su ogni singolo frame 20ms
+    senza downsampling temporale o contesa lock con YOLO/Vision
+  potential_effect: Desincronizzazione del buffer audio e ritardo nel rilevamento
+    dei locutori
+  classification: PERFORMANCE
+  estimation_basis: inferred
+  related_ids:
+  - FM-VIS-002
+  initial_scoring:
+    severity: 7
+    occurrence: 7
+    detection: 4
+    rpn: 196
+  prevention_controls: Calcolo dell'embedding vocale unicamente sui segmenti VAD attivi
+    (>500ms) tramite batching e mutua esclusione thread-safe con _infer_lock
+  detection_controls: Monitoraggio del ritardo buffer audio in ms nei log di diagnostica
+    di Hailo Bridge
+  residual_scoring:
+    severity: 7
+    occurrence: 2
+    detection: 2
+    rpn: 28
+  risk_level: LOW
+  mitigation_status: IN_PROGRESS
+  recommended_action: Attivare l'estrazione embedding solo su finestra temporale accumulata
+    di silenzio/parlato invece di per-frame
+  verification_method: Stress test con conversazione continua di 5 minuti
+  eco_ref: docs/ecos/audio_vui_ecos.md#ECO-2026-07-30-003
+  lesson_ref: docs/lessons/audio_vui_pipeline.md#hailo-voiceprint
+  date_identified: '2026-07-30'
+  last_updated: '2026-07-30'
+  history:
+  - date: '2026-07-30'
+    change: Inserimento Failure Mode per latenza NPU durante l'estrazione continua
+      di Voice Prints
+    rpn_old: 196
+    rpn_new: 28
+- id: FM-VUI-006
+  subsystem: VUI Audio
+  component: voiceprint_manager
+  function: Associare le persone all'impronta vocale estratta ed identificare chi
+    sta parlando
+  failure_mode: Errata attribuzione del parlato (False Speaker Match) tra persone
+    con timbro simile o in presenza di rumore
+  potential_cause: Soglia di similarità coseno troppo bassa (<0.65) o campione di
+    enrollment vocale corrotto da rumore ambientale
+  potential_effect: Associazioni errate delle memorie ambientali alla persona sbagliata
+    nei profili utenti
+  classification: PERFORMANCE
+  estimation_basis: inferred
+  related_ids: []
+  initial_scoring:
+    severity: 6
+    occurrence: 6
+    detection: 4
+    rpn: 144
+  prevention_controls: Procedura di enrollment multi-campione (3 campioni vocali di
+    3 secondi) con calcolo medio del centroide e soglia coseno >= 0.72
+  detection_controls: Log di similarità score per ogni frame associato ed eventuale
+    stato 'UNKNOWN_SPEAKER'
+  residual_scoring:
+    severity: 6
+    occurrence: 2
+    detection: 2
+    rpn: 24
+  risk_level: LOW
+  mitigation_status: IN_PROGRESS
+  recommended_action: Imporre enrollment con 3 frasi guida e validazione centroide
+    vettoriale
+  verification_method: Test di identificazione tra due parlanti differenti con voci
+    simili
+  eco_ref: docs/ecos/audio_vui_ecos.md#ECO-2026-07-30-003
+  lesson_ref: docs/lessons/audio_vui_pipeline.md#voiceprint-enrollment
+  date_identified: '2026-07-30'
+  last_updated: '2026-07-30'
+  history:
+  - date: '2026-07-30'
+    change: Inserimento Failure Mode per identificazione vocale ed errato matching
+    rpn_old: 144
+    rpn_new: 24
+- id: FM-VUI-007
+  subsystem: AI/Cognitive
+  component: memory_decay_engine
+  function: Eliminare conversazioni irrilevanti o trascurabili dal buffer di memoria
+    ambientale tramite algoritmo di oblio
+  failure_mode: Oblio aggressivo di informazioni importanti pronunciate poco prima
+    di invocare 'Marcus' o accumulo indefinito di conversazioni futili
+  potential_cause: Valutazione errata dell'indice di rilevanza (salience score) o
+    decadimento temporale troppo rapido (<30 secondi)
+  potential_effect: Mancanza di contesto recente quando il robot viene chiamato o
+    saturazione del contesto LLM con rumore irrilevante
+  classification: PERFORMANCE
+  estimation_basis: inferred
+  related_ids: []
+  initial_scoring:
+    severity: 6
+    occurrence: 6
+    detection: 5
+    rpn: 180
+  prevention_controls: Algoritmo a doppia finestra (Short-Term Ambient Buffer da 5
+    minuti + Long-Term Salience Filter) con immunità di 3 minuti dal decadimento per
+    conversazioni contenenti entità/nomi
+  detection_controls: Log di rimozione memorie con indicazione dell'indice di pertinenza
+  residual_scoring:
+    severity: 6
+    occurrence: 2
+    detection: 2
+    rpn: 24
+  risk_level: LOW
+  mitigation_status: IN_PROGRESS
+  recommended_action: Proteggere il buffer ambientale recente mantenendo immuni dal
+    decay gli ultimi 3 minuti di trascrizione
+  verification_method: Test di recupero del contesto ambientale pronunciato 2 minuti
+    prima della wakeword
+  eco_ref: docs/ecos/orchestration_rag_ecos.md#ECO-2026-07-30-003
+  lesson_ref: docs/lessons/orchestration_and_rag.md#algoritmo-oblio-memoria
+  date_identified: '2026-07-30'
+  last_updated: '2026-07-30'
+  history:
+  - date: '2026-07-30'
+    change: Inserimento Failure Mode per gestione dell'algoritmo di oblio memoria
+    rpn_old: 180
+    rpn_new: 24
+- id: FM-VUI-008
+  subsystem: VUI Audio
+  component: respeaker_vui_node / live_connection_manager
+  function: Transizione fluida dall'ascolto passivo Hailo allo streaming attivo Gemini
+    Live WebSocket al rilevamento di 'Marcus'
+  failure_mode: Conflitto o stallo dell'I/O audio con mancato invio dello stream PCM
+    a Gemini Live o perdita dei primi 2 secondi di audio
+  potential_cause: Lock del device microfonico PyAudio o ritardo nel passaggio di
+    handoff dello stream audio tra i thread
+  potential_effect: Mancata risposta da parte di Gemini Live all'invocazione 'Marcus'
+    o inizio frase troncato
+  classification: MISSION_CRITICAL
+  estimation_basis: inferred
+  related_ids:
+  - FM-VUI-001
+  initial_scoring:
+    severity: 8
+    occurrence: 7
+    detection: 3
+    rpn: 168
+  prevention_controls: Single Audio Stream Producer con dispatching a coda per i nodi
+    consumatori (Hailo Listener vs Gemini Live WebSocket) ed iniezione del pre-roll
+    buffer di 500ms
+  detection_controls: Diagnostic log sullo stato dell'handoff dello stream audio durante
+    il cambio di modalità LED
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  risk_level: LOW
+  mitigation_status: IN_PROGRESS
+  recommended_action: Mantenere l'acquisizione PyAudio in un thread produttore unico
+    senza fermare lo stream hardware alla wakeword
+  verification_method: Test di transizione immediata da ascolto passivo ad avvio Gemini
+    Live
+  eco_ref: docs/ecos/audio_vui_ecos.md#ECO-2026-07-30-003
+  lesson_ref: docs/lessons/audio_vui_pipeline.md#hailo-gemini-handoff
+  date_identified: '2026-07-30'
+  last_updated: '2026-07-30'
+  history:
+  - date: '2026-07-30'
+    change: Inserimento Failure Mode per la transizione tra ascolto passivo Hailo
+      e streaming attivo Gemini Live
+    rpn_old: 168
+    rpn_new: 8

@@ -98,7 +98,9 @@ Questo documento raccoglie le lezioni apprese, i bug riscontrati e le soluzioni 
 ### Dismissione Free Tier Picovoice Porcupine (Giugno 2026)
 * **Problema:** Picovoice ha ufficialmente disattivato il piano gratuito ("Free Tier AccessKeys"). Tutte le AccessKey gratuite esistenti sono state invalidate lato server, bloccando l'inizializzazione del motore Porcupine nei nodi VUI.
 * **Impatto:** All'avvio di `respeaker_vui_node` o `wake_word_node`, l'SDK `pvporcupine` restituisce errore di attivazione licenza, disabilitando la risposta alla parola chiave "Hey Marcus".
-* **Soluzione / Alternativa Architetturale:**
-  1. **Soluzione Temporanea:** Utilizzare una chiave con piano Trial attivo per il test rapido.
-  2. **Soluzione Definitiva Open-Source:** Migrare da Picovoice Porcupine ad **openWakeWord** (oppure modelli ONNX locali), un motore wake word 100% locale, open-source e privo di chiavi o validazioni remote.
+* **Soluzione Definitiva 100% NPU Locale (Hailo-10H):** Migrare completamente da Picovoice Porcupine a **Hailo-10H KWS (Keyword Spotting)**.
+   * **Continuous Ambient Listening & Speaker Voice Print:** Ascolto passivo del parlato ambientale tramite modello di Speaker Embedding eseguito su Hailo-10H per associare il timbro vocale degli interlocutori (similarità coseno >= 0.72).
+   * **Memory Decay Engine (Algoritmo di Oblio):** Memorizzazione delle conversazioni/avvenimenti nel buffer a breve termine (immuni gli ultimi 3 minuti) con pulizia automatica delle frasi futili o irrilevanti per non intasare la memoria.
+   * **Context Handoff a Gemini Live API:** Quando viene rilevata la parola chiave "Marcus" su Hailo-10H, si mantiene inalterato il comportamento visivo dei LED e viene avviata la sessione Gemini Live ereditando nel contesto iniziale la memoria ambientale recente.
+
 

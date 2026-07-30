@@ -191,3 +191,8 @@ Questo documento descrive le lezioni apprese su OAK-D Lite, l'acceleratore NPU H
 * **Problema:** In particolari condizioni di luce, YOLO generava rilevamenti spuri a schermo intero ($W \times H \approx \text{area totale}$) con confidenza medio-bassa ($<0.75$).
 * **Risoluzione:** Inserito un filtro euristico in `_parse_yolo_output`: se un bounding box copre oltre l'80% dell'immagine ed ha confidenza $<0.75$, viene automaticamente scartato.
 
+### Parametrizzazione e Dynamic Fallback dei Topic RGB/Depth per `hailo_bridge_node`
+* **Problema:** `/hailo/annotated_image/compressed` risultava vuoto (0 Hz) se il driver OAK-D pubblicava su `/oak/rgb/image_raw` o `/camera/rgb/image_raw` anziché sul topic cablato `/rgb/image`.
+* **Risoluzione:** Aggiunti i parametri ROS 2 `rgb_topic` (default `/rgb/image`) e `depth_topic` (default `/camera/depth/image_raw`) a `hailo_bridge_node.py` per consentire la riconfigurazione dinamica tramite launch file o `--ros-args -p rgb_topic:=/oak/rgb/image_raw`.
+
+

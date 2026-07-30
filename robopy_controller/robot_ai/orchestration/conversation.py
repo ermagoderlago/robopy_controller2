@@ -88,18 +88,13 @@ class ConversationManager:
             self._logger.debug("Mic muted, ignoring audio input.")
             return
 
-        # [v15.2] Ignora input di testo duplicati o generati da ASR client-side se già gestiti o concomitanti con la Live API
-        last_mic_time = 0.0
-        if hasattr(self.llm, 'get_last_mic_audio_time'):
-            last_mic_time = self.llm.get_last_mic_audio_time()
-        
-        time_since_mic = time.time() - last_mic_time
+        # [v15.2] Ignora input di testo duplicati generati da ASR client-side se già gestiti dalla Live API
         is_duplicate = False
         if hasattr(self.llm, 'is_duplicate_text'):
             is_duplicate = self.llm.is_duplicate_text(text)
 
-        if source == "text" and (time_since_mic < 3.5 or is_duplicate):
-            self._logger.info(f"Ignorato input testuale duplicato/ASR: '{text}' (attività mic rilevata {time_since_mic:.2f}s fa, duplicato={is_duplicate})")
+        if source == "text" and is_duplicate:
+            self._logger.info(f"Ignorato input testuale duplicato ASR: '{text}' (duplicato={is_duplicate})")
             self.metrics.inc_requests_success()
             return
 

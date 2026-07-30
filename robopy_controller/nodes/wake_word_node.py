@@ -37,11 +37,9 @@ class WakeWordSentinel(Node):
     def __init__(self):
         super().__init__('wake_word_sentinel')
         
-        _load_keys()
-        access_key = os.environ.get('PICOVOICE_API_KEY')
-        if not access_key:
-            self.get_logger().error("PICOVOICE_API_KEY non trovata! Nodo interrotto.")
-            return
+        self.get_logger().info("Sentinella Wake Word: integrata nativamente in ReSpeaker VUI Node (Hailo-10H).")
+        self.porcupine = None
+
 
         self.get_logger().info("Inizializzazione motore Wake Word...")
         

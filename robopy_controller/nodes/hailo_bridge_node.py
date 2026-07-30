@@ -273,6 +273,8 @@ class HailoBridgeNode(Node):
         self.declare_parameter('known_faces_dir', '/home/robopy/robopy/robopy_controller/known_faces')
         self.declare_parameter('publish_sim_sedia', False)
         self.declare_parameter('annotated_image_topic', '/hailo/annotated_image/compressed')
+        self.declare_parameter('rgb_topic', '/rgb/image')
+        self.declare_parameter('depth_topic', '/camera/depth/image_raw')
         self.declare_parameter('face_identity_threshold', 0.50)
         self.declare_parameter('yolo_conf_thresh', 0.35)
 
@@ -285,6 +287,8 @@ class HailoBridgeNode(Node):
         self.known_faces_dir = self.get_parameter('known_faces_dir').value
         self.publish_sim_sedia = self.get_parameter('publish_sim_sedia').value
         self.annotated_image_topic = self.get_parameter('annotated_image_topic').value
+        self.rgb_topic = self.get_parameter('rgb_topic').value
+        self.depth_topic = self.get_parameter('depth_topic').value
         self.face_identity_threshold = self.get_parameter('face_identity_threshold').value
         self.yolo_conf_thresh = self.get_parameter('yolo_conf_thresh').value
 
@@ -316,11 +320,12 @@ class HailoBridgeNode(Node):
         )
 
         # Subscribers
+        self.get_logger().info(f"Sottoscrizione RGB su topic: {self.rgb_topic}")
         self.sub_rgb = self.create_subscription(
-            Image, '/rgb/image', self.rgb_callback, qos_best_effort
+            Image, self.rgb_topic, self.rgb_callback, qos_best_effort
         )
         self.sub_depth = self.create_subscription(
-            Image, '/camera/depth/image_raw', self.depth_callback, qos_best_effort
+            Image, self.depth_topic, self.depth_callback, qos_best_effort
         )
         self.sub_audio = self.create_subscription(
             AudioData, '/ai/input/audio_chunk', self.audio_callback, qos_best_effort

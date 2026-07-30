@@ -94,9 +94,12 @@ Marcus si muove su una base mobile differenziale, gestendo il movimento e la map
 
 La Voice User Interface (VUI) è il canale primario di interazione di Marcus:
 
-* **DSP & VAD (Voice Activity Detection):** Il nodo `respeaker_vui_node.py` elabora l'audio catturato dall'array microfonico USB ReSpeaker a 16kHz PCM a 16-bit. Un filtro Butterworth Passa-Alto @ 140 Hz (HPF) 2° ordine elimina alla radice il ronzio a bassa frequenza della ventola del Pi 5, la selezione dinamica del canale sceglie la traccia con maggior energia vocale pulita, e la soglia ad-hoc del noise gate (`[800.0, 4500.0]`) garantisce un'elevata sensibilità sia da vicino che da lontano (1-3 metri).
-* **Barge-in Sicuro:** Marcus supporta il "barge-in". Se l'utente parla mentre Marcus sta riproducendo sintesi vocale (TTS), il robot attenua immediatamente il proprio guadagno microfonico (`stt_gain` ridotto a 0.1x) e interrompe la riproduzione audio per ascoltare la nuova frase dell'utente.
-* **Gemini Live API (WebSocket):** L'orchestratore stabilisce una connessione WebSocket persistente e bidirezionale in tempo reale con le API di Gemini. L'audio catturato viene trasmesso in streaming e il robot riceve indietro audio PCM crudo da riprodurre direttamente sull'hardware (`play_raw_pcm`), riducendo la latenza percepita di risposta a meno di 1.5 secondi.
+* **100% NPU Continuous Listening & Wakeword (Hailo-10H KWS):** Il motore commerciale Picovoice Porcupine è stato completamente rimosso dal workspace. L'ascolto sempre attivo della parola chiave "Marcus" è gestito localmente in hardware tramite modello Keyword Spotting (KWS) su NPU Hailo-10H.
+* **DSP & VAD (Voice Activity Detection):** Il nodo `respeaker_vui_node.py` elabora l'audio dall'array microfonico USB ReSpeaker a 16kHz PCM a 16-bit. Un filtro Butterworth Passa-Alto @ 140 Hz (HPF) elimina il ronzio della ventola del Pi 5, la selezione del canale ad alta energia ed il gate dinamico garantiscono la sensibilità far-field (1-3 metri).
+* **Speaker Voice Print & Enrollment (`voiceprint_manager.py`):** Riconoscimento delle persone dal timbro vocale tramite l'estrazione di Speaker Embeddings su NPU (soglia di similarità coseno `>= 0.72`). Supporta l'Enrollment vocale via frase *"registra la mia voce come Luca"*.
+* **Ambient Memory & Memory Decay Engine (`memory_decay_engine.py`):** Durante l'ascolto passivo, Marcus traccia le conversazioni dell'ambiente circostante. L'algoritmo di oblio (Memory Decay) elimina i rumori o le frasi futili preservando solo le informazioni salienti. Gli ultimi 3 minuti di ascolto passivo beneficiano di immunità temporale assoluta dal decay.
+* **Context Handoff a Gemini Live API (WebSocket):** L'interfaccia ed i colori dei LED rimangono inalterati. Al rilevamento di "Marcus", l'orchestratore avvia la sessione WebSocket bidirezionale con Gemini Live iniettando nel prompt iniziale il contesto ereditato dall'ascolto passivo recente, consentendo a Marcus di sapere già di cosa stavano parlando le persone nella stanza prima che lo chiamassero.
+
 
 ---
 

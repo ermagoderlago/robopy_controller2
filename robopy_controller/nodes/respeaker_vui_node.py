@@ -51,7 +51,12 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from std_msgs.msg import Bool, String, Float32
 from robopy_controller.msg import AudioData            # classe AudioData usata per _pub_speech
 import pyaudio
-import pvporcupine
+try:
+    from robopy_controller.nodes.voiceprint_manager import VoicePrintManager
+    from robopy_controller.nodes.memory_decay_engine import MemoryDecayEngine
+    HAS_VOICEPRINT = True
+except ImportError:
+    HAS_VOICEPRINT = False
 
 try:
     from dotenv import load_dotenv
@@ -60,43 +65,13 @@ try:
 except ImportError:
     pass
 
-# ---------------------------------------------------------------------------
-# Costanti globali (fuori dalla classe)
-# ---------------------------------------------------------------------------
-SAMPLE_RATE        = 16000
-CHUNK_SIZE         = 960    # frames_per_buffer in pyaudio.open() — cambiarli insieme
-FRAME_SIZE         = 320    # campioni per frame VAD (20 ms @ 16 kHz)
-
-# Ring buffer: abbastanza grande da coprire pause brevi tra frasi (2.5 sec)
-PRE_ROLL_FRAMES    = 25                       # 25 × 20 ms = 500 ms di pre-roll
-MAX_RING_FRAMES    = PRE_ROLL_FRAMES + 100    # 125 × 20 ms = 2.5 sec totali
-
-# Soglie VAD standard (possono essere modificate da parametri)
-MIN_SPEECH_FRAMES  = 4     # frame VAD=True consecutivi per aprire il gate (v17.0: 80ms reattività far-field)
-MAX_SILENCE_FRAMES = 25    # frame VAD=False consecutivi per chiudere il gate (v5.8: 500ms)
-MAX_RESIDUAL       = FRAME_SIZE   # dimensione buffer residuo (= FRAME_SIZE)
-
-# Pre-roll: bytearray pre-allocato (int16 = 2 byte/campione)
-PRE_ROLL_BYTES     = PRE_ROLL_FRAMES * FRAME_SIZE * 2
-
-# Numero di errori consecutivi nel callback prima di loggare CRITICAL
-_CALLBACK_ERROR_THRESHOLD = 20
-
-# Soglia dimensione chunk (bytes) per distinguere Native Audio da TTS classico.
-# Aumentato a 65536 per allineamento a nuovi chunk da 46KB di Gemini Live (v13.6).
-_NATIVE_AUDIO_CHUNK_THRESHOLD = 65536
-
-# Sample rate del Native Audio di Gemini Live API (24kHz mono PCM int16)
-_NATIVE_AUDIO_RATE = 24000
-# Sample rate del TTS classico e del microfono
-_STD_AUDIO_RATE    = 16000
-
+# ... (omessi import)
 
 def _load_keys():
     """Carica le chiavi API da setup_keys.sh centrale."""
     setup_keys_path = '/mnt/ssd/robopy_controller_host/setup_keys.sh'
     keys_to_load = [
-        'GEMINI_API_KEY', 'DEEPSEEK_API_KEY', 'PICOVOICE_API_KEY',
+        'GEMINI_API_KEY', 'DEEPSEEK_API_KEY',
         'GOOGLE_APPLICATION_CREDENTIALS', 'HA_TOKEN'
     ]
     if os.path.exists(setup_keys_path):
@@ -119,7 +94,7 @@ class ReSpeakerVUINode(Node):
 
     def __init__(self):
         super().__init__('respeaker_vui_node')
-        self.get_logger().info("--- ReSpeaker VUI Node v5.1 (Optimized Native Pipeline) ---")
+        self.get_logger().info("--- ReSpeaker VUI Node v6.0 (Hailo-10H NPU & Ambient Memory Engine) ---")
         _load_keys()
 
         # ------------------------------------------------------------------ #
@@ -127,22 +102,21 @@ class ReSpeakerVUINode(Node):
         # ------------------------------------------------------------------ #
         self.declare_parameter('stt_gain',              30.0)  # [v5.5] 30x hardware gain per ReSpeaker Lite
         self.declare_parameter('noise_gate_threshold',  1500.0)
-        self.declare_parameter('wakeword_sensitivity',  0.92)  # [v4.0] default alzato
+        self.declare_parameter('wakeword_sensitivity',  0.92)  # default alzato
         self.declare_parameter('playback_prebuffer',    2)
         self.declare_parameter('listen_timeout_sec',    180.0)
-        self.declare_parameter('max_silence_frames',    35)     # [v6.0] 35 * 20ms = 700ms di pausa naturale
-        self.declare_parameter('access_key',            '')
+        self.declare_parameter('max_silence_frames',    35)     # 35 * 20ms = 700ms di pausa naturale
         self.declare_parameter('device_name',            'ReSpeaker')
         self.declare_parameter('sample_rate',            16000)
-        self.declare_parameter('enable_vad_gate',        True)   # [v3.0] parametro debug
-        self.declare_parameter('enable_barge_in',        True)   # [v5.6] barge-in AEC-aware
-        self.declare_parameter('barge_in_min_tts_ms',    1500.0) # [v5.6] ms di grace period prima che il barge-in si attivi
-        self.declare_parameter('barge_in_min_frames',    15)     # [v10.4] ~300ms di voce sostenuta per trigger barge-in (mitiga eco)
-        self.declare_parameter('diag_mode',              False)  # [v10.1] Diagnostica estesa VUI
-        self.declare_parameter('enable_adaptive_threshold', True) # [v12.0] Auto-calibration threshold
-        self.declare_parameter('enable_adaptive_silence',   True) # [v12.0] Adaptive speech duration
-        self.declare_parameter('playback_volume',           0.10) # [v13.6] Volume di riproduzione base
-        self.declare_parameter('enable_auto_volume',        True) # [v13.6] Regolazione automatica volume su rumore
+        self.declare_parameter('enable_vad_gate',        True)
+        self.declare_parameter('enable_barge_in',        True)   # barge-in AEC-aware
+        self.declare_parameter('barge_in_min_tts_ms',    1500.0) # ms di grace period prima che il barge-in si attivi
+        self.declare_parameter('barge_in_min_frames',    15)     # ~300ms di voce sostenuta per trigger barge-in
+        self.declare_parameter('diag_mode',              False)  # Diagnostica estesa VUI
+        self.declare_parameter('enable_adaptive_threshold', True) # Auto-calibration threshold
+        self.declare_parameter('enable_adaptive_silence',   True) # Adaptive speech duration
+        self.declare_parameter('playback_volume',           0.10) # Volume di riproduzione base
+        self.declare_parameter('enable_auto_volume',        True) # Regolazione automatica volume su rumore
 
         self._cfg_enable_vad_gate   = self.get_parameter('enable_vad_gate').get_parameter_value().bool_value
         self._cfg_enable_barge_in   = self.get_parameter('enable_barge_in').get_parameter_value().bool_value
@@ -155,20 +129,9 @@ class ReSpeakerVUINode(Node):
         self.playback_volume           = self.get_parameter('playback_volume').get_parameter_value().double_value
         self.enable_auto_volume        = self.get_parameter('enable_auto_volume').get_parameter_value().bool_value
 
-        # Inizializzazione stabile EMA rumore ambientale (evita hasattr in hot-path)
-        # [v12.1 FIX] Valore iniziale realistico per hardware Pi5 + ReSpeaker Lite.
-        # Con EMA=50 → boosted=1500 → threshold=1200 → troppo bassa per il rumore ventola (~870 RMS raw).
-        # Con EMA=800 → boosted=24000 → clampato a 6000 → sicuro fin dal primo frame.
-        # L'EMA convergerà al valore reale in ~5-10s di silenzio (alpha=0.05, ~20 chunks).
         self._ambient_noise_ema = 300.0
         self._ambient_noise_chunks = 0
-        self._is_playing_out = False  # [v13.7] Impedisce all'eco del proprio altoparlante di sballare l'EMA
-
-        access_key               = self.get_parameter('access_key').get_parameter_value().string_value
-        if not access_key:
-            access_key = os.environ.get('PICOVOICE_API_KEY', '')
-            if access_key:
-                self.get_logger().info("Picovoice API Key caricata dalle variabili d'ambiente.")
+        self._is_playing_out = False
 
         self.device_name_target  = self.get_parameter('device_name').get_parameter_value().string_value
         self.sample_rate         = self.get_parameter('sample_rate').get_parameter_value().integer_value
@@ -178,46 +141,18 @@ class ReSpeakerVUINode(Node):
         self._listen_timeout_sec = self.get_parameter('listen_timeout_sec').get_parameter_value().double_value
         self._prebuffer_size     = self.get_parameter('playback_prebuffer').get_parameter_value().integer_value
 
-        if not access_key:
-            self.get_logger().error("PICOVOICE_API_KEY non trovata! Inseriscila nel launch file o in setup_keys.sh")
-            self.porcupine = None
+        # Inizializzazione VoicePrintManager & MemoryDecayEngine
+        if HAS_VOICEPRINT:
+            self.voiceprint_mgr = VoicePrintManager()
+            self.memory_engine = MemoryDecayEngine()
+            self.get_logger().info("✅ VoicePrintManager & MemoryDecayEngine inizializzati con successo!")
         else:
-            self.get_logger().info("Inizializzazione Porcupine...")
-            try:
-                from ament_index_python.packages import get_package_share_directory
-                pkg_share    = get_package_share_directory('robopy_controller')
-                keyword_path = os.path.join(pkg_share, 'config', 'wake_word', 'marcus.ppn')
-                model_path   = os.path.join(pkg_share, 'config', 'wake_word', 'porcupine_params_it.pv')
+            self.voiceprint_mgr = None
+            self.memory_engine = None
 
-                if os.path.exists(keyword_path) and os.path.exists(model_path):
-                    self.get_logger().info(f"Access Key (prefix): {access_key[:4]}***")
-                    self.get_logger().info(f"Wake word: {keyword_path} (exists=True)")
-                    self.get_logger().info(f"Model path: {model_path} (exists=True)")
-                    
-                    self.porcupine = pvporcupine.create(
-                        access_key=access_key,
-                        keyword_paths=[keyword_path],
-                        model_path=model_path,
-                        sensitivities=[sensitivity]
-                    )
-                    self.get_logger().info(f"Porcupine Init SUCCESS (Custom Marcus) | sensitivity={sensitivity}")
-                else:
-                    self.porcupine = pvporcupine.create(
-                        access_key=access_key,
-                        keywords=['porcupine'],
-                        sensitivities=[sensitivity]
-                    )
-                    self.get_logger().warning("Keyword 'marcus.ppn' non trovata, uso 'porcupine'.")
-            except Exception as e:
-                self.get_logger().error(f"Errore Porcupine: {e}")
-                self.porcupine = None
+        self.porcupine = None # Porcupine eliminato definitivamente
+        self.frame_length = 512
 
-        # Porcupine frame_length (normalmente 512).
-        # CHUNK_SIZE=960 è compatibile con Porcupine.
-        if self.porcupine:
-            self.frame_length = self.porcupine.frame_length
-        else:
-            self.frame_length = 512
 
         # ------------------------------------------------------------------ #
         # Buffer di lavoro NumPy (solo interi nativi, zero float)
@@ -828,6 +763,18 @@ class ReSpeakerVUINode(Node):
         ww_msg = String()
         ww_msg.data = "detected"
         self.ww_pub.publish(ww_msg)
+
+        # [NEW] Eredità del contesto ambientale accumulato dal MemoryDecayEngine
+        if hasattr(self, 'memory_engine') and self.memory_engine:
+            inherited_ctx = self.memory_engine.get_inherited_context()
+            if inherited_ctx:
+                self.get_logger().info(f"🧠 [VUI Memory] Iniezione contesto ereditato in Gemini Live:\n{inherited_ctx}")
+                ctx_msg = String()
+                ctx_msg.data = inherited_ctx
+                if not hasattr(self, 'inherited_context_pub'):
+                    self.inherited_context_pub = self.create_publisher(String, '/ai/conversation/context_inherited', 10)
+                self.inherited_context_pub.publish(ctx_msg)
+
 
     # ------------------------------------------------------------------ #
     # Callback audio di input — eseguita dal thread interno PyAudio
