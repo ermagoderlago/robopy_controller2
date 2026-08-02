@@ -6,6 +6,8 @@
 if [ -z "$FROM_WATCHDOG" ]; then
     echo "🛑 Disattivazione temporanea del Watchdog per riavvio manuale..."
     sudo systemctl stop marcus-watchdog.service || true
+    systemctl --user stop marcus-watchdog.service || true
+    pkill -9 -f watchdog.sh || true
 fi
 
 # --- Setup ambiente ---
@@ -42,12 +44,16 @@ pkill -9 -f hailo_bridge_node || true
 pkill -9 -f marcus_semantic_mapper_cpp || true
 pkill -9 -f semantic_costmap_injector || true
 pkill -9 -f engagement_monitor || true
+pkill -9 -f robot_health_supervisor || true
+pkill -9 -f localization_fuser_node || true
 pkill -9 -f cloud_watchdog_node || true
 pkill -9 -f speaker_id_node || true
 pkill -9 -f foxglove_bridge || true
 pkill -9 -f foxglove_nav2_bridge || true
 
 # Kill camera & navigation nodes
+pkill -9 -f fast_flow_vo_cpp || true
+pkill -9 -f oak_driver_node || true
 pkill -9 -f oak_superpoint_odometry_cpp || true
 pkill -9 -f waveshare_motor_driver || true
 pkill -9 -f depthimage_to_laserscan_node || true
@@ -98,6 +104,7 @@ nohup ros2 run robopy_controller waveshare_motor_driver --ros-args \
     -p publish_tf:=False \
     -p odom_topic:=/odom_wheel \
     > /home/robopy/robopy/logs/waveshare_motor_driver.log 2>&1 &
+
 
 echo "📐 Starting CAD static TF publishers (OAK-D Lite 8° pitch UP, Z=0.2616m)..."
 nohup ros2 run tf2_ros static_transform_publisher \
@@ -188,8 +195,9 @@ echo "🎤 Starting respeaker_vui_node (v12.0 adaptive)..."
 nohup ros2 run robopy_controller respeaker_vui_node --ros-args \
     -r __node:=respeaker_vui_node \
     -p use_sim_time:=False \
-    -p stt_gain:=5.0 \
-    -p noise_gate_threshold:=100.0 \
+    -p stt_gain:=2.5 \
+    -p noise_gate_threshold:=400.0 \
+    -p listen_timeout_sec:=30.0 \
     -p wakeword_sensitivity:=0.95 \
     -p enable_barge_in:=true \
     -p barge_in_min_tts_ms:=2500.0 \
@@ -298,4 +306,5 @@ echo "   VUI log:       tail -f /home/robopy/robopy/logs/respeaker_vui_node.log"
 if [ -z "$FROM_WATCHDOG" ]; then
     echo "🟢 Riattivazione del Watchdog..."
     sudo systemctl start marcus-watchdog.service || true
+    systemctl --user start marcus-watchdog.service || true
 fi

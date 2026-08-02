@@ -2138,3 +2138,199 @@
       e streaming attivo Gemini Live
     rpn_old: 168
     rpn_new: 8
+- id: FM-SYS-007
+  subsystem: System/Support
+  component: startup_and_watchdog_scripts
+  function: Gestione del ciclo di vita dei nodi e disattivazione controllata del watchdog
+    (watchdog.sh) durante i riavvii manuali per evitare race condition ed esecuzioni
+    multiple concorrenti
+  failure_mode: Mancata o incompleta disattivazione di watchdog.sh durante il riavvio
+    manuale, scatenando un loop concorrente di avvii di restart_hailo.sh con duplicazione
+    massiva di nodi ROS 2 e saturazione CPU al 100%
+  potential_cause: Il watchdog viene eseguito come processo standalone (watchdog.sh)
+    o servizio user senza essere arrestato da restart_hailo.sh (mancato pkill esplicito
+    o mancata disattivazione del servizio user/systemd), ed il loop di polling a 5s
+    scambia l'avvio temporizzato per un crash
+  potential_effect: Moltiplicazione delle istanze dei nodi in memoria (es. 8+ istanze
+    di robot_health_supervisor, fast_flow_vo_cpp, ecc.), saturazione dei 4 core CPU
+    al 100%, load average > 35 e stallo completo del sistema operativo
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-SYS-002
+  initial_scoring:
+    severity: 9
+    occurrence: 8
+    detection: 2
+    rpn: 144
+  prevention_controls: Inserimento di pkill -9 -f watchdog.sh e systemctl --user stop
+    marcus-watchdog.service esplicito all'inizio di restart_hailo.sh prima di avviare
+    qualsiasi nodo
+  detection_controls: Ispezione ps aux/htop e monitoraggio delle istanze duplicate
+    da parte del supervisore di sistema
+  residual_scoring:
+    severity: 9
+    occurrence: 1
+    detection: 1
+    rpn: 9
+  risk_level: REVISION_MANDATORY
+  mitigation_status: CLOSED
+  recommended_action: Forzare l'arresto preventivo di watchdog.sh e di tutti i processi
+    bash/python residui all'inizio di restart_hailo.sh e sync_marcus.sh
+  verification_method: Esecuzione ripetuta di sync_marcus.bat / restart.sh verificando
+    tramite ps aux | grep python3 che esista una sola istanza per nodo ed uso CPU
+    nominale
+  eco_ref: docs/lessons/dev_and_deployment.md#riavvio-dei-nodi-e-interlock-del-watchdog
+  lesson_ref: docs/lessons/dev_and_deployment.md#riavvio-dei-nodi-e-interlock-del-watchdog
+  date_identified: '2026-08-01'
+  last_updated: '2026-08-01'
+  history:
+  - date: '2026-08-01'
+    change: Inserimento Failure Mode per gestione arresto watchdog e prevenzione loop
+      di avvio concorrente
+    rpn_old: 144
+    rpn_new: 9
+- id: FM-VUI-009
+  subsystem: VUI Audio
+  component: live_connection_manager / gemini_api
+  function: Gestione dinamica dei modelli Gemini Live (Native Audio), diagnostica
+    preventiva e fall-through automatico su Qwen NPU in caso di deprecazione o inaccessibilità
+    dell'endpoint Cloud
+  failure_mode: Improvvisa deprecazione o disattivazione del modello Gemini Live da
+    parte di Google Cloud, causante fallimenti del handshake WebSocket (errore 1008/404)
+    e blocco della VUI vocale
+  potential_cause: Rinominamento o deprecazione dei modelli Cloud Gemini senza preavviso,
+    spending cap raggiunto o disconnessione di rete
+  potential_effect: Marcus non risponde alla voce dopo il rilevamento della wake word,
+    lasciando l'utente in stallo ed esegue tentativi infruttuosi di riconnessione
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-VUI-008
+  initial_scoring:
+    severity: 8
+    occurrence: 7
+    detection: 3
+    rpn: 168
+  prevention_controls: Utilizzo dello script di diagnostica scripts/test_gemini_models.py
+    per auto-discovery dei modelli attivi e fallback automatico su Qwen2-VL locale
+    (Hailo NPU) con avviso vocale TTS all'utente
+  detection_controls: Intercettazione codici di errore 404/1008 ed assenza di chunk
+    audio nativi da parte di LiveConnectionManager con emissione evento /ai/live/fallback
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Implementare la diagnostica automatica test_gemini_models.py
+    ed il dirottamento immediato del parlato su Qwen NPU locale
+  verification_method: Esecuzione di scripts/test_gemini_models.py e simulazione di
+    fallimento Gemini con verifica della risposta locale da parte di Qwen NPU
+  eco_ref: docs/lessons/llm_live_api.md#scelta-modelli-e-strategia-fallback
+  lesson_ref: docs/lessons/llm_live_api.md#scelta-modelli-e-strategia-fallback
+  date_identified: '2026-08-02'
+  last_updated: '2026-08-02'
+  history:
+  - date: '2026-08-02'
+    change: Inserimento Failure Mode per gestione deprecazione modelli Gemini Live
+      ed auto-fallback su Qwen NPU locale
+    rpn_old: 168
+    rpn_new: 8
+- id: FM-VUI-010
+  subsystem: VUI Audio
+  component: respeaker_vui_node
+  function: Cattura ed elaborazione nitida del parlato utente per ASR senza distorsioni
+    da clipping o latenza pre-roll
+  failure_mode: Incomprensione del parlato da parte delle API ASR (Gemini Live / Vosk)
+    per distorsione da guadagno rigido (30x), ritardo accumulato da pre-roll lungo
+    (2.5s) e ronzio di fondo
+  potential_cause: Amplificazione digitale eccessiva a 30x, buffer pre-roll da 125
+    frame ed assenza di registrazione/profilazione del silenzio ambientale
+  potential_effect: Marcus rileva la wake word ma non comprende i comandi vocali,
+    costringendo l'utente a ripetere o gridare a ridosso del microfono
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-VUI-001
+  - FM-VUI-002
+  - FM-VUI-003
+  initial_scoring:
+    severity: 8
+    occurrence: 8
+    detection: 3
+    rpn: 192
+  prevention_controls: Profilazione dinamica del silenzio all'avvio/idle, AGC dinamico
+    (1.0x-4.0x) con guadagno base a 2.5x e riduzione pre-roll a 500ms (25 frame)
+  detection_controls: Script di calibrazione e diagnostica microfonica scripts/test_mic_calibration.py
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Applicare il guadagno base a 2.5x con AGC dinamico, profilazione
+    del silenzio e pre-roll ridotto a 500ms
+  verification_method: Esecuzione di scripts/test_mic_calibration.py e verifica comprensibilità
+    ASR
+  eco_ref: docs/ecos/audio_vui_ecos.md#ECO-2026-08-02-002
+  lesson_ref: docs/lessons/audio_vui_pipeline.md#mic-gain-and-silence-profiling
+  date_identified: '2026-08-02'
+  last_updated: '2026-08-02'
+  history:
+  - date: '2026-08-02'
+    change: Inserimento Failure Mode per gestione dinamica del guadagno microfonico,
+      profilazione silenzio e riduzione latenza pre-roll
+    rpn_old: 192
+    rpn_new: 8
+- id: FM-CPU-001
+  subsystem: Vision/CPU
+  component: hailo_bridge_node
+  function: Acquisizione e pubblicazione immagine RGB annotata per debug visivo
+  failure_mode: Saturazione CPU da pipeline annotazione video sincrona a 30 Hz in
+    rgb_callback
+  potential_cause: La funzione annotate_and_publish_image (JPEG encode + cv2.rectangle
+    + DDS publish) viene chiamata sincrona ad ogni frame RGB ricevuto dalla camera
+    (30 Hz). Ogni iterazione alloca un buffer JPEG e pubblica ~50 KB su DDS loopback.
+  potential_effect: CPU core 2-3 al limite per il solo task di annotazione debug.
+    Jitter crescente su tutti i nodi ROS (DDS saturation). Ritardi nella risposta
+    VUI (latenza conversazionale aumenta di 200-500ms). Rischio watchdog kill nodi
+    secondari.
+  classification: PERFORMANCE
+  estimation_basis: analytical
+  related_ids:
+  - FM-VIS-002
+  - FM-SYS-004
+  initial_scoring:
+    severity: 7
+    occurrence: 9
+    detection: 3
+    rpn: 189
+  prevention_controls: Throttle del publish annotated image a 5 Hz tramite counter
+    in rgb_callback (1 frame ogni 6 @ 30 Hz camera).
+  detection_controls: Monitoraggio pidstat per-thread; anomalia CPU > 15% su hailo_bridge_node
+    in assenza di inferenza NPU attiva.
+  residual_scoring:
+    severity: 7
+    occurrence: 2
+    detection: 1
+    rpn: 14
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Applicato throttle counter in rgb_callback (hailo_bridge_node.py:561).
+    Ridotto face_rate_hz da 5.0 a 2.0 Hz nel launch file. Ridotto calib_interval_sec
+    da 1.0 a 2.0s in extrinsic_camera_calibrator.py.
+  verification_method: 'Confronto CPU usage (pidstat/top) prima e dopo il deploy.
+    Atteso: riduzione ~23% CPU totale sistema.'
+  eco_ref: docs/ecos/vision_hailo_ecos.md
+  lesson_ref: docs/lessons/vision_hailo_npu.md
+  date_identified: '2026-08-02'
+  last_updated: '2026-08-02'
+  history:
+  - date: '2026-08-02'
+    change: Identificato bottleneck durante analisi saturazione CPU. Applicato throttle
+      annotated image 5Hz, face_rate 2Hz, extrinsic calibrator 0.5Hz.
+    rpn_old: 189
+    rpn_new: 14

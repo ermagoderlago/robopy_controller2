@@ -97,7 +97,10 @@ class LocalizationFuserNode(Node):
     def imu_callback(self, msg: Imu):
         self.latest_imu = msg
 
-        # Extract pitch and roll from quaternion for 200 Hz ground plane estimation
+        # [CPU-OPT] Sub-sampling ground plane estimation da 200 Hz a 50 Hz (1 su 4 pacchetti IMU)
+        self._imu_counter = getattr(self, '_imu_counter', 0) + 1
+        if self._imu_counter % 4 != 0:
+            return
         q = msg.orientation
         sinr_cosp = 2.0 * (q.w * q.x + q.y * q.z)
         cosr_cosp = 1.0 - 2.0 * (q.x * q.x + q.y * q.y)

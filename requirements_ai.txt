@@ -8,3 +8,4 @@ pygame>=2.0.0
 pydantic>=2.0.0
 pyyaml>=6.0
 paramiko>=3.0.0  # For SSH if needed
+vosk>=0.3.44  # For offline wake-word and ASR

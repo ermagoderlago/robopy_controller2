@@ -100,10 +100,10 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'wakeword_sensitivity': 0.92,
-            # [v17.0] Guadagno 18.0x con filtro HPF @ 140 Hz per sensibilità far-field pulita
-            'stt_gain': 18.0,
-            # [v17.0] Threshold iniziale calibrata su segnale HPF
-            'noise_gate_threshold': 500.0,
+            # [v18.0] Guadagno 2.5x tarato con calibrazione empirica ed AGC
+            'stt_gain': 2.5,
+            # [v18.0] Threshold iniziale calibrata su segnale HPF
+            'noise_gate_threshold': 400.0,
             # --- Barge-In (v5.7) ---
             'enable_barge_in': True,
             'barge_in_min_tts_ms': 2500.0,

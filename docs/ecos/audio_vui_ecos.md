@@ -43,5 +43,26 @@ Questo documento traccia la cronologia delle modifiche ingegneristiche (ECO) app
   * Corretto l'input di `webrtcvad.is_speech()` trasmettendo il segnale filtrato `selected_hp_all_int16` al posto di `l_ch` per consentire il rilevamento istantaneo della fine della frase (End-Of-Speech) e sbloccare lo stato del LED.
   * Introdotta la selezione dinamica del canale con maggior energia vocale tra Left e Right dell'array ReSpeaker Lite.
   * Riconfigurata l'auto-calibrazione della soglia `noise_gate_threshold` sul segnale HPF, limitando la soglia massima nell'intervallo `[800.0, 4500.0]`.
-  * Ridotto `MIN_SPEECH_FRAMES` da 10 a 4 frame (80ms) per l'apertura immediata del gate vocale.
-  * Regolato `stt_gain` predefinito a `18.0x` in `robot_ia_launch.py`.
+---
+
+## 📈 ECO-2026-08-01-001: Porcupine Removal Fix & Continuous VAD Listening Mode
+* **Stato:** ✅ **Completato, Sincronizzato e Verificato**
+* **Descrizione:** Risoluzione del blocco di acquisizione audio microfonica causato dal check residuo `if self.porcupine is None: continue` in `respeaker_vui_node.py` e introduzione della registrazione automatica di tutte le conversazioni su disk log.
+* **Modifiche VUI & LLM:**
+  * **Sblocco Worker Audio:** Rimosso il check `if self.porcupine is None: continue` da `_audio_processing_worker` per ripristinare il flusso dei dati PCM dal microfono ReSpeaker Lite verso il VAD e Gemini Live API.
+  * **Continuous Listening Mode:** Impostata `self._ev_listening.set()` a `True` di default e modificata la routine `_on_listen_timeout` per preservare l'ascolto continuo attivo senza mutare il microfono.
+  * **Ciclo di Vita LED:** Mantenute le transizioni LED `LISTENING` (voce utente in corso) ➔ `THINKING` (fine frase / in attesa di risposta Gemini) ➔ `SPEAKING:<intensity>` / `SUCCESS` (riproduzione parlato Marcus) ➔ `IDLE` (ritorno a umore base).
+  * **Registrazione Conversazioni Persistente:** Implementata la funzione `_save_conversation_turn()` in `llm_service.py` per registrare ogni scambio di battute utente/Marcus in formato JSONL con timestamp su `/mnt/ssd/robopy_controller_host/logs/conversations.jsonl` e `~/robopy/logs/conversations.jsonl`.
+
+---
+
+## 📈 ECO-2026-08-02-002: Dynamic Gain Calibration, Noise Floor Subtraction & 500ms Pre-Roll Latency Fix
+* **Stato:** ✅ **Completato, Sincronizzato e Verificato**
+* **Descrizione:** Risoluzione delle incomprensioni ASR e del ritardo di risposta VUI mediante passaggio a guadagno base 2.5x con AGC dinamico 1.0x-4.0x, profilazione/soppressione del rumore di silenzio e riduzione pre-roll a 500ms.
+* **Modifiche VUI & DFMEA:**
+  * **Guadagno Dinamico & AGC:** Ridotto `stt_gain` di default da 30.0x a 2.5x ed inserito AGC dinamico con target speech RMS (~8000), eliminando il clipping 16-bit e la distorsione armonica del parlato.
+  * **Profilazione del Silenzio:** Implementata la calibrazione nei primi 2s di avvio per registrare il rumore di fondo della stanza ed effettuare la soppressione soft del rumore di fondo dal flusso audio PCM.
+  * **Pre-Roll 500ms:** Ridotto `PRE_ROLL_FRAMES` a 25 frame (500ms), annullando 2.0s di latenza nell'invio audio a Gemini Live API.
+  * **Script di Calibrazione:** Creato `scripts/test_mic_calibration.py` per l'ispezione SNR, clipping e calibrazione guidata dei parametri microfonici.
+  * **Registro FMEA:** Inserito Failure Mode `FM-VUI-010` nel database DFMEA ed aggiornato il report esecutivo.
+

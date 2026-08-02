@@ -22,6 +22,7 @@ Fix rispetto alla versione precedente:
 import asyncio
 import base64
 import concurrent.futures
+import datetime
 import json
 import os
 import threading
@@ -69,7 +70,7 @@ class LLMServiceNode(Node):
         # 1. Parametri ROS 2
         # ------------------------------------------------------------------
         self.declare_parameter('gemini_api_key',           '')
-        self.declare_parameter('model_name',               'gemini-3.1-flash-lite')
+        self.declare_parameter('model_name',               'gemini-2.5-flash-lite')
         self.declare_parameter('live_model_name',          'gemini-2.5-flash-native-audio-latest')
 
         self.declare_parameter('temperature',              0.7)
@@ -88,8 +89,8 @@ class LLMServiceNode(Node):
         self._cfg_lock        = threading.Lock()
         self._cfg_temperature = self.get_parameter('temperature').value
         self._cfg_max_tokens  = self.get_parameter('max_tokens').value
-        self._model_name      = self.get_parameter('model_name').value
-        self._live_model      = self.get_parameter('live_model_name').value
+        self._model_name      = os.environ.get('MODEL_NAME', self.get_parameter('model_name').value)
+        self._live_model      = os.environ.get('LIVE_MODEL_NAME', self.get_parameter('live_model_name').value)
         self._timeout_std     = self.get_parameter('timeout_standard').value
         self._timeout_live    = self.get_parameter('timeout_live').value
         self._system_prompt   = self.get_parameter('system_prompt').value
@@ -190,8 +191,10 @@ class LLMServiceNode(Node):
                 on_turn_complete=self._on_live_turn_complete,
                 on_mic_mute=self._on_live_mic_mute,
                 on_interrupt=self._on_live_interrupt,
-                history_getter=self._get_live_history
+                history_getter=self._get_live_history,
+                on_fallback_needed=self._on_live_fallback_needed
             )
+            self.pub_fallback = self.create_publisher(String, '/ai/live/fallback', 10)
             
             # Avvia il loop di connessione persistente
             asyncio.run_coroutine_threadsafe(self._live_mgr.start_loop(), self._loop)
@@ -578,6 +581,7 @@ class LLMServiceNode(Node):
             self._live_conversation_history.append((user_msg, model_msg))
             if len(self._live_conversation_history) > 30:
                 self._live_conversation_history.pop(0)
+            self._save_conversation_turn(user_msg, model_msg)
 
         return llm_response
 
@@ -794,6 +798,42 @@ class LLMServiceNode(Node):
             msg_interrupt.data = True
             self.pub_interrupt.publish(msg_interrupt)
 
+    def _on_live_fallback_needed(self, err_reason: str):
+        self.get_logger().warning(f"⚠️ [Live API Fallback] Triggerato fallback su Qwen NPU per errore: {err_reason}")
+        if hasattr(self, 'pub_fallback'):
+            msg = String()
+            msg.data = f"Gemini non disponibile ({err_reason})"
+            self.pub_fallback.publish(msg)
+
+    def _save_conversation_turn(self, user_text: str, model_text: str):
+        """[v15.5] Salva in modo permanente ciascun turno di conversazione su file di log (JSONL)."""
+        if not user_text and not model_text:
+            return
+        
+        now = time.time()
+        dt_str = datetime.datetime.fromtimestamp(now).strftime('%Y-%m-%d %H:%M:%S')
+        entry = {
+            "timestamp": now,
+            "datetime": dt_str,
+            "user": user_text.strip() if user_text else "",
+            "marcus": model_text.strip() if model_text else ""
+        }
+        
+        log_paths = [
+            "/mnt/ssd/robopy_controller_host/logs/conversations.jsonl",
+            os.path.expanduser("~/robopy/logs/conversations.jsonl")
+        ]
+        
+        for path in log_paths:
+            try:
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+                self.get_logger().info(f"📝 [CONVERSAZIONE REGISTRATA] -> {path}")
+                break
+            except Exception as e:
+                continue
+
     def _on_live_turn_complete(self, user_text: str, model_text: str):
         if model_text:
             self.get_logger().info(f"💾 [CRONOLOGIA] Salvato turno in memoria -> Utente: '{user_text}' | Marcus: '{model_text}'")
@@ -803,6 +843,8 @@ class LLMServiceNode(Node):
             self._last_interaction_time = time.time()
             if self._live_mgr:
                 self._live_mgr.last_successful_turn_time = time.time()
+            # [v15.5] Registrazione persistente su disco di tutte le conversazioni
+            self._save_conversation_turn(user_text, model_text)
 
     async def _execute_tool_live(self, name: str, args: dict) -> dict:
         if self._tool_executor_callback:

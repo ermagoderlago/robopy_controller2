@@ -38,13 +38,22 @@ Questo documento documenta la gestione del bidi-streaming vocale, la latenza dei
 
 ---
 
-## 🤖 Scelta Modelli e Strategia Fallback
+## 🤖 Scelta Modelli, Auto-Discovery e Strategia Fallback (FM-VUI-009)
 
-### Strategia a due modelli
-1. **Gemini 2.5 Flash Native Audio Dialog** (`gemini-2.5-flash-native-audio-latest`): **OBBLIGATORIO per AUDIO/LIVE**. Supporta esclusivamente audio.
-2. **Gemini 3.1-flash-lite-preview** (o modelli testuali correnti): **PREDEFINITO per CHAT/TESTO/RAG**.
-* **Strategia Fallback:** Se il modello primario non risponde entro **20 secondi**, il sistema effettua automaticamente il downgrade a `gemini-1.5-flash` per garantire la continuità di servizio.
-* **Billing Cap (Spending Cap):** Se viene superato il cap di spesa su Google AI Studio, la Live API WebSocket restituisce errore 1011 e chiude la connessione. Il gestore di enqueueing deve silenziare i log ed evitare il flooding della CPU scartando i chunk.
+### Modelli e Auto-Discovery Dinamica
+1. **Gemini Live Native Audio** (`gemini-2.5-flash-native-audio-preview-12-2025` / `gemini-2.0-flash-exp`): **OBBLIGATORIO per AUDIO/LIVE**.
+2. **Gemini Flash Standard** (`gemini-2.0-flash` / `gemini-1.5-flash`): **PREDEFINITO per CHAT/TESTO/RAG**.
+* **Diagnostica & Auto-Discovery (`scripts/test_gemini_models.py`):** Per prevenire blocchi dovuti alla deprecazione o al rinominamento dei modelli da parte di Google Cloud, utilizzare lo script autonomo:
+  ```bash
+  python3 scripts/test_gemini_models.py --update-env
+  ```
+  Lo script interroga `client.models.list()`, valida la bidi-streaming Live API con `response_modalities=["AUDIO"]` e seleziona il modello funzionante migliore aggiornando il file `.env`.
+
+### Strategia Fallback Locale su Qwen (NPU Hailo-10H)
+* Se la connessione Gemini Live fallisce (modello deprecato, errore 1008/404, spending cap superato o assenza di rete):
+  1. `LiveConnectionManager` rileva l'anomalia ed emette l'evento sul topic `/ai/live/fallback`.
+  2. `AIOrchestrator` intercetta il segnale ed avvisa l'utente via TTS: *"Gemini non è al momento raggiungibile a causa di un aggiornamento del modello. Rispondo in modalità locale tramite l'NPU."*
+  3. L'elaborazione dell'utente viene dirottata sul modello locale **Qwen2-VL** in esecuzione sull'NPU Hailo (`/hailo/vlm/ask_question`), garantendo risposta immediata mentre in background si esegue il ripristino o l'aggiornamento dei modelli Cloud.
 
 ---
 

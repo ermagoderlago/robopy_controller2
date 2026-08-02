@@ -199,11 +199,14 @@ class AIOrchestrator(Node):
         self.create_subscription(Detection2DArray, '/hailo/face/detections', self._face_detections_callback, 5)
         self.create_subscription(Float32MultiArray, '/hailo/face/embeddings', self._face_embeddings_callback, 5)
         self.create_subscription(DiagnosticArray, '/diagnostics', self._diagnostics_callback, 10)
+        self.create_subscription(String, '/ai/input/text', self._text_input_callback, 10)
         self.create_subscription(String, 'ai/input/text', self._text_input_callback, 10)
+        self.create_subscription(String, '/robopy/conversation_rx', self._text_input_callback, 10)
         self.create_subscription(String, 'ai/input/document', self._document_input_callback, 10)
         self.create_subscription(String, 'ai/input/voice_test', self._voice_test_callback, 10)
-        self.create_subscription(Bool, 'ai/input/mic_mute', self._mute_callback, 10)
         self.create_subscription(AudioData, '/ai/conversation/audio_chunk', self._audio_chunk_callback, 10)
+        self.create_subscription(String, '/ai/live/fallback', self._fallback_callback, 10)
+        self.pub_hailo_vlm = self.create_publisher(String, '/hailo/vlm/ask_question', 10)
 
         # Timer reattivi
         t1 = self.create_timer(0.02, self._reactive_loop_callback)
@@ -281,6 +284,13 @@ class AIOrchestrator(Node):
             if data_len > 0:
                 self.get_logger().info(f"🔊 Audio chunk from Gemini Live ({data_len} bytes) → TTS play_raw_pcm")
             self.tts_service.play_raw_pcm(msg.data)
+
+    def _fallback_callback(self, msg: String):
+        if self._shutdown_flag:
+            return
+        self.ai_logger.warning(f"⚠️ [Orchestrator] Ricevuto segnale di fallback: {msg.data}")
+        if self.tts_service:
+            self.tts_service.speak("Gemini non è al momento raggiungibile a causa di un aggiornamento del modello. Rispondo in modalità locale tramite l'NPU.")
 
     def _direct_audio_chunk_callback(self, data: bytes):
         if self._shutdown_flag:

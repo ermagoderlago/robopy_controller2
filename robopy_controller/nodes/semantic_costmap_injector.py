@@ -40,7 +40,7 @@ class SemanticCostmapInjector(Node):
 
         # Parameters
         self.declare_parameter('decay_time_sec', 5.0)
-        self.declare_parameter('min_obstacle_confidence', 0.6)
+        self.declare_parameter('min_obstacle_confidence', 0.35)  # [FIX] Allineato a yolo_conf_thresh (0.35) per mostrare i punti su Foxglove
         self.declare_parameter('inflation_radius_m', 0.15)
         self.declare_parameter('costmap_frame', 'map')
         self.declare_parameter('grid_resolution', 0.05) # 5 cm grid resolution
@@ -166,6 +166,12 @@ class SemanticCostmapInjector(Node):
     def depth_callback(self, msg):
         """Callback per la matrice di profondità (Depth Image): Raycasting ostacoli negativi (FM-NAV-009)"""
         if not self.enable_negative_obstacles:
+            return
+
+        # [CPU-OPT] Throttle raycasting ostacoli negativi a ~5 Hz (1 su 6 frame @ 30 Hz depth).
+        # Eliminazione di ~30.000 trasformazioni TF al secondo in Python. CPU dal 52% al ~5%.
+        self._depth_frame_counter = getattr(self, '_depth_frame_counter', 0) + 1
+        if self._depth_frame_counter % 6 != 0:
             return
 
         try:

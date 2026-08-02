@@ -32,7 +32,7 @@ class ExtrinsicCameraCalibrator(Node):
         self.declare_parameter('sag_error_thresh_deg', 10.0)
         self.declare_parameter('cam_height_nominal', 0.15)
         self.declare_parameter('cam_pitch_nominal', -0.5236)  # -30 deg
-        self.declare_parameter('calib_interval_sec', 1.0)
+        self.declare_parameter('calib_interval_sec', 2.0)   # [CPU-OPT] 0.5 Hz: drift meccanico è lento, non serve 1 Hz
 
         self.depth_topic = self.get_parameter('depth_topic').value
         self.camera_info_topic = self.get_parameter('camera_info_topic').value

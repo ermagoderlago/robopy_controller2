@@ -77,8 +77,8 @@ class RobotHealthSupervisor(Node):
         self.pub_status = self.create_publisher(String, '/robot/health_status', reliable_qos)
         self.pub_safety_override = self.create_publisher(Twist, '/cmd_vel_mux/input/safety_override', reliable_qos)
 
-        # Monitoring loop at 10 Hz
-        self.timer = self.create_timer(0.1, self.health_check_loop)
+        # Monitoring loop at 2 Hz (0.5s) [CPU-OPT: evita letture psutil/proc a 10Hz]
+        self.timer = self.create_timer(0.5, self.health_check_loop)
 
         self.get_logger().info('RobotHealthSupervisor node started.')
 

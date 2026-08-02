@@ -34,7 +34,8 @@ class LiveConnectionManager:
         on_turn_complete: Callable[[str, str], None],
         on_mic_mute: Callable[[bool], None],
         on_interrupt: Callable[[bool], None],
-        history_getter: Callable[[], List[tuple]]
+        history_getter: Callable[[], List[tuple]],
+        on_fallback_needed: Optional[Callable[[str], None]] = None
     ):
         self.client = client
         self._loop = loop
@@ -49,6 +50,7 @@ class LiveConnectionManager:
         self.on_mic_mute = on_mic_mute
         self.on_interrupt = on_interrupt
         self.history_getter = history_getter
+        self.on_fallback_needed = on_fallback_needed
 
         # Internal state
         self._live_session: Optional[Any] = None
@@ -263,14 +265,7 @@ class LiveConnectionManager:
                 live_functions = self._live_functions
                 voice_name = self.voice_name_getter()
 
-                # Gating rules for voice filtering
-                voice_gating_instructions = (
-                    "\n\n[REGOLE DI INTERAZIONE VOCALE E GATING (CRITICHE)]\n"
-                    "1. Se l'input dell'utente sembra essere rumore di fondo, silenzio, un frammento di discorso origliato o conversazione tra terzi non rivolta a te, e non c'è una chiara correlazione con il contesto recente della nostra conversazione, NON rispondere normalmente.\n"
-                    "In questo caso, rispondi ESCLUSIVAMENTE con la parola chiave speciale '<IGNORE_TURN>' e nient'altro (nessun parlato, nessun suono, nessun testo).\n"
-                    "2. Rispondi normalmente solo se l'utente ti chiama direttamente per nome ('Marcus') o se la frase è una continuazione coerente, diretta e logica della conversazione recente.\n"
-                )
-                full_sys_prompt = sys_prompt + voice_gating_instructions
+                full_sys_prompt = sys_prompt
                 history = self.history_getter()
                 if history:
                     history_str = (
@@ -281,7 +276,7 @@ class LiveConnectionManager:
                         history_str += f"Utente: {usr}\nMarcus: {bot}\n"
                     full_sys_prompt = full_sys_prompt + history_str
 
-                modalities = ["AUDIO"] if "native-audio" in model_used else ["TEXT", "AUDIO"]
+                modalities = ["AUDIO"]
                 
                 ws_kwargs = {"response_modalities": modalities}
                 if full_sys_prompt:
@@ -371,6 +366,14 @@ class LiveConnectionManager:
                     fail_count += 1
                     if fail_count == 1 or fail_count % 5 == 0:
                         self.logger.warning(f"Errore connessione Live API (tentativo {fail_count}): {e}")
+                    
+                    if fail_count == 3 or "404" in err_str or "not found" in err_str.lower():
+                        if self.on_fallback_needed:
+                            try:
+                                self.on_fallback_needed(err_str)
+                            except Exception as fb_err:
+                                self.logger.error(f"Errore durante l'esecuzione del callback di fallback: {fb_err}")
+                                
                     await asyncio.sleep(backoff)
                     backoff = min(backoff * 1.5, max_backoff)
 
@@ -395,8 +398,10 @@ class LiveConnectionManager:
                     # Il filtro rumore è delegato al meccanismo <IGNORE_TURN> nel prompt di Gemini.
 
                     last_turn_ago = time.time() - self.last_successful_turn_time
-                    last_wakeword_ago = time.time() - self.last_wakeword_time
+                    last_wakeword_ago = time.time() - self.last_wakeword_time if self.last_wakeword_time > 0 else 0.0
+                    # [v6.5] In modalità Continuous Listening VAD (senza Porcupine), la finestra è sempre attiva per il parlato VAD
                     is_active = (
+                        self.last_wakeword_time == 0.0 or  # Continuous VAD Mode
                         last_wakeword_ago < 60.0 or
                         last_turn_ago < 30.0
                     )
@@ -408,7 +413,7 @@ class LiveConnectionManager:
 
                     if not is_active:
                         # Fuori finestra conversazione: scarta silenziosamente
-                        self.logger.info("🔇 [Live] Turno ignorato: fuori dalla finestra di conversazione attiva (>60s da wake word, >30s dall'ultimo turno).")
+                        self.logger.info("🔇 [Live] Turno ignorato: fuori dalla finestra di conversazione attiva.")
                         if self.on_mic_mute:
                             self.on_mic_mute(True)
                         self._current_user_text = ""
@@ -560,6 +565,10 @@ class LiveConnectionManager:
                         "action_type": part.function_call.name,
                         "args": dict(part.function_call.args),
                     })
+
+            # NOTA: Con response_modalities=["AUDIO"], il campo text è sempre vuoto.
+            # L'output arriva esclusivamente come audio PCM via inline_data (sopra).
+            # NON triggerare fallback qui — il controllo avviene solo a turn_complete.
 
         if getattr(sc, 'turn_complete', False):
             self._turn_in_progress = False  # sblocca nuovi activity_start

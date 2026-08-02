@@ -46,7 +46,7 @@ def generate_launch_description():
             'hef_path': LaunchConfiguration('hef_path'),
             'sim_mode': LaunchConfiguration('sim_mode'),
             'vlm_rate_hz': 1.5,
-            'face_rate_hz': 5.0,
+            'face_rate_hz': 2.0,          # [CPU-OPT] Ridotto da 5 Hz: -5% CPU, risposta ok a 2 Hz
             'enable_speaker_id': True,
             'known_faces_dir': '/home/robopy/robopy/robopy_controller/known_faces',
             'publish_sim_sedia': False,

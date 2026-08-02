@@ -37,7 +37,11 @@ import audioop
 
 # Nuovi import per DSP
 import numpy as np
-import webrtcvad
+try:
+    import webrtcvad
+    HAS_WEBRTCVAD = True
+except ImportError:
+    HAS_WEBRTCVAD = False
 try:
     from scipy.signal import butter, sosfilt, sosfilt_zi
     HAS_SCIPY = True
@@ -59,13 +63,37 @@ except ImportError:
     HAS_VOICEPRINT = False
 
 try:
+    from robopy_controller.robot_ai.services.local_asr_vosk import VoskASRManager
+    HAS_VOSK_ASR = True
+except ImportError:
+    HAS_VOSK_ASR = False
+
+try:
     from dotenv import load_dotenv
     # Fix: Usa il path assoluto per caricare .env, poiché in ROS2 la CWD può variare.
     load_dotenv("/mnt/ssd/robopy_controller_host/.env", override=True)
 except ImportError:
     pass
 
-# ... (omessi import)
+
+# ============================================================ #
+#  COSTANTI AUDIO GLOBALI                                        #
+#  Devono stare qui (module-level) per essere visibili          #
+#  sia nelle firme dei metodi che nel corpo della classe.       #
+# ============================================================ #
+SAMPLE_RATE    = 16000          # Hz — microfono ReSpeaker Lite 16kHz mono
+FRAME_SIZE     = 320            # campioni per frame VAD = 20ms @ 16kHz
+CHUNK_SIZE     = 960            # 3 frame VAD esatti (3 × 320)
+MAX_RESIDUAL   = CHUNK_SIZE * 4 # buffer residuo inter-callback
+MAX_RING_FRAMES = 50            # ~1.0 sec capacità totale del ring buffer
+PRE_ROLL_FRAMES = 25            # 25 frame = 500ms di pre-roll per azzerare la latenza
+PRE_ROLL_BYTES  = PRE_ROLL_FRAMES * FRAME_SIZE * 2      # byte totali (16000 B)
+MIN_SPEECH_FRAMES = 4           # 4 × 20ms = 80ms di voce sostenuta per attivare VAD
+# Audio output: Gemini Live API produce PCM 24kHz mono int16
+_NATIVE_AUDIO_RATE          = 24000  # Hz output Gemini Live (chunks piccoli, live streaming)
+_STD_AUDIO_RATE             = 24000  # Hz output TTS pre-generato (stesso formato)
+_NATIVE_AUDIO_CHUNK_THRESHOLD = 4096 # byte: chunk < soglia → live Gemini, ≥ soglia → TTS
+
 
 def _load_keys():
     """Carica le chiavi API da setup_keys.sh centrale."""
@@ -94,17 +122,23 @@ class ReSpeakerVUINode(Node):
 
     def __init__(self):
         super().__init__('respeaker_vui_node')
-        self.get_logger().info("--- ReSpeaker VUI Node v6.0 (Hailo-10H NPU & Ambient Memory Engine) ---")
+        # [marcus_core_rules.md] Core Pinning: Riserva il Core 3 per l'elaborazione audio in tempo reale
+        try:
+            os.sched_setaffinity(0, {3})
+            self.get_logger().info("📌 CPU Core Affinity impostata su Core 3 per la VUI.")
+        except Exception as e:
+            self.get_logger().warning(f"Impossibile impostare affinità CPU: {e}")
+
         _load_keys()
 
         # ------------------------------------------------------------------ #
         # Parametri ROS 2
         # ------------------------------------------------------------------ #
-        self.declare_parameter('stt_gain',              30.0)  # [v5.5] 30x hardware gain per ReSpeaker Lite
+        self.declare_parameter('stt_gain',              2.5)   # [v18.0] Guadagno base 2.5x con AGC dinamico 1.0x-4.0x
         self.declare_parameter('noise_gate_threshold',  1500.0)
         self.declare_parameter('wakeword_sensitivity',  0.92)  # default alzato
         self.declare_parameter('playback_prebuffer',    2)
-        self.declare_parameter('listen_timeout_sec',    180.0)
+        self.declare_parameter('listen_timeout_sec',    30.0)   # [v18.0] Finestra vigile 30s dopo parola chiave / ogni comando
         self.declare_parameter('max_silence_frames',    35)     # 35 * 20ms = 700ms di pausa naturale
         self.declare_parameter('device_name',            'ReSpeaker')
         self.declare_parameter('sample_rate',            16000)
@@ -133,6 +167,12 @@ class ReSpeakerVUINode(Node):
         self._ambient_noise_chunks = 0
         self._is_playing_out = False
 
+        # Profilazione del silenzio (Noise Profiling & Subtraction)
+        self._boot_time = time.monotonic()
+        self._noise_profile_samples = []
+        self._noise_profile_mean = 0.0
+        self._noise_profile_calibrated = False
+
         self.device_name_target  = self.get_parameter('device_name').get_parameter_value().string_value
         self.sample_rate         = self.get_parameter('sample_rate').get_parameter_value().integer_value
         self.stt_gain            = self.get_parameter('stt_gain').get_parameter_value().double_value
@@ -152,6 +192,12 @@ class ReSpeakerVUINode(Node):
 
         self.porcupine = None # Porcupine eliminato definitivamente
         self.frame_length = 512
+
+        # [v17.5] Inizializzazione Vosk ASR
+        if HAS_VOSK_ASR:
+            self.vosk_mgr = VoskASRManager(on_text_cb=self._on_vosk_text)
+        else:
+            self.vosk_mgr = None
 
 
         # ------------------------------------------------------------------ #
@@ -180,7 +226,13 @@ class ReSpeakerVUINode(Node):
         self._porcupine_assembly_buf = np.empty(self.frame_length, dtype=np.int16)
 
         # [v3.0] Stato VAD
-        self._vad                 = webrtcvad.Vad(3)
+        if HAS_WEBRTCVAD:
+            try:
+                self._vad = webrtcvad.Vad(3)
+            except Exception:
+                self._vad = None
+        else:
+            self._vad = None
         self._speech_frame_count  = 0
         self._silence_frame_count = 0
         self._is_speech_active    = False
@@ -236,9 +288,18 @@ class ReSpeakerVUINode(Node):
         self._last_playback_time = 0.0
 
         self._ev_listening = threading.Event()
+        self._ev_listening.clear()  # [v17.5] Messo in clear per attendere la Wake Word offline (risparmio budget)
         self._ev_tts       = threading.Event()
         self._shutdown     = False
         self._listen_timer = None
+        self._listen_timer_start = 0.0
+        self._listen_timeout_sec = 8.0
+        self._listen_timer_expired = False
+        
+        # [v18.0] Variabili per Speaker ID e Logging Offline
+        self._last_speaker_name = "unknown"
+        self._last_speaker_time = 0.0
+        self._pending_transcriptions = []
 
         # [v2.5 #3] Contatore errori consecutivi nel callback
         self._consecutive_errors = 0
@@ -283,6 +344,16 @@ class ReSpeakerVUINode(Node):
         self.create_subscription(Bool,      '/ai/music_playing',        self._music_playing_cb, 10)
         self.create_subscription(String,    '/ai/conversation/mood',    self._mood_cb,          10)
         self.create_subscription(Bool,      '/ai/conversation/interrupt', self._interrupt_cb,     10)
+        self.sub_stt = self.create_subscription(
+            String, '/ai/output/stt', self._stt_callback, 10)
+        
+        self.sub_speaker = self.create_subscription(
+            String, '/speaker/identity', self._speaker_identity_cb, 10)
+
+        # ------------------------------------------------------------------ #
+        # Timer e loop asincroni
+        # ------------------------------------------------------------------ #
+        self.create_timer(1.0, self._process_pending_transcriptions)
 
         # ------------------------------------------------------------------ #
         # PyAudio — usa CHUNK_SIZE come frames_per_buffer
@@ -622,14 +693,22 @@ class ReSpeakerVUINode(Node):
             self._listen_timer = None
 
     def _on_listen_timeout(self):
-        self.get_logger().warning(
-            f"Timeout ascolto ({self._listen_timeout_sec}s): reset IDLE automatico.")
+        self.get_logger().info(
+            f"🔔 Finestra vigile di 30s scaduta: Marcus emette chime di chiusura e torna in ascolto wakeword.")
         self._stop_listen_timer()
         self._ev_listening.clear()
-        self.set_led(self._current_mood)
+
+        # Emit closing chime only when transitioning back to wakeword mode
+        try:
+            chime_bytes = self._generate_beep(freq=600.0, duration=0.15) + self._generate_beep(freq=400.0, duration=0.15)
+            self._audio_out_queue.put_nowait(chime_bytes)
+        except Exception:
+            pass
+
         mute_msg = Bool()
         mute_msg.data = True
         self.mic_mute_pub.publish(mute_msg)
+        self.set_led(self._current_mood)
 
     # ------------------------------------------------------------------ #
     # [v3.0] PUBBLICAZIONE ROS 2 — metodi VAD gate
@@ -691,15 +770,17 @@ class ReSpeakerVUINode(Node):
             # [v11.0] VAD Inibito se suona musica (per evitare eco), ci affidiamo solo alla Wake Word
             is_voice = False
         else:
-            # [DSP-HOT] tobytes() su segnale RAW (non boosted) per evitare falsi positivi nel VAD
-            try:
-                is_voice = self._vad.is_speech(frame_raw.tobytes(), SAMPLE_RATE)
-            except ValueError as e:
-                self.get_logger().error(f'[VAD] frame malformato (bug): {e}')
-                is_voice = False
-            except Exception as e:
-                self.get_logger().warn(f'[VAD] errore generico: {e}')
-                is_voice = False
+            if self._vad is not None:
+                try:
+                    is_voice = self._vad.is_speech(frame_raw.tobytes(), SAMPLE_RATE)
+                except ValueError as e:
+                    self.get_logger().error(f'[VAD] frame malformato (bug): {e}')
+                    is_voice = (rms >= current_threshold * 1.15)
+                except Exception as e:
+                    self.get_logger().warn(f'[VAD] errore generico: {e}')
+                    is_voice = (rms >= current_threshold * 1.15)
+            else:
+                is_voice = (rms >= current_threshold * 1.15)
 
         if is_voice:
             self._speech_frame_count  += 1
@@ -734,8 +815,73 @@ class ReSpeakerVUINode(Node):
                     self._publish_end_of_speech()
 
     # ------------------------------------------------------------------ #
-    # [v3.1] Helper per rilevazione Wake Word
+    # [v3.1] Helper per rilevazione Wake Word e Logging Offline
     # ------------------------------------------------------------------ #
+    def _stt_callback(self, msg: String):
+        """Callback per il testo trascritto da STT esterni."""
+        if msg.data:
+            self._on_vosk_text(msg.data, is_partial=False)
+
+    def _speaker_identity_cb(self, msg: String):
+        self._last_speaker_name = msg.data
+        self._last_speaker_time = time.time()
+        self.get_logger().info(f"🗣️ [Speaker ID] Ricevuta identità: {self._last_speaker_name}")
+
+    def _process_pending_transcriptions(self):
+        import json
+        import datetime
+        now = time.time()
+        
+        # Copia e pulizia coda
+        pending = list(self._pending_transcriptions)
+        self._pending_transcriptions.clear()
+        
+        for text, ts in pending:
+            # Attendiamo almeno 1.5 secondi per dare tempo alla NPU di rispondere
+            if now - ts < 1.5:
+                self._pending_transcriptions.append((text, ts))
+                continue
+                
+            # Log
+            dt_str = datetime.datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S')
+            
+            # Se lo speaker identity è vecchio di oltre 10 secondi rispetto al testo, segnamo unknown
+            speaker_to_log = self._last_speaker_name
+            if abs(ts - self._last_speaker_time) > 10.0:
+                speaker_to_log = "unknown"
+                
+            entry = {
+                "timestamp": ts,
+                "datetime": dt_str,
+                "user": text,
+                "marcus": "[OFFLINE_LOG]",
+                "speaker": speaker_to_log
+            }
+            
+            log_paths = [
+                "/mnt/ssd/robopy_controller_host/logs/conversations.jsonl",
+                os.path.expanduser("~/robopy/logs/conversations.jsonl")
+            ]
+            
+            for path in log_paths:
+                try:
+                    os.makedirs(os.path.dirname(path), exist_ok=True)
+                    with open(path, "a", encoding="utf-8") as f:
+                        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+                    break
+                except Exception:
+                    continue
+
+    def _on_vosk_text(self, text: str, is_partial: bool = False):
+        """Callback chiamato dal thread in background di Vosk quando ha trascritto qualcosa."""
+        text_lower = text.lower()
+        if not is_partial:
+            self.get_logger().info(f"🗣️ [VOSK ASR] Sentito: '{text}'")
+            self._pending_transcriptions.append((text, time.time()))
+            
+        if "marcus" in text_lower or "marco" in text_lower or "robot" in text_lower:
+            self._on_wakeword_detected()
+
     def _on_wakeword_detected(self):
         """Gestisce le azioni da compiere quando viene rilevata la wake word."""
         if self._ev_listening.is_set():
@@ -800,8 +946,7 @@ class ReSpeakerVUINode(Node):
             except queue.Empty:
                 continue
 
-            if self.porcupine is None:
-                continue
+            # [v6.5] Audio processing continues even when Porcupine is disabled/None
 
             try:
                 # ---------------------------------------------------------- #
@@ -846,6 +991,18 @@ class ReSpeakerVUINode(Node):
                     selected_hp = hp_l
                     rms_hp_current = rms_l_hp
                 
+                # Profilazione del silenzio (Noise Floor Profile Subtraction)
+                if time.monotonic() - self._boot_time < 2.0 and not self._is_tts_speaking and not self._is_music_playing:
+                    self._noise_profile_samples.append(float(rms_hp_current))
+                    if len(self._noise_profile_samples) >= 8:
+                        self._noise_profile_mean = float(np.mean(self._noise_profile_samples))
+                        self._noise_profile_calibrated = True
+
+                # Soppressione del rumore di fondo registrato nel profilo del silenzio
+                if self._noise_profile_calibrated and self._noise_profile_mean > 5.0:
+                    noise_mask = np.abs(selected_hp[:n]) < (self._noise_profile_mean * 1.3)
+                    selected_hp[:n][noise_mask] *= 0.35
+
                 # Calcolo continuo EMA rumore ambientale (aggiornato sul segnale HPF quando l'AI non parla e VAD è inattivo)
                 if not self._is_tts_speaking and not self._is_music_playing and not getattr(self, '_is_playing_out', False) and not self._is_speech_active:
                     if rms_hp_current < self._ambient_noise_ema * 1.5:
@@ -865,9 +1022,9 @@ class ReSpeakerVUINode(Node):
 
                 # A. Auto-regolazione soglia noise gate (se abilitata) calibrata su HPF per far-field
                 if self.enable_adaptive_threshold:
-                    boosted_ambient = self._ambient_noise_ema * stt_gain_to_use
-                    # Soglia dinamica per far-field: clamped tra [800.0, 4500.0] (intercetta voce a 2-3m, RMS ~1500-3000)
-                    self.noise_gate_threshold = float(np.clip(boosted_ambient * 1.25 + 300.0, 800.0, 4500.0))
+                    boosted_ambient = self._ambient_noise_ema * self.stt_gain
+                    # Soglia dinamica per far-field: clamped tra [600.0, 4000.0] basata sui test empirici a 50cm, 1m e 3m
+                    self.noise_gate_threshold = float(np.clip(boosted_ambient * 1.30 + 300.0, 600.0, 4000.0))
 
                 # B. Taratura adattiva del timeout silenzio (se abilitato)
                 if self.enable_adaptive_silence:
@@ -923,12 +1080,11 @@ class ReSpeakerVUINode(Node):
                     self._barge_in_triggered  = False
                     self._barge_in_frame_count = 0
 
-                # Dynamic Gain Control: riduciamo il guadagno durante il TTS per evitare eco
+                # Dynamic Gain Control: guadagno base costante 2.5x per segnale ASR pulito
                 stt_gain_to_use = self.stt_gain
                 if self._is_tts_speaking:
                     # Se l'AI parla, abbassiamo il boost per proteggere il VAD dall'eco
-                    # ma lo manteniamo a un livello moderato per consentire il barge-in e la wake word
-                    stt_gain_to_use = max(2.5, self.stt_gain * 0.15)
+                    stt_gain_to_use = max(1.0, self.stt_gain * 0.15)
                 elif ai_cooldown_active:
                     # Durante il cooldown di 600ms, azzeriamo il guadagno software per assorbire l'eco finale del buffer
                     stt_gain_to_use = 0.0
@@ -972,49 +1128,13 @@ class ReSpeakerVUINode(Node):
 
 
                 # ---------------------------------------------------------- #
-                # Porcupine — wake word detection su segnale int16 grezzo
+                # Vosk ASR — trascrizione continua offline e wake word
                 # ---------------------------------------------------------- #
                 is_listening = self._ev_listening.is_set()
 
-                if not is_listening:
-                    porc_idx = 0
-
-                    # A. Gestione residuo dal callback precedente
-                    if self._porcupine_residual_len > 0:
-                        needed = self.frame_length - self._porcupine_residual_len
-                        if needed <= CHUNK_SIZE:
-                            np.copyto(self._porcupine_assembly_buf[:self._porcupine_residual_len],
-                                      self._porcupine_residual_buf[:self._porcupine_residual_len])
-                            np.copyto(self._porcupine_assembly_buf[self._porcupine_residual_len:],
-                                      self._int16_vad_buf[:needed])
-
-                            pcm = self._porcupine_assembly_buf.tolist()
-                            result = self.porcupine.process(pcm)
-                            if result >= 0:
-                                self.get_logger().info("!!! PORCUPINE MATCH DETECTED (Pre-roll loop) !!!")
-                                self._on_wakeword_detected()
-
-                            porc_idx = needed
-                            self._porcupine_residual_len = 0
-
-                    # B. Processa i blocchi interi nel chunk corrente
-                    while porc_idx + self.frame_length <= CHUNK_SIZE:
-                        porcupine_frame = self._int16_vad_buf[porc_idx : porc_idx + self.frame_length]
-
-                        pcm = porcupine_frame.tolist()
-                        result = self.porcupine.process(pcm)
-                        if result >= 0:
-                            self.get_logger().info("!!! PORCUPINE MATCH DETECTED (Main loop) !!!")
-                            self._on_wakeword_detected()
-                        porc_idx += self.frame_length
-
-                    # C. Conserva il residuo finale
-                    rest = CHUNK_SIZE - porc_idx
-                    if rest > 0:
-                        np.copyto(self._porcupine_residual_buf[:rest], self._int16_vad_buf[porc_idx:])
-                        self._porcupine_residual_len = rest
-
-                    # Aggiorna is_listening se è stata rilevata la wake word nel loop
+                if self.vosk_mgr:
+                    self.vosk_mgr.process_audio(self._int16_vad_buf[:n].tobytes())
+                    # Aggiorna is_listening nel caso in cui Vosk abbia appena attivato l'ascolto in un altro thread
                     is_listening = self._ev_listening.is_set()
 
                 # ---------------------------------------------------------- #
@@ -1173,8 +1293,8 @@ class ReSpeakerVUINode(Node):
             self.out_stream.stop_stream()
             self.out_stream.close()
             
-        if hasattr(self, 'porcupine') and self.porcupine:
-            self.porcupine.delete()
+        if hasattr(self, 'vosk_mgr') and self.vosk_mgr:
+            self.vosk_mgr.stop()
             
         if hasattr(self, 'pa'):
             self.pa.terminate()

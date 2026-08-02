@@ -140,5 +140,15 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
 * **Telemetry Logger:** Registra a 1 Hz lo scostamento trasversale (Cross-Track Error $e_{ct}$), l'oscillazione angolare (Angular Jitter $J_\omega$) ed i cambi di ritmo stop-and-go in `~/.marcus/telemetry/mppi_nav_telemetry.jsonl` con impatto CPU <1% su RPi5.
 * **Offline Autotuner:** Job notturno / idle che calcola la funzione di costo $J = 15 J_\omega + 25 \bar{e}_{ct} + 2 N_{stop}$ per ottimizzare euristica `inflation_radius`, `cost_scaling_factor` e i pesi MPPI (`PathAlign`, `Obstacle`) aggiornando automaticamente `nav2_params.yaml`.
 
+---
+
+## 🔄 Routine Scansione Mappatura Stanza (720° Step-and-Pause)
+
+### Architettura Nodo Scansione Mappatura (`room_mapping_scan_node.py`)
+* **Scopo:** Eseguire una rotazione completa controllata di 720° (2 giri completi) in passi discreti di 15° con una pausa di 5 secondi ad ogni stop.
+* **Prevenzione Motion Blur:** Durante la pausa di 5s, il robot invia comandi nullo (`cmd_vel = 0`) consentendo alla videocamera stereo OAK-D Lite ed a RTAB-Map di catturare keyframe visivi nitidi e nuvole di punti esenti da sfocature da movimento.
+* **Esecuzione:** Avviabile via `ros2 run robopy_controller room_mapping_scan_node` o direttamente tramite script `python robopy_controller/nodes/room_mapping_scan_node.py`.
+
+
 
 

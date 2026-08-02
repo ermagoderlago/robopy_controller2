@@ -12,7 +12,10 @@ Dipendenze:
 import numpy as np
 import threading
 import time
-import pytest
+try:
+    import pytest
+except ImportError:
+    pytest = None
 from unittest.mock import MagicMock, patch
 from scipy.signal import butter, sosfilt, sosfilt_zi
 

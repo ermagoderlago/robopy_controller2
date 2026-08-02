@@ -159,14 +159,46 @@ class SpeakerRecognitionService:
                 confidence=round(best_similarity, 3),
                 fallback_to_generic=False
             )
-            # Publish event to EventBus (we can reuse EventType.USER_SPOKE or customize)
+            # Publish event to EventBus
             self.event_bus.publish(EventType.USER_SPOKE, {"name": best_name, "speaker_confidence": best_similarity})
         else:
+            # 💡 UTENTE REQUEST: Salva l'embedding come unknown_XX per raggruppare le voci
+            new_id = self._generate_new_unknown_id()
+            self._save_unknown_embedding(new_id, emb_arr)
+            
             result = SpeakerRecognitionResult(
                 recognized=False,
-                name="unknown",
-                confidence=round(best_similarity, 3),
+                name=new_id,
+                confidence=0.0,
                 fallback_to_generic=True
             )
 
         return result
+
+    def _generate_new_unknown_id(self) -> str:
+        """Trova il prossimo ID libero per gli speaker sconosciuti (es. unknown_01, unknown_02)."""
+        max_id = 0
+        with self._lock:
+            for name in self._known_embeddings.keys():
+                if name.startswith("unknown_"):
+                    try:
+                        num = int(name.split("_")[1])
+                        if num > max_id:
+                            max_id = num
+                    except ValueError:
+                        pass
+        return f"unknown_{max_id + 1:02d}"
+
+    def _save_unknown_embedding(self, name: str, emb_arr: np.ndarray):
+        """Salva il nuovo embedding su disco e in memoria."""
+        if not self.known_speakers_dir:
+            return
+        os.makedirs(self.known_speakers_dir, exist_ok=True)
+        file_path = os.path.join(self.known_speakers_dir, f"{name}.npy")
+        try:
+            np.save(file_path, emb_arr)
+            with self._lock:
+                self._known_embeddings[name] = emb_arr
+            self.logger.info(f"🆕 Nuova voce sconosciuta registrata come {name}")
+        except Exception as e:
+            self.logger.error(f"❌ Errore nel salvataggio di {name}: {e}")

@@ -36,8 +36,11 @@ Questo documento raccoglie le linee guida operative, le ricette di build e le le
   ```bash
   bash /mnt/ssd/robopy_controller_host/restart.sh
   ```
-* **Conflitto Watchdog:** Il servizio `marcus-watchdog.service` monitora il processo `robot_ai_node`. Se l'operatore arresta manualmente i nodi per modifiche, il watchdog rileva un crash spurio ed avvia un riavvio di emergenza concorrente, causando deadlock di occupazione seriale e conflitti DDS.
-* **Soluzione Interlock:** Lo script `restart.sh` controlla la presenza della variabile d'ambiente `FROM_WATCHDOG`. Se vuota (riavvio manuale), provvede ad arrestare preventivamente il watchdog via systemctl (`sudo systemctl stop marcus-watchdog.service`), esegue il riavvio dello stack, e riattiva il watchdog al termine. Se `FROM_WATCHDOG=1`, salta la gestione systemctl per evitare ricorsioni e deadlock.
+* **Conflitto e Race Condition del Watchdog (FM-SYS-007):** Lo script/servizio `watchdog.sh` (o `marcus-watchdog.service`) monitora continuamente il processo `robot_ai_node`. Se l'operatore arresta o riavvia manualmente lo stack, l'avvio temporizzato di ROS 2 (sleep di 15-30s per inizializzazione camera e SLAM) viene scambiato dal watchdog per un crash. Il loop a 5s del watchdog lancia quindi ricorsivamente multiple istanze concorrenti di `restart_hailo.sh`, causando la moltiplicazione dei nodi (es. 8+ istanze di `robot_health_supervisor`), la saturazione dei 4 core CPU al 100% (Load Average > 35) ed il freeze del sistema.
+* **Soluzione Interlock a Triplo Livello:** 
+  1. Lo script `restart_hailo.sh` controlla la variabile `FROM_WATCHDOG`. Se vuota (riavvio manuale), esegue preventivamente `sudo systemctl stop marcus-watchdog.service` e `systemctl --user stop marcus-watchdog.service`.
+  2. Per eliminare istanze standalone disaccoppiate da systemd, viene eseguito `pkill -9 -f watchdog.sh` all'inizio dello script di startup prima dello spawn dei nuovi nodi.
+  3. Al termine dell'inizializzazione sequenziale, il watchdog viene riattivato in sicurezza.
 
 ---
 

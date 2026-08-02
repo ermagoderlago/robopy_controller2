@@ -52,4 +52,16 @@ Questo documento traccia la cronologia delle modifiche ingegneristiche (ECO) app
   * In `conversation.py`, esteso il filtro duplicati ASR con un controllo temporale a soglia (<3.5 secondi dall'ultimo chunk audio microfonico registrato in `LiveConnectionManager._last_mic_audio_time`), prevenendo la doppia voce in caso di errori di lingua/allucinazione dell'ASR cloud.
   * In `llm_service.py` e `orchestrator.py`, introdotto il meccanismo `_direct_audio_chunk_callback` in Python per bypassare il topic ROS `/ai/conversation/audio_chunk`. Questo costringe lo stream di chunk audio di Gemini Live a essere instradato verso il trasmettitore in modo strettamente sequenziale, prevenendo il riordinamento (jitter) da esecuzione multi-threaded e ripulendo completamente l'audio riprodotto.
 
+---
+
+## 📈 ECO-2026-08-02-001: Diagnostica Modelli Gemini, Auto-Discovery e Fallback Locale Qwen NPU
+* **Stato:** ✅ **Completato, Sincronizzato e Collaudato**
+* **Descrizione:** Introduzione dello script autonomo di diagnostica modelli Gemini (`scripts/test_gemini_models.py`), auto-discovery del modello `gemini-2.5-flash-native-audio-preview-12-2025` con risposta audio nativa e meccanismo di fallback automatico su Qwen2-VL (Hailo NPU) in caso di inaccessibilità/deprecazione dei modelli Cloud.
+* **Modifiche apportate:**
+  * Creato `scripts/test_gemini_models.py` per l'auto-discovery dinamica via `client.models.list()` ed il test di bidi-streaming con `response_modalities=["AUDIO"]`, con supporto al flag `--update-env` per la persistenza in `/mnt/ssd/robopy_controller_host/.env`.
+  * Aggiornato `llm_service.py` per leggere `LIVE_MODEL_NAME` e `MODEL_NAME` in priorità dal file `.env`, impostando di default il modello verificato `gemini-2.5-flash-native-audio-preview-12-2025`.
+  * In `live_connection_manager.py`, `llm_service.py` ed `orchestrator.py`, introdotto il callback `on_fallback_needed` ed il topic `/ai/live/fallback` per rilevare errori 404/1008 o disconnessioni Gemini, avvisando l'utente via TTS locale (*"Gemini non è al momento raggiungibile..."*) e dirottando le richieste dell'utente sull'NPU locale via `/hailo/vlm/ask_question`.
+  * Aggiornato `sync_marcus.sh` nello Step 1 (Back-Sync) per sincronizzare il file `.env` dal robot al PC, evitando la sovrascrittura da parte del PC dei modelli auto-scoperti dal robot.
+
+
 

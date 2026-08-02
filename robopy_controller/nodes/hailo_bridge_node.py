@@ -562,7 +562,12 @@ class HailoBridgeNode(Node):
         with self.lock:
             self.latest_rgb = msg
             depth_msg = self.latest_depth
-        self.annotate_and_publish_image(msg, depth_msg)
+        # [CPU-OPT] Throttle annotated image a ~5 Hz (1 su 6 frame @ 30 Hz camera).
+        # La pipeline di inferenza YOLO/Face nei thread separati non è influenzata.
+        # Risparmio stimato: ~15% CPU + ~1.3 MB/s DDS overhead. (FM-CPU-001)
+        self._annotate_frame_counter = getattr(self, '_annotate_frame_counter', 0) + 1
+        if self._annotate_frame_counter % 6 == 0:
+            self.annotate_and_publish_image(msg, depth_msg)
 
     def depth_callback(self, msg):
         with self.lock:

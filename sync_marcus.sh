@@ -63,7 +63,7 @@ rsync -auvz -e "${RSYNC_SSH}" \
     ${TARGET_HOST}:${TARGET_DIR}/robopy_controller/logs/ \
     ./robopy_controller/logs/ 2>/dev/null || echo "  ⚠️  Cartella logs/ non trovata sul robot, skip."
 
-# Recupera WORKSPACE_STATE e files_topic aggiornati dal robot
+# Recupera WORKSPACE_STATE, files_topic e .env aggiornati dal robot (es. modelli Gemini auto-scoperti)
 rsync -auvz -e "${RSYNC_SSH}" \
     ${TARGET_HOST}:${TARGET_DIR}/WORKSPACE_STATE.md \
     ./WORKSPACE_STATE.md 2>/dev/null || echo "  ⚠️  WORKSPACE_STATE.md non trovato, skip."
@@ -72,9 +72,19 @@ rsync -auvz -e "${RSYNC_SSH}" \
     ${TARGET_HOST}:${TARGET_DIR}/files_topic.md \
     ./files_topic.md 2>/dev/null || echo "  ⚠️  files_topic.md non trovato, skip."
 
+rsync -auvz -e "${RSYNC_SSH}" \
+    ${TARGET_HOST}:${TARGET_DIR}/.env \
+    ./.env 2>/dev/null || echo "  ⚠️  .env non trovato sul robot, skip."
+
 # --- STEP 2: FORWARD-SYNC (PC -> ROBOT) - Workspace completo ---
 echo ""
 echo "📤 [2/4] Forward-Sync: Aggiornamento workspace completo sul Robot..."
+
+# Sync esplicito del .env (contiene LIVE_MODEL_NAME e tutte le API key aggiornate)
+rsync -avz -e "${RSYNC_SSH}" \
+    ./.env ${TARGET_HOST}:${TARGET_DIR}/.env
+echo "   ✅ .env sincronizzato."
+
 rsync -avz --progress -e "${RSYNC_SSH}" \
     --exclude='.git/' \
     --exclude='.agent/' \
