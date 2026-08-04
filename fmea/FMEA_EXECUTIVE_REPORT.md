@@ -1,5 +1,5 @@
 # 📊 Report Esecutivo DFMEA - Marcus AI Robot Platform
-**Data Generazione:** 2026-08-02 23:36:06  
+**Data Generazione:** 2026-08-04 21:56:57  
 **Metodologia:** AIAG-VDA FMEA Standard con Regola Override Severità ($S \ge 9 \implies$ REVISION_MANDATORY)
 
 ---
@@ -8,12 +8,12 @@
 
 | Metrica | Valore | Note / Impatto |
 | :--- | :---: | :--- |
-| **Totale Modalità di Guasto (FM)** | **52** | Copertura integrata dei sottosistemi Marcus |
+| **Totale Modalità di Guasto (FM)** | **53** | Copertura integrata dei sottosistemi Marcus |
 | **🟢 Risk Level LOW** | **30** | $RPN_{res} \le 50$ (Sotto controllo) |
 | **🟡 Risk Level MEDIUM** | **7** | $51 \le RPN_{res} \le 199$ (Monitoraggio attivo) |
 | **🟠 Risk Level HIGH** | **2** | $200 \le RPN_{res} \le 349$ (Mitigazione obbligatoria) |
 | **🔴 Risk Level CRITICAL** | **0** | $RPN_{res} \ge 350$ (Blocco rilasci) |
-| **🚨 REVISION_MANDATORY** | **13** | **Override Severità ($S \ge 9$)** - Massima Priorità Ingegneristica |
+| **🚨 REVISION_MANDATORY** | **14** | **Override Severità ($S \ge 9$)** - Massima Priorità Ingegneristica |
 
 ### Ripartizione per Sottosistema:
 - **System/DDS:** 3 failure modes
@@ -23,7 +23,7 @@
 - **Hardware/Power:** 8 failure modes
 - **ESP32:** 1 failure modes
 - **AI/LangGraph:** 5 failure modes
-- **System/Compute:** 1 failure modes
+- **System/Compute:** 2 failure modes
 - **Vision/Hardware:** 1 failure modes
 - **Nav2/Vision:** 1 failure modes
 - **AI/Cognitive:** 6 failure modes
@@ -43,6 +43,7 @@
 | **FM-VUI-006** | VUI Audio | `respeaker_vui_node` | Distorsione audio meccanica dell'altoparlante (Clipping fisico e saturazione) | 8 ➔ 8 | 240 ➔ **240** | `HIGH` | `OPEN` | N/A |
 | **FM-NAV-009** | Nav2/Vision | `semantic_costmap_injector / oak_d_lite` | Caduta dalle scale o da dislivelli (Negative Obstacle Fall) | 10 ➔ 10 | 560 ➔ **210** | `REVISION_MANDATORY` | `IN_PROGRESS` | [`docs/ecos/nav2_slam_ecos.md#ECO-2026-07-30-004`](docs/ecos/nav2_slam_ecos.md#ECO-2026-07-30-004) |
 | **FM-ACT-007** | Hardware/Power | `chassis / IMU` | Ribaltamento fisico del robot (Tipped Over / Rollover) | 9 ➔ 9 | 180 ➔ **180** | `REVISION_MANDATORY` | `OPEN` | N/A |
+| **FM-CPU-002** | System/Compute | `system_workload_orchestrator` | Saturazione globale di CPU (>90% cumulativo) e/o OOM Kill del Kernel Linux per accumulo RAM durante l'esecuzione simultanea di SLAM 3D (rtabmap), VIO (fast_flow_vo_cpp), filtro ostacoli (semantic_costmap_injector), inferenza NPU e pipeline VUI | 9 ➔ 9 | 216 ➔ **54** | `REVISION_MANDATORY` | `IN_PROGRESS` | [`docs/lessons/dev_and_deployment.md`](docs/lessons/dev_and_deployment.md) |
 | **FM-ACT-001** | Hardware/Power | `waveshare_motor_driver` | Immobilità del robot con ronzio prolungato dei motori in condizioni di stiction o batteria scarica | 9 ➔ 9 | 360 ➔ **36** | `REVISION_MANDATORY` | `CLOSED` | [`docs/ecos/actuation_ecos.md#ECO-2026-07-22-010`](docs/ecos/actuation_ecos.md#ECO-2026-07-22-010) |
 | **FM-NAV-006** | Nav2 | `waveshare_motor_driver / oak_superpoint_odometry` | Slittamento ruote (Wheel Slip) su piastrelle/tappeti con conseguente deriva odometrica accumulata e disallineamento della posa globale | 9 ➔ 9 | 315 ➔ **36** | `REVISION_MANDATORY` | `OPEN` | [`docs/ecos/actuation_ecos.md`](docs/ecos/actuation_ecos.md) |
 | **FM-ACT-005** | Hardware/Power | `waveshare_motor_driver` | Reset improvviso della scheda ESP32 (Brownout Microcontrollore) per picco di assorbimento in accelerazione | 9 ➔ 9 | 162 ➔ **18** | `REVISION_MANDATORY` | `OPEN` | [`docs/ecos/actuation_ecos.md`](docs/ecos/actuation_ecos.md) |
@@ -72,6 +73,7 @@
 | **FM-VIS-003** | Vision/Hardware | `oak_d_mount / tf_broadcaster` | Falso rilevamento ostacoli (Muri Inesistenti) o mancata rilevazione pavimento causati da Drift Meccanico (Sag) della telecamera | 8 | 6 | 2 | **96** | `MEDIUM` | `COMPLETED` | [`docs/lessons/vision_hailo_npu.md`](docs/lessons/vision_hailo_npu.md) |
 | **FM-SIM-002** | Simulation/Testing | `synthetic_scenario_generator` | Divergenza tra Simulazione e Realtà ('Sim-to-Real Cognitive Gap') | 7 | 3 | 3 | **63** | `MEDIUM` | `OPEN` | [`docs/lessons/orchestration_and_rag.md`](docs/lessons/orchestration_and_rag.md) |
 | **FM-COG-003** | AI/Cognitive | `chroma_synaptic_manager / RAG` | Inquinamento Vettoriale di ChromaDB da Errate Interpretazioni di RPE (Sarcasmo / Falsi Positivi) | 6 | 3 | 3 | **54** | `MEDIUM` | `OPEN` | [`docs/lessons/orchestration_and_rag.md`](docs/lessons/orchestration_and_rag.md) |
+| **FM-CPU-002** | System/Compute | `system_workload_orchestrator` | Saturazione globale di CPU (>90% cumulativo) e/o OOM Kill del Kernel Linux per accumulo RAM durante l'esecuzione simultanea di SLAM 3D (rtabmap), VIO (fast_flow_vo_cpp), filtro ostacoli (semantic_costmap_injector), inferenza NPU e pipeline VUI | 9 | 3 | 2 | **54** | `REVISION_MANDATORY` | `IN_PROGRESS` | [`marcus_core_rules.md#4-gestione-cpu-e-core-pinning`](marcus_core_rules.md#4-gestione-cpu-e-core-pinning) |
 | **FM-COG-002** | AI/Cognitive | `PredictiveRouterNode / Amigdala Digitale` | Inibizione Sinaptica Eccessiva e Paralisi Decisionale ('Anedonia / Helplessness Learned') | 8 | 2 | 3 | **48** | `LOW` | `OPEN` | [`docs/lessons/orchestration_and_rag.md`](docs/lessons/orchestration_and_rag.md) |
 | **FM-COG-004** | AI/Cognitive | `rag_context_builder / llm_reasoner` | Saturazione del Contesto e Allucinazione per Conflitto Vettoriale in Contesti Complessi | 8 | 2 | 3 | **48** | `LOW` | `OPEN` | [`docs/lessons/orchestration_and_rag.md`](docs/lessons/orchestration_and_rag.md) |
 | **FM-COG-001** | AI/Cognitive | `CriticEvaluatorNode / PredictiveRouterNode` | Saturazione Dopaminergica ed Entrapment Comportamentale (Ciclo Positivo Continuo / Dipendenza) | 7 | 2 | 3 | **42** | `LOW` | `OPEN` | [`docs/lessons/orchestration_and_rag.md`](docs/lessons/orchestration_and_rag.md) |

@@ -145,7 +145,7 @@ class ReSpeakerVUINode(Node):
         self.declare_parameter('enable_vad_gate',        True)
         self.declare_parameter('enable_barge_in',        True)   # barge-in AEC-aware
         self.declare_parameter('barge_in_min_tts_ms',    1500.0) # ms di grace period prima che il barge-in si attivi
-        self.declare_parameter('barge_in_min_frames',    15)     # ~300ms di voce sostenuta per trigger barge-in
+        self.declare_parameter('barge_in_min_frames',    10)     # [v19.0] ~200ms di voce sostenuta per trigger barge-in (armonizzato)
         self.declare_parameter('diag_mode',              False)  # Diagnostica estesa VUI
         self.declare_parameter('enable_adaptive_threshold', True) # Auto-calibration threshold
         self.declare_parameter('enable_adaptive_silence',   True) # Adaptive speech duration
@@ -162,6 +162,8 @@ class ReSpeakerVUINode(Node):
         self.enable_adaptive_silence   = self.get_parameter('enable_adaptive_silence').get_parameter_value().bool_value
         self.playback_volume           = self.get_parameter('playback_volume').get_parameter_value().double_value
         self.enable_auto_volume        = self.get_parameter('enable_auto_volume').get_parameter_value().bool_value
+        self.declare_parameter('enable_audio_beeps', True) # [v19.5] Beep di notifica avvio e chiusura attivi
+        self.enable_audio_beeps        = self.get_parameter('enable_audio_beeps').get_parameter_value().bool_value
 
         self._ambient_noise_ema = 300.0
         self._ambient_noise_chunks = 0
@@ -228,7 +230,8 @@ class ReSpeakerVUINode(Node):
         # [v3.0] Stato VAD
         if HAS_WEBRTCVAD:
             try:
-                self._vad = webrtcvad.Vad(3)
+                # [v19.0] Mode 1 per far-field: previene il gating di voce debole a 1-3m
+                self._vad = webrtcvad.Vad(1)
             except Exception:
                 self._vad = None
         else:
@@ -333,6 +336,8 @@ class ReSpeakerVUINode(Node):
         self.led_pub       = self.create_publisher(String,    '/respeaker/led_command',  10)
         self.barge_in_pub  = self.create_publisher(Bool,      '/ai/barge_in',            10)  # [v5.6]
         self.ambient_noise_pub = self.create_publisher(Float32, '/ai/ambient_noise',       10)  # [v11.0] Auto-Volume
+        self.asr_text_pub  = self.create_publisher(String,    '/respeaker/asr_text',     10)  # [v19.1] ASR Text stream
+        self.transcript_pub = self.create_publisher(String,   '/robopy/vui/transcript',  10)  # [v19.1] VUI Transcript
 
         # [v3.0] _pub_speech alias per il VAD gate (usa lo stesso topic audio_pub)
         self._pub_speech  = self.audio_pub
@@ -511,8 +516,13 @@ class ReSpeakerVUINode(Node):
                             with self._out_lock:
                                 self.out_stream.write(pcm_bytes)
                                 _chunks_played += 1
+                                self._last_ai_speaking_time = time.monotonic()
                     except queue.Empty:
                         break
+
+                if _chunks_played > 0:
+                    self._last_ai_speaking_time = time.monotonic()
+                self._is_playing_out = False
 
             except Exception as e:
                 self.get_logger().error(f"Errore playback worker: {e}")
@@ -694,16 +704,18 @@ class ReSpeakerVUINode(Node):
 
     def _on_listen_timeout(self):
         self.get_logger().info(
-            f"🔔 Finestra vigile di 30s scaduta: Marcus emette chime di chiusura e torna in ascolto wakeword.")
+            f"🔔 Finestra vigile di 30s di silenzio vocale scaduta: Marcus emette beep di chiusura e torna in ascolto wakeword.")
         self._stop_listen_timer()
         self._ev_listening.clear()
 
-        # Emit closing chime only when transitioning back to wakeword mode
-        try:
-            chime_bytes = self._generate_beep(freq=600.0, duration=0.15) + self._generate_beep(freq=400.0, duration=0.15)
-            self._audio_out_queue.put_nowait(chime_bytes)
-        except Exception:
-            pass
+        # [v19.5] Beep di chiusura conversazione emesso dopo 30s di silenzio vocale
+        if self.enable_audio_beeps and not self._is_tts_speaking and not getattr(self, '_is_playing_out', False):
+            try:
+                self._last_ai_speaking_time = time.monotonic()
+                chime_bytes = self._generate_beep(freq=600.0, duration=0.15) + self._generate_beep(freq=400.0, duration=0.15)
+                self._audio_out_queue.put_nowait(chime_bytes)
+            except Exception:
+                pass
 
         mute_msg = Bool()
         mute_msg.data = True
@@ -791,8 +803,8 @@ class ReSpeakerVUINode(Node):
                 self._is_speech_active = True
                 self._voice_frame_count = 0
                 self.get_logger().info("[VAD] >>> VOICE START (Gated for TTS)")
-                # [v10.2] Se l'AI parla, non inviamo ancora il pre-roll al cloud per evitare eco-interruzione.
-                # Il pre-roll verrà inviato se scatta il Barge-in locale o alla fine del TTS.
+                # [v19.0] Pre-roll inviato subito se AI non parla, oppure trattenuto
+                # e inviato al momento del barge-in trigger per catturare le sillabe iniziali.
                 if not self._is_tts_speaking:
                     self._publish_preroll()   
 
@@ -874,12 +886,34 @@ class ReSpeakerVUINode(Node):
 
     def _on_vosk_text(self, text: str, is_partial: bool = False):
         """Callback chiamato dal thread in background di Vosk quando ha trascritto qualcosa."""
+        if not text:
+            return
+
         text_lower = text.lower()
+
+        # [v19.2] Identità dello speaker (se identificato di recente dalla NPU/Voiceprint)
+        speaker_name = self._last_speaker_name if (time.time() - getattr(self, '_last_speaker_time', 0.0) < 15.0) else "Sconosciuto"
+
+        # [v19.2] Pubblica su ROS 2 con indicazione esplicita dello speaker su /robopy/vui/transcript
+        prefix = "[PARTIAL]" if is_partial else "[FINAL]"
+        
+        asr_msg = String()
+        asr_msg.data = f"{prefix} {text}"
+        self.asr_text_pub.publish(asr_msg)
+
+        transcript_msg = String()
+        transcript_msg.data = f"{prefix} ({speaker_name}): {text}"
+        self.transcript_pub.publish(transcript_msg)
+
+        # [v19.3] Protezione feedback acustico estesa a 1.5s
+        time_since_speaker = time.monotonic() - getattr(self, '_last_ai_speaking_time', 0.0)
+        is_speaker_active = getattr(self, '_is_playing_out', False) or self._is_tts_speaking or (time_since_speaker < 1.5)
+
         if not is_partial:
-            self.get_logger().info(f"🗣️ [VOSK ASR] Sentito: '{text}'")
+            self.get_logger().info(f"🗣️ [VOSK ASR] Sentito ({speaker_name}): '{text}'")
             self._pending_transcriptions.append((text, time.time()))
-            
-        if "marcus" in text_lower or "marco" in text_lower or "robot" in text_lower:
+
+        if ("marcus" in text_lower or "marco" in text_lower or "robot" in text_lower) and not is_speaker_active:
             self._on_wakeword_detected()
 
     def _on_wakeword_detected(self):
@@ -898,7 +932,10 @@ class ReSpeakerVUINode(Node):
             except queue.Empty:
                 break
 
-        self._play_audio(self._generate_beep())
+        # [v19.5] Beep di notifica individuazione wake word "Marcus"
+        if self.enable_audio_beeps:
+            self._last_ai_speaking_time = time.monotonic()
+            self._play_audio(self._generate_beep(freq=1000.0, duration=0.2))
         self._start_listen_timer()
 
         # Comunica il cambio di stato ai nodi AI
@@ -1083,8 +1120,9 @@ class ReSpeakerVUINode(Node):
                 # Dynamic Gain Control: guadagno base costante 2.5x per segnale ASR pulito
                 stt_gain_to_use = self.stt_gain
                 if self._is_tts_speaking:
-                    # Se l'AI parla, abbassiamo il boost per proteggere il VAD dall'eco
-                    stt_gain_to_use = max(1.0, self.stt_gain * 0.15)
+                    # [v19.0] Gain ridotto ma sufficiente per barge-in: 2.5 * 0.30 = 0.75x
+                    # L'AEC hardware XMOS gestisce l'eco, non la soppressione software
+                    stt_gain_to_use = max(0.5, self.stt_gain * 0.30)
                 elif ai_cooldown_active:
                     # Durante il cooldown di 600ms, azzeriamo il guadagno software per assorbire l'eco finale del buffer
                     stt_gain_to_use = 0.0
@@ -1129,10 +1167,13 @@ class ReSpeakerVUINode(Node):
 
                 # ---------------------------------------------------------- #
                 # Vosk ASR — trascrizione continua offline e wake word
-                # ---------------------------------------------------------- #
+                # [v19.3] Inibito se l'altoparlante ha riprodotto audio negli ultimi 1.5s (previene l'eco acustica dei beep)
                 is_listening = self._ev_listening.is_set()
+                time_since_speaker = time.monotonic() - getattr(self, '_last_ai_speaking_time', 0.0)
+                is_speaker_active = getattr(self, '_is_playing_out', False) or self._is_tts_speaking or (time_since_speaker < 1.5)
 
-                if self.vosk_mgr:
+                if self.vosk_mgr and not is_speaker_active:
+                    self.vosk_mgr.set_listening_mode(is_listening)
                     self.vosk_mgr.process_audio(self._int16_vad_buf[:n].tobytes())
                     # Aggiorna is_listening nel caso in cui Vosk abbia appena attivato l'ascolto in un altro thread
                     is_listening = self._ev_listening.is_set()
@@ -1161,6 +1202,9 @@ class ReSpeakerVUINode(Node):
                         self.get_logger().warning(
                             f"🎤 [BARGE-IN] Interruzione rilevata dopo {self._barge_in_frame_count} frames di voce sostenuta. Interrompo Marcus..."
                         )
+                        # [v19.0] Invia il pre-roll trattenuto durante TTS per catturare le sillabe iniziali
+                        self._publish_preroll()
+
                         drained = 0
                         while not self._audio_out_queue.empty():
                             try:

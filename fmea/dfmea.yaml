@@ -2334,3 +2334,57 @@
       annotated image 5Hz, face_rate 2Hz, extrinsic calibrator 0.5Hz.
     rpn_old: 189
     rpn_new: 14
+- id: FM-CPU-002
+  subsystem: System/Compute
+  component: system_workload_orchestrator
+  function: Bilanciamento dinamico e sostenibile delle risorse CPU (4 core Pi 5) e
+    RAM (4GB) durante tutte le fasi operative del robot
+  failure_mode: Saturazione globale di CPU (>90% cumulativo) e/o OOM Kill del Kernel
+    Linux per accumulo RAM durante l'esecuzione simultanea di SLAM 3D (rtabmap), VIO
+    (fast_flow_vo_cpp), filtro ostacoli (semantic_costmap_injector), inferenza NPU
+    e pipeline VUI
+  potential_cause: Nodi ad alta frequenza che processano sensoristica anche in fasi
+    in cui il robot è fermo (idle) o in navigazione semplice, senza orchestrazione
+    o sleeping dinamico
+  potential_effect: Latenza elevata nei comandi ROS, drop di frame per VIO/SLAM con
+    perdita di localizzazione, scatti nel moto cinematico, ritardi di risposta VUI
+    o crash per Kernel OOM
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-CPU-001
+  - FM-SYS-004
+  - FM-NAV-001
+  initial_scoring:
+    severity: 9
+    occurrence: 8
+    detection: 3
+    rpn: 216
+  prevention_controls: Throttling e sottocampionamento dei nodi visivi/costmap (5Hz
+    ostacoli, 2Hz face detection, 50Hz fuser), sleeping dinamico delle pipeline ad
+    alto carico a robot fermo (stallo VIO/SLAM) ed offloading hardware (LiDAR 2D)
+  detection_controls: Monitoraggio continuo risorse CPU/RAM da parte di robot_health_supervisor.py
+    e pubblicazione allarmi su /diagnostics
+  residual_scoring:
+    severity: 9
+    occurrence: 3
+    detection: 2
+    rpn: 54
+  risk_level: REVISION_MANDATORY
+  mitigation_status: IN_PROGRESS
+  recommended_action: Implementare una state-machine di orchestrazione computazionale
+    che sospende SLAM 3D / VIO denso a robot fermo (riattivazione su IMU/motion o
+    cmd_vel) e valutare l'integrazione di un LiDAR 2D per alleggerire il raycasting
+    3D su CPU
+  verification_method: Profilazione risorse con top/psutil durante navigazione prolungata
+    e stazionamento in idle
+  eco_ref: docs/lessons/dev_and_deployment.md
+  lesson_ref: marcus_core_rules.md#4-gestione-cpu-e-core-pinning
+  date_identified: '2026-08-02'
+  last_updated: '2026-08-02'
+  history:
+  - date: '2026-08-02'
+    change: Inserimento Failure Mode per saturazione CPU/RAM globale e proposta di
+      orchestrazione dinamica idle/motion + LiDAR 2D
+    rpn_old: 216
+    rpn_new: 54

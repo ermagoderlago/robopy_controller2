@@ -63,13 +63,18 @@ class VoskASRManager:
             # Vosk logs too much by default
             vosk.SetLogLevel(-1)
             self.model = vosk.Model(self.model_path)
+            # [v19.4] Vocabolario completo aperto per riconoscimento italiano preciso e zero allucinazioni su rumori
             self.recognizer = vosk.KaldiRecognizer(self.model, self.sample_rate)
             
             self._worker_thread = threading.Thread(target=self._worker, daemon=True, name="vosk_worker")
             self._worker_thread.start()
-            print("✅ [VoskASR] Motore offline inizializzato con successo!")
+            print("✅ [VoskASR] Motore offline (Full Italian Vocabulary ASR) inizializzato!")
         except Exception as e:
             print(f"❌ [VoskASR] Errore inizializzazione: {e}")
+
+    def set_listening_mode(self, is_listening: bool):
+        # Mantenuto per compatibilità interfaccia
+        pass
 
     def is_active(self):
         return self._worker_thread is not None and self._worker_thread.is_alive()
@@ -89,14 +94,15 @@ class VoskASRManager:
         while not self._shutdown:
             try:
                 pcm_bytes = self._audio_queue.get(timeout=0.1)
-                if self.recognizer.AcceptWaveform(pcm_bytes):
-                    res = self.recognizer.Result()
+                rec = self.recognizer
+                if rec.AcceptWaveform(pcm_bytes):
+                    res = rec.Result()
                     text = json.loads(res).get("text", "").strip()
                     if text:
                         self._handle_transcription(text, is_partial=False)
                 else:
                     # Partial result for instant wake word detection
-                    part = json.loads(self.recognizer.PartialResult()).get("partial", "").strip()
+                    part = json.loads(rec.PartialResult()).get("partial", "").strip()
                     if part:
                         self._handle_transcription(part, is_partial=True)
             except queue.Empty:

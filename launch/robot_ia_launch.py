@@ -107,7 +107,7 @@ def generate_launch_description():
             # --- Barge-In (v5.7) ---
             'enable_barge_in': True,
             'barge_in_min_tts_ms': 2500.0,
-            'barge_in_min_frames': 12,
+            'barge_in_min_frames': 10,  # [v19.0] Armonizzato a 200ms
             # --- [v17.0] Auto-calibrazione microfono far-field HPF ---
             # Calcola dinamicamente noise_gate_threshold su rumore HPF (ventola Pi 5 eliminata)
             # Formula: clamp(EMA_HPF * stt_gain * 1.25 + 300, 800.0, 4500.0)

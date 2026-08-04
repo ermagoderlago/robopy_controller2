@@ -201,11 +201,12 @@ nohup ros2 run robopy_controller respeaker_vui_node --ros-args \
     -p wakeword_sensitivity:=0.95 \
     -p enable_barge_in:=true \
     -p barge_in_min_tts_ms:=2500.0 \
-    -p barge_in_min_frames:=8 \
+    -p barge_in_min_frames:=10 \
     -p enable_adaptive_threshold:=true \
     -p enable_adaptive_silence:=true \
     -p playback_volume:=0.10 \
     -p enable_auto_volume:=true \
+    -p enable_audio_beeps:=true \
     -p diag_mode:=true \
     > /home/robopy/robopy/logs/respeaker_vui_node.log 2>&1 &
 

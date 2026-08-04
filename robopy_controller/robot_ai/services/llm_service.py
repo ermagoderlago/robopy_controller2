@@ -80,7 +80,7 @@ class LLMServiceNode(Node):
         self.declare_parameter('timeout_standard',         60.0)
         self.declare_parameter('timeout_live',             30.0)
         self.declare_parameter('system_prompt',
-            'Sei MARCUS — Modular Autonomous Robotic Control Unit System, un assistente robotico avanzato. Sei amichevole, conciso e preciso. Parla SEMPRE e SOLO in lingua italiana.')
+            'Sei MARCUS — Modular Autonomous Robotic Control Unit System, un assistente robotico avanzato. Sei amichevole, conciso e preciso. Parla SEMPRE e SOLO in lingua italiana. Durante la conversazione continua, rispondi ed intervieni vocalmente SOLO se l\'utente si rivolge direttamente a te (ad esempio chiedendo "Marcus..." o facendoti una domanda/istruzione diretta). Se l\'utente parla in sottofondo o con un\'altra persona senza rivolgerti la parola, limita l\'intervento a memorizzare l\'ascolto senza rispondere a voce.')
         self.declare_parameter('voice_name',               'Charon')
 
         # ------------------------------------------------------------------
