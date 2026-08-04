@@ -2541,7 +2541,7 @@
     garbage collection degli oggetti KaldiRecognizer distrutti
   potential_cause: CPython GC non rilascia immediatamente gli oggetti C++ bindati
     in SWIG; le chiamate ripetute a Sentinel Flush accumulano frammentazione memoria
-  potential_effect: Crescita lenta ma progressiva dell\'uso della RAM nel tempo con
+  potential_effect: Crescita lenta ma progressiva dell'uso della RAM nel tempo con
     conseguente degradazione delle latenze per swapping su NVMe SSD o OOM Kill
   classification: PERFORMANCE
   estimation_basis: theoretical
@@ -2553,7 +2553,7 @@
     detection: 4
     rpn: 196
   prevention_controls: Chiamata esplicita del distruttore e di gc.collect() a valle
-    della gestione del sentinel b\'FLUSH_CMD\' + test di endurance (1000 iterazioni)
+    della gestione del sentinel b'FLUSH_CMD' + test di endurance (1000 iterazioni)
   detection_controls: Profilazione memoria di sistema via psutil/memory_profiler nel
     supervisore di sistema
   residual_scoring:
@@ -2562,11 +2562,11 @@
     detection: 2
     rpn: 28
   risk_level: LOW
-  mitigation_status: OPEN
-  recommended_action: Inserire gc.collect() ed azzeramento esplicito dei riferimenti
-    al recognizer vecchio all\'interno del worker thread Vosk
+  mitigation_status: CLOSED
+  recommended_action: Inseriti del self.recognizer, azzeramento riferimento ed invocazione
+    gc.collect() nel worker thread Vosk
   verification_method: Endurance test 1000 dialoghi simulati con verifica stabilità
-    curva memoria
+    curva memoria (test_vosk_memory_endurance.py)
   eco_ref: docs/lessons/audio_vui_pipeline.md#sentinel-pattern
   lesson_ref: docs/lessons/audio_vui_pipeline.md#sentinel-pattern
   date_identified: '2026-08-04'
@@ -2576,6 +2576,11 @@
     change: Inserito per audit critico su rilascio memoria SWIG/Vosk
     rpn_old: 196
     rpn_new: 196
+  - date: '2026-08-04'
+    change: Chiuso Failure Mode implementando il distruttore esplicito SWIG ed il
+      test di endurance memoria
+    rpn_old: 196
+    rpn_new: 28
 - id: FM-VUI-015
   subsystem: VUI Audio
   component: respeaker_vui_node
@@ -2586,7 +2591,7 @@
   potential_cause: Assegnazione o lettura del flag is_attentive da thread ROS 2 differenti
     senza sincronizzazione threading.Lock
   potential_effect: Transizione VAD spuria con parametri incoerenti durante il parlato
-    dell\'utente
+    dell'utente
   classification: PERFORMANCE
   estimation_basis: theoretical
   related_ids:
@@ -2605,9 +2610,9 @@
     detection: 2
     rpn: 24
   risk_level: LOW
-  mitigation_status: OPEN
-  recommended_action: Incapsulare la modifica delle soglie attentive all\'interno
-    di un blocco thread-safe
+  mitigation_status: CLOSED
+  recommended_action: Incapsulato il blocco decisionale VAD ed is_attentive sotto
+    self._vad_state_lock
   verification_method: Stress test di cambio stato attentive ad alta frequenza durante
     lo streaming audio
   eco_ref: docs/lessons/audio_vui_pipeline.md#isteresi-vad
@@ -2619,16 +2624,21 @@
     change: Inserito Failure Mode per thread-safety stato attentive VAD
     rpn_old: 144
     rpn_new: 144
+  - date: '2026-08-04'
+    change: Chiuso Failure Mode implementando self._vad_state_lock a protezione dell'intero
+      blocco decisionale VAD
+    rpn_old: 144
+    rpn_new: 24
 - id: FM-VUI-016
   subsystem: VUI Audio
   component: respeaker_vui_node / live_connection_manager
-  function: Esecuzione ad alta priorità e bassa latenza dell\'event loop asyncio ed
+  function: Esecuzione ad alta priorità e bassa latenza dell'event loop asyncio ed
     I/O WebSocket
   failure_mode: Jitter temporale ed accumulo di latenza nel flusso audio WebSocket
     (GIL Contention & Starvation)
   potential_cause: Contesa del Global Interpreter Lock (GIL) tra il MultiThreadedExecutor
     di rclpy ed il thread asyncio sotto carico I/O vision/audio
-  potential_effect: Ritardo crescente nell\'invio dei chunk a Gemini Live o timeout
+  potential_effect: Ritardo crescente nell'invio dei chunk a Gemini Live o timeout
     WebSocket
   classification: MISSION_CRITICAL
   estimation_basis: theoretical
@@ -2648,8 +2658,8 @@
     detection: 2
     rpn: 32
   risk_level: LOW
-  mitigation_status: OPEN
-  recommended_action: Valutare l\'adozione del modello asincrono unificato per rclpy
+  mitigation_status: IN_PROGRESS
+  recommended_action: Valutare l'adozione del modello asincrono unificato per rclpy
     e WebSocket
   verification_method: Misurazione jitter pacchetti WebSocket sotto carico 30 FPS
     OAK-D
@@ -2691,7 +2701,7 @@
     detection: 2
     rpn: 24
   risk_level: LOW
-  mitigation_status: OPEN
+  mitigation_status: IN_PROGRESS
   recommended_action: Ridurre il bitrate video OAK-D durante la fase ascolto attivo
   verification_method: Stress test USB con streaming RGB 1080p + 16kHz audio
   eco_ref: docs/lessons/dev_and_deployment.md
@@ -2709,8 +2719,8 @@
   function: Riconoscimento continuo della wake word 'Marcus' con impatto zero sulla
     CPU del Pi 5
   failure_mode: Consumo CPU non necessario in standby (15-20%) e latenza di risveglio
-    per l\'esecuzione continua di Vosk ASR su CPU
-  potential_cause: Affidamento esclusivo alla CPU host per il filtraggio e l\'ascolto
+    per l'esecuzione continua di Vosk ASR su CPU
+  potential_cause: Affidamento esclusivo alla CPU host per il filtraggio e l'ascolto
     continuo della wake word in idle
   potential_effect: Riscaldamento Pi 5, consumo energetico superfluo e ritardo di
     reazione iniziale alla parola chiave
@@ -2732,9 +2742,9 @@
     detection: 2
     rpn: 28
   risk_level: LOW
-  mitigation_status: OPEN
-  recommended_action: Sviluppare ed installare lo script/nodo per l\'esecuzione del
-    modello KWS su Hailo-10H
+  mitigation_status: CLOSED
+  recommended_action: Implementato hailo_kws_service.py in modalità Streaming 50 FPS
+    (250ms window, 20ms stride) + hailo_kws_node.py + Buffer Pre-trigger 1.2s
   verification_method: Test di rilevamento 'Marcus' con monitoraggio CPU host in standby
   eco_ref: docs/lessons/vision_hailo_npu.md
   lesson_ref: docs/lessons/vision_hailo_npu.md
@@ -2742,6 +2752,11 @@
   last_updated: '2026-08-04'
   history:
   - date: '2026-08-04'
-    change: Inserito Failure Mode per l\'offloading KWS su Hailo-10H NPU
+    change: Inserito Failure Mode per l'offloading KWS su Hailo-10H NPU
     rpn_old: 168
     rpn_new: 168
+  - date: '2026-08-04'
+    change: Chiuso Failure Mode creando hailo_kws_service.py (50 FPS streaming), hailo_kws_node.py
+      ed il buffer audio pre-trigger 1.2s
+    rpn_old: 168
+    rpn_new: 28
