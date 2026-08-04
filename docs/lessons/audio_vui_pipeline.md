@@ -262,3 +262,17 @@ Applicato throttle a 5Hz → -15% CPU stimato. Vedi `fmea/dfmea.yaml#FM-CPU-001`
 ### ARCH-3: Finestra Barge-in Ottimizzata
 * **Problema:** Marcus si bloccava troppo a lungo dopo aver parlato, impedendo un'interazione naturale a ritmo sostenuto (ping-pong verbale).
 * **Soluzione:** Ridotto il timeout hardware `time_since_speaker` da `0.6s` a `0.4s` sia per l'inibizione dell'eco in Vosk sia per il cooldown in `_audio_processing_worker`. L'AEC XMOS è sufficiente a prevenire loop acustici. Abilitato inoltro timestamps con `SetWords(True)`.
+
+---
+
+## 🔊 Dynamic AGC Software su Parlato Debole / Lontano — v20.1 (2026-08-04)
+
+### Problema (FM-VUI-005)
+* **Sintomo:** Trascrizione ASR incomprensibile o allucinata quando l'utente parla da distanze maggiori (> 3 metri) o con voce flebile.
+* **Causa:** Il guadagno software statico a 2.5x non era sufficiente a portare l'ampiezza del segnale debole sopra la soglia ottimale per Gemini Live e Vosk.
+
+### Soluzione Implementata (`respeaker_vui_node.py`)
+* **Dynamic AGC Software:** Quando lo stato è `is_attentive` (listening attivo o parlato in corso), se l'RMS dell'audio in ingresso supera la soglia del gate ma rimane sotto i 1500 RMS (segnale debole), viene calcolato un moltiplicatore proporzionale `agc_multiplier = min(2.0, 1500.0 / max(rms_l, 100.0))`.
+* **Guadagno Dinamico:** Il guadagno effettivo scala automaticamente da **2.5x fino a 5.0x max**.
+* **Protezione Limiter:** Il Peak Limiter vettoriale esistente garantisce l'assenza totale di clipping digitale (saturazione campioni int16 a 30000).
+* **Esito FMEA:** Failure mode `FM-VUI-005` chiuso con RPN ridotto da **144 a 24**.

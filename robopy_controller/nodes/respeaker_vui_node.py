@@ -1141,14 +1141,23 @@ class ReSpeakerVUINode(Node):
                     self._barge_in_triggered  = False
                     self._barge_in_frame_count = 0
 
-                # Dynamic Gain Control: guadagno base costante 2.5x per segnale ASR pulito
+                # Dynamic Gain Control: guadagno base 2.5x con AGC dinamico software [v20.1]
                 stt_gain_to_use = self.stt_gain
+                
+                is_attentive = self._ev_listening.is_set() or self._is_speech_active
+                if is_attentive and not self._is_tts_speaking and not ai_cooldown_active:
+                    # [v20.1 FM-VUI-005 Fix] Se il segnale vocale è sopra il gate ma debole (< 1500 RMS),
+                    # incrementa dinamicamente il guadagno fino a 2.0x extra (da 2.5x a 5.0x max)
+                    if rms_l > self.noise_gate_threshold and rms_l < 1500.0:
+                        agc_multiplier = min(2.0, 1500.0 / max(rms_l, 100.0))
+                        stt_gain_to_use = self.stt_gain * agc_multiplier
+
                 if self._is_tts_speaking:
                     # [v19.0] Gain ridotto ma sufficiente per barge-in: 2.5 * 0.30 = 0.75x
                     # L'AEC hardware XMOS gestisce l'eco, non la soppressione software
                     stt_gain_to_use = max(0.5, self.stt_gain * 0.30)
                 elif ai_cooldown_active:
-                    # Durante il cooldown di 600ms, azzeriamo il guadagno software per assorbire l'eco finale del buffer
+                    # Durante il cooldown di 400ms, azzeriamo il guadagno software per assorbire l'eco finale del buffer
                     stt_gain_to_use = 0.0
 
                 if self._cfg_diag_mode and self._rms_chunk_count % 16 == 0:
@@ -1156,7 +1165,7 @@ class ReSpeakerVUINode(Node):
                     self.get_logger().info(
                         f"🎤 [MIC] Volume HPF: L_RMS={rms_l:.1f} | R_RMS={rms_r:.1f} | BOOSTED={rms_boosted:.1f} | "
                         f"Ambient_EMA={self._ambient_noise_ema:.1f} | Gate={self.noise_gate_threshold:.1f} | "
-                        f"MaxSilence={self._cfg_max_silence} frames (Gain: {stt_gain_to_use}x)")
+                        f"MaxSilence={self._cfg_max_silence} frames (Gain: {stt_gain_to_use:.2f}x)")
                 
                 # ---------------------------------------------------------- #
                 # Applica stt_gain_to_use al segnale d'ingresso filtrato per VAD e Porcupine

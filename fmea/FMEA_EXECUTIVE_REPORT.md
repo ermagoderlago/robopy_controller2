@@ -1,5 +1,5 @@
 # 📊 Report Esecutivo DFMEA - Marcus AI Robot Platform
-**Data Generazione:** 2026-08-04 22:54:29  
+**Data Generazione:** 2026-08-04 23:13:14  
 **Metodologia:** AIAG-VDA FMEA Standard con Regola Override Severità ($S \ge 9 \implies$ REVISION_MANDATORY)
 
 ---
@@ -8,17 +8,17 @@
 
 | Metrica | Valore | Note / Impatto |
 | :--- | :---: | :--- |
-| **Totale Modalità di Guasto (FM)** | **53** | Copertura integrata dei sottosistemi Marcus |
-| **🟢 Risk Level LOW** | **30** | $RPN_{res} \le 50$ (Sotto controllo) |
-| **🟡 Risk Level MEDIUM** | **7** | $51 \le RPN_{res} \le 199$ (Monitoraggio attivo) |
+| **Totale Modalità di Guasto (FM)** | **56** | Copertura integrata dei sottosistemi Marcus |
+| **🟢 Risk Level LOW** | **33** | $RPN_{res} \le 50$ (Sotto controllo) |
+| **🟡 Risk Level MEDIUM** | **6** | $51 \le RPN_{res} \le 199$ (Monitoraggio attivo) |
 | **🟠 Risk Level HIGH** | **2** | $200 \le RPN_{res} \le 349$ (Mitigazione obbligatoria) |
 | **🔴 Risk Level CRITICAL** | **0** | $RPN_{res} \ge 350$ (Blocco rilasci) |
-| **🚨 REVISION_MANDATORY** | **14** | **Override Severità ($S \ge 9$)** - Massima Priorità Ingegneristica |
+| **🚨 REVISION_MANDATORY** | **15** | **Override Severità ($S \ge 9$)** - Massima Priorità Ingegneristica |
 
 ### Ripartizione per Sottosistema:
 - **System/DDS:** 3 failure modes
 - **Nav2:** 8 failure modes
-- **VUI Audio:** 12 failure modes
+- **VUI Audio:** 15 failure modes
 - **Vision:** 2 failure modes
 - **Hardware/Power:** 8 failure modes
 - **ESP32:** 1 failure modes
@@ -53,6 +53,7 @@
 | **FM-SYS-003** | Hardware/Power | `usb_bus_power` | Caduta di tensione (Brownout) sul bus USB del Pi 5 all'accensione della telecamera OAK-D | 9 ➔ 9 | 243 ➔ **9** | `REVISION_MANDATORY` | `CLOSED` | [`docs/ecos/nav2_slam_ecos.md#ECO-2026-07-29-brownout`](docs/ecos/nav2_slam_ecos.md#ECO-2026-07-29-brownout) |
 | **FM-VUI-004** | VUI Audio | `wake_word_node / respeaker_vui_node` | Blocco dell'avvio o eccezione di licenza per Picovoice Porcupine EOL / passaggio a piano a pagamento | 9 ➔ 9 | 162 ➔ **9** | `REVISION_MANDATORY` | `IN_PROGRESS` | [`docs/ecos/audio_vui_ecos.md#ECO-2026-07-30-003`](docs/ecos/audio_vui_ecos.md#ECO-2026-07-30-003) |
 | **FM-SYS-007** | System/Support | `startup_and_watchdog_scripts` | Mancata o incompleta disattivazione di watchdog.sh durante il riavvio manuale, scatenando un loop concorrente di avvii di restart_hailo.sh con duplicazione massiva di nodi ROS 2 e saturazione CPU al 100% | 9 ➔ 9 | 144 ➔ **9** | `REVISION_MANDATORY` | `CLOSED` | [`docs/lessons/dev_and_deployment.md#riavvio-dei-nodi-e-interlock-del-watchdog`](docs/lessons/dev_and_deployment.md#riavvio-dei-nodi-e-interlock-del-watchdog) |
+| **FM-VUI-011** | VUI Audio | `local_asr_vosk` | Segmentation fault immediato dell\'interprete Python durante la chiamata a KaldiRecognizer.Reset() o allocazione di memoria cross-thread | 9 ➔ 9 | 144 ➔ **9** | `REVISION_MANDATORY` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#sentinel-pattern`](docs/lessons/audio_vui_pipeline.md#sentinel-pattern) |
 
 ---
 
@@ -69,7 +70,6 @@
 | **FM-SYS-005** | System/Compute | `pi5_thermal_manager` | Perdita scadenze real-time (Deadline Miss) e movimento a scatti causati da Thermal Throttling della CPU | 6 | 8 | 4 | **192** | `MEDIUM` | `OPEN` | [`docs/lessons/telemetry_and_autotuning.md`](docs/lessons/telemetry_and_autotuning.md) |
 | **FM-SYS-006** | System/DDS | `fastdds_middleware` | Caduta dell'albero TF e latenza critica dei topic ROS 2 causata da Multicast Discovery Storm | 8 | 6 | 4 | **192** | `MEDIUM` | `OPEN` | [`docs/lessons/dev_and_deployment.md`](docs/lessons/dev_and_deployment.md) |
 | **FM-ACT-007** | Hardware/Power | `chassis / IMU` | Ribaltamento fisico del robot (Tipped Over / Rollover) | 9 | 5 | 4 | **180** | `REVISION_MANDATORY` | `OPEN` | [`docs/lessons/actuation_motor_driver.md`](docs/lessons/actuation_motor_driver.md) |
-| **FM-VUI-005** | VUI Audio | `respeaker_vui_node` | Trascrizione ASR incomprensibile o allucinata ('Voce Distorta / Sorgente Lontana') | 6 | 8 | 3 | **144** | `MEDIUM` | `OPEN` | [`docs/lessons/telemetry_and_autotuning.md`](docs/lessons/telemetry_and_autotuning.md) |
 | **FM-VIS-003** | Vision/Hardware | `oak_d_mount / tf_broadcaster` | Falso rilevamento ostacoli (Muri Inesistenti) o mancata rilevazione pavimento causati da Drift Meccanico (Sag) della telecamera | 8 | 6 | 2 | **96** | `MEDIUM` | `COMPLETED` | [`docs/lessons/vision_hailo_npu.md`](docs/lessons/vision_hailo_npu.md) |
 | **FM-SIM-002** | Simulation/Testing | `synthetic_scenario_generator` | Divergenza tra Simulazione e Realtà ('Sim-to-Real Cognitive Gap') | 7 | 3 | 3 | **63** | `MEDIUM` | `OPEN` | [`docs/lessons/orchestration_and_rag.md`](docs/lessons/orchestration_and_rag.md) |
 | **FM-COG-003** | AI/Cognitive | `chroma_synaptic_manager / RAG` | Inquinamento Vettoriale di ChromaDB da Errate Interpretazioni di RPE (Sarcasmo / Falsi Positivi) | 6 | 3 | 3 | **54** | `MEDIUM` | `OPEN` | [`docs/lessons/orchestration_and_rag.md`](docs/lessons/orchestration_and_rag.md) |
@@ -86,10 +86,13 @@
 | **FM-NAV-008** | Nav2 | `local_planner_mppi` | Urti sistematici o micro-oscillazioni della traiettoria per incompatibilità parametrica di lungo termine | 5 | 3 | 2 | **30** | `LOW` | `COMPLETED` | [`docs/lessons/telemetry_and_autotuning.md`](docs/lessons/telemetry_and_autotuning.md) |
 | **FM-LLM-003** | AI/LangGraph | `live_connection_manager` | Stallo conversazionale e congelamento dello stato VUI (robot bloccato in 'THINKING' senza risposta) | 7 | 2 | 2 | **28** | `LOW` | `OPEN` | [`docs/lessons/llm_live_api.md`](docs/lessons/llm_live_api.md) |
 | **FM-VUI-005** | VUI Audio | `hailo_voiceprint_node / hailo_bridge_node` | Latenza elevata ed accumulo buffer audio (audio drift) per overhead computazionale dell'NPU durante l'inferenza di speaker ID | 7 | 2 | 2 | **28** | `LOW` | `IN_PROGRESS` | [`docs/lessons/audio_vui_pipeline.md#hailo-voiceprint`](docs/lessons/audio_vui_pipeline.md#hailo-voiceprint) |
+| **FM-VUI-012** | VUI Audio | `respeaker_vui_node` | Taglio prematuro della frase dell\'utente (Clipping interno) o impossibilità di catturare singole parole brevi come 'Sì'/'No' | 7 | 2 | 2 | **28** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#isteresi-vad`](docs/lessons/audio_vui_pipeline.md#isteresi-vad) |
 | **FM-VUI-003** | VUI Audio | `respeaker_vui_node` | Falsi rilevamenti di presenza vocale (VAD) ed invio continuo di rumore di fondo a Gemini Live | 6 | 2 | 2 | **24** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#hpf-filter`](docs/lessons/audio_vui_pipeline.md#hpf-filter) |
 | **FM-VUI-004** | VUI Audio | `respeaker_vui_node` | Acoustic Echo Leakage ed auto-interruzione continua della sintesi vocale del robot | 6 | 2 | 2 | **24** | `LOW` | `OPEN` | [`docs/lessons/audio_vui_pipeline.md#peak-limiter`](docs/lessons/audio_vui_pipeline.md#peak-limiter) |
+| **FM-VUI-005** | VUI Audio | `respeaker_vui_node` | Trascrizione ASR incomprensibile o allucinata ('Voce Distorta / Sorgente Lontana') | 6 | 2 | 2 | **24** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#dynamic-agc`](docs/lessons/audio_vui_pipeline.md#dynamic-agc) |
 | **FM-VUI-006** | VUI Audio | `voiceprint_manager` | Errata attribuzione del parlato (False Speaker Match) tra persone con timbro simile o in presenza di rumore | 6 | 2 | 2 | **24** | `LOW` | `IN_PROGRESS` | [`docs/lessons/audio_vui_pipeline.md#voiceprint-enrollment`](docs/lessons/audio_vui_pipeline.md#voiceprint-enrollment) |
 | **FM-VUI-007** | AI/Cognitive | `memory_decay_engine` | Oblio aggressivo di informazioni importanti pronunciate poco prima di invocare 'Marcus' o accumulo indefinito di conversazioni futili | 6 | 2 | 2 | **24** | `LOW` | `IN_PROGRESS` | [`docs/lessons/orchestration_and_rag.md#algoritmo-oblio-memoria`](docs/lessons/orchestration_and_rag.md#algoritmo-oblio-memoria) |
+| **FM-VUI-013** | VUI Audio | `respeaker_vui_node` | Conversazione lenta e innaturale con perdita dell\'inizio della risposta dell\'utente | 6 | 2 | 2 | **24** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#barge-in`](docs/lessons/audio_vui_pipeline.md#barge-in) |
 | **FM-VUI-002** | VUI Audio | `respeaker_vui_node` | Distorsione acustica da clipping digitale per saturazione dell'ampiezza dei campioni PCM 16-bit | 5 | 2 | 2 | **20** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#peak-limiter`](docs/lessons/audio_vui_pipeline.md#peak-limiter) |
 | **FM-ACT-005** | Hardware/Power | `waveshare_motor_driver` | Reset improvviso della scheda ESP32 (Brownout Microcontrollore) per picco di assorbimento in accelerazione | 9 | 1 | 2 | **18** | `REVISION_MANDATORY` | `OPEN` | [`docs/lessons/actuation_motor_driver.md`](docs/lessons/actuation_motor_driver.md) |
 | **FM-VIS-001** | Vision | `oak_superpoint_odometry_node` | Crash per lettura Heap Out-Of-Bounds durante il parsing dei tensor di output dell'NPU Hailo | 8 | 1 | 2 | **16** | `LOW` | `CLOSED` | [`docs/lessons/vision_hailo_npu.md#memory-safety`](docs/lessons/vision_hailo_npu.md#memory-safety) |
@@ -103,6 +106,7 @@
 | **FM-SYS-003** | Hardware/Power | `usb_bus_power` | Caduta di tensione (Brownout) sul bus USB del Pi 5 all'accensione della telecamera OAK-D | 9 | 1 | 1 | **9** | `REVISION_MANDATORY` | `CLOSED` | [`marcus_core_rules.md`](marcus_core_rules.md) |
 | **FM-VUI-004** | VUI Audio | `wake_word_node / respeaker_vui_node` | Blocco dell'avvio o eccezione di licenza per Picovoice Porcupine EOL / passaggio a piano a pagamento | 9 | 1 | 1 | **9** | `REVISION_MANDATORY` | `IN_PROGRESS` | [`docs/lessons/audio_vui_pipeline.md#picovoice-free-tier-eol`](docs/lessons/audio_vui_pipeline.md#picovoice-free-tier-eol) |
 | **FM-SYS-007** | System/Support | `startup_and_watchdog_scripts` | Mancata o incompleta disattivazione di watchdog.sh durante il riavvio manuale, scatenando un loop concorrente di avvii di restart_hailo.sh con duplicazione massiva di nodi ROS 2 e saturazione CPU al 100% | 9 | 1 | 1 | **9** | `REVISION_MANDATORY` | `CLOSED` | [`docs/lessons/dev_and_deployment.md#riavvio-dei-nodi-e-interlock-del-watchdog`](docs/lessons/dev_and_deployment.md#riavvio-dei-nodi-e-interlock-del-watchdog) |
+| **FM-VUI-011** | VUI Audio | `local_asr_vosk` | Segmentation fault immediato dell\'interprete Python durante la chiamata a KaldiRecognizer.Reset() o allocazione di memoria cross-thread | 9 | 1 | 1 | **9** | `REVISION_MANDATORY` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#sentinel-pattern`](docs/lessons/audio_vui_pipeline.md#sentinel-pattern) |
 | **FM-NAV-003** | Nav2 | `lifecycle_manager_navigation` | Crash all'avvio dello stack Nav2 per mancata corrispondenza nei nomi dei nodi controllati | 8 | 1 | 1 | **8** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#lifecycle`](docs/lessons/nav2_slam_tuning.md#lifecycle) |
 | **FM-ACT-002** | ESP32 | `waveshare_motor_driver` | Blocco del parser seriale ESP32 e scarto sistematico dei pacchetti di comando di velocità | 8 | 1 | 1 | **8** | `LOW` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#esp32-protocol`](docs/lessons/actuation_motor_driver.md#esp32-protocol) |
 | **FM-ACT-004** | Hardware/Power | `waveshare_motor_driver` | Cancellazione delle velocità differenziali per inversione speculare dei tick dell'encoder destro | 8 | 1 | 1 | **8** | `LOW` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#kinematics`](docs/lessons/actuation_motor_driver.md#kinematics) |

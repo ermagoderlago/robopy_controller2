@@ -1006,25 +1006,28 @@
   detection_controls: Analisi offline dei log di trascrizione ASR
   residual_scoring:
     severity: 6
-    occurrence: 8
-    detection: 3
-    rpn: 144
-  risk_level: MEDIUM
-  mitigation_status: OPEN
-  recommended_action: 'MIGLIORIA: Implementare nodo AI Semantic Coherence Gating in
-    LangGraph (se il prompt è incoerente col contesto, il robot chiede di ripetere)
-    e Dynamic AGC (regolazione a caldo del volume di input)'
-  verification_method: 'Piano prova: Test vocale a passi di 1, 3, e 5 metri con rumore
-    bianco in background'
-  eco_ref: ''
-  lesson_ref: docs/lessons/telemetry_and_autotuning.md
+    occurrence: 2
+    detection: 2
+    rpn: 24
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Dynamic AGC Software implementato in respeaker_vui_node.py (boost
+    guadagno fino a 5.0x su segnale debole in stato attentive)
+  verification_method: Test vocale a 1, 3 e 5 metri di distanza
+  eco_ref: docs/lessons/audio_vui_pipeline.md#dynamic-agc
+  lesson_ref: docs/lessons/audio_vui_pipeline.md#dynamic-agc
   date_identified: '2026-07-30'
-  last_updated: '2026-07-30'
+  last_updated: '2026-08-04'
   history:
   - date: '2026-07-30'
     change: Inserimento per analisi preventiva setup VUI e tuning parametri
     rpn_old: 144
     rpn_new: 144
+  - date: '2026-08-04'
+    change: Implementato Dynamic AGC Software in respeaker_vui_node.py (boost guadagno
+      2.5x->5.0x per parlato da lontano in stato attentive)
+    rpn_old: 144
+    rpn_new: 24
 - id: FM-VUI-006
   subsystem: VUI Audio
   component: respeaker_vui_node
@@ -2388,3 +2391,139 @@
       orchestrazione dinamica idle/motion + LiDAR 2D
     rpn_old: 216
     rpn_new: 54
+- id: FM-VUI-011
+  subsystem: VUI Audio
+  component: local_asr_vosk
+  function: Riconoscimento vocale offline deterministico e robusto senza perdite di
+    memoria o stalli del thread ROS 2 principale
+  failure_mode: Segmentation fault immediato dell\'interprete Python durante la chiamata
+    a KaldiRecognizer.Reset() o allocazione di memoria cross-thread
+  potential_cause: Il modello Vosk (KaldiRecognizer) non è thread-safe per le chiamate
+    di re-instanziazione o Reset() quando viene invocato dal main loop di ROS 2 mentre
+    un worker thread sta consumando la coda
+  potential_effect: Crash irreversibile dell\'intero nodo VUI, interruzione improvvisa
+    della conversazione (robot muto) e necessitá di riavvio manuale
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids: []
+  initial_scoring:
+    severity: 9
+    occurrence: 8
+    detection: 2
+    rpn: 144
+  prevention_controls: Sentinel Pattern. Sostituzione dell\'accesso diretto all\'oggetto
+    con l\'invio di un comando byte dedicato (b\'FLUSH_CMD\') nella coda, demandando
+    la ricreazione dell\'oggetto interamente all\'interno del ciclo asincrono del
+    worker thread
+  detection_controls: Intercettazione del traceback C++ nel file di log del ROS 2
+    core
+  residual_scoring:
+    severity: 9
+    occurrence: 1
+    detection: 1
+    rpn: 9
+  risk_level: REVISION_MANDATORY
+  mitigation_status: CLOSED
+  recommended_action: Evitare categoricamente l\'istanziazione o la modifica dello
+    stato di Vosk da thread differenti da quello che esegue AcceptWaveform
+  verification_method: Stress test di interruzione continua del parlato dell\'utente
+    100 volte consecutive
+  eco_ref: docs/lessons/audio_vui_pipeline.md#sentinel-pattern
+  lesson_ref: docs/lessons/audio_vui_pipeline.md#sentinel-pattern
+  date_identified: '2026-08-04'
+  last_updated: '2026-08-04'
+  history:
+  - date: '2026-08-04'
+    change: Identificato e risolto il bug architetturale delle race condition di Vosk
+      tramite Sentinel Pattern
+    rpn_old: 144
+    rpn_new: 9
+- id: FM-VUI-012
+  subsystem: VUI Audio
+  component: respeaker_vui_node
+  function: Segmentazione accurata del parlato dell\'utente per distinguere le frasi
+    dalle pause naturali di riflessione
+  failure_mode: Taglio prematuro della frase dell\'utente (Clipping interno) o impossibilità
+    di catturare singole parole brevi come 'Sì'/'No'
+  potential_cause: Parametri di Voice Activity Detection (VAD) statici. Soglie di
+    noise gate, frame attivi (MIN_SPEECH_FRAMES) e durata del silenzio (max_silence)
+    uguali sia in idle che in conversazione
+  potential_effect: Frustrazione dell\'utente, dialoghi incomprensibili per Gemini,
+    risposte frammentate, perdita del contesto semantico
+  classification: PERFORMANCE
+  estimation_basis: measured
+  related_ids: []
+  initial_scoring:
+    severity: 7
+    occurrence: 9
+    detection: 4
+    rpn: 252
+  prevention_controls: Isteresi Dinamica basata sullo stato (Attentive State). Quando
+    il robot ascolta l\'utente, la tolleranza al silenzio si alza (fino a 1100ms)
+    e la soglia del gate si abbassa, consentendo discorsi naturali. In idle, i parametri
+    diventano restrittivi per filtrare il rumore.
+  detection_controls: Ascolto log delle rilevazioni audio e feedback utente.
+  residual_scoring:
+    severity: 7
+    occurrence: 2
+    detection: 2
+    rpn: 28
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Applicare sistematicamente la logica di isteresi per adattare
+    l\'aggressività del VAD in base all\'intento corrente del robot
+  verification_method: Test di conversazione lenta con pause prolungate (>800ms) tra
+    una parola e l\'altra
+  eco_ref: docs/lessons/audio_vui_pipeline.md#isteresi-vad
+  lesson_ref: docs/lessons/audio_vui_pipeline.md#isteresi-vad
+  date_identified: '2026-08-04'
+  last_updated: '2026-08-04'
+  history:
+  - date: '2026-08-04'
+    change: Inserimento Failure Mode per logica VAD statica e implementazione isteresi
+    rpn_old: 252
+    rpn_new: 28
+- id: FM-VUI-013
+  subsystem: VUI Audio
+  component: respeaker_vui_node
+  function: Permettere all\'utente di interagire naturalmente ed immediatamente (Barge-in)
+    subito dopo la risposta vocale del robot
+  failure_mode: Conversazione lenta e innaturale con perdita dell\'inizio della risposta
+    dell\'utente
+  potential_cause: Timeout rigido anti-eco post-TTS di 0.6s (is_speaker_active), troppo
+    lungo, che scarta incondizionatamente il parlato umano
+  potential_effect: Ritmo di interazione spezzato. Se l\'utente risponde rapidamente,
+    il robot ignora la sua voce per il primo mezzo secondo, portando a incomprensioni
+    e frustrazione.
+  classification: PERFORMANCE
+  estimation_basis: measured
+  related_ids: []
+  initial_scoring:
+    severity: 6
+    occurrence: 7
+    detection: 4
+    rpn: 168
+  prevention_controls: Ottimizzazione e accorciamento della finestra di cooldown anti-eco
+    a 0.4s. Maggiore fiducia riposta nell\'algoritmo di cancellazione acustica dell\'eco
+    (AEC) hardware del chip XMOS.
+  detection_controls: Analisi dei file PCM in input subito dopo la fine del TTS.
+  residual_scoring:
+    severity: 6
+    occurrence: 2
+    detection: 2
+    rpn: 24
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Lasciare che l\'hardware dedicato pulisca l\'eco, limitando
+    i blocchi software a strette finestre temporali di sicurezza.
+  verification_method: Test di 'interruzione naturale' parlando esattamente un istante
+    dopo che il robot ha finito di parlare.
+  eco_ref: docs/lessons/audio_vui_pipeline.md#barge-in
+  lesson_ref: docs/lessons/audio_vui_pipeline.md#barge-in
+  date_identified: '2026-08-04'
+  last_updated: '2026-08-04'
+  history:
+  - date: '2026-08-04'
+    change: Ricalibrazione della finestra di barge-in post-TTS
+    rpn_old: 168
+    rpn_new: 24
