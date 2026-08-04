@@ -1,5 +1,5 @@
 # 📊 Report Esecutivo DFMEA - Marcus AI Robot Platform
-**Data Generazione:** 2026-08-04 23:13:14  
+**Data Generazione:** 2026-08-04 23:17:08  
 **Metodologia:** AIAG-VDA FMEA Standard con Regola Override Severità ($S \ge 9 \implies$ REVISION_MANDATORY)
 
 ---
@@ -88,7 +88,7 @@
 | **FM-VUI-005** | VUI Audio | `hailo_voiceprint_node / hailo_bridge_node` | Latenza elevata ed accumulo buffer audio (audio drift) per overhead computazionale dell'NPU durante l'inferenza di speaker ID | 7 | 2 | 2 | **28** | `LOW` | `IN_PROGRESS` | [`docs/lessons/audio_vui_pipeline.md#hailo-voiceprint`](docs/lessons/audio_vui_pipeline.md#hailo-voiceprint) |
 | **FM-VUI-012** | VUI Audio | `respeaker_vui_node` | Taglio prematuro della frase dell\'utente (Clipping interno) o impossibilità di catturare singole parole brevi come 'Sì'/'No' | 7 | 2 | 2 | **28** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#isteresi-vad`](docs/lessons/audio_vui_pipeline.md#isteresi-vad) |
 | **FM-VUI-003** | VUI Audio | `respeaker_vui_node` | Falsi rilevamenti di presenza vocale (VAD) ed invio continuo di rumore di fondo a Gemini Live | 6 | 2 | 2 | **24** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#hpf-filter`](docs/lessons/audio_vui_pipeline.md#hpf-filter) |
-| **FM-VUI-004** | VUI Audio | `respeaker_vui_node` | Acoustic Echo Leakage ed auto-interruzione continua della sintesi vocale del robot | 6 | 2 | 2 | **24** | `LOW` | `OPEN` | [`docs/lessons/audio_vui_pipeline.md#peak-limiter`](docs/lessons/audio_vui_pipeline.md#peak-limiter) |
+| **FM-VUI-004** | VUI Audio | `respeaker_vui_node` | Acoustic Echo Leakage ed auto-interruzione continua della sintesi vocale del robot | 6 | 2 | 2 | **24** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#barge-in`](docs/lessons/audio_vui_pipeline.md#barge-in) |
 | **FM-VUI-005** | VUI Audio | `respeaker_vui_node` | Trascrizione ASR incomprensibile o allucinata ('Voce Distorta / Sorgente Lontana') | 6 | 2 | 2 | **24** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#dynamic-agc`](docs/lessons/audio_vui_pipeline.md#dynamic-agc) |
 | **FM-VUI-006** | VUI Audio | `voiceprint_manager` | Errata attribuzione del parlato (False Speaker Match) tra persone con timbro simile o in presenza di rumore | 6 | 2 | 2 | **24** | `LOW` | `IN_PROGRESS` | [`docs/lessons/audio_vui_pipeline.md#voiceprint-enrollment`](docs/lessons/audio_vui_pipeline.md#voiceprint-enrollment) |
 | **FM-VUI-007** | AI/Cognitive | `memory_decay_engine` | Oblio aggressivo di informazioni importanti pronunciate poco prima di invocare 'Marcus' o accumulo indefinito di conversazioni futili | 6 | 2 | 2 | **24** | `LOW` | `IN_PROGRESS` | [`docs/lessons/orchestration_and_rag.md#algoritmo-oblio-memoria`](docs/lessons/orchestration_and_rag.md#algoritmo-oblio-memoria) |

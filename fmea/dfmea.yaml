@@ -922,19 +922,24 @@
     detection: 2
     rpn: 24
   risk_level: LOW
-  mitigation_status: OPEN
-  recommended_action: Implementare la sottrazione software in tempo reale del buffer
-    PCM riprodotto dal buffer di cattura microfonica
+  mitigation_status: CLOSED
+  recommended_action: AEC Hardware XMOS XU316 + Attenuazione software guadagno 0.75x
+    in TTS + Cooldown 0.4s a 0.0x
   verification_method: Test di sintesi vocale a volume 100% in stanza ad elevato riverbero
     acustico
   eco_ref: docs/ecos/audio_vui_ecos.md
-  lesson_ref: docs/lessons/audio_vui_pipeline.md#peak-limiter
+  lesson_ref: docs/lessons/audio_vui_pipeline.md#barge-in
   date_identified: '2026-07-30'
-  last_updated: '2026-07-30'
+  last_updated: '2026-08-04'
   history:
   - date: '2026-07-30'
     change: Audit codebase per autointestazione da rientro acustico speaker
     rpn_old: 144
+    rpn_new: 24
+  - date: '2026-08-04'
+    change: Chiuso Failure Mode confermando mitigazione triple-layer (AEC XMOS + Attenuazione
+      0.75x TTS + Cooldown 0.4s)
+    rpn_old: 24
     rpn_new: 24
 - id: FM-ACT-005
   subsystem: Hardware/Power
