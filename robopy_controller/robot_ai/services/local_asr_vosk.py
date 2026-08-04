@@ -26,6 +26,7 @@ class VoskASRManager:
         self._audio_queue = queue.Queue(maxsize=200)
         self._shutdown = False
         self._worker_thread = None
+        self._drop_count = 0  # [v19.6] Contatore frame scartati per debug drop sotto carico CPU
         
         self.model = None
         self.recognizer = None
@@ -86,8 +87,10 @@ class VoskASRManager:
         try:
             self._audio_queue.put_nowait(pcm_bytes)
         except queue.Full:
-            # Drop frame if we fall behind
-            pass
+            # [v19.6] Drop frame: log periodico ogni 50 drop per evidenziare CPU overload
+            self._drop_count += 1
+            if self._drop_count % 50 == 0:
+                print(f"⚠️ [VoskASR] {self._drop_count} frame scartati (queue piena) — possibile CPU overload")
 
     def _worker(self):
         """Thread background che consuma l'audio ed esegue l'inferenza STT."""

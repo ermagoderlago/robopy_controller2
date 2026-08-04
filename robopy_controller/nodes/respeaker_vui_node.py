@@ -88,7 +88,7 @@ MAX_RESIDUAL   = CHUNK_SIZE * 4 # buffer residuo inter-callback
 MAX_RING_FRAMES = 50            # ~1.0 sec capacità totale del ring buffer
 PRE_ROLL_FRAMES = 25            # 25 frame = 500ms di pre-roll per azzerare la latenza
 PRE_ROLL_BYTES  = PRE_ROLL_FRAMES * FRAME_SIZE * 2      # byte totali (16000 B)
-MIN_SPEECH_FRAMES = 4           # 4 × 20ms = 80ms di voce sostenuta per attivare VAD
+MIN_SPEECH_FRAMES = 2           # [v19.6] 2 × 20ms = 40ms — abbassato per catturare frasi brevi ('Sì', 'No', 'Stop')
 # Audio output: Gemini Live API produce PCM 24kHz mono int16
 _NATIVE_AUDIO_RATE          = 24000  # Hz output Gemini Live (chunks piccoli, live streaming)
 _STD_AUDIO_RATE             = 24000  # Hz output TTS pre-generato (stesso formato)
@@ -746,6 +746,13 @@ class ReSpeakerVUINode(Node):
         self._pub_speech.publish(msg)
 
     def _publish_end_of_speech(self) -> None:
+        # [v19.6 BUG-1] Forza Vosk a emettere qualsiasi testo ancora in buffer interno
+        # CRITICO: senza questo, frasi brevi o wake word rapide spariscono nel buffer Vosk
+        if hasattr(self, 'vosk_mgr') and self.vosk_mgr:
+            try:
+                self.vosk_mgr.force_flush()
+            except Exception as e:
+                self.get_logger().warn(f'[VAD] force_flush error: {e}')
         msg      = AudioData()
         msg.data = b''                       # frame vuoto = segnale end-of-speech per il LLM
         self._pub_speech.publish(msg)
@@ -905,9 +912,9 @@ class ReSpeakerVUINode(Node):
         transcript_msg.data = f"{prefix} ({speaker_name}): {text}"
         self.transcript_pub.publish(transcript_msg)
 
-        # [v19.3] Protezione feedback acustico estesa a 1.5s
+        # [v19.6 BUG-3] Protezione feedback acustico: ridotta da 1.5s→0.6s per non perdere frasi post-TTS
         time_since_speaker = time.monotonic() - getattr(self, '_last_ai_speaking_time', 0.0)
-        is_speaker_active = getattr(self, '_is_playing_out', False) or self._is_tts_speaking or (time_since_speaker < 1.5)
+        is_speaker_active = getattr(self, '_is_playing_out', False) or self._is_tts_speaking or (time_since_speaker < 0.6)
 
         if not is_partial:
             self.get_logger().info(f"🗣️ [VOSK ASR] Sentito ({speaker_name}): '{text}'")
@@ -1060,8 +1067,8 @@ class ReSpeakerVUINode(Node):
                 # A. Auto-regolazione soglia noise gate (se abilitata) calibrata su HPF per far-field
                 if self.enable_adaptive_threshold:
                     boosted_ambient = self._ambient_noise_ema * self.stt_gain
-                    # Soglia dinamica per far-field: clamped tra [600.0, 4000.0] basata sui test empirici a 50cm, 1m e 3m
-                    self.noise_gate_threshold = float(np.clip(boosted_ambient * 1.30 + 300.0, 600.0, 4000.0))
+                    # [v19.6 BUG-2] Soglia dinamica: clamp abbassato da 600→400 per catturare voci deboli/distanti
+                    self.noise_gate_threshold = float(np.clip(boosted_ambient * 1.30 + 300.0, 400.0, 4000.0))
 
                 # B. Taratura adattiva del timeout silenzio (se abilitato)
                 if self.enable_adaptive_silence:
@@ -1069,11 +1076,11 @@ class ReSpeakerVUINode(Node):
                     if raw_ambient < 100.0:
                         self._cfg_max_silence = 40  # ~800ms (silenzio perfetto)
                     elif raw_ambient < 200.0:
-                        self._cfg_max_silence = 28  # ~560ms
+                        self._cfg_max_silence = 40  # [v19.6 BUG-4] era 28 (560ms troppo corto) → 40 (800ms)
                     elif raw_ambient < 350.0:
-                        self._cfg_max_silence = 35  # ~700ms
+                        self._cfg_max_silence = 40  # ~800ms
                     else:
-                        self._cfg_max_silence = 45  # ~900ms
+                        self._cfg_max_silence = 50  # ~1000ms (ambienti rumorosi)
 
                 # Diagnostica Volume MIC (RMS ogni ~1s @ 960 chunks)
                 self._rms_chunk_count += 1
@@ -1107,8 +1114,9 @@ class ReSpeakerVUINode(Node):
                     if time.monotonic() - self._last_ai_speaking_time < 0.6:
                         ai_cooldown_active = True
 
-                # Transizione True→False o durante cooldown: AI ha terminato di parlare — reset VAD
-                if (ai_speaking_was and not ai_speaking_now) or ai_cooldown_active:
+                # [v19.6 BUG-5] Reset VAD SOLO alla transizione True→False (non per tutta la durata del cooldown)
+                # FIX: il reset durante tutto il cooldown cancellava le prime parole pronunciate dopo il TTS
+                if ai_speaking_was and not ai_speaking_now:
                     self._speech_frame_count  = 0
                     self._silence_frame_count = 0
                     self._is_speech_active    = False
@@ -1170,7 +1178,8 @@ class ReSpeakerVUINode(Node):
                 # [v19.3] Inibito se l'altoparlante ha riprodotto audio negli ultimi 1.5s (previene l'eco acustica dei beep)
                 is_listening = self._ev_listening.is_set()
                 time_since_speaker = time.monotonic() - getattr(self, '_last_ai_speaking_time', 0.0)
-                is_speaker_active = getattr(self, '_is_playing_out', False) or self._is_tts_speaking or (time_since_speaker < 1.5)
+                # [v19.6 BUG-3] Finestra protezione eco ridotta da 1.5s→0.6s: sufficiente per eco hardware beep
+                is_speaker_active = getattr(self, '_is_playing_out', False) or self._is_tts_speaking or (time_since_speaker < 0.6)
 
                 if self.vosk_mgr and not is_speaker_active:
                     self.vosk_mgr.set_listening_mode(is_listening)

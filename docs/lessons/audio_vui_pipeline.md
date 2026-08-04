@@ -197,3 +197,49 @@ ESPHome `micro_wake_word` gira modelli TFLite quantizzati sull'ESP32S3. Il Pi5 r
 ### Hotspot CPU Principale (non-audio): FM-CPU-001
 Il vero hotspot CPU era `annotate_and_publish_image` a 30Hz in `hailo_bridge_node.py`.
 Applicato throttle a 5Hz → -15% CPU stimato. Vedi `fmea/dfmea.yaml#FM-CPU-001`.
+
+---
+
+## 🐛 Bug Critici Risolti — v19.6 (2026-08-04)
+
+### BUG-1: `force_flush()` Vosk non chiamato a fine frase
+* **Sintomo:** Frasi brevi e wake word pronunciate rapidamente non riconosciute.
+* **Causa:** `_publish_end_of_speech()` inviava il frame vuoto EOS a Gemini senza prima forzare Vosk a emettere il testo ancora nel buffer interno. Vosk è un motore statistico che accumula audio e aspetta silenzio o reset.
+* **Fix (v19.6):** `force_flush()` viene chiamato in `_publish_end_of_speech()` prima del publish del frame vuoto. Questo garantisce che l'ultima parola (anche "Marcus") sia sempre consegnata al callback.
+* **File:** `respeaker_vui_node.py` — metodo `_publish_end_of_speech()`
+
+### BUG-2: Noise gate minimo 600 RMS — voci deboli/distanti non rilevate
+* **Sintomo:** Marcus non inizia l'ascolto se l'utente parla da > 1m o a voce moderata.
+* **Causa:** Il clamp inferiore del noise gate adattivo era 600 RMS, troppo alto per segnali deboli amplificati 2.5x.
+* **Fix (v19.6):** Clamp abbassato da 600 → 400 RMS. Mantiene protezione dal rumore ambientale.
+* **File:** `respeaker_vui_node.py` — riga costante `noise_gate_threshold` adattiva.
+
+### BUG-3: Finestra blocco Vosk 1.5s post-TTS — prime parole perse
+* **Sintomo:** Se l'utente inizia a parlare subito dopo la risposta di Marcus, le prime 1-1.5 secondi di audio non vengono processate da Vosk → wake word o risposta persa.
+* **Causa:** `is_speaker_active` usava una finestra di 1.5s dopo `_last_ai_speaking_time`.
+* **Fix (v19.6):** Ridotta a 0.6s: sufficiente per dissipare l'eco hardware del beep, ma non taglia le prime parole dell'utente.
+* **File:** `respeaker_vui_node.py` — `_on_vosk_text()` (riga 910) e `_audio_processing_worker()` (riga 1173).
+
+### BUG-4: `max_silence=28 frame` (560ms) — frasi tagliate in ambienti silenziosi
+* **Sintomo:** In ambienti silenziosi (es. notturno), le frasi venivano tagliate a metà e Marcus rispondeva a frasi parziali.
+* **Causa:** L'adattivo portava `_cfg_max_silence` a 28 frame (560ms) per `ambient_noise_ema < 200`. La pausa naturale tra parole umane è 600-800ms → la fine-frase scattava troppo presto.
+* **Fix (v19.6):** Tutti i case dell'adattivo uniformati a 40-50 frame (800-1000ms).
+* **Tabella aggiornata:**
+
+| Ambient EMA | max_silence (v19.5) | max_silence (v19.6) |
+|---|---|---|
+| < 100 | 40 frame (800ms) | 40 frame (800ms) ✅ |
+| < 200 | **28 frame (560ms) ❌** | **40 frame (800ms) ✅** |
+| < 350 | 35 frame (700ms) | 40 frame (800ms) ✅ |
+| ≥ 350 | 45 frame (900ms) | 50 frame (1000ms) ✅ |
+
+### BUG-5: Reset VAD durante tutto il cooldown (600ms) — inizio frasi cancellato
+* **Sintomo:** Se l'utente inizia a parlare durante i 600ms di cooldown post-TTS, il ring buffer e i contatori VAD vengono azzerati a ogni chunk → l'inizio della frase non viene mai registrato.
+* **Causa:** La condizione `if (ai_speaking_was and not ai_speaking_now) or ai_cooldown_active:` eseguiva il reset per tutta la durata del cooldown (600ms = 10 chunk × 60ms).
+* **Fix (v19.6):** Reset VAD solo alla transizione `True→False` (singolo evento), non per tutta la durata del cooldown. Il cooldown rimane attivo per il gain e per il blocco Vosk.
+* **File:** `respeaker_vui_node.py` — `_audio_processing_worker()` riga ~1110.
+
+### MED-1: Drop silenzioso frame Vosk sotto carico CPU
+* **Sintomo:** Sotto carico CPU intenso, frame audio venivano scartati silenziosamente senza alcun log.
+* **Fix (v19.6):** Aggiunto contatore `_drop_count` e log periodico ogni 50 drop.
+* **File:** `local_asr_vosk.py` — metodo `process_audio()`.
