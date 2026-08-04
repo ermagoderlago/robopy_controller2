@@ -243,3 +243,22 @@ Applicato throttle a 5Hz → -15% CPU stimato. Vedi `fmea/dfmea.yaml#FM-CPU-001`
 * **Sintomo:** Sotto carico CPU intenso, frame audio venivano scartati silenziosamente senza alcun log.
 * **Fix (v19.6):** Aggiunto contatore `_drop_count` e log periodico ogni 50 drop.
 * **File:** `local_asr_vosk.py` — metodo `process_audio()`.
+
+---
+
+## 🏗️ Refactoring Architetturale Loop VAD e Vosk — v20.0 (2026-08-04)
+
+### ARCH-1: Race Condition in Vosk ASR (`force_flush`)
+* **Problema (Bug architetturale):** L'approccio scolastico di chiamare `recognizer.Reset()` o ricreare `self.recognizer = vosk.KaldiRecognizer(...)` dal thread principale ROS 2 causava race condition col worker thread Vosk (segmentation fault) ed allocazioni bloccanti. Il metodo `Reset()` inoltre non è esposto ufficialmente nella Python API di Vosk e provoca instabilità.
+* **Soluzione (Sentinel Value Pattern):** Introdotto un comando speciale `b"FLUSH_CMD"` iniettato nella coda audio dal main thread. Il worker thread estrae il sentinel in ordine cronologico, esegue `FinalResult()` e **ricrea il riconoscitore localmente nel proprio thread**. Nessun lock, zero race condition, elaborazione pipeline asincrona sicura. Modello Vosk aggiornato a `vosk-model-it-0.22` (full version) per accuratezza maggiore.
+
+### ARCH-2: Isteresi 'Attentive State' per il VAD
+* **Problema:** I parametri statici del VAD causavano false partenze (click spuri in idle) o tagli anticipati di frasi con pause interne (utente che riflette e si ferma).
+* **Soluzione:** Introduzione dello stato dinamico `is_attentive = _ev_listening.is_set()`.
+  1. **Noise Gate:** Quando in idle, soglia base rigida (clamp 400). Quando `is_attentive=True`, soglia addolcita (clamp 350, multiplier 1.15x) per catturare i sussurri di risposta.
+  2. **Max Silence Timeout:** In idle, massimo 800-1000ms. In conversazione, timeout esteso a 900-1100ms (`_cfg_max_silence` 45-55 frame) per tollerare pause naturali a metà frase.
+  3. **Reattività (MIN_SPEECH_FRAMES):** In idle, 4 frame (80ms) per immunità ai disturbi. In conversazione, 2 frame (40ms) per non tagliare le consonanti dei "Sì/No" brevi.
+
+### ARCH-3: Finestra Barge-in Ottimizzata
+* **Problema:** Marcus si bloccava troppo a lungo dopo aver parlato, impedendo un'interazione naturale a ritmo sostenuto (ping-pong verbale).
+* **Soluzione:** Ridotto il timeout hardware `time_since_speaker` da `0.6s` a `0.4s` sia per l'inibizione dell'eco in Vosk sia per il cooldown in `_audio_processing_worker`. L'AEC XMOS è sufficiente a prevenire loop acustici. Abilitato inoltro timestamps con `SetWords(True)`.

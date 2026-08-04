@@ -804,8 +804,11 @@ class ReSpeakerVUINode(Node):
         if is_voice:
             self._speech_frame_count  += 1
             self._silence_frame_count  = 0
+            
+            # [v20.0] MIN_SPEECH_FRAMES dinamico: 2 frame (40ms) se in conversazione, altrimenti 4 frame (80ms) per evitare click spuri in idle
+            current_min_speech = 2 if self._ev_listening.is_set() else 4
 
-            if (self._speech_frame_count >= MIN_SPEECH_FRAMES
+            if (self._speech_frame_count >= current_min_speech
                     and not self._is_speech_active):
                 self._is_speech_active = True
                 self._voice_frame_count = 0
@@ -912,9 +915,9 @@ class ReSpeakerVUINode(Node):
         transcript_msg.data = f"{prefix} ({speaker_name}): {text}"
         self.transcript_pub.publish(transcript_msg)
 
-        # [v19.6 BUG-3] Protezione feedback acustico: ridotta da 1.5s→0.6s per non perdere frasi post-TTS
+        # [v20.0] Protezione feedback acustico: ridotta da 0.6s a 0.4s (tempo per dissipare eco hardware)
         time_since_speaker = time.monotonic() - getattr(self, '_last_ai_speaking_time', 0.0)
-        is_speaker_active = getattr(self, '_is_playing_out', False) or self._is_tts_speaking or (time_since_speaker < 0.6)
+        is_speaker_active = getattr(self, '_is_playing_out', False) or self._is_tts_speaking or (time_since_speaker < 0.4)
 
         if not is_partial:
             self.get_logger().info(f"🗣️ [VOSK ASR] Sentito ({speaker_name}): '{text}'")
@@ -1064,23 +1067,36 @@ class ReSpeakerVUINode(Node):
                         msg.data = self._ambient_noise_ema
                         self.ambient_noise_pub.publish(msg)
 
+                # [v20.0] Determina se Marcus sta attivamente conversando o aspettando comandi
+                is_attentive = self._ev_listening.is_set()
+
                 # A. Auto-regolazione soglia noise gate (se abilitata) calibrata su HPF per far-field
                 if self.enable_adaptive_threshold:
                     boosted_ambient = self._ambient_noise_ema * self.stt_gain
-                    # [v19.6 BUG-2] Soglia dinamica: clamp abbassato da 600→400 per catturare voci deboli/distanti
-                    self.noise_gate_threshold = float(np.clip(boosted_ambient * 1.30 + 300.0, 400.0, 4000.0))
+                    # [v20.0] Soglia del gate dinamica (isteresi). Meno aggressiva (1.15x) e clamp più basso (350) se attento.
+                    ambient_multiplier = 1.15 if is_attentive else 1.30
+                    base_clamp = 350.0 if is_attentive else 400.0
+                    self.noise_gate_threshold = float(np.clip(boosted_ambient * ambient_multiplier + 250.0, base_clamp, 4000.0))
 
                 # B. Taratura adattiva del timeout silenzio (se abilitato)
                 if self.enable_adaptive_silence:
                     raw_ambient = self._ambient_noise_ema
-                    if raw_ambient < 100.0:
-                        self._cfg_max_silence = 40  # ~800ms (silenzio perfetto)
-                    elif raw_ambient < 200.0:
-                        self._cfg_max_silence = 40  # [v19.6 BUG-4] era 28 (560ms troppo corto) → 40 (800ms)
-                    elif raw_ambient < 350.0:
-                        self._cfg_max_silence = 40  # ~800ms
+                    if is_attentive:
+                        # In conversazione: pazienza massima per non troncare l'utente
+                        if raw_ambient < 200.0:
+                            self._cfg_max_silence = 45  # 900ms (mai sotto 800ms in silenzio)
+                        elif raw_ambient < 350.0:
+                            self._cfg_max_silence = 45  # 900ms
+                        else:
+                            self._cfg_max_silence = 55  # 1100ms (ambienti rumorosi)
                     else:
-                        self._cfg_max_silence = 50  # ~1000ms (ambienti rumorosi)
+                        # In idle: valori normali per non tenere aperto inutilmente il VAD
+                        if raw_ambient < 200.0:
+                            self._cfg_max_silence = 40  # 800ms
+                        elif raw_ambient < 350.0:
+                            self._cfg_max_silence = 40  # 800ms
+                        else:
+                            self._cfg_max_silence = 50  # 1000ms
 
                 # Diagnostica Volume MIC (RMS ogni ~1s @ 960 chunks)
                 self._rms_chunk_count += 1
@@ -1108,10 +1124,10 @@ class ReSpeakerVUINode(Node):
                 if ai_speaking_now:
                     self._last_ai_speaking_time = time.monotonic()
 
-                # Calcola il periodo di cooldown (600 ms) per dissipare l'eco residua hardware del microfono
+                # [v20.0] Calcola il periodo di cooldown (400 ms) per dissipare l'eco residua hardware del microfono
                 ai_cooldown_active = False
                 if self._last_ai_speaking_time > 0.0:
-                    if time.monotonic() - self._last_ai_speaking_time < 0.6:
+                    if time.monotonic() - self._last_ai_speaking_time < 0.4:
                         ai_cooldown_active = True
 
                 # [v19.6 BUG-5] Reset VAD SOLO alla transizione True→False (non per tutta la durata del cooldown)
