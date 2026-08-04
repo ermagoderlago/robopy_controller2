@@ -2532,3 +2532,216 @@
     change: Ricalibrazione della finestra di barge-in post-TTS
     rpn_old: 168
     rpn_new: 24
+- id: FM-VUI-014
+  subsystem: VUI Audio
+  component: local_asr_vosk
+  function: Gestione efficiente della memoria durante le ri-inizializzazioni trasparenti
+    del riconoscitore Vosk
+  failure_mode: Accumulo di memoria RAM nativa (C++ SWIG memory leak) per ritardata
+    garbage collection degli oggetti KaldiRecognizer distrutti
+  potential_cause: CPython GC non rilascia immediatamente gli oggetti C++ bindati
+    in SWIG; le chiamate ripetute a Sentinel Flush accumulano frammentazione memoria
+  potential_effect: Crescita lenta ma progressiva dell\'uso della RAM nel tempo con
+    conseguente degradazione delle latenze per swapping su NVMe SSD o OOM Kill
+  classification: PERFORMANCE
+  estimation_basis: theoretical
+  related_ids:
+  - FM-VUI-011
+  initial_scoring:
+    severity: 7
+    occurrence: 7
+    detection: 4
+    rpn: 196
+  prevention_controls: Chiamata esplicita del distruttore e di gc.collect() a valle
+    della gestione del sentinel b\'FLUSH_CMD\' + test di endurance (1000 iterazioni)
+  detection_controls: Profilazione memoria di sistema via psutil/memory_profiler nel
+    supervisore di sistema
+  residual_scoring:
+    severity: 7
+    occurrence: 2
+    detection: 2
+    rpn: 28
+  risk_level: LOW
+  mitigation_status: OPEN
+  recommended_action: Inserire gc.collect() ed azzeramento esplicito dei riferimenti
+    al recognizer vecchio all\'interno del worker thread Vosk
+  verification_method: Endurance test 1000 dialoghi simulati con verifica stabilità
+    curva memoria
+  eco_ref: docs/lessons/audio_vui_pipeline.md#sentinel-pattern
+  lesson_ref: docs/lessons/audio_vui_pipeline.md#sentinel-pattern
+  date_identified: '2026-08-04'
+  last_updated: '2026-08-04'
+  history:
+  - date: '2026-08-04'
+    change: Inserito per audit critico su rilascio memoria SWIG/Vosk
+    rpn_old: 196
+    rpn_new: 196
+- id: FM-VUI-015
+  subsystem: VUI Audio
+  component: respeaker_vui_node
+  function: Sincronizzazione thread-safe dello stato attentive tra callback ROS 2
+    e worker VAD
+  failure_mode: Race condition atomica e valutazione inconsistente dello stato is_attentive
+    nel loop VAD
+  potential_cause: Assegnazione o lettura del flag is_attentive da thread ROS 2 differenti
+    senza sincronizzazione threading.Lock
+  potential_effect: Transizione VAD spuria con parametri incoerenti durante il parlato
+    dell\'utente
+  classification: PERFORMANCE
+  estimation_basis: theoretical
+  related_ids:
+  - FM-VUI-012
+  initial_scoring:
+    severity: 6
+    occurrence: 6
+    detection: 4
+    rpn: 144
+  prevention_controls: Protezione degli accessi allo stato attentive tramite threading.Lock
+    o threading.Event dedicato
+  detection_controls: Log di diagnostica VAD con stato del lock
+  residual_scoring:
+    severity: 6
+    occurrence: 2
+    detection: 2
+    rpn: 24
+  risk_level: LOW
+  mitigation_status: OPEN
+  recommended_action: Incapsulare la modifica delle soglie attentive all\'interno
+    di un blocco thread-safe
+  verification_method: Stress test di cambio stato attentive ad alta frequenza durante
+    lo streaming audio
+  eco_ref: docs/lessons/audio_vui_pipeline.md#isteresi-vad
+  lesson_ref: docs/lessons/audio_vui_pipeline.md#isteresi-vad
+  date_identified: '2026-08-04'
+  last_updated: '2026-08-04'
+  history:
+  - date: '2026-08-04'
+    change: Inserito Failure Mode per thread-safety stato attentive VAD
+    rpn_old: 144
+    rpn_new: 144
+- id: FM-VUI-016
+  subsystem: VUI Audio
+  component: respeaker_vui_node / live_connection_manager
+  function: Esecuzione ad alta priorità e bassa latenza dell\'event loop asyncio ed
+    I/O WebSocket
+  failure_mode: Jitter temporale ed accumulo di latenza nel flusso audio WebSocket
+    (GIL Contention & Starvation)
+  potential_cause: Contesa del Global Interpreter Lock (GIL) tra il MultiThreadedExecutor
+    di rclpy ed il thread asyncio sotto carico I/O vision/audio
+  potential_effect: Ritardo crescente nell\'invio dei chunk a Gemini Live o timeout
+    WebSocket
+  classification: MISSION_CRITICAL
+  estimation_basis: theoretical
+  related_ids:
+  - FM-LLM-003
+  initial_scoring:
+    severity: 8
+    occurrence: 6
+    detection: 4
+    rpn: 192
+  prevention_controls: Consolidamento in un unico loop asincrono oppure isolamento
+    del thread asyncio con priorità elevata
+  detection_controls: Monitoraggio del delta temporale tra chunk audio in uscita
+  residual_scoring:
+    severity: 8
+    occurrence: 2
+    detection: 2
+    rpn: 32
+  risk_level: LOW
+  mitigation_status: OPEN
+  recommended_action: Valutare l\'adozione del modello asincrono unificato per rclpy
+    e WebSocket
+  verification_method: Misurazione jitter pacchetti WebSocket sotto carico 30 FPS
+    OAK-D
+  eco_ref: docs/lessons/llm_live_api.md
+  lesson_ref: docs/lessons/llm_live_api.md
+  date_identified: '2026-08-04'
+  last_updated: '2026-08-04'
+  history:
+  - date: '2026-08-04'
+    change: Inserito Failure Mode per contesa GIL e jitter asyncio
+    rpn_old: 192
+    rpn_new: 192
+- id: FM-VUI-017
+  subsystem: VUI Audio
+  component: usb_bus_manager
+  function: Garantire la banda di trasmissione deterministica per il microfono USB
+    ReSpeaker Lite su bus RP1
+  failure_mode: Micro-buchi audio (dropped audio packets) causati da latenza di scheduling
+    del controller USB RP1
+  potential_cause: Saturazione temporanea del bus PCIe/RP1 dovuta allo streaming video
+    ad alto bitrate di OAK-D Lite
+  potential_effect: Distorsione puntuale del frame audio (click/pop) con conseguente
+    errore di decodifica ASR
+  classification: PERFORMANCE
+  estimation_basis: theoretical
+  related_ids:
+  - FM-SYS-003
+  initial_scoring:
+    severity: 6
+    occurrence: 7
+    detection: 4
+    rpn: 168
+  prevention_controls: Regolazione dinamica del framerate/risoluzione OAK-D durante
+    il dialogo attivo e watchdog su delta timestamp audio
+  detection_controls: Monitoraggio dei log dmesg USB e contatori di frame audio persi
+  residual_scoring:
+    severity: 6
+    occurrence: 2
+    detection: 2
+    rpn: 24
+  risk_level: LOW
+  mitigation_status: OPEN
+  recommended_action: Ridurre il bitrate video OAK-D durante la fase ascolto attivo
+  verification_method: Stress test USB con streaming RGB 1080p + 16kHz audio
+  eco_ref: docs/lessons/dev_and_deployment.md
+  lesson_ref: docs/lessons/dev_and_deployment.md
+  date_identified: '2026-08-04'
+  last_updated: '2026-08-04'
+  history:
+  - date: '2026-08-04'
+    change: Inserito Failure Mode per contesa bus USB RP1 tra OAK-D e ReSpeaker
+    rpn_old: 168
+    rpn_new: 168
+- id: FM-VUI-018
+  subsystem: VUI Audio
+  component: hailo_kws_node
+  function: Riconoscimento continuo della wake word 'Marcus' con impatto zero sulla
+    CPU del Pi 5
+  failure_mode: Consumo CPU non necessario in standby (15-20%) e latenza di risveglio
+    per l\'esecuzione continua di Vosk ASR su CPU
+  potential_cause: Affidamento esclusivo alla CPU host per il filtraggio e l\'ascolto
+    continuo della wake word in idle
+  potential_effect: Riscaldamento Pi 5, consumo energetico superfluo e ritardo di
+    reazione iniziale alla parola chiave
+  classification: PERFORMANCE
+  estimation_basis: theoretical
+  related_ids:
+  - FM-CPU-001
+  initial_scoring:
+    severity: 7
+    occurrence: 8
+    detection: 3
+    rpn: 168
+  prevention_controls: Offloading del modello Keyword Spotting (KWS) per 'Marcus'
+    direttamente sulla NPU Hailo-10H
+  detection_controls: Profilazione CPU host in modalità idle ascolto (target < 3%)
+  residual_scoring:
+    severity: 7
+    occurrence: 2
+    detection: 2
+    rpn: 28
+  risk_level: LOW
+  mitigation_status: OPEN
+  recommended_action: Sviluppare ed installare lo script/nodo per l\'esecuzione del
+    modello KWS su Hailo-10H
+  verification_method: Test di rilevamento 'Marcus' con monitoraggio CPU host in standby
+  eco_ref: docs/lessons/vision_hailo_npu.md
+  lesson_ref: docs/lessons/vision_hailo_npu.md
+  date_identified: '2026-08-04'
+  last_updated: '2026-08-04'
+  history:
+  - date: '2026-08-04'
+    change: Inserito Failure Mode per l\'offloading KWS su Hailo-10H NPU
+    rpn_old: 168
+    rpn_new: 168

@@ -1,5 +1,5 @@
 # 📊 Report Esecutivo DFMEA - Marcus AI Robot Platform
-**Data Generazione:** 2026-08-04 23:17:08  
+**Data Generazione:** 2026-08-04 23:29:19  
 **Metodologia:** AIAG-VDA FMEA Standard con Regola Override Severità ($S \ge 9 \implies$ REVISION_MANDATORY)
 
 ---
@@ -8,8 +8,8 @@
 
 | Metrica | Valore | Note / Impatto |
 | :--- | :---: | :--- |
-| **Totale Modalità di Guasto (FM)** | **56** | Copertura integrata dei sottosistemi Marcus |
-| **🟢 Risk Level LOW** | **33** | $RPN_{res} \le 50$ (Sotto controllo) |
+| **Totale Modalità di Guasto (FM)** | **61** | Copertura integrata dei sottosistemi Marcus |
+| **🟢 Risk Level LOW** | **38** | $RPN_{res} \le 50$ (Sotto controllo) |
 | **🟡 Risk Level MEDIUM** | **6** | $51 \le RPN_{res} \le 199$ (Monitoraggio attivo) |
 | **🟠 Risk Level HIGH** | **2** | $200 \le RPN_{res} \le 349$ (Mitigazione obbligatoria) |
 | **🔴 Risk Level CRITICAL** | **0** | $RPN_{res} \ge 350$ (Blocco rilasci) |
@@ -18,7 +18,7 @@
 ### Ripartizione per Sottosistema:
 - **System/DDS:** 3 failure modes
 - **Nav2:** 8 failure modes
-- **VUI Audio:** 15 failure modes
+- **VUI Audio:** 20 failure modes
 - **Vision:** 2 failure modes
 - **Hardware/Power:** 8 failure modes
 - **ESP32:** 1 failure modes
@@ -83,16 +83,21 @@
 | **FM-NAV-005** | Nav2 | `semantic_costmap_injector / rtabmap` | Corruzione permanente della mappa RTAB-Map ed inserimento di ostacoli fantasma o mancato rilevamento di ostacoli trasparenti (vetri/specchi) e sotto/sopra la Pitch della telecamera | 8 | 2 | 2 | **32** | `LOW` | `IN_PROGRESS` | [`docs/lessons/nav2_slam_tuning.md#25d-costmap`](docs/lessons/nav2_slam_tuning.md#25d-costmap) |
 | **FM-LLM-005** | AI/LangGraph | `cloud_llm_gateway / hailo_qwen_fallback` | Mancata risposta vocale dell'AI al parlato dell'utente per errore API Cloud (Quota 429, Auth 403, Billing/Abbonamento o Outage Google) | 8 | 2 | 2 | **32** | `LOW` | `OPEN` | [`docs/lessons/llm_live_api.md`](docs/lessons/llm_live_api.md) |
 | **FM-SIM-001** | Simulation/Testing | `shadow_memory_store / sandbox_evaluator` | Inquinamento della Memoria di Produzione da Dati Sintetici (Shadow Memory Leakage) | 8 | 2 | 2 | **32** | `LOW` | `OPEN` | [`docs/lessons/orchestration_and_rag.md`](docs/lessons/orchestration_and_rag.md) |
+| **FM-VUI-016** | VUI Audio | `respeaker_vui_node / live_connection_manager` | Jitter temporale ed accumulo di latenza nel flusso audio WebSocket (GIL Contention & Starvation) | 8 | 2 | 2 | **32** | `LOW` | `OPEN` | [`docs/lessons/llm_live_api.md`](docs/lessons/llm_live_api.md) |
 | **FM-NAV-008** | Nav2 | `local_planner_mppi` | Urti sistematici o micro-oscillazioni della traiettoria per incompatibilità parametrica di lungo termine | 5 | 3 | 2 | **30** | `LOW` | `COMPLETED` | [`docs/lessons/telemetry_and_autotuning.md`](docs/lessons/telemetry_and_autotuning.md) |
 | **FM-LLM-003** | AI/LangGraph | `live_connection_manager` | Stallo conversazionale e congelamento dello stato VUI (robot bloccato in 'THINKING' senza risposta) | 7 | 2 | 2 | **28** | `LOW` | `OPEN` | [`docs/lessons/llm_live_api.md`](docs/lessons/llm_live_api.md) |
 | **FM-VUI-005** | VUI Audio | `hailo_voiceprint_node / hailo_bridge_node` | Latenza elevata ed accumulo buffer audio (audio drift) per overhead computazionale dell'NPU durante l'inferenza di speaker ID | 7 | 2 | 2 | **28** | `LOW` | `IN_PROGRESS` | [`docs/lessons/audio_vui_pipeline.md#hailo-voiceprint`](docs/lessons/audio_vui_pipeline.md#hailo-voiceprint) |
 | **FM-VUI-012** | VUI Audio | `respeaker_vui_node` | Taglio prematuro della frase dell\'utente (Clipping interno) o impossibilità di catturare singole parole brevi come 'Sì'/'No' | 7 | 2 | 2 | **28** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#isteresi-vad`](docs/lessons/audio_vui_pipeline.md#isteresi-vad) |
+| **FM-VUI-014** | VUI Audio | `local_asr_vosk` | Accumulo di memoria RAM nativa (C++ SWIG memory leak) per ritardata garbage collection degli oggetti KaldiRecognizer distrutti | 7 | 2 | 2 | **28** | `LOW` | `OPEN` | [`docs/lessons/audio_vui_pipeline.md#sentinel-pattern`](docs/lessons/audio_vui_pipeline.md#sentinel-pattern) |
+| **FM-VUI-018** | VUI Audio | `hailo_kws_node` | Consumo CPU non necessario in standby (15-20%) e latenza di risveglio per l\'esecuzione continua di Vosk ASR su CPU | 7 | 2 | 2 | **28** | `LOW` | `OPEN` | [`docs/lessons/vision_hailo_npu.md`](docs/lessons/vision_hailo_npu.md) |
 | **FM-VUI-003** | VUI Audio | `respeaker_vui_node` | Falsi rilevamenti di presenza vocale (VAD) ed invio continuo di rumore di fondo a Gemini Live | 6 | 2 | 2 | **24** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#hpf-filter`](docs/lessons/audio_vui_pipeline.md#hpf-filter) |
 | **FM-VUI-004** | VUI Audio | `respeaker_vui_node` | Acoustic Echo Leakage ed auto-interruzione continua della sintesi vocale del robot | 6 | 2 | 2 | **24** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#barge-in`](docs/lessons/audio_vui_pipeline.md#barge-in) |
 | **FM-VUI-005** | VUI Audio | `respeaker_vui_node` | Trascrizione ASR incomprensibile o allucinata ('Voce Distorta / Sorgente Lontana') | 6 | 2 | 2 | **24** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#dynamic-agc`](docs/lessons/audio_vui_pipeline.md#dynamic-agc) |
 | **FM-VUI-006** | VUI Audio | `voiceprint_manager` | Errata attribuzione del parlato (False Speaker Match) tra persone con timbro simile o in presenza di rumore | 6 | 2 | 2 | **24** | `LOW` | `IN_PROGRESS` | [`docs/lessons/audio_vui_pipeline.md#voiceprint-enrollment`](docs/lessons/audio_vui_pipeline.md#voiceprint-enrollment) |
 | **FM-VUI-007** | AI/Cognitive | `memory_decay_engine` | Oblio aggressivo di informazioni importanti pronunciate poco prima di invocare 'Marcus' o accumulo indefinito di conversazioni futili | 6 | 2 | 2 | **24** | `LOW` | `IN_PROGRESS` | [`docs/lessons/orchestration_and_rag.md#algoritmo-oblio-memoria`](docs/lessons/orchestration_and_rag.md#algoritmo-oblio-memoria) |
 | **FM-VUI-013** | VUI Audio | `respeaker_vui_node` | Conversazione lenta e innaturale con perdita dell\'inizio della risposta dell\'utente | 6 | 2 | 2 | **24** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#barge-in`](docs/lessons/audio_vui_pipeline.md#barge-in) |
+| **FM-VUI-015** | VUI Audio | `respeaker_vui_node` | Race condition atomica e valutazione inconsistente dello stato is_attentive nel loop VAD | 6 | 2 | 2 | **24** | `LOW` | `OPEN` | [`docs/lessons/audio_vui_pipeline.md#isteresi-vad`](docs/lessons/audio_vui_pipeline.md#isteresi-vad) |
+| **FM-VUI-017** | VUI Audio | `usb_bus_manager` | Micro-buchi audio (dropped audio packets) causati da latenza di scheduling del controller USB RP1 | 6 | 2 | 2 | **24** | `LOW` | `OPEN` | [`docs/lessons/dev_and_deployment.md`](docs/lessons/dev_and_deployment.md) |
 | **FM-VUI-002** | VUI Audio | `respeaker_vui_node` | Distorsione acustica da clipping digitale per saturazione dell'ampiezza dei campioni PCM 16-bit | 5 | 2 | 2 | **20** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#peak-limiter`](docs/lessons/audio_vui_pipeline.md#peak-limiter) |
 | **FM-ACT-005** | Hardware/Power | `waveshare_motor_driver` | Reset improvviso della scheda ESP32 (Brownout Microcontrollore) per picco di assorbimento in accelerazione | 9 | 1 | 2 | **18** | `REVISION_MANDATORY` | `OPEN` | [`docs/lessons/actuation_motor_driver.md`](docs/lessons/actuation_motor_driver.md) |
 | **FM-VIS-001** | Vision | `oak_superpoint_odometry_node` | Crash per lettura Heap Out-Of-Bounds durante il parsing dei tensor di output dell'NPU Hailo | 8 | 1 | 2 | **16** | `LOW` | `CLOSED` | [`docs/lessons/vision_hailo_npu.md#memory-safety`](docs/lessons/vision_hailo_npu.md#memory-safety) |
