@@ -33,8 +33,8 @@ class HailoKWSService:
         self.on_wakeword_cb = on_wakeword_cb
         
         self.sample_rate = 16000
-        self.window_size = 16000  # 1.0 secondo di audio
-        self.hop_size = 1600      # 100ms tra inferenze
+        self.window_size = 4000   # 250ms di audio per modello streaming KWS [v2.0 Fix DeepSeek]
+        self.hop_size = 320       # 20ms tra inferenze (50 FPS, latenza < 180ms)
         
         self._audio_buffer = np.zeros(self.window_size, dtype=np.float32)
         self._samples_since_infer = 0
