@@ -4,6 +4,7 @@ import queue
 import threading
 import datetime
 import time
+import gc
 
 try:
     import vosk
@@ -107,6 +108,10 @@ class VoskASRManager:
                         if text:
                             self._handle_transcription(text, is_partial=False)
                         # Ricostruisce il riconoscitore nel worker thread (thread-safe, workaround per mancanza di Reset() nell'API pubblica)
+                        # [v20.2 FM-VUI-014 Fix] Forziamo la distruzione ed il rilascio GC della memoria C++ SWIG nativa prima della re-istanziazione
+                        del self.recognizer
+                        self.recognizer = None
+                        gc.collect()
                         self.recognizer = vosk.KaldiRecognizer(self.model, self.sample_rate)
                         self.recognizer.SetWords(True)
                     continue

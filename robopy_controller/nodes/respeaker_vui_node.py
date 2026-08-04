@@ -257,6 +257,7 @@ class ReSpeakerVUINode(Node):
         self._voice_frame_count    = 0
         self._is_tts_speaking      = False # [v10.1]
         self._is_music_playing     = False # [v11.0]
+        self._vad_state_lock       = threading.Lock() # [v20.2 FM-VUI-015 Fix] Lock atomico per sincronizzazione stato attentive e parametri VAD
 
         # ------------------------------------------------------------------ #
         # Peak Limiter / AGC software real-time parameters [v16.0]
@@ -1144,7 +1145,9 @@ class ReSpeakerVUINode(Node):
                 # Dynamic Gain Control: guadagno base 2.5x con AGC dinamico software [v20.1]
                 stt_gain_to_use = self.stt_gain
                 
-                is_attentive = self._ev_listening.is_set() or self._is_speech_active
+                with self._vad_state_lock:
+                    is_attentive = self._ev_listening.is_set() or self._is_speech_active
+
                 if is_attentive and not self._is_tts_speaking and not ai_cooldown_active:
                     # [v20.1 FM-VUI-005 Fix] Se il segnale vocale è sopra il gate ma debole (< 1500 RMS),
                     # incrementa dinamicamente il guadagno fino a 2.0x extra (da 2.5x a 5.0x max)
