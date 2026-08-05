@@ -37,6 +37,7 @@ graph TB
     subgraph "Hailo-10 NPU (40 TOPS PCIe)"
         YOLO["YOLOv8 Object Detection"]
         SP["SuperPoint (VO Features)"]
+        KWS["Streaming KWS 50 FPS (Wake Word 'Marcus')"]
         SCRFD["SCRFD Face Detection"]
         ARCF["ArcFace Face Recognition"]
         ECAPA["ECAPA-TDNN (Speaker Verification)"]

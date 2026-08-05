@@ -276,3 +276,20 @@ Applicato throttle a 5Hz → -15% CPU stimato. Vedi `fmea/dfmea.yaml#FM-CPU-001`
 * **Guadagno Dinamico:** Il guadagno effettivo scala automaticamente da **2.5x fino a 5.0x max**.
 * **Protezione Limiter:** Il Peak Limiter vettoriale esistente garantisce l'assenza totale di clipping digitale (saturazione campioni int16 a 30000).
 * **Esito FMEA:** Failure mode `FM-VUI-005` chiuso con RPN ridotto da **144 a 24**.
+
+---
+
+## ⚡ Streaming KWS 50 FPS, Buffer Pre-trigger 1.2s & SWIG Memory Test — v20.2 (2026-08-05)
+
+### Modello Streaming KWS su Hailo-10H NPU (<180ms Latenza)
+* **Problema:** Una finestra audio fissa da 1.0s con hop 100ms introduceva una latenza avvertibile ("legnosità" nella reazione alla wake word).
+* **Soluzione:** Modello **Streaming KWS** in [`hailo_kws_service.py`](file:///c:/Users/lsuffia/OneDrive%20-%20BRUGOLA%20OEB%20INDUSTRIALE%20SPA/Documents/robopy/antigravity/robopy_controller/robot_ai/services/hailo_kws_service.py) con finestra da **250ms (4000 campioni)** e stride da **20ms (320 campioni)**. L'inferenza gira a 50 FPS sulla NPU Hailo-10H con latenza $< 180\text{ ms}$ (misurati sul robot: **40.3 ms** NPU, **50.4 ms** E2E).
+
+### Buffer Circolare Pre-trigger (1.2s)
+* **Problema:** All'attivazione della wake word "Marcus", la prima parola della frase veniva tagliata ("Marcus, che tempo fa?" ➔ "tempo fa?").
+* **Soluzione:** In [`respeaker_vui_node.py`](file:///c:/Users/lsuffia/OneDrive%20-%20BRUGOLA%20OEB%20INDUSTRIALE%20SPA/Documents/robopy/antigravity/robopy_controller/nodes/respeaker_vui_node.py), all'arrivo del trigger `/hailo/wakeword_trigger`, lo stream audio scarica ed invia a Vosk e Gemini Live l'intero pre-roll buffer da **1.2 secondi** (`MAX_RING_FRAMES = 60`), preservando l'intera frase dell'utente.
+
+### Endurance Test Memoria Vosk (200 Cicli su RPi 5 Reale)
+* **Verifica Empirica:** Eseguito `scripts/test_vosk_memory_endurance.py` direttamente sul Raspberry Pi 5.
+* **Risultati:** Dopo l'assestamento iniziale del modello (416 MB ➔ 428 MB), la memoria si è **stabilizzata a plateau a 428.81 MB** per oltre 100 flushes consecutivi (variazioni $+0.00\text{ MB}$), confermando l'assenza totale di SWIG native memory leaks (`FM-VUI-014` chiuso).
+
