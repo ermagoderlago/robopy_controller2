@@ -2384,27 +2384,32 @@
     e pubblicazione allarmi su /diagnostics
   residual_scoring:
     severity: 9
-    occurrence: 3
-    detection: 2
-    rpn: 54
+    occurrence: 1
+    detection: 1
+    rpn: 9
   risk_level: REVISION_MANDATORY
-  mitigation_status: IN_PROGRESS
+  mitigation_status: CLOSED
   recommended_action: Implementare una state-machine di orchestrazione computazionale
     che sospende SLAM 3D / VIO denso a robot fermo (riattivazione su IMU/motion o
     cmd_vel) e valutare l'integrazione di un LiDAR 2D per alleggerire il raycasting
     3D su CPU
   verification_method: Profilazione risorse con top/psutil durante navigazione prolungata
     e stazionamento in idle
-  eco_ref: docs/lessons/dev_and_deployment.md
+  eco_ref: docs/ecos/attention_supervisor_ecos.md
   lesson_ref: marcus_core_rules.md#4-gestione-cpu-e-core-pinning
   date_identified: '2026-08-02'
-  last_updated: '2026-08-02'
+  last_updated: '2026-08-06'
   history:
   - date: '2026-08-02'
     change: Inserimento Failure Mode per saturazione CPU/RAM globale e proposta di
       orchestrazione dinamica idle/motion + LiDAR 2D
     rpn_old: 216
     rpn_new: 54
+  - date: '2026-08-06'
+    change: Implementato nodo attention_supervisor_node.py per mitigazione saturazione
+      tramite sospensione dinamica SLAM e VUI.
+    rpn_old: 54
+    rpn_new: 9
 - id: FM-VUI-011
   subsystem: VUI Audio
   component: local_asr_vosk
