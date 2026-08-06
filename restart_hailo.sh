@@ -45,6 +45,7 @@ pkill -9 -f marcus_semantic_mapper_cpp || true
 pkill -9 -f semantic_costmap_injector || true
 pkill -9 -f engagement_monitor || true
 pkill -9 -f robot_health_supervisor || true
+pkill -9 -f attention_supervisor_node || true
 pkill -9 -f localization_fuser_node || true
 pkill -9 -f cloud_watchdog_node || true
 pkill -9 -f speaker_id_node || true
@@ -229,8 +230,10 @@ echo "🚑 Starting robot_health_supervisor (System Health & Safety)..."
 nohup ros2 run robopy_controller robot_health_supervisor \
     > /home/robopy/robopy/logs/robot_health_supervisor.log 2>&1 &
 
-
-
+echo "⚠️ Starting attention_supervisor_node (Context/CPU Switching)..."
+> /home/robopy/robopy/logs/attention_supervisor_node.log
+nohup ros2 run robopy_controller attention_supervisor_node \
+    > /home/robopy/robopy/logs/attention_supervisor_node.log 2>&1 &
 echo "🗣️ Starting speaker_id_node (Biometric Verifier)..."
 > /home/robopy/robopy/logs/speaker_id_node.log
 nohup ros2 run robopy_controller speaker_id_node --ros-args \
