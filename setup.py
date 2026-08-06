@@ -184,6 +184,7 @@ setup(
             "localization_fuser_node = robopy_controller.nodes.localization_fuser_node:main",
             "robot_health_supervisor = robopy_controller.nodes.robot_health_supervisor:main",
             "room_mapping_scan_node = robopy_controller.nodes.room_mapping_scan_node:main",
+            "attention_supervisor_node = robopy_controller.nodes.attention_supervisor_node:main",
             # === Cognitive Brain ===
             "chroma_synaptic_manager = robopy_controller.robot_ai.cognitive.chroma_synaptic_manager:main",
             "cognitive_amygdala = robopy_controller.robot_ai.cognitive.cognitive_amygdala:main",
