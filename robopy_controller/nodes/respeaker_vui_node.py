@@ -1160,9 +1160,11 @@ class ReSpeakerVUINode(Node):
                         stt_gain_to_use = self.stt_gain * agc_multiplier
 
                 if self._is_tts_speaking:
-                    # [v19.0] Gain ridotto ma sufficiente per barge-in: 2.5 * 0.30 = 0.75x
-                    # L'AEC hardware XMOS gestisce l'eco, non la soppressione software
-                    stt_gain_to_use = max(0.5, self.stt_gain * 0.30)
+                    # [v21.0 FIX] AEC Hardware XMOS disattivato/mancante. 
+                    # L'unico modo per evitare che il robot si auto-interrompa (Acoustic Echo Leakage)
+                    # ascoltando la propria voce è inibire completamente l'input microfonico durante il TTS.
+                    # Questo disabilita il barge-in vocale puro, ma garantisce stabilità totale.
+                    stt_gain_to_use = 0.0
                 elif ai_cooldown_active:
                     # Durante il cooldown di 400ms, azzeriamo il guadagno software per assorbire l'eco finale del buffer
                     stt_gain_to_use = 0.0
