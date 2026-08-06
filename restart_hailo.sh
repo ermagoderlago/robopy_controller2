@@ -140,7 +140,7 @@ nohup ros2 run tf2_ros static_transform_publisher \
 
 echo "👁️ Starting FastFlow C++ VIO Node..."
 > /home/robopy/robopy/logs/fast_flow_vo.log
-nohup ros2 run robopy_controller fast_flow_vo_cpp --ros-args \
+nohup taskset -c 2,3 ros2 run robopy_controller fast_flow_vo_cpp --ros-args \
     -p publish_tf:=true \
     -p odom_frame:=odom \
     -p base_frame:=base_link \
@@ -171,7 +171,7 @@ sleep 15
 # =============================================================================
 echo "🗺️ Starting RTAB-Map SLAM..."
 > /home/robopy/robopy/logs/rtabmap.log
-nohup ros2 run rtabmap_slam rtabmap --delete_db_on_start --ros-args \
+nohup taskset -c 2,3 ros2 run rtabmap_slam rtabmap --delete_db_on_start --ros-args \
     --params-file /mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_controller/config/rtabmap.yaml \
     -r rgb/image:=/rgb/image \
     -r rgb/camera_info:=/camera/camera_info \
@@ -213,7 +213,7 @@ nohup ros2 run robopy_controller respeaker_vui_node --ros-args \
 
 echo "🧠 Starting hailo_bridge_node (NPU Driver)..."
 > /home/robopy/robopy/logs/hailo_bridge_node.log
-nohup ros2 run robopy_controller hailo_bridge_node --ros-args \
+nohup taskset -c 2,3 ros2 run robopy_controller hailo_bridge_node --ros-args \
     -p hef_path:=/mnt/ssd/robopy_controller_host/joined_yolo_superpoint_netvlad.hef \
     -p sim_mode:=False \
     -p rgb_topic:=/rgb/image \
@@ -242,7 +242,7 @@ nohup ros2 run robopy_controller speaker_id_node --ros-args \
 
 echo "🗺️ Starting marcus_semantic_mapper_cpp (Visual Fusion C++)..."
 > /home/robopy/robopy/logs/marcus_semantic_mapper.log
-nohup ros2 run robopy_controller marcus_semantic_mapper_cpp --ros-args \
+nohup taskset -c 2,3 ros2 run robopy_controller marcus_semantic_mapper_cpp --ros-args \
     -p publish_debug:=True \
     > /home/robopy/robopy/logs/marcus_semantic_mapper.log 2>&1 &
 
