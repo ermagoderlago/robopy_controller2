@@ -27,7 +27,7 @@ class SpeakerRecognitionService:
     def __init__(
         self,
         known_speakers_dir: str = "",
-        confidence_high: float = 0.75,
+        confidence_high: float = 0.70,
         confidence_low: float = 0.60,
     ):
         self.logger = get_logger("speaker_recognition")
@@ -145,13 +145,26 @@ class SpeakerRecognitionService:
         best_name = ""
         best_similarity = 0.0
         
+        best_named_name = ""
+        best_named_similarity = 0.0
+        
         with self._lock:
             for name, known_emb in self._known_embeddings.items():
                 similarity = float(np.dot(emb_arr, known_emb))
                 if similarity > best_similarity:
                     best_similarity = similarity
                     best_name = name
+                
+                # Traccia anche il miglior match tra gli speaker CON NOME (escludendo gli "unknown_")
+                if not name.startswith("unknown_") and similarity > best_named_similarity:
+                    best_named_similarity = similarity
+                    best_named_name = name
 
+        # Prioritize named speakers over unknown ones if they pass the threshold!
+        if best_named_similarity >= self.confidence_high:
+            best_name = best_named_name
+            best_similarity = best_named_similarity
+        
         if best_similarity >= self.confidence_high:
             result = SpeakerRecognitionResult(
                 recognized=True,
