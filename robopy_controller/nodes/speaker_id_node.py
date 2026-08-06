@@ -145,7 +145,7 @@ class SpeakerIdNode(Node):
         name = msg.data
         if name:
             self.get_logger().info(f"Avvio enrollment speaker per: {name}")
-            self.speaker_service.start_enrollment(name)
+            self.speaker_service.start_enrollment(name, num_samples=3)
         else:
             self.get_logger().info("Cancellazione enrollment speaker")
             self.speaker_service.cancel_enrollment()

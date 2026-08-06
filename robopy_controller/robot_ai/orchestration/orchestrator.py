@@ -478,11 +478,15 @@ class AIOrchestrator(Node):
 
     def _on_ai_response(self, text: str):
         # Callback da ConversationManager per mandare la risposta su ROS
-        msg = String()
-        msg.data = text
-        self.response_pub.publish(msg)
-        # ReSpeaker: risposta completata → SUCCESS flash
-        self._update_led("LED_EFFECT:SUCCESS")
+        if text and text != "[SILENZIO]":
+            msg = String()
+            msg.data = text
+            self.response_pub.publish(msg)
+            # ReSpeaker: risposta completata → SUCCESS flash
+            self._update_led("LED_EFFECT:SUCCESS")
+        else:
+            # Ripristina LED se il modello non genera risposta o la sopprime
+            self._update_led("LED_EFFECT:IDLE")
         
         status_msg = String()
         status_msg.data = "READY"

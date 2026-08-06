@@ -599,8 +599,8 @@ class LiveConnectionManager:
                     if time.time() - ts < 15.0
                 ]
             
-            if model_msg and self.on_turn_complete:
-                self.on_turn_complete(user_msg, model_msg)
+            if self.on_turn_complete:
+                self.on_turn_complete(user_msg, model_msg or "[SILENZIO]")
 
             self._current_live_response = {"text": "", "actions": []}
             self._current_user_text = ""
