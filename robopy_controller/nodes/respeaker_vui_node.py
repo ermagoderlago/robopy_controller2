@@ -33,7 +33,15 @@ sys.modules['pickle5'] = pickle
 import threading
 import queue
 import time
-import audioop
+os.environ["PA_ALSA_PLUGHW"] = "1"
+import pyaudio
+try:
+    import audioop
+except ImportError:
+    try:
+        import audioop_lts as audioop
+    except ImportError:
+        pass
 
 # Nuovi import per DSP
 import numpy as np
@@ -924,6 +932,17 @@ class ReSpeakerVUINode(Node):
             self.get_logger().info(f"🗣️ [VOSK ASR] Sentito ({speaker_name}): '{text}'")
             self._pending_transcriptions.append((text, time.time()))
 
+            if ("io sono" in text_lower or "la mia voce" in text_lower or "mi chiamo" in text_lower):
+                import re
+                m = re.search(r'(?:io sono|mi chiamo)\s+([a-zA-Zàèéìòù]+)', text_lower)
+                target_name = m.group(1).lower() if m else "luca"
+                self.get_logger().info(f"🎙️ [VUI Speaker Enrollment] Rilevata intenzione registrazione voce per: '{target_name}'")
+                if not hasattr(self, '_speaker_enroll_pub'):
+                    self._speaker_enroll_pub = self.create_publisher(String, '/speaker/trigger_enrollment', 10)
+                msg_enroll = String()
+                msg_enroll.data = target_name
+                self._speaker_enroll_pub.publish(msg_enroll)
+
         if ("marcus" in text_lower or "marco" in text_lower or "robot" in text_lower) and not is_speaker_active:
             self._on_wakeword_detected()
 
@@ -1004,40 +1023,26 @@ class ReSpeakerVUINode(Node):
                 stt_gain_to_use = self.stt_gain
                 
                 l_ch = audio_stereo[::2].astype(np.float32)
-                r_ch = audio_stereo[1::2].astype(np.float32)
-                n    = min(len(l_ch), len(r_ch), CHUNK_SIZE)
+                n    = min(len(l_ch), CHUNK_SIZE)
                 
                 # 1. Filtro Passa-Alto @ 140 Hz (HPF) per eliminare ronzio ventola Pi 5
                 if HAS_SCIPY and self._hpf_sos is not None:
                     hp_l, self._hpf_zi_l = sosfilt(self._hpf_sos, l_ch[:n], zi=self._hpf_zi_l)
-                    hp_r, self._hpf_zi_r = sosfilt(self._hpf_sos, r_ch[:n], zi=self._hpf_zi_r)
                 else:
                     # RC High-Pass Filter fallback (fc ≈ 140Hz @ 16kHz)
                     alpha_hpf = 0.9478
                     hp_l = np.zeros(n, dtype=np.float32)
-                    hp_r = np.zeros(n, dtype=np.float32)
                     yl, xl = self._hpf_prev_y_l, self._hpf_prev_x_l
-                    yr, xr = self._hpf_prev_y_r, self._hpf_prev_x_r
                     for i in range(n):
                         yl = alpha_hpf * (yl + l_ch[i] - xl)
                         xl = l_ch[i]
                         hp_l[i] = yl
-                        yr = alpha_hpf * (yr + r_ch[i] - xr)
-                        xr = r_ch[i]
-                        hp_r[i] = yr
                     self._hpf_prev_y_l, self._hpf_prev_x_l = yl, xl
-                    self._hpf_prev_y_r, self._hpf_prev_x_r = yr, xr
 
-                # 2. Selezione dinamica del canale con maggior energia vocale pulita
-                rms_l_hp = np.sqrt(np.mean(hp_l ** 2))
-                rms_r_hp = np.sqrt(np.mean(hp_r ** 2))
-
-                if rms_r_hp > rms_l_hp * 1.15:
-                    selected_hp = hp_r
-                    rms_hp_current = rms_r_hp
-                else:
-                    selected_hp = hp_l
-                    rms_hp_current = rms_l_hp
+                # 2. Selezione del canale (solo L_ch, output processato AEC dell'XMOS)
+                selected_hp = hp_l
+                rms_hp_current = float(np.sqrt(np.mean(selected_hp ** 2)))
+                rms_l_hp = rms_hp_current
                 
                 # Profilazione del silenzio (Noise Floor Profile Subtraction)
                 if time.monotonic() - self._boot_time < 2.0 and not self._is_tts_speaking and not self._is_music_playing:
@@ -1102,7 +1107,6 @@ class ReSpeakerVUINode(Node):
                 # Diagnostica Volume MIC (RMS ogni ~1s @ 960 chunks)
                 self._rms_chunk_count += 1
                 rms_l = rms_l_hp
-                rms_r = rms_r_hp
                 rms_boosted = 0.0
                 
                 # ---------------------------------------------------------- #
@@ -1166,7 +1170,7 @@ class ReSpeakerVUINode(Node):
                 if self._cfg_diag_mode and self._rms_chunk_count % 16 == 0:
                     rms_boosted = rms_l * stt_gain_to_use
                     self.get_logger().info(
-                        f"🎤 [MIC] Volume HPF: L_RMS={rms_l:.1f} | R_RMS={rms_r:.1f} | BOOSTED={rms_boosted:.1f} | "
+                        f"🎤 [MIC] Volume HPF: L_RMS={rms_l:.1f} | BOOSTED={rms_boosted:.1f} | "
                         f"Ambient_EMA={self._ambient_noise_ema:.1f} | Gate={self.noise_gate_threshold:.1f} | "
                         f"MaxSilence={self._cfg_max_silence} frames (Gain: {stt_gain_to_use:.2f}x)")
                 

@@ -187,31 +187,25 @@ class SpeakerIdNode(Node):
         self.get_logger().info(f"Speaker ID: riconosciuto={result.recognized}, identità='{result.name}', confidenza={result.confidence:.3f}")
 
     def extract_embedding(self, audio_data: np.ndarray) -> Optional[List[float]]:
-        if self.sim_mode:
-            # Generazione embedding simulato e deterministico
-            import hashlib
-            hasher = hashlib.sha256(audio_data.tobytes())
-            hash_val = int(hasher.hexdigest(), 16)
-            np.random.seed(hash_val % (2**32))
-            mock_emb = np.random.randn(192).astype(np.float32)
-
-            # Verifica se è forzata una specifica identità per i test
-            mock_speaker_param = self.get_parameter('mock_speaker').value
-            if mock_speaker_param:
-                known_emb = self.speaker_service._known_embeddings.get(mock_speaker_param.lower())
-                if known_emb is not None:
-                    # Ritorna l'embedding noto con rumore minimo per simulare variabilità
-                    simulated_emb = known_emb + np.random.normal(0, 0.01, 192).astype(np.float32)
-                    norm = np.linalg.norm(simulated_emb)
-                    if norm > 0:
-                        simulated_emb /= norm
-                    return simulated_emb.tolist()
-
-            # Ritorna embedding casuale normalizzato L2
-            norm = np.linalg.norm(mock_emb)
+        if self.sim_mode or not self.hef:
+            # Estrazione acustica deterministica (192-dim Log-Mel Spectrogram)
+            float_audio = audio_data.astype(np.float32) / 32768.0
+            if len(float_audio) < 1600:
+                return None
+            chunks = np.array_split(float_audio, 12)
+            features = []
+            for chunk in chunks:
+                if len(chunk) < 64:
+                    chunk = np.pad(chunk, (0, 64 - len(chunk)))
+                fft_mags = np.abs(np.fft.rfft(chunk, n=512))
+                mel_bands = np.array_split(fft_mags[:240], 16)
+                band_energies = [float(np.log1p(np.mean(b))) for b in mel_bands]
+                features.extend(band_energies)
+            emb = np.array(features[:192], dtype=np.float32)
+            norm = np.linalg.norm(emb)
             if norm > 0:
-                mock_emb /= norm
-            return mock_emb.tolist()
+                emb /= norm
+            return emb.tolist()
 
         try:
             # Converti in float32 tra -1.0 e 1.0

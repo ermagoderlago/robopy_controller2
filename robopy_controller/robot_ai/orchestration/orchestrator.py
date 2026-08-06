@@ -247,7 +247,7 @@ class AIOrchestrator(Node):
              if email_skill:
                   self.scheduler.add_job(email_skill.run_nightly_spam_cleanup, 'cron', hour=2, minute=0)
                   self.scheduler.add_job(self._announce_morning_briefing, 'cron', hour=7, minute=30)
-                  self.scheduler.add_job(self._check_proactive_email_notifications, 'interval', minutes=1)
+                  self.scheduler.add_job(self._check_proactive_email_notifications, 'interval', minutes=30)
                   self.ai_logger.info("📧 Job schedulati email (Spam Cleanup 02:00, Briefing 07:30, Proactive Check 1min) registrati nel scheduler!")
 
 

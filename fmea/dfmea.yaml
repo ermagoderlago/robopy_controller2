@@ -941,6 +941,15 @@
       0.75x TTS + Cooldown 0.4s)
     rpn_old: 24
     rpn_new: 24
+  - date: '2026-08-06'
+    change: Identificata distruzione dell'AEC hardware causata dal downmix di PulseAudio
+      (Device 0). Implementato export PA_ALSA_PLUGHW=1 per forzare l'accesso hw diretto
+      (plughw:0,0). Verificato empiricamente che l'AEC hardware su scheda ReSpeaker
+      risulta disattivo (canali L/R identici) verosimilmente a causa del firmware
+      Mono o connessione speaker non su JST. La mitigazione si basa ora interamente
+      su Software Barge-in Inhibition, Filtro Passa-Alto e AGC Dinamico.
+    rpn_old: 24
+    rpn_new: 32
 - id: FM-ACT-005
   subsystem: Hardware/Power
   component: waveshare_motor_driver
@@ -2760,3 +2769,98 @@
       ed il buffer audio pre-trigger 1.2s
     rpn_old: 168
     rpn_new: 28
+- id: FM-DDS-006
+  subsystem: ROS 2 DDS / Vision
+  component: hailo_bridge_node / foxglove_bridge / respeaker_vui_node
+  function: Trasmissione ed elaborazione streaming affidabile di immagini ed eventi
+    vocali tra nodi ROS 2 e visualizzatori (Foxglove, Web UI)
+  failure_mode: Incompatibilità QoS Mismatch (Best-Effort vs Reliable) causante perdita
+    totale di streaming video o messaggi di stato
+  potential_cause: Configurazione scorretta del profilo QoS su BEST_EFFORT su publisher
+    critici (es. /hailo/annotated_image/compressed) mentre i subscriber (Foxglove,
+    Web UI) richiedono la garanzia RELIABLE
+  potential_effect: Schermata nera o disconnessione invisibile del flusso video/dati
+    per l'utente, impossibilità di visualizzare le rilevazioni YOLO/Face in tempo
+    reale
+  classification: USABILITY
+  estimation_basis: empirical
+  related_ids: []
+  initial_scoring:
+    severity: 6
+    occurrence: 7
+    detection: 5
+    rpn: 210
+  prevention_controls: 'Standard obbligatorio: tutti i topic di output destinati a
+    visualizzatori, bridge o UI DEVONO utilizzare il profilo qos_reliable'
+  detection_controls: Ispezione automatica delle incompatibilità QoS tramite ros2
+    topic info --verbose e log di warning DDS
+  residual_scoring:
+    severity: 6
+    occurrence: 2
+    detection: 2
+    rpn: 24
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Migrazione a QoS RELIABLE per tutti i publisher di immagini
+    ed annotazioni visive (pub_annotated_image). Documentata regola di progettazione
+    nelle lezioni tematiche docs/lessons/dev_and_deployment.md.
+  verification_method: Verifica con Foxglove Studio ed esecuzione di ros2 topic echo
+    /hailo/annotated_image/compressed
+  eco_ref: docs/lessons/dev_and_deployment.md
+  lesson_ref: docs/lessons/dev_and_deployment.md
+  date_identified: '2026-08-05'
+  last_updated: '2026-08-05'
+  history:
+  - date: '2026-08-05'
+    change: Inserito Failure Mode per la perdita del flusso video causata da QoS BEST_EFFORT
+      mismatch
+    rpn_old: 210
+    rpn_new: 210
+  - date: '2026-08-05'
+    change: Chiuso Failure Mode impostando qos_reliable su pub_annotated_image e stabilito
+      lo standard per i publisher visivi
+    rpn_old: 210
+    rpn_new: 24
+- id: FM-SIM-001
+  subsystem: System/DDS
+  component: wsl2_network
+  function: Comunicazione ROS 2 e discovery DDS affidabile tra nodi in ambiente simulato
+    su WSL2
+  failure_mode: Perdita di pacchetti UDP e desincronizzazione della TF tree durante
+    la simulazione Gazebo
+  potential_cause: Colli di bottiglia del layer di rete virtuale NAT di WSL2 o saturazione
+    MTU dovuta a traffico intenso (PointClouds e Immagini)
+  potential_effect: Stallo della navigazione simulata, latenza estrema sui topic /tf,
+    mancato aggiornamento di /odom
+  classification: PERFORMANCE
+  estimation_basis: inferred
+  related_ids: []
+  initial_scoring:
+    severity: 6
+    occurrence: 7
+    detection: 4
+    rpn: 168
+  prevention_controls: Impostazione di networkingMode=mirrored in .wslconfig e tuning
+    dei parametri FastDDS/CycloneDDS tramite profili XML dedicati
+  detection_controls: Esecuzione periodica di script di health check e misurazione
+    latenza /tf e /odom (test_kinematics_sim.py)
+  residual_scoring:
+    severity: 6
+    occurrence: 2
+    detection: 2
+    rpn: 24
+  risk_level: LOW
+  mitigation_status: IN_PROGRESS
+  recommended_action: Attivare QoS BEST_EFFORT sui topic ad alta densità (immagini,
+    lidar simulato) all'interno del bridge Gazebo
+  verification_method: Stress test di banda con gazebo sim attivo ed echo dei topic
+    visivi
+  eco_ref: docs/ecos/sim_wsl2_ecos.md
+  lesson_ref: docs/ecos/sim_wsl2_ecos.md
+  date_identified: '2026-08-06'
+  last_updated: '2026-08-06'
+  history:
+  - date: '2026-08-06'
+    change: Identificato rischio architetturale di rete per la simulazione su Windows/WSL2
+    rpn_old: 168
+    rpn_new: 168

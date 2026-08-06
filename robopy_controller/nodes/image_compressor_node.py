@@ -28,9 +28,9 @@ class ImageCompressorNode(Node):
         # QoS: Sensor Data (fondamentale per streaming video)
         # ---------------------------------------------------------
         qos = QoSProfile(
-            reliability=ReliabilityPolicy.BEST_EFFORT,
+            reliability=ReliabilityPolicy.RELIABLE,
             history=HistoryPolicy.KEEP_LAST,
-            depth=1,
+            depth=5,
             durability=DurabilityPolicy.VOLATILE
         )
 
@@ -59,7 +59,19 @@ class ImageCompressorNode(Node):
         # ---------------------------------------------------------
         self.sub_mono = self.create_subscription(
             Image,
-            "/camera/image_raw",
+            "/rgb/image",
+            self.cb_mono,
+            qos
+        )
+        self.sub_camera_raw = self.create_subscription(
+            Image,
+            "/camera/rgb/image_raw",
+            self.cb_mono,
+            qos
+        )
+        self.sub_oak_raw = self.create_subscription(
+            Image,
+            "/oak/rgb/image_raw",
             self.cb_mono,
             qos
         )
@@ -81,6 +93,11 @@ class ImageCompressorNode(Node):
         # ---------------------------------------------------------
         # Publishers
         # ---------------------------------------------------------
+        self.pub_rgb_comp = self.create_publisher(
+            CompressedImage,
+            "/rgb/image/compressed",
+            qos
+        )
         self.pub_mono = self.create_publisher(
             CompressedImage,
             "/camera/image_raw/compressed",
@@ -211,6 +228,7 @@ class ImageCompressorNode(Node):
         out.format = "jpeg"
         out.data = data
         self.pub_mono.publish(out)
+        self.pub_rgb_comp.publish(out)
 
     def cb_debug(self, msg: Image):
         if not self.should_publish("debug"):

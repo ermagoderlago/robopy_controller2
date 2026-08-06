@@ -293,3 +293,39 @@ Applicato throttle a 5Hz → -15% CPU stimato. Vedi `fmea/dfmea.yaml#FM-CPU-001`
 * **Verifica Empirica:** Eseguito `scripts/test_vosk_memory_endurance.py` direttamente sul Raspberry Pi 5.
 * **Risultati:** Dopo l'assestamento iniziale del modello (416 MB ➔ 428 MB), la memoria si è **stabilizzata a plateau a 428.81 MB** per oltre 100 flushes consecutivi (variazioni $+0.00\text{ MB}$), confermando l'assenza totale di SWIG native memory leaks (`FM-VUI-014` chiuso).
 
+---
+
+## 🔬 Sintesi Ingegneristica & Benchmarking NotebookLM vs Generico (v20.3 — 2026-08-06)
+
+### Valutazione Comparativa con NotebookLM (`Marcus_ROS2_Docs`)
+A seguito dell'analisi incrociata tra le linee guida generiche per array ReSpeaker e l'architettura specifica di Marcus:
+
+1. **Campionamento & Resampling DAC:**
+   - *Input:* Confermato 16kHz mono PCM nativo da USB (modalità USB-Pure).
+   - *Output:* DAC PyAudio opera nativamente a **48kHz**. Resampling obbligatorio `16k/24k ➔ 48k` via `audioop.ratecv` prima della scrittura hardware per evitare effetto Chipmunk (3x accelerato) / Darth Vader (-33% rallentato).
+2. **Selezione Canali (ReSpeaker Lite vs V2):**
+   - Estratto **esclusivamente il canale Sinistro (`l_ch`)** in `respeaker_vui_node.py` per evitare la *phase cancellation* da downmix stereo. XMOS XU316 applica AEC ed NS hardware.
+3. **Gestione AGC & Limiter:**
+   - Disabilitato AGC hardware ReSpeaker (`enable_agc:=False`) perché distorce la dinamica del parlato.
+   - Applicato Peak Limiter software vettoriale (attacco 0ms, rilascio 900ms, soglia 26000) e Filtro Passa-Alto Butterworth @ 140Hz per l'Active Cooler Pi 5.
+4. **Isolamento Meccanico Hardware:**
+   - La struttura della testa stampata in 3D PETG trasmette micro-vibrazioni dai servomotori collo (MG996R) ed occhi (DS3225MG).
+   - Soluzione prescritta: Gommini antivibranti in TPU (grommets) per il disaccoppiamento della scheda ReSpeaker e rivestimento cavità interna con schiuma fonoassorbente (foam 5mm).
+
+---
+
+## ⚡ Dual-Chip Architecture & Hardware Beamforming (v20.4 — 2026-08-06)
+
+### Analisi Firmware Dual-Chip ReSpeaker Lite
+1. **XMOS XU316 DSP Chip (Firmware Factory Seeed):**
+   - Gestisce la cattura hardware dai 2 microfoni MEMS e le routine di **AEC** (Echo Cancellation), **NS** (Noise Suppression) e **Beamforming Broadside 2-Mic**.
+   - Espone direttamente lo stream audio PCM 16kHz via USB ALSA (`hw:0,0`). Offload 100% hardware a **0% carico CPU Host** e **0% carico ESP32**.
+2. **Seeed XIAO ESP32-S3 (Firmware ESPHome v14.0-LED):**
+   - Configurato in **modalità USB-Pure**: gestisce esclusivamente il controllo degli effetti del LED WS2812 RGB (IDLE, LISTENING, THINKING, etc.) e la seriale USB JTAG (`/dev/ttyACM0`). Non intercetta il flusso audio I2S per evitare contese di clock al boot.
+
+### Bypass PulseAudio (Distruzione AEC Hardware)
+* **Problema:** L'AEC hardware del chip XMOS (canali divisi: CH0=AEC, CH1=Raw) non filtrava l'eco. I due canali presentavano RMS identici (es. 7834.2 vs 7834.2), segno che l'hardware forniva un segnale mono duplicato.
+* **Causa Radice:** PyAudio, di default su Raspberry Pi OS, aggancia il `Device 0` che corrisponde al demone **PulseAudio**. PulseAudio esegue un downmix forzato dello stream UAC2 dell'XMOS e lo trasforma in un segnale mono virtuale (identico su L e R), distruggendo matematicamente la separazione hardware dei canali (AEC vs Raw) prodotta dal chip DSP XMOS. Inoltre l'XMOS produce 2 canali identici qualora l'altoparlante non sia fisicamente connesso al suo connettore JST, ma a quello del Pi.
+* **Soluzione Permanente:** 
+  - Impostare a livello di sistema operativo o in testa al codice Python l'override `os.environ["PA_ALSA_PLUGHW"] = "1"`.
+  - Questo costringe PortAudio a bypassare PulseAudio, esponendo l'hardware ALSA reale (es. `plughw:0,0`), permettendo a PyAudio di leggere i canali grezzi non mixati. La mitigazione software (VAD inibito durante TTS + filtro 140Hz + AGC dinamico) sopperisce ad eventuali anomalie HW residue.

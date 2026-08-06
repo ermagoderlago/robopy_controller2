@@ -66,3 +66,27 @@ Questo documento traccia la cronologia delle modifiche ingegneristiche (ECO) app
   * **Script di Calibrazione:** Creato `scripts/test_mic_calibration.py` per l'ispezione SNR, clipping e calibrazione guidata dei parametri microfonici.
   * **Registro FMEA:** Inserito Failure Mode `FM-VUI-010` nel database DFMEA ed aggiornato il report esecutivo.
 
+---
+
+## 📈 ECO-2026-08-06-001: NotebookLM Joint Audio Acquisition Benchmark & Mechanical Isolation Plan
+* **Stato:** ✅ **Completato, Pianificato e Verificato**
+* **Descrizione:** Analisi incrociata delle raccomandazioni di acquisizione audio in collaborazione con NotebookLM (`Marcus_ROS2_Docs`) e redazione del piano d'azione per l'ottimizzazione dell'ASR e il disaccoppiamento meccanico della testa.
+* **Modifiche VUI & Lezioni:**
+  * **Verifica Architetturale:** Confermato il flusso 16kHz mono PCM nativo USB per l'input e il resampling 48kHz obbligatorio via `audioop.ratecv` per l'output DAC PyAudio.
+  * **ReSpeaker Lite DSP:** Confermato l'uso del canale sinistro (`l_ch`) per evitare phase cancellation e disattivazione AGC hardware ReSpeaker in favore del Limiter software vettoriale + Butterworth HPF @ 140Hz.
+  * **Isolamento Meccanico:** Definiti i requisiti per la stampa 3D di gommini antivibranti in TPU e l'inserimento di schiuma fonoassorbente (foam 5mm) nella cavità della testa di pib per isolare i servomotori (MG996R/DS3225MG).
+  * **Aggiornamento Documentazione:** Aggiornati `docs/lessons/audio_vui_pipeline.md` e generato l'artifact `implementation_plan.md`.
+
+---
+
+## 📈 ECO-2026-08-06-002: ReSpeaker Dual-Chip Firmware Benchmark & XMOS Beamforming Integration
+* **Stato:** ✅ **Completato, Sincronizzato e Verificato**
+* **Descrizione:** Validazione della compatibilità del firmware in uso sulla scheda ReSpeaker Lite (Seeed Factory su XMOS XU316 ed ESPHome v14.0-LED su XIAO ESP32-S3) e integrazione dell'architettura di Beamforming broadside a 0% CPU host.
+* **Modifiche & Analisi:**
+  * **Verifica Firmware XMOS XU316:** Confirmata la presenza di AEC, NS e 2-Mic Broadside Beamforming integrati nel firmware di fabbrica XMOS con output audio USB ALSA diretto.
+  * **Verifica Firmware ESPHome XIAO:** Confermato l'uso del firmware v14.0-LED in modalità USB-Pure (gestione LED RMT via USB Serial JTAG a 115200 baud senza interferenze sul clock audio).
+  * **Integrazione Beamforming:** Verificata l'assenza di carico CPU (0%) e l'orientamento polare broadside dei 2 microfoni MEMS per la massima sensibilità frontale.
+  * **Piano d'Azione v3.0:** Aggiornati l'artifact `implementation_plan.md` e lo script di pre-test `scripts/test_vui_audio_pretest.py`.
+
+
+

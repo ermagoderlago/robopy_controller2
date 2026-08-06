@@ -36,30 +36,44 @@ class VoskASRManager:
             print("⚠️ [VoskASR] Libreria vosk non installata. Installa con 'pip install vosk'.")
             return
             
-        if not os.path.exists(self.model_path):
-            print(f"⚠️ [VoskASR] Modello non trovato in {self.model_path}. Avvio download automatico...")
-            try:
-                import urllib.request
-                import zipfile
-                url = "https://alphacephei.com/vosk/models/vosk-model-it-0.22.zip"
-                zip_path = self.model_path + ".zip"
-                
-                os.makedirs(os.path.dirname(self.model_path), exist_ok=True)
-                print(f"Scaricando {url}...")
-                urllib.request.urlretrieve(url, zip_path)
-                
-                print(f"Estrazione in corso...")
-                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                    # Estrae nella cartella genitore
-                    zip_ref.extractall(os.path.dirname(self.model_path))
-                
-                # Cleanup
-                if os.path.exists(zip_path):
-                    os.remove(zip_path)
-                print("✅ [VoskASR] Download e installazione modello completata.")
-            except Exception as e:
-                print(f"❌ [VoskASR] Errore durante il download del modello: {e}")
-                return
+        if not (os.path.exists(self.model_path) and os.path.isdir(self.model_path)):
+            base_dir = os.path.dirname(self.model_path)
+            candidates = [
+                os.path.join(base_dir, "vosk-model-small-it-0.22"),
+                os.path.join(base_dir, "vosk-model-it-0.22")
+            ]
+            found = False
+            for cand in candidates:
+                if os.path.exists(cand) and os.path.isdir(cand):
+                    print(f"💡 [VoskASR] Trovato modello locale in {cand}")
+                    self.model_path = cand
+                    found = True
+                    break
+            
+            if not found:
+                print(f"⚠️ [VoskASR] Nessun modello valido trovato in {self.model_path}. Avvio download automatico...")
+                try:
+                    import urllib.request
+                    import zipfile
+                    url = "https://alphacephei.com/vosk/models/vosk-model-it-0.22.zip"
+                    zip_path = self.model_path + ".zip"
+                    
+                    os.makedirs(os.path.dirname(self.model_path), exist_ok=True)
+                    print(f"Scaricando {url}...")
+                    urllib.request.urlretrieve(url, zip_path)
+                    
+                    print(f"Estrazione in corso...")
+                    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                        # Estrae nella cartella genitore
+                        zip_ref.extractall(os.path.dirname(self.model_path))
+                    
+                    # Cleanup
+                    if os.path.exists(zip_path):
+                        os.remove(zip_path)
+                    print("✅ [VoskASR] Download e installazione modello completata.")
+                except Exception as e:
+                    print(f"❌ [VoskASR] Errore durante il download del modello: {e}")
+                    return
             
         try:
             # Vosk logs too much by default

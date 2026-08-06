@@ -1,5 +1,5 @@
 # 📊 Report Esecutivo DFMEA - Marcus AI Robot Platform
-**Data Generazione:** 2026-08-04 23:34:47  
+**Data Generazione:** 2026-08-06 21:57:00  
 **Metodologia:** AIAG-VDA FMEA Standard con Regola Override Severità ($S \ge 9 \implies$ REVISION_MANDATORY)
 
 ---
@@ -8,15 +8,15 @@
 
 | Metrica | Valore | Note / Impatto |
 | :--- | :---: | :--- |
-| **Totale Modalità di Guasto (FM)** | **61** | Copertura integrata dei sottosistemi Marcus |
-| **🟢 Risk Level LOW** | **38** | $RPN_{res} \le 50$ (Sotto controllo) |
+| **Totale Modalità di Guasto (FM)** | **63** | Copertura integrata dei sottosistemi Marcus |
+| **🟢 Risk Level LOW** | **40** | $RPN_{res} \le 50$ (Sotto controllo) |
 | **🟡 Risk Level MEDIUM** | **6** | $51 \le RPN_{res} \le 199$ (Monitoraggio attivo) |
 | **🟠 Risk Level HIGH** | **2** | $200 \le RPN_{res} \le 349$ (Mitigazione obbligatoria) |
 | **🔴 Risk Level CRITICAL** | **0** | $RPN_{res} \ge 350$ (Blocco rilasci) |
 | **🚨 REVISION_MANDATORY** | **15** | **Override Severità ($S \ge 9$)** - Massima Priorità Ingegneristica |
 
 ### Ripartizione per Sottosistema:
-- **System/DDS:** 3 failure modes
+- **System/DDS:** 4 failure modes
 - **Nav2:** 8 failure modes
 - **VUI Audio:** 20 failure modes
 - **Vision:** 2 failure modes
@@ -30,6 +30,7 @@
 - **Simulation/Testing:** 2 failure modes
 - **System/Support:** 1 failure modes
 - **Vision/CPU:** 1 failure modes
+- **ROS 2 DDS / Vision:** 1 failure modes
 
 ---
 
@@ -98,6 +99,8 @@
 | **FM-VUI-013** | VUI Audio | `respeaker_vui_node` | Conversazione lenta e innaturale con perdita dell\'inizio della risposta dell\'utente | 6 | 2 | 2 | **24** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#barge-in`](docs/lessons/audio_vui_pipeline.md#barge-in) |
 | **FM-VUI-015** | VUI Audio | `respeaker_vui_node` | Race condition atomica e valutazione inconsistente dello stato is_attentive nel loop VAD | 6 | 2 | 2 | **24** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#isteresi-vad`](docs/lessons/audio_vui_pipeline.md#isteresi-vad) |
 | **FM-VUI-017** | VUI Audio | `usb_bus_manager` | Micro-buchi audio (dropped audio packets) causati da latenza di scheduling del controller USB RP1 | 6 | 2 | 2 | **24** | `LOW` | `IN_PROGRESS` | [`docs/lessons/dev_and_deployment.md`](docs/lessons/dev_and_deployment.md) |
+| **FM-DDS-006** | ROS 2 DDS / Vision | `hailo_bridge_node / foxglove_bridge / respeaker_vui_node` | Incompatibilità QoS Mismatch (Best-Effort vs Reliable) causante perdita totale di streaming video o messaggi di stato | 6 | 2 | 2 | **24** | `LOW` | `CLOSED` | [`docs/lessons/dev_and_deployment.md`](docs/lessons/dev_and_deployment.md) |
+| **FM-SIM-001** | System/DDS | `wsl2_network` | Perdita di pacchetti UDP e desincronizzazione della TF tree durante la simulazione Gazebo | 6 | 2 | 2 | **24** | `LOW` | `IN_PROGRESS` | [`docs/ecos/sim_wsl2_ecos.md`](docs/ecos/sim_wsl2_ecos.md) |
 | **FM-VUI-002** | VUI Audio | `respeaker_vui_node` | Distorsione acustica da clipping digitale per saturazione dell'ampiezza dei campioni PCM 16-bit | 5 | 2 | 2 | **20** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#peak-limiter`](docs/lessons/audio_vui_pipeline.md#peak-limiter) |
 | **FM-ACT-005** | Hardware/Power | `waveshare_motor_driver` | Reset improvviso della scheda ESP32 (Brownout Microcontrollore) per picco di assorbimento in accelerazione | 9 | 1 | 2 | **18** | `REVISION_MANDATORY` | `OPEN` | [`docs/lessons/actuation_motor_driver.md`](docs/lessons/actuation_motor_driver.md) |
 | **FM-VIS-001** | Vision | `oak_superpoint_odometry_node` | Crash per lettura Heap Out-Of-Bounds durante il parsing dei tensor di output dell'NPU Hailo | 8 | 1 | 2 | **16** | `LOW` | `CLOSED` | [`docs/lessons/vision_hailo_npu.md#memory-safety`](docs/lessons/vision_hailo_npu.md#memory-safety) |

@@ -265,8 +265,8 @@ class HailoBridgeNode(Node):
 
         # Parameters
         self.declare_parameter('hef_path', '')
-        self.declare_parameter('vlm_rate_hz', 1.5)
-        self.declare_parameter('face_rate_hz', 5.0)
+        self.declare_parameter('vlm_rate_hz', 15.0)
+        self.declare_parameter('face_rate_hz', 10.0)
         self.declare_parameter('enable_speaker_id', True)
         self.declare_parameter('offline_mode_enabled', False)
         self.declare_parameter('sim_mode', not HAILO_AVAILABLE)
@@ -322,10 +322,16 @@ class HailoBridgeNode(Node):
         # Subscribers
         self.get_logger().info(f"Sottoscrizione RGB su topic: {self.rgb_topic}")
         self.sub_rgb = self.create_subscription(
-            Image, self.rgb_topic, self.rgb_callback, qos_best_effort
+            Image, self.rgb_topic, self.rgb_callback, qos_reliable
+        )
+        self.sub_rgb_fallback1 = self.create_subscription(
+            Image, '/camera/rgb/image_raw', self.rgb_callback, qos_reliable
+        )
+        self.sub_rgb_fallback2 = self.create_subscription(
+            Image, '/oak/rgb/image_raw', self.rgb_callback, qos_reliable
         )
         self.sub_depth = self.create_subscription(
-            Image, self.depth_topic, self.depth_callback, qos_best_effort
+            Image, self.depth_topic, self.depth_callback, qos_reliable
         )
         self.sub_audio = self.create_subscription(
             AudioData, '/ai/input/audio_chunk', self.audio_callback, qos_best_effort
@@ -349,7 +355,7 @@ class HailoBridgeNode(Node):
             SemanticObjectArray, '/hailo/vlm/semantic_objects', qos_reliable
         )
         self.pub_annotated_image = self.create_publisher(
-            CompressedImage, self.annotated_image_topic, qos_best_effort
+            CompressedImage, self.annotated_image_topic, qos_reliable
         )
         self.pub_face_detections = self.create_publisher(
             Detection2DArray, '/hailo/face/detections', qos_best_effort
@@ -565,9 +571,7 @@ class HailoBridgeNode(Node):
         # [CPU-OPT] Throttle annotated image a ~5 Hz (1 su 6 frame @ 30 Hz camera).
         # La pipeline di inferenza YOLO/Face nei thread separati non è influenzata.
         # Risparmio stimato: ~15% CPU + ~1.3 MB/s DDS overhead. (FM-CPU-001)
-        self._annotate_frame_counter = getattr(self, '_annotate_frame_counter', 0) + 1
-        if self._annotate_frame_counter % 6 == 0:
-            self.annotate_and_publish_image(msg, depth_msg)
+        self.annotate_and_publish_image(msg, depth_msg)
 
     def depth_callback(self, msg):
         with self.lock:
