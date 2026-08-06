@@ -303,6 +303,13 @@ nohup ros2 launch robopy_controller custom_nav2_launch.py \
 echo "⏳ [NAV2-MONITOR] Nav2 lifecycle manager gestisce la transizione automatica dei nodi..."
 sleep 15
 
+echo "📌 [CPU-OPT] Forzatura Hot-Swap affinità CPU sui nodi C++..."
+for node_name in "fast_flow_vo_cpp" "rtabmap" "hailo_bridge_node" "marcus_semantic_mapper_cpp"; do
+    for pid in $(pgrep -f $node_name); do
+        taskset -pc 2,3 $pid > /dev/null 2>&1 || true
+    done
+done
+
 echo "✅ Stack completo (AI, Percezione, SLAM e Nav2) avviato con successo!"
 echo "   Camera log:    tail -f /home/robopy/robopy/logs/oak_camera.log"
 echo "   RTAB-Map log:  tail -f /home/robopy/robopy/logs/rtabmap.log"
