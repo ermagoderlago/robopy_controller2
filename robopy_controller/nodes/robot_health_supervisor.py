@@ -19,7 +19,7 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 
 from std_msgs.msg import Float32, String
 from geometry_msgs.msg import Twist
-from sensor_msgs.msg import Imu, Image
+from sensor_msgs.msg import Imu, CameraInfo
 
 
 class RobotHealthSupervisor(Node):
@@ -71,7 +71,7 @@ class RobotHealthSupervisor(Node):
         self.create_subscription(Float32, '/vins/quality_metrics', self.vio_quality_cb, reliable_qos)
         self.create_subscription(Float32, '/motor/battery_voltage', self.battery_cb, reliable_qos)
         self.create_subscription(Imu, '/oak/imu/data', self.imu_cb, sensor_qos)
-        self.create_subscription(Image, '/rgb/image', self.camera_cb, sensor_qos)
+        self.create_subscription(CameraInfo, '/camera/camera_info', self.camera_cb, sensor_qos)
 
         # Publishers
         self.pub_status = self.create_publisher(String, '/robot/health_status', reliable_qos)
@@ -91,7 +91,7 @@ class RobotHealthSupervisor(Node):
     def imu_cb(self, msg: Imu):
         self.last_imu_time = time.time()
 
-    def camera_cb(self, msg: Image):
+    def camera_cb(self, msg: CameraInfo):
         self.last_camera_time = time.time()
 
     def get_cpu_temp(self) -> float:
