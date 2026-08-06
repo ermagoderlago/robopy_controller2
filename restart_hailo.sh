@@ -306,7 +306,7 @@ sleep 15
 echo "📌 [CPU-OPT] Forzatura Hot-Swap affinità CPU sui nodi C++..."
 for node_name in "fast_flow_vo_cpp" "rtabmap" "hailo_bridge_node" "marcus_semantic_mapper_cpp"; do
     for pid in $(pgrep -f $node_name); do
-        taskset -pc 2,3 $pid > /dev/null 2>&1 || true
+        taskset -a -pc 2,3 $pid > /dev/null 2>&1 || true
     done
 done
 
