@@ -217,7 +217,7 @@ nohup ros2 run robopy_controller hailo_bridge_node --ros-args \
     -p hef_path:=/mnt/ssd/robopy_controller_host/joined_yolo_superpoint_netvlad.hef \
     -p sim_mode:=False \
     -p rgb_topic:=/rgb/image \
-    -p vlm_rate_hz:=15.0 \
+    -p vlm_rate_hz:=5.0 \
     > /home/robopy/robopy/logs/hailo_bridge_node.log 2>&1 &
 
 echo "🛡️ Starting localization_fuser_node (Dedicated EKF/VIO Fuser)..."

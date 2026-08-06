@@ -2325,32 +2325,39 @@
     occurrence: 9
     detection: 3
     rpn: 189
-  prevention_controls: Throttle del publish annotated image a 5 Hz tramite counter
-    in rgb_callback (1 frame ogni 6 @ 30 Hz camera).
+  prevention_controls: Implementazione del Lazy Publishing (get_subscription_count()
+    == 0) per saltare l'elaborazione OpenCV se non c'è iscrizione attiva (es. Foxglove).
+    Throttle del VLM rate a 5 Hz in restart_hailo.sh.
   detection_controls: Monitoraggio pidstat per-thread; anomalia CPU > 15% su hailo_bridge_node
     in assenza di inferenza NPU attiva.
   residual_scoring:
     severity: 7
-    occurrence: 2
+    occurrence: 1
     detection: 1
-    rpn: 14
+    rpn: 7
   risk_level: LOW
   mitigation_status: CLOSED
-  recommended_action: Applicato throttle counter in rgb_callback (hailo_bridge_node.py:561).
-    Ridotto face_rate_hz da 5.0 a 2.0 Hz nel launch file. Ridotto calib_interval_sec
-    da 1.0 a 2.0s in extrinsic_camera_calibrator.py.
+  recommended_action: Per una risoluzione definitiva in ottica produzione finale,
+    è consigliata la riscrittura completa del nodo in C++ sfruttando l'API nativa
+    HailoRT per azzerare l'overhead di Python e NumPy.
   verification_method: 'Confronto CPU usage (pidstat/top) prima e dopo il deploy.
     Atteso: riduzione ~23% CPU totale sistema.'
   eco_ref: docs/ecos/vision_hailo_ecos.md
   lesson_ref: docs/lessons/vision_hailo_npu.md
   date_identified: '2026-08-02'
-  last_updated: '2026-08-02'
+  last_updated: '2026-08-06'
   history:
   - date: '2026-08-02'
     change: Identificato bottleneck durante analisi saturazione CPU. Applicato throttle
       annotated image 5Hz, face_rate 2Hz, extrinsic calibrator 0.5Hz.
     rpn_old: 189
     rpn_new: 14
+  - date: '2026-08-06'
+    change: Implementato Lazy Publishing in hailo_bridge_node.py (salta preprocessing
+      OpenCV se subscription_count == 0). Aggiunta raccomandazione per riscrittura
+      futura in C++.
+    rpn_old: 14
+    rpn_new: 7
 - id: FM-CPU-002
   subsystem: System/Compute
   component: system_workload_orchestrator

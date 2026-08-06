@@ -1567,6 +1567,10 @@ class HailoBridgeNode(Node):
             return None
 
     def annotate_and_publish_image(self, rgb_msg, depth_msg):
+        # [CPU-OPT] Lazy Publishing: salta tutto se nessuno sta ascoltando (es. Foxglove chiuso)
+        if self.pub_annotated_image.get_subscription_count() == 0:
+            return
+
         try:
             bgr = self._decode_rgb_msg(rgb_msg)
             if bgr is None:
