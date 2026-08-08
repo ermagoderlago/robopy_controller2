@@ -72,39 +72,32 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 # )
 
 # NEW: Marcus Semantic Mapper Node (fuses Hailo NPU detections and Depth)
-add_executable(marcus_semantic_mapper_cpp
-  src/marcus_semantic_mapper_node.cpp
-)
-ament_target_dependencies(marcus_semantic_mapper_cpp
-  rclcpp
-  std_msgs
-  geometry_msgs
-  sensor_msgs
-  diagnostic_msgs
-  visualization_msgs
-  rtabmap_msgs
-  message_filters
-  tf2
-  tf2_ros
-  tf2_geometry_msgs
-  cv_bridge
-  tf2_eigen
-)
-target_include_directories(marcus_semantic_mapper_cpp PRIVATE ${EIGEN3_INCLUDE_DIR})
-target_link_libraries(marcus_semantic_mapper_cpp
-  ${OpenCV_LIBRARIES}
-  Eigen3::Eigen
-)
-
-# install(TARGETS marcus_semantic_mapper_cpp
-#   DESTINATION lib/${PROJECT_NAME}
+# add_executable(marcus_semantic_mapper_cpp
+#   src/marcus_semantic_mapper_node.cpp
 # )
-
-
-# Link visual fusion node to generated interfaces
-rosidl_get_typesupport_target(typesupport_target "${PROJECT_NAME}" "rosidl_typesupport_cpp")
-target_link_libraries(marcus_semantic_mapper_cpp "${typesupport_target}")
-add_dependencies(marcus_semantic_mapper_cpp ${PROJECT_NAME}__rosidl_generator_cpp)
+# ament_target_dependencies(marcus_semantic_mapper_cpp
+#   rclcpp
+#   std_msgs
+#   geometry_msgs
+#   sensor_msgs
+#   diagnostic_msgs
+#   visualization_msgs
+#   rtabmap_msgs
+#   message_filters
+#   tf2
+#   tf2_ros
+#   tf2_geometry_msgs
+#   cv_bridge
+#   tf2_eigen
+# )
+# target_include_directories(marcus_semantic_mapper_cpp PRIVATE ${EIGEN3_INCLUDE_DIR})
+# target_link_libraries(marcus_semantic_mapper_cpp
+#   ${OpenCV_LIBRARIES}
+#   Eigen3::Eigen
+# )
+# rosidl_get_typesupport_target(typesupport_target "${PROJECT_NAME}" "rosidl_typesupport_cpp")
+# target_link_libraries(marcus_semantic_mapper_cpp "${typesupport_target}")
+# add_dependencies(marcus_semantic_mapper_cpp ${PROJECT_NAME}__rosidl_generator_cpp)
 
 # Workaround: copy visibility control header during build to prevent Ninja deletion bug
 add_custom_target(copy_visibility_control_header ALL
