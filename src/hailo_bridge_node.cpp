@@ -112,7 +112,7 @@ public:
 
         // Subscribers & Publishers
         it_ = std::make_unique<image_transport::ImageTransport>(shared_from_this());
-        sub_rgb_ = it_->subscribe(rgb_topic_, 1, &HailoBridgeNodeCpp::rgb_callback, this, &qos_profile);
+        sub_rgb_ = it_->subscribe(rgb_topic_, 1, std::bind(&HailoBridgeNodeCpp::rgb_callback, this, std::placeholders::_1));
 
         pub_annotated_ = it_->advertise("/hailo/annotated_image", 1);
         pub_annotated_compressed_ = this->create_publisher<sensor_msgs::msg::CompressedImage>("/hailo/annotated_image/compressed", 10);
@@ -152,7 +152,7 @@ private:
                 hailo_ready_ = false;
                 return;
             }
-            hef_ = hef_expected.release();
+            hef_ = std::make_unique<hailort::Hef>(hef_expected.release());
 
             RCLCPP_INFO(this->get_logger(), "🧠 Hailo NPU Hardware & HEF loaded successfully C++!");
             hailo_ready_ = true;
@@ -271,14 +271,15 @@ private:
 
             // robopy_controller/SemanticObject
             robopy_controller::msg::SemanticObject sem_obj;
-            sem_obj.label = det.label;
+            sem_obj.header = header;
             auto it_it = COCO_TO_ITALIAN.find(det.label);
-            sem_obj.label_it = (it_it != COCO_TO_ITALIAN.end()) ? it_it->second : det.label;
+            sem_obj.label = (it_it != COCO_TO_ITALIAN.end()) ? it_it->second : det.label;
             sem_obj.confidence = det.confidence;
-            sem_obj.xmin = static_cast<int32_t>(det.xmin * img_width);
-            sem_obj.ymin = static_cast<int32_t>(det.ymin * img_height);
-            sem_obj.xmax = static_cast<int32_t>(det.xmax * img_width);
-            sem_obj.ymax = static_cast<int32_t>(det.ymax * img_height);
+            sem_obj.bbox_2d[0] = det.xmin;
+            sem_obj.bbox_2d[1] = det.ymin;
+            sem_obj.bbox_2d[2] = det.xmax;
+            sem_obj.bbox_2d[3] = det.ymax;
+            sem_obj.semantic_class = "obstacle";
             sem_array_msg.objects.push_back(sem_obj);
         }
 
