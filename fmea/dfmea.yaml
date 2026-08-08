@@ -2359,6 +2359,13 @@
     rpn_old: 14
     rpn_new: 7
   - date: '2026-08-08'
+    change: Completata riscrittura C++ nativa (hailo_bridge_node_cpp) compilata in
+      -O3 con 11GB SSD Swap e rate limiting camera_fps 12.0 Hz. Eliminato bottleneck
+      CPU 1, ridotto consumo visivo del 50%, eliminati i disconnessioni di rete su
+      Foxglove.
+    rpn_old: 7
+    rpn_new: 2
+  - date: '2026-08-08'
     change: Riscrittura nativa in C++ (hailo_bridge_node_cpp) completata. Eliminati
       GIL Python e serializzazione OpenCV. CPU usage azzerato su Core 1, Load Average
       sceso da 12.33 a 1.72, RAM usata ridotta dell'86%.
