@@ -48,7 +48,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 
 # FAST + Optical Flow Visual Odometry Node (NO SuperPoint)
 add_executable(fast_flow_vo_cpp src/fast_flow_vo_node.cpp)
-target_compile_options(fast_flow_vo_cpp PRIVATE -O0)
+target_compile_options(fast_flow_vo_cpp PRIVATE -O3)
 ament_target_dependencies(fast_flow_vo_cpp
   rclcpp
   std_msgs
@@ -119,7 +119,7 @@ find_package(rosidl_runtime_cpp REQUIRED)
 find_library(HAILORT_LIB hailort REQUIRED)
 
 add_executable(hailo_bridge_node_cpp src/hailo_bridge_node.cpp)
-target_compile_options(hailo_bridge_node_cpp PRIVATE -O0)
+target_compile_options(hailo_bridge_node_cpp PRIVATE -O3)
 ament_target_dependencies(hailo_bridge_node_cpp
   rclcpp
   rcl_interfaces
