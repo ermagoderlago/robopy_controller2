@@ -41,58 +41,10 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   DEPENDENCIES std_msgs geometry_msgs sensor_msgs vision_msgs
 )
 
-add_executable(oak_superpoint_odometry_cpp src/oak_superpoint_odometry_node.cpp)
-ament_target_dependencies(oak_superpoint_odometry_cpp
-  rclcpp
-  std_msgs
-  sensor_msgs
-  geometry_msgs
-  nav_msgs
-  vision_msgs
-  tf2
-  tf2_ros
-  tf2_geometry_msgs
-  cv_bridge
-  image_transport
-)
-# Link depthai and OpenCV manually if not handled by ament
-target_link_libraries(oak_superpoint_odometry_cpp
-  depthai::core
-  depthai::opencv
-  ${OpenCV_LIBRARIES}
-)
-
-install(TARGETS oak_superpoint_odometry_cpp
-  DESTINATION lib/${PROJECT_NAME}
-)
-
-# NEW: Eigen-based Visual Odometry Node
-find_package(Eigen3 REQUIRED)
-
-add_executable(oak_visual_odometry_cpp src/oak_visual_odometry_node.cpp)
-ament_target_dependencies(oak_visual_odometry_cpp
-  rclcpp
-  std_msgs
-  sensor_msgs
-  geometry_msgs
-  nav_msgs
-  diagnostic_msgs
-  tf2
-  tf2_ros
-  tf2_geometry_msgs
-  cv_bridge
-)
-target_include_directories(oak_visual_odometry_cpp PRIVATE ${EIGEN3_INCLUDE_DIR})
-target_link_libraries(oak_visual_odometry_cpp
-  depthai::core
-  depthai::opencv
-  ${OpenCV_LIBRARIES}
-  Eigen3::Eigen
-)
-
-install(TARGETS oak_visual_odometry_cpp
-  DESTINATION lib/${PROJECT_NAME}
-)
+# Legacy odometry targets disabled to conserve RAM and compilation time
+# add_executable(oak_superpoint_odometry_cpp src/oak_superpoint_odometry_node.cpp)
+# find_package(Eigen3 REQUIRED)
+# add_executable(oak_visual_odometry_cpp src/oak_visual_odometry_node.cpp)
 
 # FAST + Optical Flow Visual Odometry Node (NO SuperPoint)
 add_executable(fast_flow_vo_cpp src/fast_flow_vo_node.cpp)
