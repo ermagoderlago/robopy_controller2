@@ -274,6 +274,9 @@ echo "🔌 Starting foxglove_bridge..."
 > /home/robopy/robopy/logs/foxglove_bridge.log
 nohup ros2 run foxglove_bridge foxglove_bridge --ros-args \
     -p port:=8765 \
+    -p send_buffer_limit:=10000000 \
+    -p max_subscription_rate:=10.0 \
+    -p use_compression:=true \
     > /home/robopy/robopy/logs/foxglove_bridge.log 2>&1 &
 
 echo "🌉 Starting foxglove_nav2_bridge..."
