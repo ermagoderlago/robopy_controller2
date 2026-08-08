@@ -169,9 +169,12 @@ add_dependencies(marcus_semantic_mapper_cpp copy_visibility_control_header)
 # =============================================================================
 # C++ Native Hailo Bridge Node
 # =============================================================================
+find_package(rcl_interfaces REQUIRED)
+
 add_executable(hailo_bridge_node_cpp src/hailo_bridge_node.cpp)
 ament_target_dependencies(hailo_bridge_node_cpp
   rclcpp
+  rcl_interfaces
   std_msgs
   sensor_msgs
   geometry_msgs
