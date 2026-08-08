@@ -123,6 +123,7 @@ add_dependencies(marcus_semantic_mapper_cpp copy_visibility_control_header)
 # =============================================================================
 find_package(rcl_interfaces REQUIRED)
 find_package(rosidl_runtime_cpp REQUIRED)
+find_library(HAILORT_LIB hailort REQUIRED)
 
 add_executable(hailo_bridge_node_cpp src/hailo_bridge_node.cpp)
 ament_target_dependencies(hailo_bridge_node_cpp
@@ -140,7 +141,7 @@ target_include_directories(hailo_bridge_node_cpp PRIVATE /usr/include/hailo)
 target_link_libraries(hailo_bridge_node_cpp
   ${OpenCV_LIBRARIES}
   "${typesupport_target}"
-  hailort
+  ${HAILORT_LIB}
 )
 add_dependencies(hailo_bridge_node_cpp ${PROJECT_NAME}__rosidl_generator_cpp copy_visibility_control_header)
 
