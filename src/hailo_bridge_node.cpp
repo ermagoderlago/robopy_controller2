@@ -105,12 +105,10 @@ public:
 
         // Initialize Hailo NPU Device if available
         init_hailo_npu();
+    }
 
-        // ROS 2 QoS Configuration
-        rmw_qos_profile_t qos_profile = rmw_qos_profile_default;
-        qos_profile.reliability = RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT;
-
-        // Subscribers & Publishers
+    void init() {
+        // Safe to call shared_from_this() after std::make_shared
         it_ = std::make_unique<image_transport::ImageTransport>(shared_from_this());
         sub_rgb_ = it_->subscribe(rgb_topic_, 1, std::bind(&HailoBridgeNodeCpp::rgb_callback, this, std::placeholders::_1));
 
@@ -315,6 +313,7 @@ private:
 int main(int argc, char **argv) {
     rclcpp::init(argc, argv);
     auto node = std::make_shared<HailoBridgeNodeCpp>();
+    node->init();
     rclcpp::spin(node);
     rclcpp::shutdown();
     return 0;
