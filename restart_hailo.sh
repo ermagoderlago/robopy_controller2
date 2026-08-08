@@ -142,6 +142,7 @@ nohup ros2 run tf2_ros static_transform_publisher \
 echo "👁️ Starting FastFlow C++ VIO Node..."
 > /home/robopy/robopy/logs/fast_flow_vo.log
 nohup taskset -c 2,3 ros2 run robopy_controller fast_flow_vo_cpp --ros-args \
+    -p camera_fps:=12.0 \
     -p publish_tf:=true \
     -p odom_frame:=odom \
     -p base_frame:=base_link \
@@ -174,6 +175,7 @@ echo "🗺️ Starting RTAB-Map SLAM..."
 > /home/robopy/robopy/logs/rtabmap.log
 nohup taskset -c 2,3 ros2 run rtabmap_slam rtabmap --delete_db_on_start --ros-args \
     --params-file /mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_controller/config/rtabmap.yaml \
+    -p Rtabmap/DetectionRate:=5.0 \
     -r rgb/image:=/rgb/image \
     -r rgb/camera_info:=/camera/camera_info \
     -r depth/image:=/camera/depth/image_raw \
