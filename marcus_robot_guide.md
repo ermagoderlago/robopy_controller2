@@ -108,7 +108,7 @@ La Voice User Interface (VUI) è il canale primario di interazione di Marcus:
 
 ## 🧠 Accelerazione Hardware (Hailo-10 NPU)
 
-L'HAT Hardware Raspberry Pi AI HAT+ ospita una **Hailo-10 NPU** da 40 TOPS collegata via PCIe Gen 3. Marcus la sfrutta per eseguire reti neurali pesanti localmente a FPS elevati con bassissimo consumo CPU:
+L'HAT Hardware Raspberry Pi AI HAT+ ospita una **Hailo-10 NPU** da 40 TOPS collegata via PCIe Gen 3. Gestita nativamente tramite il driver C++ High-Performance `hailo_bridge_node_cpp` (`<hailo/hailort.hpp>`), azzera l'overhead CPU (0% su Core 1) e supporta Lazy Publishing per la trasmissione di immagini annote. Marcus la sfrutta per eseguire reti neurali pesanti localmente a FPS elevati:
 
 1. **YOLOv8-seg:** Rilevamento e segmentazione in tempo reale di 80 classi di oggetti comuni (persone, sedie, bottiglie, zaini) per popolare la memoria semantica.
 2. **SuperPoint:** Estrattore di feature visive puntiformi integrato nel driver della telecamera per l'odometria visuale C++.

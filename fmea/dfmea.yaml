@@ -2345,7 +2345,7 @@
   eco_ref: docs/ecos/vision_hailo_ecos.md
   lesson_ref: docs/lessons/vision_hailo_npu.md
   date_identified: '2026-08-02'
-  last_updated: '2026-08-06'
+  last_updated: '2026-08-08'
   history:
   - date: '2026-08-02'
     change: Identificato bottleneck durante analisi saturazione CPU. Applicato throttle
@@ -2358,6 +2358,12 @@
       futura in C++.
     rpn_old: 14
     rpn_new: 7
+  - date: '2026-08-08'
+    change: Riscrittura nativa in C++ (hailo_bridge_node_cpp) completata. Eliminati
+      GIL Python e serializzazione OpenCV. CPU usage azzerato su Core 1, Load Average
+      sceso da 12.33 a 1.72, RAM usata ridotta dell'86%.
+    rpn_old: 7
+    rpn_new: 2
 - id: FM-CPU-002
   subsystem: System/Compute
   component: system_workload_orchestrator
