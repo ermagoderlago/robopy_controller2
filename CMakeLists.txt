@@ -108,7 +108,7 @@ add_custom_target(copy_visibility_control_header ALL
   COMMENT "Copying C++ visibility control header to prevent Ninja deletion"
 )
 add_dependencies(copy_visibility_control_header ${PROJECT_NAME}__cpp)
-add_dependencies(marcus_semantic_mapper_cpp copy_visibility_control_header)
+# add_dependencies(marcus_semantic_mapper_cpp copy_visibility_control_header)
 
 # =============================================================================
 # C++ Native Hailo Bridge Node
