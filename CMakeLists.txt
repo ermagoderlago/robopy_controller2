@@ -95,7 +95,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 #   ${OpenCV_LIBRARIES}
 #   Eigen3::Eigen
 # )
-# rosidl_get_typesupport_target(typesupport_target "${PROJECT_NAME}" "rosidl_typesupport_cpp")
+rosidl_get_typesupport_target(typesupport_target "${PROJECT_NAME}" "rosidl_typesupport_cpp")
 # target_link_libraries(marcus_semantic_mapper_cpp "${typesupport_target}")
 # add_dependencies(marcus_semantic_mapper_cpp ${PROJECT_NAME}__rosidl_generator_cpp)
 
