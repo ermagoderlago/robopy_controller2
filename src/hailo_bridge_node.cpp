@@ -91,7 +91,7 @@ class HailoBridgeNodeCpp : public rclcpp::Node {
 public:
     HailoBridgeNodeCpp() : Node("hailo_bridge_node_cpp"), num_frames_processed_(0) {
         // Declare parameters
-        this->declare_parameter<std::string>("hef_path", "/mnt/ssd/robopy_controller_host/joined_yolo_superpoint_netvlad.hef");
+        this->declare_parameter<std::string>("hef_path", "/mnt/ssd/models/marcus_unified.hef");
         this->declare_parameter<bool>("sim_mode", false);
         this->declare_parameter<std::string>("rgb_topic", "/rgb/image");
         this->declare_parameter<double>("vlm_rate_hz", 5.0);
