@@ -47,30 +47,29 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 # add_executable(oak_visual_odometry_cpp src/oak_visual_odometry_node.cpp)
 
 # FAST + Optical Flow Visual Odometry Node (NO SuperPoint)
-add_executable(fast_flow_vo_cpp src/fast_flow_vo_node.cpp)
-ament_target_dependencies(fast_flow_vo_cpp
-  rclcpp
-  std_msgs
-  sensor_msgs
-  geometry_msgs
-  nav_msgs
-  diagnostic_msgs
-  tf2
-  tf2_ros
-  tf2_geometry_msgs
-  cv_bridge
-)
-target_include_directories(fast_flow_vo_cpp PRIVATE ${EIGEN3_INCLUDE_DIR})
-target_link_libraries(fast_flow_vo_cpp
-  depthai::core
-  depthai::opencv
-  ${OpenCV_LIBRARIES}
-  Eigen3::Eigen
-)
-
-install(TARGETS fast_flow_vo_cpp
-  DESTINATION lib/${PROJECT_NAME}
-)
+# add_executable(fast_flow_vo_cpp src/fast_flow_vo_node.cpp)
+# ament_target_dependencies(fast_flow_vo_cpp
+#   rclcpp
+#   std_msgs
+#   sensor_msgs
+#   geometry_msgs
+#   nav_msgs
+#   diagnostic_msgs
+#   tf2
+#   tf2_ros
+#   tf2_geometry_msgs
+#   cv_bridge
+# )
+# target_include_directories(fast_flow_vo_cpp PRIVATE ${EIGEN3_INCLUDE_DIR})
+# target_link_libraries(fast_flow_vo_cpp
+#   depthai::core
+#   depthai::opencv
+#   ${OpenCV_LIBRARIES}
+#   Eigen3::Eigen
+# )
+# install(TARGETS fast_flow_vo_cpp
+#   DESTINATION lib/${PROJECT_NAME}
+# )
 
 # NEW: Marcus Semantic Mapper Node (fuses Hailo NPU detections and Depth)
 add_executable(marcus_semantic_mapper_cpp
