@@ -97,9 +97,9 @@ target_link_libraries(marcus_semantic_mapper_cpp
   Eigen3::Eigen
 )
 
-install(TARGETS marcus_semantic_mapper_cpp
-  DESTINATION lib/${PROJECT_NAME}
-)
+# install(TARGETS marcus_semantic_mapper_cpp
+#   DESTINATION lib/${PROJECT_NAME}
+# )
 
 
 # Link visual fusion node to generated interfaces
