@@ -166,6 +166,31 @@ add_custom_target(copy_visibility_control_header ALL
 add_dependencies(copy_visibility_control_header ${PROJECT_NAME}__cpp)
 add_dependencies(marcus_semantic_mapper_cpp copy_visibility_control_header)
 
+# =============================================================================
+# C++ Native Hailo Bridge Node
+# =============================================================================
+add_executable(hailo_bridge_node_cpp src/hailo_bridge_node.cpp)
+ament_target_dependencies(hailo_bridge_node_cpp
+  rclcpp
+  std_msgs
+  sensor_msgs
+  geometry_msgs
+  vision_msgs
+  cv_bridge
+  image_transport
+)
+target_include_directories(hailo_bridge_node_cpp PRIVATE /usr/include/hailo)
+target_link_libraries(hailo_bridge_node_cpp
+  ${OpenCV_LIBRARIES}
+  "${typesupport_target}"
+  hailort
+)
+add_dependencies(hailo_bridge_node_cpp ${PROJECT_NAME}__rosidl_generator_cpp copy_visibility_control_header)
+
+install(TARGETS hailo_bridge_node_cpp
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 
 
 

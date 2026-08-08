@@ -211,9 +211,9 @@ nohup ros2 run robopy_controller respeaker_vui_node --ros-args \
     -p diag_mode:=true \
     > /home/robopy/robopy/logs/respeaker_vui_node.log 2>&1 &
 
-echo "🧠 Starting hailo_bridge_node (NPU Driver)..."
+echo "🧠 Starting hailo_bridge_node_cpp (NPU C++ Driver)..."
 > /home/robopy/robopy/logs/hailo_bridge_node.log
-nohup taskset -c 2,3 ros2 run robopy_controller hailo_bridge_node --ros-args \
+nohup taskset -c 2,3 ros2 run robopy_controller hailo_bridge_node_cpp --ros-args \
     -p hef_path:=/mnt/ssd/robopy_controller_host/joined_yolo_superpoint_netvlad.hef \
     -p sim_mode:=False \
     -p rgb_topic:=/rgb/image \
@@ -304,7 +304,7 @@ echo "⏳ [NAV2-MONITOR] Nav2 lifecycle manager gestisce la transizione automati
 sleep 15
 
 echo "📌 [CPU-OPT] Forzatura Hot-Swap affinità CPU sui nodi C++..."
-for node_name in "fast_flow_vo_cpp" "rtabmap" "hailo_bridge_node" "marcus_semantic_mapper_cpp"; do
+for node_name in "fast_flow_vo_cpp" "rtabmap" "hailo_bridge_node_cpp" "marcus_semantic_mapper_cpp"; do
     for pid in $(pgrep -f $node_name); do
         taskset -a -pc 2,3 $pid > /dev/null 2>&1 || true
     done
