@@ -208,8 +208,8 @@ class AIOrchestrator(Node):
         self.create_subscription(String, '/ai/live/fallback', self._fallback_callback, 10)
         self.pub_hailo_vlm = self.create_publisher(String, '/hailo/vlm/ask_question', 10)
 
-        # Timer reattivi
-        t1 = self.create_timer(0.02, self._reactive_loop_callback)
+        # Timer reattivi (10 Hz = 0.1s sufficiente per sicurezza reattiva, evita saturazione CPU Python)
+        t1 = self.create_timer(0.1, self._reactive_loop_callback)
         t2 = self.create_timer(10.0, self._ha_update_callback)
         t3 = self.create_timer(5.0, self._metrics_callback)
         self.timer_list.extend([t1, t2, t3])

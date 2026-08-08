@@ -82,6 +82,9 @@ class RobotHealthSupervisor(Node):
 
         self.get_logger().info('RobotHealthSupervisor node started.')
 
+        self._imu_counter = 0
+        self._cam_counter = 0
+
     def vio_quality_cb(self, msg: Float32):
         self.latest_vio_confidence = float(msg.data)
 
@@ -89,10 +92,16 @@ class RobotHealthSupervisor(Node):
         self.latest_battery_voltage = float(msg.data)
 
     def imu_cb(self, msg: Imu):
-        self.last_imu_time = time.time()
+        self._imu_counter += 1
+        if self._imu_counter >= 20:
+            self._imu_counter = 0
+            self.last_imu_time = time.time()
 
     def camera_cb(self, msg: CameraInfo):
-        self.last_camera_time = time.time()
+        self._cam_counter += 1
+        if self._cam_counter >= 6:
+            self._cam_counter = 0
+            self.last_camera_time = time.time()
 
     def get_cpu_temp(self) -> float:
         try:
