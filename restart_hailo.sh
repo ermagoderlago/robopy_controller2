@@ -213,7 +213,7 @@ nohup ros2 run robopy_controller respeaker_vui_node --ros-args \
 
 echo "🧠 Starting hailo_bridge_node_cpp (NPU C++ Driver)..."
 > /home/robopy/robopy/logs/hailo_bridge_node.log
-nohup taskset -c 2,3 ros2 run robopy_controller hailo_bridge_node_cpp --ros-args \
+nohup taskset -c 2,3 /mnt/ssd/robopy_controller_host/install/robopy_controller/lib/robopy_controller/hailo_bridge_node_cpp --ros-args \
     -p hef_path:=/mnt/ssd/robopy_controller_host/joined_yolo_superpoint_netvlad.hef \
     -p sim_mode:=False \
     -p rgb_topic:=/rgb/image \
