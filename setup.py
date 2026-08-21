@@ -170,6 +170,7 @@ setup(
             "oak_superpoint_odometry_node = robopy_controller.nodes.oak_superpoint_odometry_node:main",
             "robot_ai_node = robopy_controller.nodes.robot_ai_node:main",
             "waveshare_motor_driver = robopy_controller.nodes.waveshare_motor_driver:main",
+            "battery_manager_node = robopy_controller.nodes.battery_manager_node:main",
             "foxglove_nav2_bridge = robopy_controller.nodes.foxglove_nav2_bridge:main",
             "wake_word_node = robopy_controller.nodes.wake_word_node:main",
             "respeaker_vui_node = robopy_controller.nodes.respeaker_vui_node:main",

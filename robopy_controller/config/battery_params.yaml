@@ -1,0 +1,39 @@
+# Configurazione Parametri Battery Management System & Voltage Feedforward - Marcus AI
+# Pacco Li-ion 3S (Nominale 11.1V, Range Batteria 9.0V - 12.6V)
+# Bus di alimentazione da rete / cuccia tarato a 12.80V
+
+battery_manager_node:
+  ros__parameters:
+    # --- Topic Names ---
+    raw_voltage_topic: "/battery/raw"
+    battery_state_topic: "/battery_state"
+    foxglove_pct_topic: "/foxglove/battery_pct"
+    foxglove_status_topic: "/foxglove/power_status"
+    docking_trigger_topic: "/robot/docking/trigger"
+    shutdown_topic: "/robot/system/shutdown"
+    speed_limit_topic: "/speed_limit"
+    legacy_voltage_topic: "/motor/battery_voltage"
+
+    # --- Voltage Thresholds (Volts) ---
+    charging_threshold_voltage: 12.70   # Soglia oltre la quale il robot è alimentato da rete (12.80V)
+    charging_bus_voltage: 12.80         # Tensione nominale del bus con alimentatore 24V step-down
+    full_voltage: 12.60                 # 100% SoC Batteria (4.20V / cella)
+    nominal_voltage: 11.10              # 3.70V / cella (Tensione di riferimento feed-forward)
+    eco_voltage: 10.20                  # <= 20% SoC (3.40V / cella) -> Limitatore dinamica al 50%
+    docking_voltage: 9.90               # <= 12% SoC (3.30V / cella) -> Trigger docking autonomo verso cuccia
+    shutdown_voltage: 9.00              # <= 0% SoC (3.00V / cella) -> Arresto motori e spegnimento controllato OS
+
+    # --- Filtering & Anti-Sag ---
+    esp32_adc_scale_factor: 2880.95     # Divisore partitore 3S ESP32 (36300 -> 12.60V @ 100% full)
+    filter_window_size: 20              # Campioni ADC per media mobile (Moving Average buffer)
+    sample_rate_hz: 5.0                 # Frequenza del ciclo di controllo e pubblicazione (Hz)
+    persistence_sec: 3.0                # Durata minima consecutiva per innescare Docking / Shutdown (secondi)
+
+    # --- Dynamic Limiter & Safety ---
+    speed_limit_eco_pct: 50.0           # Percentuale di riduzione velocità max in modalità ECO (50%)
+    auto_poweroff: false                # Se true, esegue `sudo poweroff` su shutdown critico
+
+    # --- Voltage Feed-Forward Compensation ---
+    feedforward_nominal_voltage: 11.10  # Tensione di normalizzazione PWM (11.1V)
+    feedforward_min_scale: 0.70         # Clamping minimo sul moltiplicatore di tensione
+    feedforward_max_scale: 1.40         # Clamping massimo sul moltiplicatore di tensione

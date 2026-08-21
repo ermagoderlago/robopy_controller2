@@ -12,6 +12,7 @@ from geometry_msgs.msg import Twist, Point, Pose, Quaternion, Vector3, Transform
 from nav_msgs.msg import Odometry
 from tf2_ros import TransformBroadcaster
 from sensor_msgs.msg import Imu, BatteryState
+from std_msgs.msg import Float32, String, Bool
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 import serial
 import json
@@ -38,6 +39,12 @@ class WaveshareMotorDriver(Node):
         self.declare_parameter('encoder_dead_zone', 0)        # ticks: ignore deltas <= this when both wheels below threshold (0 to disable tick dropping)
         self.declare_parameter('publish_tf', False)            # set False when another node (e.g. VIO) owns odom->base_link TF
         self.declare_parameter('odom_topic', '/odom_wheel')    # separate wheel odometry topic from VIO /odom
+        self.declare_parameter('feedforward_nominal_voltage', 11.10) # Nominal voltage for PWM scaling (11.1V)
+        self.declare_parameter('feedforward_min_scale', 0.70)        # Min clamping for feedforward ratio
+        self.declare_parameter('feedforward_max_scale', 1.40)        # Max clamping for feedforward ratio
+        self.declare_parameter('enable_voltage_feedforward', True)  # Toggle voltage scaling
+        self.declare_parameter('raw_battery_topic', '/battery/raw') # Topic for raw ADC battery voltage
+        self.declare_parameter('esp32_adc_scale_factor', 2880.95)   # 3S divider factor (36300 -> 12.60V)
         
         # --- Retrieve Parameters ---
         self.serial_port = self.get_parameter('serial_port').value
@@ -54,6 +61,12 @@ class WaveshareMotorDriver(Node):
         self.encoder_dead_zone = self.get_parameter('encoder_dead_zone').value
         self.publish_tf = self.get_parameter('publish_tf').value
         self.odom_topic = self.get_parameter('odom_topic').value
+        self.feedforward_nominal_voltage = self.get_parameter('feedforward_nominal_voltage').value
+        self.feedforward_min_scale = self.get_parameter('feedforward_min_scale').value
+        self.feedforward_max_scale = self.get_parameter('feedforward_max_scale').value
+        self.enable_voltage_feedforward = self.get_parameter('enable_voltage_feedforward').value
+        self.raw_battery_topic = self.get_parameter('raw_battery_topic').value
+        self.esp32_adc_scale_factor = float(self.get_parameter('esp32_adc_scale_factor').value)
         
         # Register dynamic parameter callback
         self.add_on_set_parameters_callback(self.parameter_callback)
@@ -83,6 +96,9 @@ class WaveshareMotorDriver(Node):
         self.vo_linear_speed = 0.0
         self.latest_voltage = 12.0
         self.idle_voltage = 12.0
+        self.filtered_battery_voltage = 12.0
+        self.is_charging_detected = False
+        self.is_system_shutdown = False
         
         # Obstruction & Stall monitoring
         self.stall_start_time = None
@@ -95,13 +111,16 @@ class WaveshareMotorDriver(Node):
         # --- Publishers & Broadcasters ---
         self.odom_pub = self.create_publisher(Odometry, self.odom_topic, 10)
         self.imu_pub = self.create_publisher(Imu, '/imu/esp32', 10)  # separate from madgwick /imu/data to avoid topic collision
-        self.battery_pub = self.create_publisher(BatteryState, '/battery_state', 10)
+        self.raw_battery_pub = self.create_publisher(BatteryState, self.raw_battery_topic, 10)
+        self.raw_battery_float_pub = self.create_publisher(Float32, '/battery/raw_voltage', 10)
         self.diag_pub = self.create_publisher(DiagnosticArray, '/diagnostics', 10)
         self.tf_broadcaster = TransformBroadcaster(self)
         
         # --- Subscribers ---
         self.create_subscription(Twist, '/cmd_vel', self.cmd_vel_callback, 10)
         self.create_subscription(Odometry, '/vo/odom', self.vo_odom_callback, 10)
+        self.create_subscription(BatteryState, '/battery_state', self.battery_state_filtered_cb, 10)
+        self.create_subscription(String, '/robot/system/shutdown', self.shutdown_callback, 10)
         
         # --- Serial Connection & Threads ---
         self.serial_lock = threading.Lock()
@@ -257,11 +276,53 @@ class WaveshareMotorDriver(Node):
             self.is_commanded_stop = False
             self.motors_stopped = False
 
+    def battery_state_filtered_cb(self, msg: BatteryState):
+        """Receives filtered battery voltage from battery_manager_node."""
+        if not math.isnan(msg.voltage) and msg.voltage > 0.5:
+            self.filtered_battery_voltage = float(msg.voltage)
+            self.is_charging_detected = (
+                msg.power_supply_status == BatteryState.POWER_SUPPLY_STATUS_CHARGING or 
+                msg.voltage >= 12.70
+            )
+
+    def shutdown_callback(self, msg: String):
+        """Emergency stop when critical shutdown is issued."""
+        self.get_logger().error(f"🛑 [WaveshareDriver] Shutdown command received: {msg.data}. Halting motors immediately.")
+        self.is_system_shutdown = True
+        self.send_speeds(0.0, 0.0)
+
     def send_speeds(self, left, right):
         """Formats speeds as JSON and writes to serial port.
+        Applies Feed-Forward Voltage Compensation:
+          PWM_compensated = PWM * (V_nominal / V_measured)
+        - Uses V_nominal = 11.1V.
+        - If V_measured >= 12.70V (mains power), uses V_effective = 12.80V.
+        - Clamps scaling ratio to [min_scale, max_scale] for stability.
+        - If low battery (< 20% / 10.20V), dynamically throttles output to 50%.
         Note: Waveshare ESP32 board channel 'L' drives physical Right motor
         and channel 'R' drives physical Left motor. We swap left->R and right->L.
         """
+        if self.is_system_shutdown:
+            left, right = 0.0, 0.0
+
+        if self.enable_voltage_feedforward and not (abs(left) < 0.001 and abs(right) < 0.001):
+            v_meas = self.filtered_battery_voltage if self.filtered_battery_voltage > 0.5 else self.latest_voltage
+            if v_meas >= 12.70 or self.is_charging_detected:
+                v_eff = 12.80
+            else:
+                v_eff = max(min(v_meas, 12.80), 9.00)
+
+            scale = self.feedforward_nominal_voltage / v_eff
+            scale = max(min(scale, self.feedforward_max_scale), self.feedforward_min_scale)
+
+            # Limitatore dinamica bassa batteria (< 20% / 10.20V) se non in carica
+            if not self.is_charging_detected and v_meas <= 10.20:
+                left = max(min(left, 0.125), -0.125)
+                right = max(min(right, 0.125), -0.125)
+
+            left = max(min(left * scale, 1.0), -1.0)
+            right = max(min(right * scale, 1.0), -1.0)
+
         cmd = {
             "T": 1,
             "L": round(right, 4),
@@ -547,8 +608,14 @@ class WaveshareMotorDriver(Node):
             return
             
         # Normalize to Volts
-        if v_val > 1000:
+        # Waveshare ESP32 board firmware transmits a 3S accumulator value (e.g. 36300 for 12.60V full battery)
+        scale_factor = getattr(self, 'esp32_adc_scale_factor', 2880.95)
+        if v_val > 15000:
+            voltage = v_val / scale_factor
+        elif v_val > 1000:
             voltage = v_val / 1000.0
+        elif v_val > 20.0:
+            voltage = v_val / (scale_factor / 1000.0)
         elif v_val > 100:
             voltage = v_val / 100.0
         else:
@@ -568,7 +635,7 @@ class WaveshareMotorDriver(Node):
         else:
             percentage = ((voltage - min_v) / (max_v - min_v)) * 100.0
             
-        # Publish BatteryState
+        # Publish Raw topics for BatteryManager
         bat_msg = BatteryState()
         bat_msg.header.stamp = self.get_clock().now().to_msg()
         bat_msg.header.frame_id = 'base_link'
@@ -577,7 +644,11 @@ class WaveshareMotorDriver(Node):
         bat_msg.present = True
         bat_msg.power_supply_technology = BatteryState.POWER_SUPPLY_TECHNOLOGY_LIPO
         bat_msg.power_supply_status = BatteryState.POWER_SUPPLY_STATUS_DISCHARGING
-        self.battery_pub.publish(bat_msg)
+        self.raw_battery_pub.publish(bat_msg)
+        
+        raw_float = Float32()
+        raw_float.data = float(voltage)
+        self.raw_battery_float_pub.publish(raw_float)
         
         # Publish Diagnostics
         diag_msg = DiagnosticArray()

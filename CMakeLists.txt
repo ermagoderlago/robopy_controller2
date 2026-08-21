@@ -172,6 +172,7 @@ install(PROGRAMS
   scripts/servo_coda_node
   scripts/homeassistant_node
   scripts/waveshare_motor_driver
+  scripts/battery_manager_node
   scripts/foxglove_nav2_bridge
   scripts/wake_word_node
   scripts/ultrasonic_sensor

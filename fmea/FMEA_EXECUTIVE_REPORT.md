@@ -8,8 +8,8 @@
 
 | Metrica | Valore | Note / Impatto |
 | :--- | :---: | :--- |
-| **Totale Modalità di Guasto (FM)** | **63** | Copertura integrata dei sottosistemi Marcus |
-| **🟢 Risk Level LOW** | **40** | $RPN_{res} \le 50$ (Sotto controllo) |
+| **Totale Modalità di Guasto (FM)** | **64** | Copertura integrata dei sottosistemi Marcus |
+| **🟢 Risk Level LOW** | **41** | $RPN_{res} \le 50$ (Sotto controllo) |
 | **🟡 Risk Level MEDIUM** | **6** | $51 \le RPN_{res} \le 199$ (Monitoraggio attivo) |
 | **🟠 Risk Level HIGH** | **2** | $200 \le RPN_{res} \le 349$ (Mitigazione obbligatoria) |
 | **🔴 Risk Level CRITICAL** | **0** | $RPN_{res} \ge 350$ (Blocco rilasci) |
@@ -18,7 +18,7 @@
 ### Ripartizione per Sottosistema:
 - **System/DDS:** 4 failure modes
 - **Nav2:** 8 failure modes
-- **VUI Audio:** 20 failure modes
+- **VUI Audio:** 21 failure modes
 - **Vision:** 2 failure modes
 - **Hardware/Power:** 8 failure modes
 - **ESP32:** 1 failure modes
@@ -39,7 +39,7 @@
 | ID FM | Sottosistema | Componente | Modo di Guasto | S_init ➔ S_res | RPN_init ➔ RPN_res | Livello Rischio | Stato Mitigazione | ECO Ref |
 | :--- | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :--- |
 | **FM-LLM-004** | AI/LangGraph | `dynamic_skill_creator` | Esecuzione di codice auto-generato (Skill) pericoloso, instabile o fuori controllo (AI Code Hazard) | 9 ➔ 9 | 324 ➔ **324** | `REVISION_MANDATORY` | `OPEN` | N/A |
-| **FM-SYS-004** | Hardware/Power | `battery_management / OS` | Corruzione del filesystem (SSD/SD) per spegnimento brutale dovuto a 'Battery Cliff' (crollo improvviso di tensione) | 9 ➔ 9 | 315 ➔ **315** | `REVISION_MANDATORY` | `OPEN` | N/A |
+| **FM-SYS-004** | Hardware/Power | `battery_management / OS` | Corruzione del filesystem (SSD/SD) per spegnimento brutale dovuto a 'Battery Cliff' (crollo improvviso di tensione) | 9 ➔ 9 | 315 ➔ **9** | `REVISION_MANDATORY` | `CLOSED` | [`docs/ecos/actuation_ecos.md#ECO-2026-08-21-012`](docs/ecos/actuation_ecos.md#ECO-2026-08-21-012) |
 | **FM-ACT-006** | Hardware/Power | `waveshare_motor_driver / IMU` | Il robot viene sollevato da terra (in volo) mentre è in movimento, le ruote continuano a girare a vuoto alla massima velocità | 8 ➔ 8 | 280 ➔ **280** | `HIGH` | `OPEN` | N/A |
 | **FM-VUI-006** | VUI Audio | `respeaker_vui_node` | Distorsione audio meccanica dell'altoparlante (Clipping fisico e saturazione) | 8 ➔ 8 | 240 ➔ **240** | `HIGH` | `OPEN` | N/A |
 | **FM-NAV-009** | Nav2/Vision | `semantic_costmap_injector / oak_d_lite` | Caduta dalle scale o da dislivelli (Negative Obstacle Fall) | 10 ➔ 10 | 560 ➔ **210** | `REVISION_MANDATORY` | `IN_PROGRESS` | [`docs/ecos/nav2_slam_ecos.md#ECO-2026-07-30-004`](docs/ecos/nav2_slam_ecos.md#ECO-2026-07-30-004) |
@@ -63,7 +63,6 @@
 | ID FM | Sottosistema | Componente | Modo di Guasto | S_res | O_res | D_res | RPN Residuo | Livello Rischio | Stato | Lesson Ref |
 | :--- | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
 | **FM-LLM-004** | AI/LangGraph | `dynamic_skill_creator` | Esecuzione di codice auto-generato (Skill) pericoloso, instabile o fuori controllo (AI Code Hazard) | 9 | 6 | 6 | **324** | `REVISION_MANDATORY` | `OPEN` | [`docs/lessons/llm_live_api.md`](docs/lessons/llm_live_api.md) |
-| **FM-SYS-004** | Hardware/Power | `battery_management / OS` | Corruzione del filesystem (SSD/SD) per spegnimento brutale dovuto a 'Battery Cliff' (crollo improvviso di tensione) | 9 | 5 | 7 | **315** | `REVISION_MANDATORY` | `OPEN` | [`docs/lessons/dev_and_deployment.md`](docs/lessons/dev_and_deployment.md) |
 | **FM-ACT-006** | Hardware/Power | `waveshare_motor_driver / IMU` | Il robot viene sollevato da terra (in volo) mentre è in movimento, le ruote continuano a girare a vuoto alla massima velocità | 8 | 7 | 5 | **280** | `HIGH` | `OPEN` | [`docs/lessons/actuation_motor_driver.md`](docs/lessons/actuation_motor_driver.md) |
 | **FM-VUI-006** | VUI Audio | `respeaker_vui_node` | Distorsione audio meccanica dell'altoparlante (Clipping fisico e saturazione) | 8 | 6 | 5 | **240** | `HIGH` | `OPEN` | [`docs/lessons/telemetry_and_autotuning.md`](docs/lessons/telemetry_and_autotuning.md) |
 | **FM-NAV-009** | Nav2/Vision | `semantic_costmap_injector / oak_d_lite` | Caduta dalle scale o da dislivelli (Negative Obstacle Fall) | 10 | 7 | 3 | **210** | `REVISION_MANDATORY` | `IN_PROGRESS` | [`docs/lessons/nav2_slam_tuning.md`](docs/lessons/nav2_slam_tuning.md) |
@@ -105,8 +104,10 @@
 | **FM-VIS-001** | Vision | `oak_superpoint_odometry_node` | Crash per lettura Heap Out-Of-Bounds durante il parsing dei tensor di output dell'NPU Hailo | 8 | 1 | 2 | **16** | `LOW` | `CLOSED` | [`docs/lessons/vision_hailo_npu.md#memory-safety`](docs/lessons/vision_hailo_npu.md#memory-safety) |
 | **FM-VIS-002** | Vision | `hailo_bridge_node` | Race condition e crash dell'infezione NPU con errore HAILO_INVALID_OPERATION | 8 | 1 | 2 | **16** | `LOW` | `CLOSED` | [`docs/lessons/vision_hailo_npu.md#npu-concurrency`](docs/lessons/vision_hailo_npu.md#npu-concurrency) |
 | **FM-VUI-001** | VUI Audio | `respeaker_vui_node` | Microfono completamente silenzioso (RMS ~40) indotto dal routing errato su PipeWire | 7 | 1 | 2 | **14** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#hardware-capture`](docs/lessons/audio_vui_pipeline.md#hardware-capture) |
+| **FM-VUI-021** | VUI Audio | `respeaker_vui_node / live_connection_manager` | Chiusura prematura della sessione conversazionale dopo pochi secondi o intromissione del robot in dialoghi e conversazioni tra terzi in sottofondo | 7 | 2 | 1 | **14** | `LOW` | `CLOSED` | [`docs/ecos/audio_vui_ecos.md#ECO-2026-08-21-001`](docs/ecos/audio_vui_ecos.md#ECO-2026-08-21-001) |
 | **FM-LLM-002** | AI/LangGraph | `llm_live_api` | Risposte multiple e sovrapposte ('doppia voce') ad una singola frase dell'utente | 5 | 1 | 2 | **10** | `LOW` | `CLOSED` | [`docs/lessons/llm_live_api.md`](docs/lessons/llm_live_api.md) |
 | **FM-SYS-001** | System/DDS | `build_system` | Out-Of-Memory (OOM) Kill indotto dal compilatore C++ clang++ durante la build | 9 | 1 | 1 | **9** | `REVISION_MANDATORY` | `CLOSED` | [`marcus_core_rules.md#1-memoria-ram-e-limite-host`](marcus_core_rules.md#1-memoria-ram-e-limite-host) |
+| **FM-SYS-004** | Hardware/Power | `battery_management / OS` | Corruzione del filesystem (SSD/SD) per spegnimento brutale dovuto a 'Battery Cliff' (crollo improvviso di tensione) | 9 | 1 | 1 | **9** | `REVISION_MANDATORY` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#power-path-oring`](docs/lessons/actuation_motor_driver.md#power-path-oring) |
 | **FM-NAV-001** | Nav2 | `nav2_costmap_2d` | Saturazione CPU indotta da STVL 3D (Spatiotemporal Voxel Layer) con freeze del sistema | 9 | 1 | 1 | **9** | `REVISION_MANDATORY` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#25d-costmap`](docs/lessons/nav2_slam_tuning.md#25d-costmap) |
 | **FM-ACT-003** | Hardware/Power | `waveshare_motor_driver` | Guasto hardware sul canale encoder sinistro (odl) con lettura bloccata a pochi tick | 9 | 1 | 1 | **9** | `REVISION_MANDATORY` | `IN_PROGRESS` | [`docs/lessons/actuation_motor_driver.md#encoder-diagnostics`](docs/lessons/actuation_motor_driver.md#encoder-diagnostics) |
 | **FM-SYS-003** | Hardware/Power | `usb_bus_power` | Caduta di tensione (Brownout) sul bus USB del Pi 5 all'accensione della telecamera OAK-D | 9 | 1 | 1 | **9** | `REVISION_MANDATORY` | `CLOSED` | [`marcus_core_rules.md`](marcus_core_rules.md) |

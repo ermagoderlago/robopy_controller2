@@ -48,6 +48,7 @@ pkill -9 -f engagement_monitor || true
 pkill -9 -f robot_health_supervisor || true
 pkill -9 -f attention_supervisor_node || true
 pkill -9 -f localization_fuser_node || true
+pkill -9 -f battery_manager_node || true
 pkill -9 -f cloud_watchdog_node || true
 pkill -9 -f speaker_id_node || true
 pkill -9 -f foxglove_bridge || true
@@ -201,7 +202,7 @@ nohup ros2 run robopy_controller respeaker_vui_node --ros-args \
     -p use_sim_time:=False \
     -p stt_gain:=2.5 \
     -p noise_gate_threshold:=400.0 \
-    -p listen_timeout_sec:=30.0 \
+    -p listen_timeout_sec:=180.0 \
     -p wakeword_sensitivity:=0.95 \
     -p enable_barge_in:=true \
     -p barge_in_min_tts_ms:=2500.0 \
@@ -232,6 +233,12 @@ echo "🚑 Starting robot_health_supervisor (System Health & Safety)..."
 > /home/robopy/robopy/logs/robot_health_supervisor.log
 nohup ros2 run robopy_controller robot_health_supervisor \
     > /home/robopy/robopy/logs/robot_health_supervisor.log 2>&1 &
+
+echo "🔋 Starting battery_manager_node (BMS & Anti-Sag Supervisor)..."
+> /home/robopy/robopy/logs/battery_manager_node.log
+nohup ros2 run robopy_controller battery_manager_node --ros-args \
+    --params-file /mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_controller/config/battery_params.yaml \
+    > /home/robopy/robopy/logs/battery_manager_node.log 2>&1 &
 
 echo "⚠️ Starting attention_supervisor_node (Context/CPU Switching)..."
 > /home/robopy/robopy/logs/attention_supervisor_node.log

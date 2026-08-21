@@ -1189,39 +1189,46 @@
   potential_effect: Danni irreversibili ai database di RTAB-Map, corruzione del bootloader
     del Raspberry Pi 5 e necessità di reinstallazione completa del sistema operativo
   classification: HW_DAMAGE
-  estimation_basis: theoretical
+  estimation_basis: measured
   related_ids:
-  - FM-ACT-005
+  - FM-ACT-001
+  - FM-ACT-003
   initial_scoring:
     severity: 9
     occurrence: 5
     detection: 7
     rpn: 315
-  prevention_controls: Avvisi vocali di batteria scarica (affidati unicamente alla
-    lettura lineare della tensione, spesso inaffidabile sotto carico)
-  detection_controls: Nessun meccanismo OS di auto-protezione hardware
+  prevention_controls: Filtro anti-sag moving average (N=20) a 5Hz, rilevamento charging
+    bus 12.80V, limitatore dinamica al 50% (<10.20V) e compensazione feed-forward di
+    tensione in waveshare_motor_driver.
+  detection_controls: Monitoraggio continuo tensione e SoC su /battery_state, /foxglove/battery_pct,
+    /foxglove/power_status e timer di persistenza a 3.0s per docking e shutdown.
   residual_scoring:
     severity: 9
-    occurrence: 5
-    detection: 7
-    rpn: 315
+    occurrence: 1
+    detection: 1
+    rpn: 9
   risk_level: REVISION_MANDATORY
-  mitigation_status: OPEN
-  recommended_action: 'MIGLIORIA: Sviluppare un demone di OS-level Graceful Shutdown.
-    Se la tensione filtrata (Kalman 1D) scende sotto 9.8V per più di 15 secondi, il
-    demone forza un `systemctl isolate poweroff.target` prima dell''intervento brutale
-    del BMS hardware.'
-  verification_method: 'Piano prova: Scarica forzata della batteria fino al cut-off
-    e verifica del salvataggio file aperti'
-  eco_ref: ''
-  lesson_ref: docs/lessons/dev_and_deployment.md
+  mitigation_status: CLOSED
+  recommended_action: Implementato nodo ROS 2 battery_manager_node con moving average,
+    timer di persistenza 3s, dynamic speed limiter 50% su /speed_limit, trigger docking
+    autonomo e demone OS graceful shutdown via sudo poweroff.
+  verification_method: Test di scarica e verifica transizioni di stato con inibizione
+    in carica e trigger di rientro/shutdown.
+  eco_ref: docs/ecos/actuation_ecos.md#ECO-2026-08-21-012
+  lesson_ref: docs/lessons/actuation_motor_driver.md#power-path-oring
   date_identified: '2026-07-30'
-  last_updated: '2026-07-30'
+  last_updated: '2026-08-21'
   history:
   - date: '2026-07-30'
     change: Analisi rischio corruzione OS da battery cliff
     rpn_old: 315
     rpn_new: 315
+  - date: '2026-08-21'
+    change: Implementato battery_manager_node con anti-sag moving average, timer persistenza
+      3s, feedforward PID scaling e OS graceful shutdown
+    rpn_old: 315
+    rpn_new: 9
 - id: FM-SYS-005
   subsystem: System/Compute
   component: pi5_thermal_manager
@@ -2889,3 +2896,40 @@
     change: Identificato rischio architetturale di rete per la simulazione su Windows/WSL2
     rpn_old: 168
     rpn_new: 168
+- id: FM-VUI-021
+  subsystem: VUI Audio
+  component: respeaker_vui_node / live_connection_manager
+  function: Gestione estesa della sessione di conversazione (3 minuti) e gating intelligente dei turni per rispondere solo a interpellanze dirette nei dialoghi successivi
+  failure_mode: Chiusura prematura della sessione conversazionale dopo pochi secondi o intromissione del robot in dialoghi e conversazioni tra terzi in sottofondo
+  potential_cause: Timeout rigido hardcoded a 8 secondi in respeaker_vui_node, finestra temporale Live API limitata a 30s/60s con muting forzato su IGNORE_TURN e assenza di tracciamento multi-turno
+  potential_effect: Marcus interrompe bruscamente l'ascolto dopo la prima frase obbligando l'utente a ripetere la wakeword a freddo, oppure risponde a sproposito a conversazioni tra persone nella stanza
+  classification: USABILITY
+  estimation_basis: measured
+  related_ids:
+  - FM-VUI-008
+  - FM-VUI-012
+  initial_scoring:
+    severity: 7
+    occurrence: 8
+    detection: 3
+    rpn: 168
+  prevention_controls: Rimozione dell'override a 8s con estensione default a 180s (3 minuti), riavvio timer a fine risposta AI/frase utente, gating dei turni successivi (turns_since_wakeword >= 1) con emissione <IGNORE_TURN> non distruttivo per silenziare il robot preservando il WebSocket aperto
+  detection_controls: Log di gating [LLM Gate] con tracciamento turns_since_ww e verifica dello stato attentive in respeaker_vui_node
+  residual_scoring:
+    severity: 7
+    occurrence: 2
+    detection: 1
+    rpn: 14
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Adottare la finestra di sessione estesa a 180s con Directed Follow-Up Gating su token <IGNORE_TURN> e allineamento del prompt di sistema
+  verification_method: Test di follow-up vocale a 30s, 60s e 120s senza ripetere wakeword e verifica dell'assenza di interventi vocali su parlato di terzi
+  eco_ref: docs/ecos/audio_vui_ecos.md#ECO-2026-08-21-001
+  lesson_ref: docs/lessons/audio_vui_pipeline.md#gestione-sessione-conversazionale-a-3-minuti
+  date_identified: '2026-08-21'
+  last_updated: '2026-08-21'
+  history:
+  - date: '2026-08-21'
+    change: Inserimento e risoluzione Failure Mode per estensione finestra conversazione a 3 minuti e Directed Follow-up Gating
+    rpn_old: 168
+    rpn_new: 14

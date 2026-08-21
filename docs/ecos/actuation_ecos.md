@@ -108,6 +108,19 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
   * **Odometria Reale da Encoder:** Verificato che la pubblicazione dell'odometria `/odom` calcoli $\Delta s$ e $\Delta \theta$ rigorosamente dalle variazioni reali dei tick registrati dagli encoder fisici dei motori (`odl`, `odr`).
   * **Controllo PID Closed-Loop (`MotionManager`):** Integrata in `MotionManager.execute_primitive` e `NavigationClient` la sottoscrizione alla posa reale di `/odom`. Se il robot incontra resistenza o si muove lentamente nei piccoli spostamenti, il loop PID aumenta dinamicamente la velocità e la coppia erogata fino al raggiungimento esatto della distanza $D_{target}$ o dell'angolo $\theta_{target}$, arrestando i motori con precisione centrimetrica.
 
+---
+
+## 📈 ECO-2026-08-21-012: Dual-Rail Power Path OR-ing, Battery Management System & Voltage Feed-Forward PID
+* **Stato:** ✅ **Completato e Validato**
+* **Descrizione:** Implementazione completa dell'architettura di monitoraggio della batteria con gestione del doppio binario di alimentazione (Power Path OR-ing), compensazione feed-forward di tensione per il controllo motori e demone OS graceful shutdown.
+* **Modifiche apportate:**
+  * **Nodo ROS 2 BMS (`battery_manager_node.py`):** Creato nodo dedicato per campionamento a 5Hz, media mobile circolare (N=20) anti-sag, gestione stati (CHARGING, BATTERIA OK, ECO, ALLARME RIENTRO, CRITICO SHUTDOWN) con timer di persistenza a 3.0s.
+  * **Inibizione Stato di Carica:** Rilevamento bus a 12.80V ($V \ge 12.70\text{V}$) con inibizione di tutti i trigger di docking e blocco allarmi di scarica; pubblicazione stato esplicito su Foxglove Studio (`/foxglove/power_status` e `/foxglove/battery_pct`).
+  * **Feed-Forward Voltage PID Scaling:** Integrata formula di normalizzazione $PWM_{comp} = PWM \times (11.10\text{V} / V_{eff})$ in `waveshare_motor_driver.py` e `motion_manager.py` con clamping $[0.70, 1.40]$ e riduzione dinamica al 50% in modalità ECO ($V \le 10.20\text{V}$).
+  * **Prevenzione Battery Cliff (DFMEA FM-SYS-004):** Chiuso failure mode con creazione del progetto `IMP-SYS-004_battery_cliff.md` e procedura di shutdown controllato `sudo systemctl poweroff` previa sincronizzazione file `sync`.
+  * **Configurazione e Build:** Creato `battery_params.yaml`, wrapper `scripts/battery_manager_node`, e registrati entry points in `setup.py` e `CMakeLists.txt`.
+
+
 
 
 

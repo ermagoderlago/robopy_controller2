@@ -21,6 +21,7 @@ try:
     from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
     from geometry_msgs.msg import Twist
     from nav_msgs.msg import Odometry
+    from sensor_msgs.msg import BatteryState
     HAS_ROS = True
 except ImportError:
     HAS_ROS = False
@@ -44,11 +45,24 @@ class PIDMotionTunerNode(Node if HAS_ROS else object):
         )
         self.odom_sub = self.create_subscription(Odometry, '/odom', self._odom_cb, qos)
         self.odom_sub_rel = self.create_subscription(Odometry, '/odom', self._odom_cb, 10)
+        self.batt_sub = self.create_subscription(BatteryState, '/battery_state', self._batt_cb, 10)
         
         self.current_x: Optional[float] = None
         self.current_y: Optional[float] = None
         self.current_yaw: Optional[float] = None
+        self.current_voltage: Optional[float] = None
         self.odom_received = False
+
+    def _batt_cb(self, msg: BatteryState):
+        if not math.isnan(msg.voltage) and msg.voltage > 0.5:
+            self.current_voltage = float(msg.voltage)
+
+    def get_voltage_scale(self) -> float:
+        if self.current_voltage is None:
+            return 1.0
+        v = self.current_voltage
+        v_eff = 12.80 if v >= 12.70 else max(min(v, 12.80), 9.00)
+        return max(min(11.10 / v_eff, 1.40), 0.70)
 
     def _odom_cb(self, msg: Odometry):
         self.current_x = msg.pose.pose.position.x
@@ -137,7 +151,8 @@ async def run_pid_movement(
             prev_error = error
             accum_error += error * dt
             
-            cmd_v = Kp * error + Ki * accum_error + Kd * d_error
+            v_scale = tuner.get_voltage_scale()
+            cmd_v = (Kp * error + Ki * accum_error + Kd * d_error) * v_scale
             # Spunto iniziale nei primi 200ms per vincere la strizione
             if elapsed < 0.20:
                 cmd_v = max(cmd_v, 0.22)
@@ -163,7 +178,8 @@ async def run_pid_movement(
             prev_error = error
             accum_error += error * dt
             
-            cmd_w = Kp * error + Ki * accum_error + Kd * d_error
+            v_scale = tuner.get_voltage_scale()
+            cmd_w = (Kp * error + Ki * accum_error + Kd * d_error) * v_scale
             if elapsed < 0.20:
                 cmd_w = max(cmd_w, 0.70)
                 

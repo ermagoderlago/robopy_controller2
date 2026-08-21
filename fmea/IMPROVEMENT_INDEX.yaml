@@ -17,7 +17,7 @@ improvements:
   FM-SYS-004:
     title: "Miglioramento Alimentazione: Demone OS Graceful Shutdown per Anti-Battery Cliff"
     file: "docs/improvements/IMP-SYS-004_battery_cliff.md"
-    status: "PLANNED"
+    status: "COMPLETED"
     domain: "hardware_power"
 
   FM-LLM-004:
@@ -61,5 +61,12 @@ improvements:
     file: "docs/improvements/IMP-VIS-003_extrinsic_camera_calibration.md"
     status: "COMPLETED"
     domain: "vision_hailo"
+
+  FM-VUI-021:
+    title: "Miglioramento VUI: Finestra Conversazionale Estesa (3 Minuti) e Directed Follow-Up Gating"
+    file: "docs/improvements/IMP-VUI-021_extended_session_gating.md"
+    status: "COMPLETED"
+    domain: "audio_vui"
+
 
 

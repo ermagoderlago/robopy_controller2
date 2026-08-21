@@ -191,6 +191,32 @@ Con JGB37-520B a 7RPM (riduzione ~143:1), **girare la ruota manualmente è impos
   2. Reindirizzata la fusione IMU sull'**IMU integrata della OAK-D Lite (`/oak/imu/data`)**, equipaggiata con sensore BNO085 che trasmette a **42 Hz** stabili.
   3. Configurato l'EKF per utilizzare la velocità angolare giroscopica $w_z$ dall'OAK IMU unita alla posizione lineare $(x,y)$ ed alla velocità $v_x$ dall'odometria ruote, generando `/odometry/filtered` a 30Hz ed il TF `odom → base_link`.
 
+---
+
+<a id="power-path-oring"></a>
+### 21. Gestione Alimentazione Power Path OR-ing, Bus 12.80V in Carica, Filtro Anti-Sag e Compensazione Feed-Forward di Tensione
+* **Contesto Architetturale:** Il robot mobile adotta un'architettura di alimentazione a doppio binario (Power Path OR-ing tramite diodi ideali):
+  - **Funzionamento a batteria:** Pacco Li-ion 3S (Range operativo 9.0V - 12.6V, Nominale 11.1V, scarica 10.2V @20%, docking 9.9V @12%, shutdown 9.0V @0%).
+  - **Funzionamento da rete / cuccia:** Bus alimentato da alimentatore 24V con Step-Down regolato a **12.80V**.
+* **Vincolo Elettrico di Carica ($V \ge 12.70\text{V}$):** Quando il robot è agganciato alla cuccia o all'alimentatore, la tensione misurata sul bus è quella dell'alimentatore esterno (12.80V) e non riflette la tensione interna della batteria (isolata dal diodo ideale 2 e caricata tramite CC-CV separato). Il nodo `battery_manager_node`:
+  - Imposta `power_supply_status = POWER_SUPPLY_STATUS_CHARGING`.
+  - Inibisce tassativamente tutti i trigger di rientro in base (`/robot/docking/trigger`) e shutdown critico.
+  - Pubblica su Foxglove Studio lo stato `"IN CARICA (12.8V)"` con gauge fissa al 100% (o valore convenzionale SoC = -1.0).
+* **Filtro Rumore e Anti-Sag con Timer di Persistenza (3.0s):**
+  - Le correnti di spunto dei motori possono indurre cadute istantanee di tensione (*voltage sag*). Per prevenire falsi allarmi, il nodo implementa una media mobile (Moving Average su buffer circolare di 20 campioni a 5Hz).
+  - Gli allarmi di transizione critica (`ALLARME RIENTRO` a 9.90V e `CRITICO SHUTDOWN` a 9.00V) richiedono che la tensione filtrata rimanga costantemente sotto la soglia per almeno **3.0 secondi consecutivi**.
+* **Limitatore Dinamica Bassa Batteria (< 20% / 10.20V):**
+  - All'ingresso in `ECO MODE`, il nodo pubblica su `/speed_limit` di Nav2 e scala la velocità massima e l'accelerazione al **50%** ($0.5 \times v_{max}$), abbattendo il voltage sag per garantire che il robot raggiunga la cuccia di ricarica.
+* **Compensazione Tensione Feed-Forward:**
+  - Nel controller motori `waveshare_motor_driver.py` e nel modulo `MotionManager`:
+    $$PWM_{compensato} = PWM_{PID} \times \text{clamp}\left(\frac{11.10\text{V}}{V_{effettiva}}, 0.70, 1.40\right)$$
+    dove $V_{effettiva} = 12.80\text{V}$ se $V \ge 12.70\text{V}$ (mains power), altrimenti $V_{effettiva} = \text{clamp}(V_{misurata}, 9.0, 12.8)$.
+  - Questa compensazione garantisce che a batteria scarica (es. 10.0V) i motori ricevano una tensione equivalente a quella nominale (11.1V), mantenendo la velocità e la dinamica cinematiche stabili e costanti.
+* **Fattore di Conversione Telemetria ESP32 Board (3S Pack):**
+  - Il firmware ESP32 della scheda Waveshare trasmette il valore telemetrico della batteria `v` moltiplicato per il partitore 3S (es. `36300` per un pacco a 12.10V effettivi).
+  - La normalizzazione in Volt opera tramite la relazione $V = \frac{v_{raw}}{3000.0}\text{ V}$, mappando accuratamente il range reale $9.00\text{V} - 12.60\text{V}$ ($v_{raw} \in [27000, 37800]$) e la tensione di carica $12.80\text{V}$ ($v_{raw} \approx 38400$).
+
+
 
 
 

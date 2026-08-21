@@ -124,14 +124,24 @@ class MotionManager:
         self,
         primitive: MotionPrimitive,
         publish_twist_cb: Callable[[float, float], None],
-        get_odom_cb: Optional[Callable[[], Optional[tuple]]] = None
+        get_odom_cb: Optional[Callable[[], Optional[tuple]]] = None,
+        get_voltage_cb: Optional[Callable[[], Optional[float]]] = None
     ) -> None:
         """
         Esegue un movimento primitivo singolo. Se get_odom_cb è fornito, esegue un controllo
         closed-loop PID basato sullo spostamento reale dagli encoder odometrici (invece che aperto in tempo).
+        Supporta la compensazione di tensione feed-forward se get_voltage_cb è fornito.
         """
         v_x, w_z = primitive.get_velocities()
         dur = primitive.duration or 1.5
+
+        # Calcolo del fattore di scala feed-forward da tensione batteria (V_nominal = 11.1V)
+        voltage_scale = 1.0
+        if get_voltage_cb:
+            v_val = get_voltage_cb()
+            if v_val is not None and v_val > 0.5:
+                v_eff = 12.80 if v_val >= 12.70 else max(min(v_val, 12.80), 9.00)
+                voltage_scale = max(min(11.10 / v_eff, 1.40), 0.70)
 
         start_pose = get_odom_cb() if get_odom_cb else None
 
@@ -176,7 +186,7 @@ class MotionManager:
 
                     accum_error += error * dt
                     # Aumento dinamico della velocità PID se lo spostamento non procede
-                    cmd_v = Kp_lin * error + Ki_lin * accum_error
+                    cmd_v = (Kp_lin * error + Ki_lin * accum_error) * voltage_scale
                     if elapsed < 0.20:
                         cmd_v = max(cmd_v, 0.22)
                     
@@ -199,7 +209,7 @@ class MotionManager:
                         break
 
                     accum_error += error * dt
-                    cmd_w = Kp_ang * error + Ki_ang * accum_error
+                    cmd_w = (Kp_ang * error + Ki_ang * accum_error) * voltage_scale
                     if elapsed < 0.20:
                         cmd_w = max(cmd_w, 0.70)
                     
@@ -207,7 +217,7 @@ class MotionManager:
                     cmd_wz = cmd_w if w_z >= 0 else -cmd_w
                     publish_twist_cb(0.0, cmd_wz)
                 else:
-                    publish_twist_cb(v_x, w_z)
+                    publish_twist_cb(v_x * voltage_scale, w_z * voltage_scale)
 
                 await asyncio.sleep(dt)
 
@@ -217,17 +227,19 @@ class MotionManager:
 
         # --- FALLBACK OPEN-LOOP IN TEMPO (Se Odometria non disponibile) ---
         # Calcolo impulso di spunto (stiction compensation kick) nei primi 0.20s
-        if v_x > 0:
-            v_kick = max(v_x * 1.35, 0.22)
-        elif v_x < 0:
-            v_kick = min(v_x * 1.35, -0.22)
+        v_scaled = v_x * voltage_scale
+        w_scaled = w_z * voltage_scale
+        if v_scaled > 0:
+            v_kick = max(v_scaled * 1.35, 0.22)
+        elif v_scaled < 0:
+            v_kick = min(v_scaled * 1.35, -0.22)
         else:
             v_kick = 0.0
 
-        if w_z > 0:
-            w_kick = max(w_z * 1.35, 0.70)
-        elif w_z < 0:
-            w_kick = min(w_z * 1.35, -0.70)
+        if w_scaled > 0:
+            w_kick = max(w_scaled * 1.35, 0.70)
+        elif w_scaled < 0:
+            w_kick = min(w_scaled * 1.35, -0.70)
         else:
             w_kick = 0.0
 
