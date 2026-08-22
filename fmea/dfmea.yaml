@@ -1199,8 +1199,8 @@
     detection: 7
     rpn: 315
   prevention_controls: Filtro anti-sag moving average (N=20) a 5Hz, rilevamento charging
-    bus 12.80V, limitatore dinamica al 50% (<10.20V) e compensazione feed-forward di
-    tensione in waveshare_motor_driver.
+    bus 12.80V, limitatore dinamica al 50% (<10.20V) e compensazione feed-forward
+    di tensione in waveshare_motor_driver.
   detection_controls: Monitoraggio continuo tensione e SoC su /battery_state, /foxglove/battery_pct,
     /foxglove/power_status e timer di persistenza a 3.0s per docking e shutdown.
   residual_scoring:
@@ -2899,10 +2899,16 @@
 - id: FM-VUI-021
   subsystem: VUI Audio
   component: respeaker_vui_node / live_connection_manager
-  function: Gestione estesa della sessione di conversazione (3 minuti) e gating intelligente dei turni per rispondere solo a interpellanze dirette nei dialoghi successivi
-  failure_mode: Chiusura prematura della sessione conversazionale dopo pochi secondi o intromissione del robot in dialoghi e conversazioni tra terzi in sottofondo
-  potential_cause: Timeout rigido hardcoded a 8 secondi in respeaker_vui_node, finestra temporale Live API limitata a 30s/60s con muting forzato su IGNORE_TURN e assenza di tracciamento multi-turno
-  potential_effect: Marcus interrompe bruscamente l'ascolto dopo la prima frase obbligando l'utente a ripetere la wakeword a freddo, oppure risponde a sproposito a conversazioni tra persone nella stanza
+  function: Gestione estesa della sessione di conversazione (3 minuti) e gating intelligente
+    dei turni per rispondere solo a interpellanze dirette nei dialoghi successivi
+  failure_mode: Chiusura prematura della sessione conversazionale dopo pochi secondi
+    o intromissione del robot in dialoghi e conversazioni tra terzi in sottofondo
+  potential_cause: Timeout rigido hardcoded a 8 secondi in respeaker_vui_node, finestra
+    temporale Live API limitata a 30s/60s con muting forzato su IGNORE_TURN e assenza
+    di tracciamento multi-turno
+  potential_effect: Marcus interrompe bruscamente l'ascolto dopo la prima frase obbligando
+    l'utente a ripetere la wakeword a freddo, oppure risponde a sproposito a conversazioni
+    tra persone nella stanza
   classification: USABILITY
   estimation_basis: measured
   related_ids:
@@ -2913,8 +2919,12 @@
     occurrence: 8
     detection: 3
     rpn: 168
-  prevention_controls: Rimozione dell'override a 8s con estensione default a 180s (3 minuti), riavvio timer a fine risposta AI/frase utente, gating dei turni successivi (turns_since_wakeword >= 1) con emissione <IGNORE_TURN> non distruttivo per silenziare il robot preservando il WebSocket aperto
-  detection_controls: Log di gating [LLM Gate] con tracciamento turns_since_ww e verifica dello stato attentive in respeaker_vui_node
+  prevention_controls: Rimozione dell'override a 8s con estensione default a 180s
+    (3 minuti), riavvio timer a fine risposta AI/frase utente, gating dei turni successivi
+    (turns_since_wakeword >= 1) con emissione <IGNORE_TURN> non distruttivo per silenziare
+    il robot preservando il WebSocket aperto
+  detection_controls: Log di gating [LLM Gate] con tracciamento turns_since_ww e verifica
+    dello stato attentive in respeaker_vui_node
   residual_scoring:
     severity: 7
     occurrence: 2
@@ -2922,14 +2932,542 @@
     rpn: 14
   risk_level: LOW
   mitigation_status: CLOSED
-  recommended_action: Adottare la finestra di sessione estesa a 180s con Directed Follow-Up Gating su token <IGNORE_TURN> e allineamento del prompt di sistema
-  verification_method: Test di follow-up vocale a 30s, 60s e 120s senza ripetere wakeword e verifica dell'assenza di interventi vocali su parlato di terzi
+  recommended_action: Adottare la finestra di sessione estesa a 180s con Directed
+    Follow-Up Gating su token <IGNORE_TURN> e allineamento del prompt di sistema
+  verification_method: Test di follow-up vocale a 30s, 60s e 120s senza ripetere wakeword
+    e verifica dell'assenza di interventi vocali su parlato di terzi
   eco_ref: docs/ecos/audio_vui_ecos.md#ECO-2026-08-21-001
   lesson_ref: docs/lessons/audio_vui_pipeline.md#gestione-sessione-conversazionale-a-3-minuti
   date_identified: '2026-08-21'
   last_updated: '2026-08-21'
   history:
   - date: '2026-08-21'
-    change: Inserimento e risoluzione Failure Mode per estensione finestra conversazione a 3 minuti e Directed Follow-up Gating
+    change: Inserimento e risoluzione Failure Mode per estensione finestra conversazione
+      a 3 minuti e Directed Follow-up Gating
     rpn_old: 168
     rpn_new: 14
+- id: FM-TRI-001
+  subsystem: AI/Trinity
+  component: mag_database / chroma_native_store
+  function: Gestione coordinata di database relazionale SQLite e database vettoriale
+    ChromaDB su Raspberry Pi 5 senza esaurimento RAM
+  failure_mode: Out-Of-Memory (OOM) Kill per allocazione concorrente di cache vettoriali,
+    ChromaDB HNSW e connessioni SQLite
+  potential_cause: Allocazione illimitata di cache in memoria e concorrenza non vincolata
+    tra embedding residenti e buffer SQLite
+  potential_effect: Terminazione forzata dell'orchestratore AI da parte dell'OS Linux
+    kernel OOM Killer con perdita della memoria immediata
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-SYS-001
+  initial_scoring:
+    severity: 9
+    occurrence: 5
+    detection: 3
+    rpn: 135
+  prevention_controls: Budget RAM rigido < 100MB per MAG SQLite (cache_size 2000 pagine),
+    float16 embedding packing via struct.pack, e LRU cache limitata a 64 vettori
+  detection_controls: Monitoraggio RSS in system_inspector.py e log di allarme RAM
+    su /diagnostics
+  residual_scoring:
+    severity: 9
+    occurrence: 1
+    detection: 1
+    rpn: 9
+  risk_level: REVISION_MANDATORY
+  mitigation_status: CLOSED
+  recommended_action: Imporre budget di memoria rigido e quantizzazione float16 su
+    tutti i vettori TRINITY
+  verification_method: Stress test di 100 interazioni consecutive con monitoraggio
+    memoria RSS
+  eco_ref: docs/ecos/orchestration_rag_ecos.md#ECO-2026-08-21-TRINITY
+  lesson_ref: docs/lessons/orchestration_and_rag.md#trinity-architecture
+  date_identified: '2026-08-21'
+  last_updated: '2026-08-21'
+  history:
+  - date: '2026-08-21'
+    change: Inserimento e mitigazione rischio OOM RAM per architettura TRINITY
+    rpn_old: 135
+    rpn_new: 9
+- id: FM-TRI-002
+  subsystem: AI/Trinity
+  component: rag_document_indexer
+  function: Indicizzazione asincrona e incrementale di documenti tecnici e codice
+    sorgente senza freeze del processo
+  failure_mode: Freeze temporaneo o blocco dell'Event Loop asyncio durante il chunking
+    e embedding di file voluminosi
+  potential_cause: Elaborazione sincrona pesante di PDF o alberi di directory all'interno
+    del thread principale di orchestrazione
+  potential_effect: Mancata risposta tempestiva ai comandi vocali/testuali durante
+    le fasi di re-indexing documentale
+  classification: PERFORMANCE
+  estimation_basis: inferred
+  related_ids: []
+  initial_scoring:
+    severity: 7
+    occurrence: 4
+    detection: 4
+    rpn: 112
+  prevention_controls: Esecuzione dell'indicizzazione in ThreadPool separato via loop.run_in_executor
+    con chunking incrementale basato su hash file (mtime/md5)
+  detection_controls: Log di warning con tempi di elaborazione per singolo chunk documentale
+  residual_scoring:
+    severity: 7
+    occurrence: 1
+    detection: 2
+    rpn: 14
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Isolare completamente l'indicizzazione documentale in background
+    e schedulare i refresh notturni
+  verification_method: Indicizzazione di 50 file sorgente e contemporanea query vocale
+  eco_ref: docs/ecos/orchestration_rag_ecos.md#ECO-2026-08-21-TRINITY
+  lesson_ref: docs/lessons/orchestration_and_rag.md#trinity-architecture
+  date_identified: '2026-08-21'
+  last_updated: '2026-08-21'
+  history:
+  - date: '2026-08-21'
+    change: Inserimento e mitigazione freeze indicizzazione RAG
+    rpn_old: 112
+    rpn_new: 14
+- id: FM-TRI-003
+  subsystem: AI/Trinity
+  component: cag_aggregator
+  function: Raccolta tempestiva e a basso overhead del contesto sensoriale, hardware
+    e diagnostico per l'LLM
+  failure_mode: Latenza eccessiva nella raccolta del contesto CAG (> 500ms) che ritarda
+    l'invio del prompt all'LLM
+  potential_cause: Chiamate di ispezione sincrone bloccanti a sottosistemi di sistema
+    o lock contesi su topologia ROS
+  potential_effect: Percezione di lentezza e ritardo nella generazione delle risposte
+    del robot all'utente
+  classification: PERFORMANCE
+  estimation_basis: measured
+  related_ids: []
+  initial_scoring:
+    severity: 6
+    occurrence: 3
+    detection: 2
+    rpn: 36
+  prevention_controls: Cache TTL circolare a 5.0s in ContextAggregator con aggiornamento
+    asincrono non bloccante e fallback istantanei
+  detection_controls: Metriche di latenza di composizione prompt in metrics.py
+  residual_scoring:
+    severity: 6
+    occurrence: 1
+    detection: 1
+    rpn: 6
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Utilizzare caching a tempo (TTL) e strutture thread-safe leggere
+    per tutti i collector CAG
+  verification_method: Benchmark tempi di get_snapshot() (target < 5ms da cache)
+  eco_ref: docs/ecos/orchestration_rag_ecos.md#ECO-2026-08-21-TRINITY
+  lesson_ref: docs/lessons/orchestration_and_rag.md#trinity-architecture
+  date_identified: '2026-08-21'
+  last_updated: '2026-08-21'
+  history:
+  - date: '2026-08-21'
+    change: Inserimento e mitigazione latenza CAG
+    rpn_old: 36
+    rpn_new: 6
+- id: FM-TRI-004
+  subsystem: AI/Trinity
+  component: mag_database
+  function: Salvaguardia dell'integrità dei dati della memoria autobiografica SQLite
+    in caso di spegnimento improvviso
+  failure_mode: Corruzione del database SQLite `mag_trinity.db` a seguito di caduta
+    di tensione della batteria
+  potential_cause: Spegnimento improvviso del Raspberry Pi 5 durante una transazione
+    di scrittura attiva su SQLite
+  potential_effect: Perdita permanente delle memorie episodiche, dei fatti semantici
+    appresi e dei profili utente
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-SYS-004
+  initial_scoring:
+    severity: 9
+    occurrence: 3
+    detection: 4
+    rpn: 108
+  prevention_controls: Configurazione forzata PRAGMA journal_mode=WAL e PRAGMA synchronous=NORMAL,
+    unita al demone di Graceful Shutdown per battery cliff
+  detection_controls: Verifica automatica all'avvio con PRAGMA integrity_check e log
+    di ripristino WAL
+  residual_scoring:
+    severity: 9
+    occurrence: 1
+    detection: 1
+    rpn: 9
+  risk_level: REVISION_MANDATORY
+  mitigation_status: CLOSED
+  recommended_action: Mantenere sempre la modalità WAL attiva e gestire backup incrementali
+    settimanali
+  verification_method: Test di spegnimento a caldo e verifica dell'integrità SQLite
+    al riavvio
+  eco_ref: docs/ecos/orchestration_rag_ecos.md#ECO-2026-08-21-TRINITY
+  lesson_ref: docs/lessons/orchestration_and_rag.md#trinity-architecture
+  date_identified: '2026-08-21'
+  last_updated: '2026-08-21'
+  history:
+  - date: '2026-08-21'
+    change: Inserimento e mitigazione corruzione SQLite MAG
+    rpn_old: 108
+    rpn_new: 9
+- id: FM-TRI-005
+  subsystem: AI/Trinity
+  component: metaprompt_fusion
+  function: Assemblaggio bilanciato e rispettoso del context window dei moduli RAG,
+    CAG e MAG nel metaprompt finale
+  failure_mode: Saturazione del budget token con troncamento silenzioso da parte dell'LLM
+    o errore di context length
+  potential_cause: Accumulo non controllato di chunk RAG, snapshot CAG dettagliati
+    e cronologia MAG nello stesso turno
+  potential_effect: Perdita delle istruzioni di sistema o della richiesta utente,
+    generando risposte allucinate o incomplete
+  classification: PERFORMANCE
+  estimation_basis: inferred
+  related_ids: []
+  initial_scoring:
+    severity: 7
+    occurrence: 4
+    detection: 3
+    rpn: 84
+  prevention_controls: 'Token Budget Manager a compartimenti stagni in MetapromptFusion
+    (MAG: 600, CAG: 400, RAG: 800, System: 200, User: 200) con troncamento intelligente
+    per-linea'
+  detection_controls: Stima preventiva del conteggio token pre-invio e log di alert
+    su superamento soglia
+  residual_scoring:
+    severity: 7
+    occurrence: 1
+    detection: 1
+    rpn: 7
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Rispettare rigorosamente i limiti di token definiti per ciascuna
+    sezione del metaprompt
+  verification_method: Stress test di fusione con contesti fittizi di 5000+ caratteri
+  eco_ref: docs/ecos/orchestration_rag_ecos.md#ECO-2026-08-21-TRINITY
+  lesson_ref: docs/lessons/orchestration_and_rag.md#trinity-architecture
+  date_identified: '2026-08-21'
+  last_updated: '2026-08-21'
+  history:
+  - date: '2026-08-21'
+    change: Inserimento e mitigazione saturazione token Metaprompt
+    rpn_old: 84
+    rpn_new: 7
+- id: FM-TRI-006
+  subsystem: AI/Trinity
+  component: mag_zettelkasten / mag_episodic
+  function: Apprendimento affidabile di fatti semantici e preferenze utente senza
+    allucinazioni persistenti
+  failure_mode: Allucinazione o interpretazione errata nei riassunti episodici con
+    inserimento permanente di fatti falsi
+  potential_cause: Risposta ambigua o imperfetta dell'LLM durante la sintesi post-task
+    o asserzioni non verificate
+  potential_effect: Il robot ricorda informazioni false o errate sull'ambiente o sulle
+    preferenze dell'utente
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids: []
+  initial_scoring:
+    severity: 8
+    occurrence: 5
+    detection: 6
+    rpn: 240
+  prevention_controls: Deduplicazione semantica con threshold di confidenza (0.85),
+    scoring progressivo di confidenza basato su conferme ripetute e declassamento
+    rapido su correzione esplicita utente
+  detection_controls: Ispezione periodica nel ciclo di Sogno Notturno con potatura
+    dei fatti a bassa confidenza (< 0.40)
+  residual_scoring:
+    severity: 8
+    occurrence: 2
+    detection: 2
+    rpn: 32
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Applicare meccanismo di confidence decay e aggiornamento a caldo
+    su correzioni verbali
+  verification_method: Test di correzione esplicita ("No Marcus, la porta è USB1")
+    e verifica decadimento fatto precedente
+  eco_ref: docs/ecos/orchestration_rag_ecos.md#ECO-2026-08-21-TRINITY
+  lesson_ref: docs/lessons/orchestration_and_rag.md#trinity-architecture
+  date_identified: '2026-08-21'
+  last_updated: '2026-08-21'
+  history:
+  - date: '2026-08-21'
+    change: Inserimento e mitigazione allucinazione memorie persistenti MAG
+    rpn_old: 240
+    rpn_new: 32
+- id: FM-TRI-007
+  subsystem: AI/Trinity
+  component: mag_dream_consolidation
+  function: Consolidamento notturno delle memorie episodiche e potatura sinaptica
+    senza conflitti di risorsa
+  failure_mode: Conflitto di risorse CPU e RAM tra re-indexing RAG notturno e ciclo
+    del Sogno cognitivo
+  potential_cause: Esecuzione simultanea delle pipeline pesanti di elaborazione alle
+    ore 03:00 del mattino
+  potential_effect: Rallentamento o fallimento del ciclo di consolidamento con mancata
+    liberazione di memoria RAM
+  classification: PERFORMANCE
+  estimation_basis: inferred
+  related_ids: []
+  initial_scoring:
+    severity: 7
+    occurrence: 4
+    detection: 3
+    rpn: 84
+  prevention_controls: Schedulazione temporale sequenziale e disgiunta (Re-indexing
+    RAG alle 02:00, Sogno Notturno e consolidamento MAG alle 03:00) con garbage collection
+    forzato (gc.collect())
+  detection_controls: Log di completamento e monitoraggio carichi CPU nel registro
+    di sistema
+  residual_scoring:
+    severity: 7
+    occurrence: 1
+    detection: 1
+    rpn: 7
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Garantire sempre la separazione temporale delle attività batch
+    notturne
+  verification_method: Simulazione temporale accelerata del ciclo notturno
+  eco_ref: docs/ecos/orchestration_rag_ecos.md#ECO-2026-08-21-TRINITY
+  lesson_ref: docs/lessons/orchestration_and_rag.md#trinity-architecture
+  date_identified: '2026-08-21'
+  last_updated: '2026-08-21'
+  history:
+  - date: '2026-08-21'
+    change: Inserimento e mitigazione scheduling disgiunto ciclo notturno TRINITY
+    rpn_old: 84
+    rpn_new: 7
+- id: FM-NAV-010
+  subsystem: Navigation/Vision
+  component: nomad_navigator
+  function: Navigazione ed esplorazione autonoma vision-based tramite modello fondazionale
+    NOMAD senza LiDAR
+  failure_mode: Conflitto TF odom->base_link, saturazione CPU/DDS e stallo della traiettoria
+    visiva
+  potential_cause: Doppia autorità TF concorrente, detection rate eccessivo (5Hz)
+    in RTAB-Map e chiamate VLM non scalabili
+  potential_effect: Mancata generazione della mappa /map, allarmi continui su Foxglove
+    Studio e stallo del moto
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-NAV-007
+  - FM-NAV-008
+  initial_scoring:
+    severity: 8
+    occurrence: 9
+    detection: 6
+    rpn: 432
+  prevention_controls: Unificazione autorità TF su fast_flow_vo_cpp, publish_tf=False
+    su localization_fuser, rate RTAB-Map a 1.5Hz e nodo nativo nomad_navigator_node
+    a 4Hz con Pure Pursuit locale
+  detection_controls: Topic /nomad/status, /nomad/trajectory in Foxglove, monitoraggio
+    DDS e test unitari
+  residual_scoring:
+    severity: 8
+    occurrence: 2
+    detection: 2
+    rpn: 32
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Adottare nomad_navigator_node con sliding window di 3 frame
+    a 128x128 ed eseguire NomadExplorationSkill
+  verification_method: Suite unit test test_nomad_navigator.py, test_nomad_skill.py,
+    test_camera_slam_pipeline.py
+  eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-08-22-NOMAD
+  lesson_ref: docs/lessons/nav2_slam_tuning.md#nomad-visual-navigation
+  date_identified: '2026-08-22'
+  last_updated: '2026-08-22'
+  history:
+  - date: '2026-08-22'
+    change: Integrazione modulo NOMAD, risoluzione conflitti TF e RTAB-Map rate
+    rpn_old: 432
+    rpn_new: 32
+- id: FM-NAV-011
+  subsystem: Navigation/Vision
+  component: nomad_velocity_bridge
+  function: Instradamento sicuro e diretto dei comandi di velocità generati dal Pure
+    Pursuit di NOMAD alle ruote
+  failure_mode: Disallineamento topic velocità (/cmd_vel_mux vs /cmd_vel) ed incompatibilità
+    QoS DDS (/rgb/image BEST_EFFORT vs RELIABLE)
+  potential_cause: Assenza di twist_mux attivo nello stack robot e QoS di sottoscrizione
+    non allineato al publisher C++ fast_flow_vo_cpp
+  potential_effect: Il robot crede di esplorare verbalmente ma rimane fisicamente
+    immobile sul posto senza ricevere frame camera
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-NAV-010
+  initial_scoring:
+    severity: 7
+    occurrence: 8
+    detection: 6
+    rpn: 336
+  prevention_controls: Parametro cmd_vel_topic=/cmd_vel di default e sottoscrizione
+    /rgb/image con ReliabilityPolicy.RELIABLE in nomad_navigator_node
+  detection_controls: Echo /cmd_vel live su robot e test unitari in test_nomad_navigator.py
+  residual_scoring:
+    severity: 7
+    occurrence: 1
+    detection: 1
+    rpn: 7
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Mantenere routing diretto su /cmd_vel e QoS RELIABLE per i flussi
+    immagini
+  verification_method: Test hardware live e test unitari di streaming e tracking Pure
+    Pursuit
+  eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-08-22-NOMAD-VUI-FIX
+  lesson_ref: docs/lessons/nav2_slam_tuning.md#integrazione-ai-orchestrator-e-tolleranza-fonetica-asr
+  date_identified: '2026-08-22'
+  last_updated: '2026-08-22'
+  history:
+  - date: '2026-08-22'
+    change: Configurato cmd_vel diretto e QoS RELIABLE verificato con test su ruote
+    rpn_old: 336
+    rpn_new: 7
+- id: FM-VUI-022
+  subsystem: Voice/Orchestration
+  component: nomad_exploration_skill
+  function: Intercettazione robusta dei comandi vocali e testuali per l'avvio della
+    navigazione autonoma NOMAD
+  failure_mode: Mancato riconoscimento del termine 'NOMAD' da parte dell'ASR e mancata
+    registrazione della skill nell'AI Orchestrator
+  potential_cause: Trascrizione fonetica italiana ASR ('nomade', 'norman', 'nomadi')
+    e omissione della classe nel registro delle skill
+  potential_effect: Fallimento del matching e deviazione della richiesta sul fallback
+    testuale dell'LLM (risposta a voce senza moto)
+  classification: HRI_SAFETY
+  estimation_basis: measured
+  related_ids:
+  - FM-VUI-021
+  - FM-NAV-010
+  initial_scoring:
+    severity: 6
+    occurrence: 8
+    detection: 7
+    rpn: 336
+  prevention_controls: Regex estese con varianti fonetiche e sinonimi d'azione, registrazione
+    permanente in AIOrchestrator e priorità 25
+  detection_controls: Suite test_nomad_skill.py con test su varianti fonetiche e frasi
+    colloquiali
+  residual_scoring:
+    severity: 6
+    occurrence: 1
+    detection: 1
+    rpn: 6
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Registrare sempre le skill builtin in AIOrchestrator e prevedere
+    regex con varianti fonetiche italiane
+  verification_method: Suite test unitari test_nomad_skill.py (3/3 pass) e iniezione
+    test su /robopy/conversation_rx
+  eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-08-22-NOMAD-VUI-FIX
+  lesson_ref: docs/lessons/audio_vui_pipeline.md#gestione-acronimi-stranieri-e-tolleranza-fonetica-asr
+  date_identified: '2026-08-22'
+  last_updated: '2026-08-22'
+  history:
+  - date: '2026-08-22'
+    change: Registrazione in AIOrchestrator, estensione regex fonetiche e validazione
+      test
+    rpn_old: 336
+    rpn_new: 6
+- id: FM-NAV-012
+  subsystem: Navigation/Odometry
+  component: waveshare_and_fast_flow_vo
+  function: Stima accurata, continua e conforme a ROS 2 dell'odometria lineare ed
+    angolare per SLAM e visualizzazione TF
+  failure_mode: Movimento convulso e saltellante della camera in Foxglove durante
+    le rotazioni e incoerenza mappe RTAB-Map
+  potential_cause: Inversione segno yaw ruote (delta_s_left - delta_s_right), proiezione
+    globale errata nel fallback wheel_delta_x/y e assenza di vincolo non-oloconomo
+  potential_effect: Incoerenza geometrica delle mappe 2D/3D in RTAB-Map e scatti convulsi
+    del robot in visualizzazione
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-NAV-007
+  - FM-NAV-010
+  initial_scoring:
+    severity: 8
+    occurrence: 9
+    detection: 6
+    rpn: 432
+  prevention_controls: Formula differenziale (delta_s_right - delta_s_left), rotazione
+    coordinate globali in locali con theta_prev e vincolo y=0
+  detection_controls: Echo live /odom su robot e monitoraggio visuale TF in Foxglove
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Mantenere la convenzione destrorsa ROS 2 e la proiezione locale
+    nel fallback VIO
+  verification_method: Test di rotazione a banco con echo /odom, verifica vincolo
+    non-oloconomo e build C++ completata
+  eco_ref: docs/ecos/odometry_ekf_fusion_eco.md#ECO-00023
+  lesson_ref: docs/lessons/nav2_slam_tuning.md#stabilit-odometria--correzione-dinamica-di-rotazione
+  date_identified: '2026-08-22'
+  last_updated: '2026-08-22'
+  history:
+  - date: '2026-08-22'
+    change: Correzione formula yaw in waveshare_motor_driver e rotazione locale in
+      fast_flow_vo_cpp
+    rpn_old: 432
+    rpn_new: 8
+- id: FM-ACT-008
+  subsystem: Actuation/Odometry
+  component: waveshare_motor_driver
+  function: Calibrazione accurata della risoluzione encoder ruote (CPR) e azionamento
+    simmetrico senza stiction
+  failure_mode: Sotto-stima o sovra-stima dello spostamento lineare/angolare e sbandamento
+    per mancato superamento attrito statico
+  potential_cause: Valore CPR nominale errato (280 anziche 657 ticks/rev) e mancata
+    compensazione stiction motoriduttori a bassa velocita
+  potential_effect: Spostamenti fisici incongruenti con la mappa SLAM, urti accidentali
+    con ostacoli e distorsione a ventaglio
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-NAV-012
+  initial_scoring:
+    severity: 8
+    occurrence: 8
+    detection: 4
+    rpn: 256
+  prevention_controls: Calibrazione sperimentale CPR a 657 ticks/rev, boost deadband
+    al 18% e fusione IMU OAK-D a 200 Hz con pitch 8° UP
+  detection_controls: Test di rotazione a banco con monitoraggio passivo su 360° e
+    posizionamento PID ad anello chiuso
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Mantenere ticks_per_rev a 657 e IMU fuser ad alta frequenza
+    (200 Hz) con compensazione pitch
+  verification_method: Misurazione manuale 360° a banco (657 ticks esatti) e test
+    PID ad anello chiuso su ruota motrice
+  eco_ref: docs/ecos/odometry_ekf_fusion_eco.md#ECO-00024
+  lesson_ref: docs/lessons/actuation_motor_driver.md#22-calibrazione-sperimentale-cpr-motori-657-cpr-asimmetria-gpio-esp32-e-formattazione-json-compatta
+  date_identified: '2026-08-22'
+  last_updated: '2026-08-22'
+  history:
+  - date: '2026-08-22'
+    change: Calibrazione sperimentale 657 CPR a banco, boost 18% e fusione IMU 8°
+      pitch
+    rpn_old: 256
+    rpn_new: 8

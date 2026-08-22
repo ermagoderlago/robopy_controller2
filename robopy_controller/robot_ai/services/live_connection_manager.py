@@ -68,6 +68,8 @@ class LiveConnectionManager:
         # State timings updated by LLMService
         self.last_successful_turn_time = 0.0
         self.last_wakeword_time = 0.0
+        self.turns_since_wakeword = 0
+        self.active_session_timeout = 180.0
         self.recent_user_transcripts = []
         self._last_mic_audio_time = 0.0
 
@@ -95,7 +97,11 @@ class LiveConnectionManager:
             return True
         if len(words) == 2 and all(w in noise_words for w in words):
             return True
-        return False
+    def on_wakeword_detected(self):
+        """Triggered when wakeword 'Marcus' is detected: resets session timers and turn counter."""
+        self.last_wakeword_time = time.time()
+        self.turns_since_wakeword = 0
+        self.logger.info("⏰ [LiveConnectionManager] Wake word 'Marcus' registrata. Sessione aperta per 180s (Turno 0).")
 
     async def start_loop(self):
         """Starts the persistent connection manager loop."""
@@ -397,23 +403,23 @@ class LiveConnectionManager:
                     # in questo punto — causerebbe lo scarto di tutti i turni validi.
                     # Il filtro rumore è delegato al meccanismo <IGNORE_TURN> nel prompt di Gemini.
 
-                    last_turn_ago = time.time() - self.last_successful_turn_time
-                    last_wakeword_ago = time.time() - self.last_wakeword_time if self.last_wakeword_time > 0 else 0.0
-                    # [v6.5] In modalità Continuous Listening VAD (senza Porcupine), la finestra è sempre attiva per il parlato VAD
+                    last_turn_ago = time.time() - self.last_successful_turn_time if self.last_successful_turn_time > 0 else 9999.0
+                    last_wakeword_ago = time.time() - self.last_wakeword_time if self.last_wakeword_time > 0 else 9999.0
+                    # [v21.0] Finestra di conversazione attiva estesa a 180s (3 minuti)
                     is_active = (
                         self.last_wakeword_time == 0.0 or  # Continuous VAD Mode
-                        last_wakeword_ago < 60.0 or
-                        last_turn_ago < 30.0
+                        last_wakeword_ago < self.active_session_timeout or
+                        last_turn_ago < self.active_session_timeout
                     )
 
                     self.logger.info(
                         f"[LLM Gate] wakeword_ago={last_wakeword_ago:.1f}s | turn_ago={last_turn_ago:.1f}s | "
-                        f"is_active={is_active}"
+                        f"turns_since_ww={self.turns_since_wakeword} | is_active={is_active}"
                     )
 
                     if not is_active:
                         # Fuori finestra conversazione: scarta silenziosamente
-                        self.logger.info("🔇 [Live] Turno ignorato: fuori dalla finestra di conversazione attiva.")
+                        self.logger.info("🔇 [Live] Turno ignorato: fuori dalla finestra di conversazione attiva (180s).")
                         if self.on_mic_mute:
                             self.on_mic_mute(True)
                         self._current_user_text = ""
@@ -542,13 +548,10 @@ class LiveConnectionManager:
                         break
             
             if ignore_detected or "<ignore_turn>" in self._current_live_response["text"].lower():
-                self.logger.info("🤫 [Live Model] Rilevato <IGNORE_TURN>! Soppressione risposta...")
-                if self.on_mic_mute:
-                    self.on_mic_mute(True)
-                
+                self.logger.info("🤫 [Live Model] Rilevato <IGNORE_TURN> (conversazione non rivolta a Marcus). Soppressione risposta vocale ma canale mantenuto attivo.")
+                self._turn_in_progress = False  # sblocca nuovi activity_start per i prossimi turni
                 self._current_user_text = ""
                 self._current_live_response = {"text": "", "actions": []}
-                asyncio.create_task(self._reconnect())
                 return
 
             for part in sc.model_turn.parts:
@@ -572,7 +575,9 @@ class LiveConnectionManager:
 
         if getattr(sc, 'turn_complete', False):
             self._turn_in_progress = False  # sblocca nuovi activity_start
-            self.logger.info("✅ [Live] turn_complete ricevuto — sblocco nuovo ascolto.")
+            self.turns_since_wakeword += 1
+            self.last_successful_turn_time = time.time()
+            self.logger.info(f"✅ [Live] turn_complete ricevuto (Turno #{self.turns_since_wakeword}) — sblocco nuovo ascolto.")
             # Drena i chunk accumulati durante la risposta (rumore ambientale stantio)
             drained = 0
             while not self._audio_in_queue.empty():

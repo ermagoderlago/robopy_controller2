@@ -88,5 +88,17 @@ Questo documento traccia la cronologia delle modifiche ingegneristiche (ECO) app
   * **Integrazione Beamforming:** Verificata l'assenza di carico CPU (0%) e l'orientamento polare broadside dei 2 microfoni MEMS per la massima sensibilità frontale.
   * **Piano d'Azione v3.0:** Aggiornati l'artifact `implementation_plan.md` e lo script di pre-test `scripts/test_vui_audio_pretest.py`.
 
+---
+
+## 📈 ECO-2026-08-21-001: 3-Minute Extended Conversation Session Window & Directed Follow-Up Gating
+* **Stato:** ✅ **Completato, Sincronizzato e Verificato**
+* **Descrizione:** Risoluzione del problema di chiusura prematura della conversazione dopo 8 secondi e prevenzione delle risposte a conversazioni di terzi in sottofondo mediante finestra conversazionale a 180s e Directed Follow-up Gating.
+* **Modifiche VUI, Live Connection Manager & LLM:**
+  * **Rimozione Override 8s:** Eliminato `self._listen_timeout_sec = 8.0` in `respeaker_vui_node.py` e impostato il default a 180.0 secondi (3 minuti).
+  * **Reset Dinamico del Timer:** Riavvio automatico del timer di 180s al termine del parlato AI (`_tts_speaking_cb: False`) e al completamento di ogni frase utente (`_publish_end_of_speech`).
+  * **Estensione Finestra Live API:** Aggiornato `LiveConnectionManager.active_session_timeout` a 180.0s con tracciamento `turns_since_wakeword`.
+  * **Non-Destructive `<IGNORE_TURN>`:** Gestione del token di silenzio senza mutare il microfono né disconnettere il WebSocket, preservando la sessione attiva per 3 minuti.
+  * **Allineamento System Prompt:** Istruito il modello a rispondere vocalmente solo a richieste dirette a Marcus durante i turni successivi di sessione aperta.
+
 
 

@@ -8,11 +8,15 @@ Questo documento contiene le **Regole d'Oro** e i **vincoli fisici assoluti** pe
 
 Per garantire la sopravvivenza hardware, la fluidità di esecuzione ed evitare il collasso del sistema su Raspberry Pi 5, attenersi rigorosamente ai seguenti vincoli architetturali:
 
-### 1. Memoria RAM e Limite Host
+### 1. Memoria RAM, Procedura di Compilazione ed Ottimizzazione Host Pi 5
 * **Tetto massimo RAM:** Il Raspberry Pi 5 host dispone di **4GB di RAM** utilizzabili.
-* **Compilazione ROS 2:** Deve essere eseguita in modo **sequenziale** per prevenire crash di Out-Of-Memory (OOM) indotti dal compilatore `clang++`.
-  * **Comando obbligatorio:** `MAKEFLAGS="-j1" colcon build --parallel-workers 1 ...`
-  * **BOM Warning:** Rimuovere il Byte Order Mark (BOM) UTF-8 (`\xEF\xBB\xBF`) dagli script prima del lancio per evitare `OSError: [Errno 8] Exec format error`.
+* **Arresto Preventivo Obbligatorio dei Nodi e del Watchdog:** **PRIMA di avviare qualsiasi compilazione (`colcon build`) sul robot, DEVI fermare tutti i nodi attivi ed il watchdog** (`sudo systemctl stop marcus-watchdog`, `pkill -9 -f watchdog.sh`, arresto dei processi Python/ROS 2). In caso contrario, l'elevato consumo di RAM/CPU dei nodi in esecuzione causa l'OOM Kill indotto dal compilatore con conseguente fallimento della build.
+* **Compilazione Sequenziale & Ottimizzata Raspberry Pi 5 (`-O3` & Cortex-A76):** Deve essere eseguita in modo **sequenziale** con ottimizzazione Release per la CPU del Pi 5 (Cortex-A76):
+  * **Comando obbligatorio:**
+    ```bash
+    MAKEFLAGS="-j1" colcon build --parallel-workers 1 --cmake-args -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-O3 -mcpu=cortex-a76+crypto" ...
+    ```
+* **BOM Warning:** Rimuovere il Byte Order Mark (BOM) UTF-8 (`\xEF\xBB\xBF`) dagli script prima del lancio per evitare `OSError: [Errno 8] Exec format error`.
 
 ### 2. Vincolo di Mappatura e SLAM (No STVL)
 * **Divieto di STVL:** È **severamente vietato** utilizzare la mappatura volumetrica continua 3D (Spatiotemporal Voxel Layer - STVL) a causa dell'overhead insostenibile su CPU e memoria.

@@ -27,14 +27,14 @@ class WaveshareMotorDriver(Node):
         # --- Parameter Declaration ---
         self.declare_parameter('serial_port', '/dev/ttyUSB0')
         self.declare_parameter('baud_rate', 115200)
-        self.declare_parameter('wheel_radius', 0.0325)      # in meters (65mm diameter)
+        self.declare_parameter('wheel_radius', 0.0335)      # in meters (67mm diameter)
         self.declare_parameter('wheel_separation', 0.285)   # track width in meters (285mm)
         self.declare_parameter('rotational_wheel_separation', 0.285) # pure kinematic wheel separation (285mm)
-        self.declare_parameter('ticks_per_rev', 280)        # exact calibrated ticks per wheel rev (280 CPR)
+        self.declare_parameter('ticks_per_rev', 657)        # exact calibrated ticks per wheel rev (657 CPR)
         
         self.declare_parameter('invert_left_motor', False)
         self.declare_parameter('invert_right_motor', False)
-        self.declare_parameter('invert_left_encoder', True)
+        self.declare_parameter('invert_left_encoder', False)
         self.declare_parameter('invert_right_encoder', False)
         self.declare_parameter('encoder_dead_zone', 0)        # ticks: ignore deltas <= this when both wheels below threshold (0 to disable tick dropping)
         self.declare_parameter('publish_tf', False)            # set False when another node (e.g. VIO) owns odom->base_link TF
@@ -43,6 +43,8 @@ class WaveshareMotorDriver(Node):
         self.declare_parameter('feedforward_min_scale', 0.70)        # Min clamping for feedforward ratio
         self.declare_parameter('feedforward_max_scale', 1.40)        # Max clamping for feedforward ratio
         self.declare_parameter('enable_voltage_feedforward', True)  # Toggle voltage scaling
+        self.declare_parameter('max_linear_speed', 0.40)           # Maximum linear speed of chassis (m/s)
+        self.declare_parameter('motor_min_duty_cycle', 0.18)       # Minimum starting PWM duty cycle to overcome gearbox stiction
         self.declare_parameter('raw_battery_topic', '/battery/raw') # Topic for raw ADC battery voltage
         self.declare_parameter('esp32_adc_scale_factor', 2880.95)   # 3S divider factor (36300 -> 12.60V)
         
@@ -65,6 +67,8 @@ class WaveshareMotorDriver(Node):
         self.feedforward_min_scale = self.get_parameter('feedforward_min_scale').value
         self.feedforward_max_scale = self.get_parameter('feedforward_max_scale').value
         self.enable_voltage_feedforward = self.get_parameter('enable_voltage_feedforward').value
+        self.max_linear_speed = float(self.get_parameter('max_linear_speed').value)
+        self.motor_min_duty_cycle = float(self.get_parameter('motor_min_duty_cycle').value)
         self.raw_battery_topic = self.get_parameter('raw_battery_topic').value
         self.esp32_adc_scale_factor = float(self.get_parameter('esp32_adc_scale_factor').value)
         
@@ -94,6 +98,8 @@ class WaveshareMotorDriver(Node):
         self.v_robot = 0.0
         self.w_robot = 0.0
         self.vo_linear_speed = 0.0
+        self.current_duty_left = 0.0
+        self.current_duty_right = 0.0
         self.latest_voltage = 12.0
         self.idle_voltage = 12.0
         self.filtered_battery_voltage = 12.0
@@ -291,21 +297,53 @@ class WaveshareMotorDriver(Node):
         self.is_system_shutdown = True
         self.send_speeds(0.0, 0.0)
 
+    def speed_to_duty(self, speed_mps):
+        """Converts speed in m/s to normalized motor duty [-1.0, 1.0] with deadband compensation."""
+        if abs(speed_mps) < 0.003:
+            return 0.0
+        
+        sign = 1.0 if speed_mps > 0 else -1.0
+        # Linear scaling from [0, max_speed] mapped to [min_duty, 1.0]
+        ratio = min(abs(speed_mps) / self.max_linear_speed, 1.0)
+        duty = self.motor_min_duty_cycle + (1.0 - self.motor_min_duty_cycle) * ratio
+        return sign * min(duty, 1.0)
+
     def send_speeds(self, left, right):
         """Formats speeds as JSON and writes to serial port.
-        Applies Feed-Forward Voltage Compensation:
-          PWM_compensated = PWM * (V_nominal / V_measured)
-        - Uses V_nominal = 11.1V.
-        - If V_measured >= 12.70V (mains power), uses V_effective = 12.80V.
-        - Clamps scaling ratio to [min_scale, max_scale] for stability.
-        - If low battery (< 20% / 10.20V), dynamically throttles output to 50%.
-        Note: Waveshare ESP32 board channel 'L' drives physical Right motor
-        and channel 'R' drives physical Left motor. We swap left->R and right->L.
+        - left and right are target linear speeds in m/s.
+        - Converts to normalized motor duty [-1.0, 1.0] with starting friction boost.
+        - Applies soft-start slew rate limiting to protect battery and SSD from current spikes.
+        - Applies Feed-Forward Voltage Compensation.
         """
-        if self.is_system_shutdown:
-            left, right = 0.0, 0.0
+        if self.is_system_shutdown or (abs(left) < 0.001 and abs(right) < 0.001):
+            self.current_duty_left = 0.0
+            self.current_duty_right = 0.0
+            cmd = {"T": 1, "L": 0.0, "R": 0.0}
+            cmd_str = json.dumps(cmd, separators=(',', ':')) + "\n"
+            with self.serial_lock:
+                if self.serial_conn and self.serial_conn.is_open:
+                    try:
+                        self.serial_conn.write(cmd_str.encode('utf-8'))
+                    except Exception as e:
+                        self.get_logger().error(f"Failed to write to serial port: {e}")
+            return
 
-        if self.enable_voltage_feedforward and not (abs(left) < 0.001 and abs(right) < 0.001):
+        # Convert m/s to duty cycle [-1.0, 1.0] with starting torque boost
+        target_duty_left = self.speed_to_duty(left)
+        target_duty_right = self.speed_to_duty(right)
+
+        # Soft-start slew rate limiter (max delta 0.08 per 20ms update) to eliminate inrush current
+        max_slew = 0.08
+        d_left = target_duty_left - self.current_duty_left
+        d_right = target_duty_right - self.current_duty_right
+        
+        self.current_duty_left += max(min(d_left, max_slew), -max_slew)
+        self.current_duty_right += max(min(d_right, max_slew), -max_slew)
+        
+        duty_left = self.current_duty_left
+        duty_right = self.current_duty_right
+
+        if self.enable_voltage_feedforward:
             v_meas = self.filtered_battery_voltage if self.filtered_battery_voltage > 0.5 else self.latest_voltage
             if v_meas >= 12.70 or self.is_charging_detected:
                 v_eff = 12.80
@@ -317,16 +355,24 @@ class WaveshareMotorDriver(Node):
 
             # Limitatore dinamica bassa batteria (< 20% / 10.20V) se non in carica
             if not self.is_charging_detected and v_meas <= 10.20:
-                left = max(min(left, 0.125), -0.125)
-                right = max(min(right, 0.125), -0.125)
+                duty_left = max(min(duty_left, 0.25), -0.25)
+                duty_right = max(min(duty_right, 0.25), -0.25)
 
-            left = max(min(left * scale, 1.0), -1.0)
-            right = max(min(right * scale, 1.0), -1.0)
+            duty_left = max(min(duty_left * scale, 1.0), -1.0)
+            duty_right = max(min(duty_right * scale, 1.0), -1.0)
 
+        if self.invert_left_motor:
+            duty_left = -duty_left
+        if self.invert_right_motor:
+            duty_right = -duty_right
+
+        # Hardware mapping:
+        # Channel 'L' (Left Wheel): Positive duty moves Left wheel Forward.
+        # Channel 'R' (Right Wheel): Positive duty moves Right wheel Forward.
         cmd = {
             "T": 1,
-            "L": round(right, 4),
-            "R": round(left, 4)
+            "L": round(duty_left, 4),
+            "R": round(duty_right, 4)
         }
         cmd_str = json.dumps(cmd, separators=(',', ':')) + "\n"
         
@@ -478,9 +524,11 @@ class WaveshareMotorDriver(Node):
             self.last_odom_time = current_time
             return
             
-        # Delta ticks (Note: channel L is physical Right wheel, channel R is physical Left wheel)
-        delta_ticks_right = left_ticks - self.prev_left_ticks
-        delta_ticks_left = right_ticks - self.prev_right_ticks
+        # Delta ticks:
+        # odl increases when Left wheel moves Forward -> positive.
+        # odr decreases when Right wheel moves Forward -> negate to get positive.
+        delta_ticks_left = left_ticks - self.prev_left_ticks
+        delta_ticks_right = -(right_ticks - self.prev_right_ticks)
         
         if abs(delta_ticks_right) > 0 or abs(delta_ticks_left) > 0:
             self.get_logger().info(f"[ENCODER_RAW] d_right={delta_ticks_right}, d_left={delta_ticks_left}", throttle_duration_sec=0.2)
@@ -518,7 +566,7 @@ class WaveshareMotorDriver(Node):
         # Standard ROS 2 Right-Hand Coordinate System (+Z = CCW / Antiorario):
         # Right wheel moves forward (+), Left wheel moves backward (-) during CCW turn -> delta_s_right - delta_s_left > 0
         delta_s = (delta_s_right + delta_s_left) / 2.0
-        delta_theta = (delta_s_left - delta_s_right) / self.rotational_wheel_separation
+        delta_theta = (delta_s_right - delta_s_left) / self.rotational_wheel_separation
         
         # Integrate pose
         self.x += delta_s * math.cos(self.theta + delta_theta / 2.0)
@@ -755,28 +803,52 @@ class WaveshareMotorDriver(Node):
         return SetParametersResult(successful=True)
 
     def destroy_node(self):
-        """Clean shutdown operations."""
+        """Clean shutdown operations with deterministic hardware stop."""
         self.running = False
-        self.get_logger().info("Stopping serial communication...")
-        self.send_speeds(0.0, 0.0)
+        self.get_logger().info("Stopping serial communication and commanding hardware zero PWM...")
         with self.serial_lock:
-            if self.serial_conn:
+            if self.serial_conn and self.serial_conn.is_open:
                 try:
+                    for _ in range(5):
+                        self.serial_conn.write(b'{"T":1,"L":0.0,"R":0.0}\n')
+                        time.sleep(0.01)
+                    self.serial_conn.flush()
                     self.serial_conn.close()
                 except Exception:
                     pass
+                self.serial_conn = None
         super().destroy_node()
 
 def main(args=None):
+    import signal
+    import atexit
+    
     rclpy.init(args=args)
     node = WaveshareMotorDriver()
+    
+    def _sig_handler(sig, frame):
+        try:
+            node.destroy_node()
+        except Exception:
+            pass
+        if rclpy.ok():
+            rclpy.shutdown()
+        
+    signal.signal(signal.SIGINT, _sig_handler)
+    signal.signal(signal.SIGTERM, _sig_handler)
+    atexit.register(node.destroy_node)
+    
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, SystemExit):
         pass
     finally:
-        node.destroy_node()
-        rclpy.shutdown()
+        try:
+            node.destroy_node()
+        except Exception:
+            pass
+        if rclpy.ok():
+            rclpy.shutdown()
 
 if __name__ == '__main__':
     main()

@@ -19,7 +19,8 @@ class KinematicsTestNode(Node):
         self.current_x = msg.pose.pose.position.x
 
 def test_kinematics_sim():
-    rclpy.init()
+    if not rclpy.ok():
+        rclpy.init()
     node = KinematicsTestNode()
     
     # Send cmd_vel 0.2 m/s for 3 seconds -> expected 0.6m

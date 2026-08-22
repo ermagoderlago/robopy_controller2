@@ -80,7 +80,7 @@ class LLMServiceNode(Node):
         self.declare_parameter('timeout_standard',         60.0)
         self.declare_parameter('timeout_live',             30.0)
         self.declare_parameter('system_prompt',
-            'Sei MARCUS — Modular Autonomous Robotic Control Unit System, un assistente robotico avanzato. Sei amichevole, conciso e preciso. Parla SEMPRE e SOLO in lingua italiana. Durante la conversazione continua, rispondi ed intervieni vocalmente SOLO se l\'utente si rivolge direttamente a te (ad esempio chiedendo "Marcus..." o facendoti una domanda/istruzione diretta). Se l\'utente parla in sottofondo o con un\'altra persona senza rivolgerti la parola, limita l\'intervento a memorizzare l\'ascolto senza rispondere a voce.')
+            'Sei MARCUS — Modular Autonomous Robotic Control Unit System, un assistente robotico avanzato. Sei amichevole, conciso, intelligente e preciso. Parla SEMPRE e SOLO in lingua italiana. Durante la conversazione a canale aperto (sessione 3 minuti), rispondi a voce SOLO se l\'utente si rivolge DIRETTAMENTE a te (ad esempio chiamandoti "Marcus...", "Marcus dimmi...", o facendoti una domanda esplicita). Se le persone nella stanza parlano tra loro o ci sono rumori di sottofondo senza che nessuno si rivolga a te, emetti tassativamente <IGNORE_TURN> senza produrre alcun parlato né rumore.')
         self.declare_parameter('voice_name',               'Charon')
 
         # ------------------------------------------------------------------
@@ -304,9 +304,9 @@ class LLMServiceNode(Node):
     # Callback ROS 2 sincrone
     # -----------------------------------------------------------------------
     def wakeword_callback_ros(self, msg: String):
-        self.get_logger().info(f"⏰ [LLM Service] Wake word rilevato: '{msg.data}'. Aggiorno timestamp.")
+        self.get_logger().info(f"⏰ [LLM Service] Wake word rilevato: '{msg.data}'. Resetto sessione e aggiorno timestamp.")
         if self._live_mgr:
-            self._live_mgr.last_wakeword_time = time.time()
+            self._live_mgr.on_wakeword_detected()
 
     def audio_callback_ros(self, msg: AudioData):
         if not self._client or not self._live_mgr:

@@ -57,3 +57,60 @@ Risolvere il drift angolare dell'odometria meccanica durante le rotazioni sul po
 3. **Orchestrazione Launch Nativa (`marcus_bringup.launch.py`):**
    - Sostituiti gli script bash con launchfile ROS 2 nativo. Integrazione demone RouDi per DDS Zero-Copy e pinning CPU Core 2,3 per nodi NPU/visione.
 
+---
+
+## 🚀 ECO-00023 (Agosto 2026) - Correzione Segno Heading Ruote & Proiezione Fallback Locale VIO
+
+**ECO ID:** ECO-00023  
+**Data:** 2026-08-22  
+**Modulo:** `waveshare_motor_driver.py` / `src/fast_flow_vo_node.cpp`  
+**Autore:** Antigravity / Marcus AI  
+
+### 🎯 Scopo delle Modifiche
+Risolvere il movimento convulso e saltellante della camera in Foxglove Studio durante le rotazioni a sinistra/destra e garantire la coerenza geometrica delle mappe SLAM 2D/3D in RTAB-Map.
+
+### 📐 Modifiche Effettuate
+1. **Correzione Inversione Yaw Ruote (`waveshare_motor_driver.py`):**
+   - Corretta la formula differenziale da `(delta_s_left - delta_s_right)` a `(delta_s_right - delta_s_left) / rotational_wheel_separation`.
+   - Allineato il calcolo dell'imbardata con la terna destrorsa ROS 2 (+Z antiorario / rotazione a sinistra).
+2. **Proiezione Frame Locale nel Fallback Ruote (`src/fast_flow_vo_node.cpp`):**
+   - In `wheelOdomCallback`, trasformati i delta globali $dx_{global}, dy_{global}$ nella terna locale del robot `base_link` al passo precedente tramite rotazione con $\theta_{prev}$.
+   - Applicato il vincolo non-oloconomo $t_{wheel} = [dx_{local}, 0, 0]^T$ per evitare sobbalzi laterali durante le rotazioni sul posto.
+3. **Vincolo Non-Oloconomo 2D in `updatePose` (`src/fast_flow_vo_node.cpp`):**
+   - Forzata la componente trasversale $y=0$ su `delta_2d.translation()`, neutralizzando il cross-talk ottico di rotazione-traslazione in PnP.
+
+### 🔬 Impatto e Validazione
+- **Movimento Fluido in Foxglove:** Odometria `/odom` e TF `odom -> base_link` stabili senza oscillazioni convulse durante le manovre di svolta.
+- **Mappe SLAM Coerenti:** RTAB-Map costruisce e mantiene l'allineamento dei keyframe visivi senza sdoppiamento delle pareti durante le rotazioni sul posto.
+
+---
+
+## 🚀 ECO-00024 (Agosto 2026) - Calibrazione Sperimentale CPR Ruote (657 CPR) & Fusione Giroscopio IMU OAK-D (8° Pitch UP)
+
+**ECO ID:** ECO-00024  
+**Data:** 2026-08-22  
+**Modulo:** `waveshare_motor_driver.py` / `localization_fuser_node.py` / `restart_hailo.sh`  
+**Autore:** Antigravity / Marcus AI  
+
+### 🎯 Scopo delle Modifiche
+Calibrare con precisione millimetrica a banco la risoluzione degli encoder delle ruote motrici (CPR) ed integrare il giroscopio dell'IMU OAK-D Lite (con compensazione dell'inclinazione camera di 8.0° verso l'alto) per garantire una stima d'imbardata a 200 Hz immune a scivolamenti e drift.
+
+### 📐 Modifiche Effettuate
+1. **Calibrazione Sperimentale Risoluzione Encoder (`ticks_per_rev`):**
+   - Misurata a banco con rotazione manuale controllata a 360° la risoluzione reale: **`657` ticks/giro** (standard motoriduttore Waveshare 1:30 con sensore Hall a 11 poli).
+   - Aggiornato parametro di default `ticks_per_rev:=657` in `waveshare_motor_driver.py` e `restart_hailo.sh`.
+2. **Polarità e Deadband dei Canali Motori:**
+   - Canale `L` (Motor 1): $+u$ Avanti, $\Delta odl > 0$.
+   - Canale `R` (Motor 2): $-u$ Avanti, $\Delta odr < 0$ (negato a positivo nel calcolo odometria).
+   - Deadband di spunto impostata a $18\%$ (`motor_min_duty_cycle = 0.18`) con slew-rate limiter ($\Delta u \le 0.08$) anti-brownout.
+3. **Integrazione IMU OAK-D a 200 Hz con Compensazione Pitch a 8° (`localization_fuser_node.py`):**
+   - Proiezione dell'accelerometro e del giroscopio nel frame del robot `base_link`:
+     $$\omega_{z, base} = -\omega_{x, cam} \sin(-0.1396) + \omega_{z, cam} \cos(-0.1396)$$
+   - Integrazione dell'orientamento ad alta frequenza (200 Hz) con deadband anti-drift ($|\omega_z| > 0.015\,\text{rad/s}$) e pubblicazione su `/odometry/filtered`.
+
+### 🔬 Impatto e Validazione
+- **Risoluzione Odometria Accurata:** Spostamento lineare e angolare privo di sotto- o sovra-stime della corsa ruote.
+- **Heading Assoluto Istantaneo:** Rotazioni del robot a 360° riflesse all'istante nella visuale SLAM di Foxglove Studio senza deformazione a ventaglio della mappa.
+
+
+

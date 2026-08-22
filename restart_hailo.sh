@@ -53,6 +53,7 @@ pkill -9 -f cloud_watchdog_node || true
 pkill -9 -f speaker_id_node || true
 pkill -9 -f foxglove_bridge || true
 pkill -9 -f foxglove_nav2_bridge || true
+pkill -9 -f nomad_navigator_node || true
 
 # Kill camera & navigation nodes
 pkill -9 -f fast_flow_vo_cpp || true
@@ -99,10 +100,10 @@ nohup ros2 run robopy_controller waveshare_motor_driver --ros-args \
     -p wheel_radius:=0.0335 \
     -p wheel_separation:=0.285 \
     -p rotational_wheel_separation:=0.285 \
-    -p ticks_per_rev:=280 \
+    -p ticks_per_rev:=657 \
     -p invert_left_motor:=False \
     -p invert_right_motor:=False \
-    -p invert_left_encoder:=True \
+    -p invert_left_encoder:=False \
     -p invert_right_encoder:=False \
     -p publish_tf:=False \
     -p odom_topic:=/odom_wheel \
@@ -176,12 +177,12 @@ echo "🗺️ Starting RTAB-Map SLAM..."
 > /home/robopy/robopy/logs/rtabmap.log
 nohup taskset -c 2,3 ros2 run rtabmap_slam rtabmap --delete_db_on_start --ros-args \
     --params-file /mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_controller/config/rtabmap.yaml \
-    -p Rtabmap/DetectionRate:=5.0 \
     -r rgb/image:=/rgb/image \
     -r rgb/camera_info:=/camera/camera_info \
     -r depth/image:=/camera/depth/image_raw \
     -r odom:=/odom \
     > /home/robopy/robopy/logs/rtabmap.log 2>&1 &
+
 
 echo "🔌 Starting respeaker_interface_node..."
 > /home/robopy/robopy/logs/respeaker_interface_node.log
@@ -226,7 +227,10 @@ nohup taskset -c 2,3 /mnt/ssd/robopy_controller_host/install/robopy_controller/l
 
 echo "🛡️ Starting localization_fuser_node (Dedicated EKF/VIO Fuser)..."
 > /home/robopy/robopy/logs/localization_fuser_node.log
-nohup ros2 run robopy_controller localization_fuser_node \
+nohup ros2 run robopy_controller localization_fuser_node --ros-args \
+    -p publish_tf:=False \
+    -p wheel_odom_topic:=/odom_wheel \
+    -p vio_odom_topic:=/odom \
     > /home/robopy/robopy/logs/localization_fuser_node.log 2>&1 &
 
 echo "🚑 Starting robot_health_supervisor (System Health & Safety)..."
@@ -260,6 +264,13 @@ echo "🧱 Starting semantic_costmap_injector..."
 > /home/robopy/robopy/logs/semantic_costmap_injector.log
 nohup ros2 run robopy_controller semantic_costmap_injector \
     > /home/robopy/robopy/logs/semantic_costmap_injector.log 2>&1 &
+
+echo "🧭 Starting nomad_navigator_node (Visual Navigation & Exploration)..."
+> /home/robopy/robopy/logs/nomad_navigator_node.log
+nohup ros2 run robopy_controller nomad_navigator_node \
+    --ros-args -p cmd_vel_topic:=/cmd_vel -p use_compressed:=false \
+    > /home/robopy/robopy/logs/nomad_navigator_node.log 2>&1 &
+
 
 echo "👥 Starting engagement_monitor (HRI Gaze/Prossemic)..."
 > /home/robopy/robopy/logs/engagement_monitor.log

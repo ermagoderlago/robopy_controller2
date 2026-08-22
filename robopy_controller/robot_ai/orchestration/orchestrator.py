@@ -39,6 +39,7 @@ from robot_ai.skills.builtin.email_skill import EmailSkill
 from robot_ai.skills.builtin.crea_skill import CreaSkill
 from robot_ai.skills.builtin.memory_info_skill import MemoryInfoSkill
 from robot_ai.skills.builtin.timer_skill import TimerSkill
+from robot_ai.skills.builtin.nomad_exploration_skill import NomadExplorationSkill
 
 from robot_ai.core.camera_frame import CameraFrame
 
@@ -138,11 +139,16 @@ class AIOrchestrator(Node):
         else:
              self.skill_registry.register(AlarmSkill())
 
-        # Registrazione skill builtin email, crea_skill, memory_info, timer
+        # Registrazione skill builtin email, crea_skill, memory_info, timer, nomad
         self.skill_registry.register(EmailSkill(self.llm_service, self.config, self.memory_manager))
         self.skill_registry.register(CreaSkill(self.llm_service))
         self.skill_registry.register(MemoryInfoSkill(self.memory_manager))
         self.skill_registry.register(TimerSkill())
+        self.skill_registry.register(NomadExplorationSkill(
+            ros_node=self,
+            memory_store=self.memory_store,
+            visual_memory=self.visual_memory_service
+        ))
 
         # Caricamento dinamico delle skill attive (Spotify, Terminale, Web Search, ecc.)
         try:

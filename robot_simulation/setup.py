@@ -26,7 +26,9 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'hailo_mock_node = robot_simulation.hailo_mock_node:main'
+            'yolo_cpu_mock_node = robot_simulation.yolo_cpu_mock_node:main',
+            'vui_mock_node = robot_simulation.vui_mock_node:main',
+            'synthetic_robot_sim_node = robot_simulation.synthetic_robot_sim_node:main',
         ],
     },
 )

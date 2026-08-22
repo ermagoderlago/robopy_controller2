@@ -21,15 +21,17 @@ class StabilityTestNode(Node):
                 self.drifted = True
 
 def test_physics_stability():
-    rclpy.init()
+    if not rclpy.ok():
+        rclpy.init()
     node = StabilityTestNode()
     
     start_time = time.time()
     while time.time() - start_time < 5.0:
         rclpy.spin_once(node, timeout_sec=0.1)
         if node.drifted:
+            node.destroy_node()
             pytest.fail("Robot drifted without commands (Physics instability)")
             break
 
     node.destroy_node()
-    rclpy.shutdown()
+

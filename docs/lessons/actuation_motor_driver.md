@@ -216,6 +216,21 @@ Con JGB37-520B a 7RPM (riduzione ~143:1), **girare la ruota manualmente è impos
   - Il firmware ESP32 della scheda Waveshare trasmette il valore telemetrico della batteria `v` moltiplicato per il partitore 3S (es. `36300` per un pacco a 12.10V effettivi).
   - La normalizzazione in Volt opera tramite la relazione $V = \frac{v_{raw}}{3000.0}\text{ V}$, mappando accuratamente il range reale $9.00\text{V} - 12.60\text{V}$ ($v_{raw} \in [27000, 37800]$) e la tensione di carica $12.80\text{V}$ ($v_{raw} \approx 38400$).
 
+---
+
+### 22. Calibrazione Sperimentale CPR Motori (657 CPR), Asimmetria GPIO ESP32 e Formattazione JSON Compatta
+* **Risoluzione Reale Encoder a Banco:**
+  - Misurato con rotazione manuale e controllo PID di precisione a 360° il valore reale: **`657` ticks/giro ruota** (motori JGB37-520 con riduzione 1:30 ed 11 poli magnetici a 2 fronti di interrupt).
+* **Asimmetria Hardware GPIO ESP32 (GPIO 34/35 vs GPIO 16/27):**
+  - La ruota destra (Motor 2) è collegata a GPIO 16 e 27, che supportano la resistenza di pull-up interna (`INPUT_PULLUP`). Conta stabilmente tutti i 657 tick/giro a qualsiasi velocità.
+  - La ruota sinistra (Motor 1) è collegata a GPIO 34 e 35 (pin analogici input-only dell'ESP32 privi di resistori di pull-up interni). A rotazione manuale molto lenta, i fronti dei sensori Hall open-collector possono fluttuare; a regime di moto alimentato il conteggio è agganciato.
+  - **Mitigazione Architetturale Definitiva:** Per la stima dell'angolo d'imbardata durante le svolte sul posto, si integra a 200 Hz il giroscopio dell'IMU OAK-D Lite (con correzione dell'angolo di pitch a 8.0°), rendendo l'orientamento SLAM completamente immune a discrepanze o scivolamenti ruote.
+* **Formattazione Rigida del Parser JSON ESP32:**
+  - Il firmware C++ dell'ESP32 cerca la sottostringa `"\"T\":1"` senza spazi.
+  - Se il codice Python invia `json.dumps({"T": 1, ...})` con spaziatura standard, il comando viene scartato silenziosamente.
+  - È **obbligatorio** formattare i payload seriali con `json.dumps(cmd, separators=(',', ':'))` o f-string compatti `f'{{"T":1,"L":{l:.3f},"R":{r:.3f}}}\n'`.
+
+
 
 
 

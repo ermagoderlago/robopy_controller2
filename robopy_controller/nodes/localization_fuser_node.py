@@ -40,8 +40,13 @@ class LocalizationFuserNode(Node):
         self.declare_parameter('sensor_height', 0.22)         # Nominal camera height from floor (m)
         self.declare_parameter('floor_tolerance', 0.03)       # 3 cm tolerance
 
+        self.declare_parameter('publish_tf', False)          # Single TF authority: fast_flow_vo_cpp is active
+        self.declare_parameter('wheel_odom_topic', '/odom_wheel')
+        self.declare_parameter('vio_odom_topic', '/odom')
+
         self.base_frame = self.get_parameter('base_frame').get_parameter_value().string_value
         self.odom_frame = self.get_parameter('odom_frame').get_parameter_value().string_value
+        self.publish_tf = self.get_parameter('publish_tf').get_parameter_value().bool_value
         self.wheel_slip_threshold = self.get_parameter('wheel_slip_threshold').get_parameter_value().double_value
         self.r_base_pos_sigma = self.get_parameter('r_base_pos_sigma').get_parameter_value().double_value
         self.r_base_ori_sigma = self.get_parameter('r_base_ori_sigma').get_parameter_value().double_value
@@ -49,6 +54,16 @@ class LocalizationFuserNode(Node):
         self.alpha_degrad = self.get_parameter('alpha_degrad').get_parameter_value().double_value
         self.sensor_height = self.get_parameter('sensor_height').get_parameter_value().double_value
         self.floor_tolerance = self.get_parameter('floor_tolerance').get_parameter_value().double_value
+        wheel_odom_topic = self.get_parameter('wheel_odom_topic').get_parameter_value().string_value
+        vio_odom_topic = self.get_parameter('vio_odom_topic').get_parameter_value().string_value
+
+        self.declare_parameter('camera_pitch_deg', -8.0)     # OAK-D Lite tilted 8.0° up (-0.1396 rad)
+        self.camera_pitch_rad = math.radians(self.get_parameter('camera_pitch_deg').get_parameter_value().double_value)
+
+        # IMU Integrated Heading State
+        self.fused_yaw = 0.0
+        self.last_imu_time = None
+        self.w_imu_base_z = 0.0
 
         # QoS
         sensor_qos = QoSProfile(
@@ -77,8 +92,8 @@ class LocalizationFuserNode(Node):
 
         # Subscriptions
         self.create_subscription(Imu, '/oak/imu/data', self.imu_callback, sensor_qos)
-        self.create_subscription(Odometry, '/odom', self.wheel_odom_callback, reliable_qos)
-        self.create_subscription(Odometry, '/vio/odom', self.vio_odom_callback, reliable_qos)
+        self.create_subscription(Odometry, wheel_odom_topic, self.wheel_odom_callback, reliable_qos)
+        self.create_subscription(Odometry, vio_odom_topic, self.vio_odom_callback, reliable_qos)
 
         # Publishers
         self.pub_quality = self.create_publisher(Float32, '/vins/quality_metrics', reliable_qos)
@@ -97,7 +112,22 @@ class LocalizationFuserNode(Node):
     def imu_callback(self, msg: Imu):
         self.latest_imu = msg
 
-        # [CPU-OPT] Sub-sampling ground plane estimation da 200 Hz a 50 Hz (1 su 4 pacchetti IMU)
+        # 1. High-rate Heading Integration (200 Hz) with 8° Pitch Compensation
+        gx = msg.angular_velocity.x
+        gz = msg.angular_velocity.z
+        # Project camera gyro into base_link: \omega_z = -gx * sin(pitch) + gz * cos(pitch)
+        self.w_imu_base_z = -gx * math.sin(self.camera_pitch_rad) + gz * math.cos(self.camera_pitch_rad)
+
+        t_now = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        if self.last_imu_time is not None:
+            dt = t_now - self.last_imu_time
+            if 0 < dt < 0.1 and abs(self.w_imu_base_z) > 0.015:
+                self.fused_yaw += self.w_imu_base_z * dt
+                while self.fused_yaw > math.pi: self.fused_yaw -= 2.0 * math.pi
+                while self.fused_yaw < -math.pi: self.fused_yaw += 2.0 * math.pi
+        self.last_imu_time = t_now
+
+        # 2. [CPU-OPT] Sub-sampling ground plane estimation da 200 Hz a 50 Hz (1 su 4 pacchetti IMU)
         self._imu_counter = getattr(self, '_imu_counter', 0) + 1
         if self._imu_counter % 4 != 0:
             return
@@ -224,12 +254,16 @@ class LocalizationFuserNode(Node):
                     alpha_vio * self.latest_vio_odom.pose.pose.position.y +
                     (1.0 - alpha_vio) * self.latest_wheel_odom.pose.pose.position.y
                 )
-            else:
-                fused_odom.pose.pose = self.latest_wheel_odom.pose.pose
+            # Yaw orientation from 200Hz Pitch-compensated IMU Gyro
+            q_z = math.sin(self.fused_yaw / 2.0)
+            q_w = math.cos(self.fused_yaw / 2.0)
+            fused_odom.pose.pose.orientation.x = 0.0
+            fused_odom.pose.pose.orientation.y = 0.0
+            fused_odom.pose.pose.orientation.z = q_z
+            fused_odom.pose.pose.orientation.w = q_w
 
-            # Yaw orientation from IMU / Wheel Odom
-            fused_odom.pose.pose.orientation = self.latest_wheel_odom.pose.pose.orientation
-            fused_odom.twist.twist = self.latest_wheel_odom.twist.twist
+            fused_odom.twist.twist.linear = self.latest_wheel_odom.twist.twist.linear
+            fused_odom.twist.twist.angular.z = float(self.w_imu_base_z)
 
             # Scaled Covariances
             pos_var = (self.r_base_pos_sigma ** 2) * r_multiplier
@@ -243,16 +277,17 @@ class LocalizationFuserNode(Node):
 
             self.pub_fused_odom.publish(fused_odom)
 
-            # Broadcast TF odom -> base_link
-            t = TransformStamped()
-            t.header.stamp = now.to_msg()
-            t.header.frame_id = self.odom_frame
-            t.child_frame_id = self.base_frame
-            t.transform.translation.x = fused_odom.pose.pose.position.x
-            t.transform.translation.y = fused_odom.pose.pose.position.y
-            t.transform.translation.z = fused_odom.pose.pose.position.z
-            t.transform.rotation = fused_odom.pose.pose.orientation
-            self.tf_broadcaster.sendTransform(t)
+            # Broadcast TF odom -> base_link (only if enabled as single authority)
+            if self.publish_tf:
+                t = TransformStamped()
+                t.header.stamp = now.to_msg()
+                t.header.frame_id = self.odom_frame
+                t.child_frame_id = self.base_frame
+                t.transform.translation.x = fused_odom.pose.pose.position.x
+                t.transform.translation.y = fused_odom.pose.pose.position.y
+                t.transform.translation.z = fused_odom.pose.pose.position.z
+                t.transform.rotation = fused_odom.pose.pose.orientation
+                self.tf_broadcaster.sendTransform(t)
 
 
 def main(args=None):

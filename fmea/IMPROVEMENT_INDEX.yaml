@@ -68,5 +68,18 @@ improvements:
     status: "COMPLETED"
     domain: "audio_vui"
 
+  FM-TRI-001:
+    title: "Miglioramento Cognitivo: Architettura Triadica TRINITY (RAG + CAG + MAG)"
+    file: "docs/improvements/IMP-TRI-001_trinity_triadic_brain.md"
+    status: "COMPLETED"
+    domain: "cognitive_ai"
+
+  FM-NAV-010:
+    title: "Miglioramento Navigazione: Modello Fondazionale NOMAD per Esplorazione Visiva e Navigazione senza LiDAR"
+    file: "docs/improvements/IMP-NAV-010_nomad_navigation.md"
+    status: "COMPLETED"
+    domain: "nav2_slam"
+
+
 
 

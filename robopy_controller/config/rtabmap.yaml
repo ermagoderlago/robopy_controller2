@@ -12,7 +12,7 @@ rtabmap:
 
     # Sincronizzazione
     approx_sync: true
-    queue_size: 5
+    queue_size: 20
 
     # TF
     publish_tf: true             # RTAB-Map è l'autorità map→odom

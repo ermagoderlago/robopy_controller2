@@ -63,3 +63,31 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
   * Modificato `memory_manager.py`: impostati `importance=1.0`, `synaptic_strength=100.0` e `amygdala_protected="true"` sui ricordi di tipo `LEARNED_FACT` per prevenire la potatura sinaptica notturna.
   * Creato `test/unit/test_rag_acronym_memory.py`: unit test per la verifica dell'acronimo e dell'iniezione RAG.
 
+---
+
+## 📈 ECO-2026-08-21-TRINITY: Triadic Brain Architecture (RAG + CAG + MAG)
+* **Stato:** ✅ **Completato, Integrato e Testato**
+* **Descrizione:** Implementazione completa dell'architettura cognitiva triadica TRINITY che integra e armonizza la conoscenza esterna documentale (RAG), la consapevolezza del contesto immediato e sensoriale (CAG), e la memoria autobiografica persistente a lungo termine (MAG) con metaprompt deterministico token-budgeted.
+* **Modifiche apportate:**
+  * Creato il nuovo package `robopy_controller/robot_ai/trinity/` con 17 file modulari:
+    * `intent_router.py`: Classificazione query e routing selettivo dei pesi di retrieval.
+    * `rag_document_indexer.py`: Chunking AST e indexing di codice `.py`, guide `.md`, configurazioni `.yaml` e datasheet PDF su collection `marcus_knowledge_base`.
+    * `rag_knowledge_query.py`: Query semantica con reranking del codice e formattazione prompt.
+    * `cag_hardware_collector.py`: Raccolta telemetria SoC, RAM, CPU load per core, temperatura, rete, batteria.
+    * `cag_ros_inspector.py`: Ispezione nodi, topic e integrità TF tree ROS 2.
+    * `cag_error_tracker.py`: Ring buffer degli ultimi 5 errori e traceback di esecuzione.
+    * `cag_environment.py`: Snapshot ambiente, stanze, oggetti YOLO e smart home.
+    * `cag_aggregator.py`: Aggregatore CAG con TTL cache circolare a 5s per minimizzare CPU overhead.
+    * `mag_database.py`: Database relazionale SQLite atomico con modalità WAL e FTS5.
+    * `mag_zettelkasten.py`: Store atomico di fatti semantici con deduplicazione (cosine > 0.85).
+    * `mag_user_profile.py`: Engine di profilazione utente incrementale con confidence scoring.
+    * `mag_hybrid_search.py`: Motore di ricerca ibrido con Reciprocal Rank Fusion (RRF).
+    * `mag_episodic.py`: Motore di memoria autobiografica episodica e prompt formatting.
+    * `mag_dream_consolidation.py`: Consolidamento notturno delle memorie episodiche nel sogno.
+    * `metaprompt_fusion.py`: Assemblatore del metaprompt strutturato con token budget rigido.
+    * `trinity_engine.py`: Orchestratore principale con esecuzione parallela `asyncio.gather`.
+  * Modificato `conversation.py`: Integrazione di `TrinityEngine` nel flusso conversazionale sia per la generazione del metaprompt che per l'aggancio asincrono post-task `record_interaction`.
+  * Modificato `chroma_native_store.py`: Aggiornato `get_chroma_client` con valore di default sicuro per `persist_dir`.
+  * Registrati i Failure Modes FM-TRI-001..FM-TRI-007 in `fmea/dfmea.yaml`.
+  * Creata la test suite completa in `tests/test_trinity_full.py`.
+

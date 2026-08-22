@@ -43,6 +43,21 @@ class ConversationManager:
         self.agent_state = MarcusAgentState()
         self._current_source = ""
 
+        # TRINITY Cognitive Engine (RAG + CAG + MAG)
+        try:
+            from ..trinity.trinity_engine import TrinityEngine
+            self.trinity_engine = TrinityEngine(
+                memory_store=getattr(self.memory_manager, 'memory_store', None),
+                embedding_service=getattr(self.memory_manager, 'embedding_service', None),
+                world_model=self.world_model,
+                ha_context_provider=self.ha_context_provider,
+                config=self.config,
+                node=self.node
+            )
+        except Exception as e:
+            self._logger.warning(f"TrinityEngine initialization failed (using fallback): {e}")
+            self.trinity_engine = None
+
         # Dynamically wrap speak to respect chat silencing
         original_speak = self.tts.speak
         async def wrapped_speak(text, *args, **kwargs):
@@ -267,20 +282,40 @@ class ConversationManager:
             }
         })
 
-        # Active RAG Semantic Memory Retrieval
+        # Active RAG Semantic Memory Retrieval & TRINITY Augmentation
         rag_memories = []
-        try:
-            if self.config.get_config().rag.enabled and hasattr(self.memory_manager, 'memory_store') and self.memory_manager.memory_store:
-                search_results = await self.memory_manager.memory_store.search(clean_text, top_k=3)
-                for res in search_results:
-                    if hasattr(res, 'score') and res.score >= 0.40:
-                        rag_memories.append(res.memory.content)
-                if rag_memories:
-                    self._logger.info(f"🧠 [RAG Retrieval] Recuperate {len(rag_memories)} memorie rilevanti per: '{clean_text}'")
-        except Exception as e:
-            self._logger.warning(f"Errore durante il recupero RAG in conversazione: {e}")
+        user_id = None
+        if self.world_model and hasattr(self.world_model, 'current_user') and self.world_model.current_user:
+            user_id = self.world_model.current_user.get('name')
 
-        augmented_prompt = self._build_prompt(clean_text, ha_context, repeated_prompt_note, rag_memories)
+        email_ctx = ""
+        email_skill = self.skill_executor.registry.get("check_emails")
+        if email_skill and hasattr(email_skill, 'consume_notifications'):
+            email_ctx = email_skill.consume_notifications() or ""
+
+        if self.trinity_engine and self.trinity_engine.enabled:
+            augmented_prompt = await self.trinity_engine.build_augmented_prompt(
+                user_text=clean_text,
+                source=source,
+                user_identity=user_id,
+                system_prompt=self.llm._system_prompt,
+                dopaminergic_override=getattr(self.agent_state, 'system_prompt_override', ''),
+                repeated_note=repeated_prompt_note,
+                email_context=f"\n[NOTIFICHE EMAIL RECENTI]\n{email_ctx}" if email_ctx else ""
+            )
+        else:
+            try:
+                if self.config.get_config().rag.enabled and hasattr(self.memory_manager, 'memory_store') and self.memory_manager.memory_store:
+                    search_results = await self.memory_manager.memory_store.search(clean_text, top_k=3)
+                    for res in search_results:
+                        if hasattr(res, 'score') and res.score >= 0.40:
+                            rag_memories.append(res.memory.content)
+                    if rag_memories:
+                        self._logger.info(f"🧠 [RAG Retrieval] Recuperate {len(rag_memories)} memorie rilevanti per: '{clean_text}'")
+            except Exception as e:
+                self._logger.warning(f"Errore durante il recupero RAG in conversazione: {e}")
+
+            augmented_prompt = self._build_prompt(clean_text, ha_context, repeated_prompt_note, rag_memories)
 
         # Timeout dall'oggetto config.llm.timeout (di base accesskey)
         llm_timeout = 20.0
@@ -437,6 +472,19 @@ class ConversationManager:
             is_factual = bool(re.search(r'\b(significa|acronimo|definizione|ricordati|mi chiamo|chiamami|impara|nota)\b', clean_text, re.IGNORECASE))
             mem_type = "learned_fact" if is_factual else "conversation"
             await self.memory_manager.store_background(clean_text, response_text, mem_type)
+
+        # TRINITY MAG Autobiographical & Fact Recording
+        if response_text and self.trinity_engine and self.trinity_engine.enabled:
+            try:
+                await self.trinity_engine.record_interaction(
+                    user_text=clean_text,
+                    robot_response=response_text,
+                    actions_taken=[a.get("action_type", a.get("name", "")) for a in response_actions],
+                    was_successful=True,
+                    user_identity=user_id
+                )
+            except Exception as e:
+                self._logger.debug(f"TRINITY background recording skipped: {e}")
 
         return True
 

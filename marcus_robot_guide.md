@@ -88,7 +88,10 @@ Marcus si muove su una base mobile differenziale, gestendo il movimento e la map
   > Per preservare la CPU e la RAM sul Raspberry Pi 5, **è vietato l'uso di STVL 3D**. Marcus proietta i dati visivi 3D in una **griglia 2.5D locale** con decadimento temporale tramite il nodo custom `semantic_costmap_injector.py`.
   * **Continuous Extrinsic Auto-Calibration & Self-Healing Camera Sag (`extrinsic_camera_calibrator.py`):** Sistema di auto-consapevolezza che rileva l'inclinazione (pitch sag) della OAK-D Lite dovuta alle vibrazioni meccaniche tramite regressione RANSAC del piano terra. Invia allarmi di diagnostica su `/diagnostics` e `/robot/health_status` (Consapevolezza), ed aggiorna a caldo il TF di inclinazione fotocamera e pulisce la costmap dai ghost obstacles (Sistemazione Proattiva).
   * **Rilevamento Ostacoli Negativi (Prevenzione Caduta Scale):** Algoritmo *Depth-Gradient Hole Raycasting* integrato in `semantic_costmap_injector.py` che scansiona la profondità della telecamera 3D per dislivelli ($\Delta Z > 15\text{ cm}$) ed inietta ostacoli letali in costmap prima che il robot possa cadere.
-* **Navigazione Autonoma:** Gestita dallo stack **Nav2** (planner, controller e comportamento ad albero decisionale) che pianifica traiettorie sicure. Le destinazioni non sono rigide, ma risolte dinamicamente tramite interrogazione a ChromaDB (sia per stanze apprese `MemoryType.LOCATION` che per oggetti identificati recentemente `MemoryType.VISUAL_OBSERVATION` filtrati per l'active session ID).
+* **Navigazione Autonoma Vision-Based (Modello Fondazionale NOMAD) & Nav2:**
+  * *Pianificazione Visiva NOMAD (`nomad_navigator_node.py`):* Modello fondazionale di navigazione visiva NoMaD che opera direttamente dallo stream RGB dell'OAK-D Lite. Predice waypoint 2D ad orizzonte mobile a 4 Hz in modalità *Unconditioned Exploration* (esplorazione autonoma e scoperta di nuove aree) e *Goal-Conditioned Navigation* (verso landmark visivi memorizzati in ChromaDB), pilotando il robot con un controller Pure Pursuit locale direttamente su `/cmd_vel` senza richiedere un LiDAR.
+  * *Predisposizione Futura LiDAR:* L'architettura è strutturata in modo che l'aggiunta futura di un LiDAR 2D 360° fornisca la costmap metrica continua di Nav2 per validare geometricamente i percorsi di NOMAD.
+  * *Skill Esplorazione NOMAD (`NomadExplorationSkill`):* Consente all'utente di comandare vocalmente o via chat l'esplorazione (*"Marcus, esplora con NOMAD"*, *"Esplora la casa"*, *"Fai una ricognizione"*, *"Mappa la stanza"*, con tolleranza fonetica su varianti ASR) mappando in parallelo l'ambiente con RTAB-Map SLAM.
 * **Gestione Alimentazione, Battery Management System (BMS) & Voltage Feed-Forward:**
   Marcus dispone di un'architettura di alimentazione a doppio binario (*Power Path OR-ing* tramite diodi ideali). Il nodo `battery_manager_node.py` gestisce:
   * *Rilevamento Carica/Rete:* Tensione di bus a **12.80V** ($V \ge 12.70\text{V}$) con isolamento della chimica batteria, inibizione di docking e allarmi, e pubblicazione di stato `"IN CARICA (12.8V)"` su Foxglove Studio.
@@ -125,19 +128,25 @@ L'HAT Hardware Raspberry Pi AI HAT+ ospita una **Hailo-10 NPU** da 40 TOPS colle
 
 ---
 
-## 🧠 Il Cervello Cognitivo (Come usa le LLM)
+## 🧠 Il Cervello Cognitivo: Architettura Triadica TRINITY (RAG + CAG + MAG)
 
-Marcus combina diversi servizi e moduli per emulare un cervello autonomo e coerente:
+Marcus combina tre paradigmi armonizzati di memoria e contesto gestiti dal motore centrale **`TrinityEngine`** (`robopy_controller.robot_ai.trinity`):
 
-* **World Model (`world_model.py`):** Tiene traccia dello stato corrente del robot (dove si trova, che batteria ha, chi ha di fronte, quale compito sta svolgendo e la cronologia degli eventi recenti). Queste informazioni vengono iniettate costantemente in ogni prompt inviato alla LLM per darle memoria del contesto fisico.
-* **Memory RAG (`chroma_native_store.py`):** Un database vettoriale locale (ChromaDB) in cui vengono registrate tutte le interazioni dell'utente. Quando l'utente fa una domanda, il sistema effettua una ricerca semantica basata su embedding per richiamare i ricordi pertinenti e rispondere in modo coerente nel tempo.
-* **Skill Registry:** Un catalogo di strumenti fisici ("tool calling") che la LLM può richiamare dinamicamente:
-  * *HomeAssistantSkill:* Controlla la smart home.
-  * *NavigationSkill:* Ordina a Marcus di spostarsi in una stanza o seguire una persona.
-  * *VisualExplorationSkill:* Marcus si guarda intorno per identificare e mappare oggetti.
-  * *AlarmSkill & TimerSkill:* Schedula promemoria e sveglie locali.
-  * *EmailSkill:* Controlla, filtra e invia messaggi email.
-* **Nightly Dream (`nightly_dream_service.py`):** Alle 03:00 del mattino, Marcus entra in modalità "Sogno". Analizza i registri della giornata ed esegue una discussione collaborativa a 4 turni tra due modelli (Gemini come mente creativa, DeepSeek come analista critico) per estrarre insight sulla personalità dell'utente, correggere bug nei propri prompt ed archiviare i dati inutili.
+1. **RAG (Knowledge & Code Retrieval):**
+   * *Knowledge Base Locale (`marcus_knowledge_base`):* Indicizzazione e chunking intelligente di documenti tecnici, datasheet hardware, librerie e codice Python locale per rispondere a domande di programmazione e architettura.
+   * *Memory Store Conversazionale (`chroma_native_store.py`):* Database vettoriale ChromaDB per il richiamo semantico dei dialoghi recenti e definizioni apprese.
+2. **CAG (Context-Augmented Generation - "Qui ed Ora"):**
+   * *Context Awareness in Tempo Reale (`cag_aggregator.py`):* Monitoraggio deterministico con cache a 5.0s di telemetria hardware (carico CPU 4-core, RAM libera, temperatura SoC, tensione batteria, stato rete), topologia dei nodi ROS 2, ring buffer degli ultimi 5 errori/traceback e snapshot ambiente (stanze VPR, volti/voci, oggetti YOLO, stato Home Assistant).
+3. **MAG (Memory-Augmented Generation - Autobiografia & Persistenza):**
+   * *Memoria Episodica Atomica (`mag_database.py`):* Database relazionale SQLite con journaling WAL e indici FTS5 per la persistenza sicura da blackout di ogni interazione e riassunto episodico.
+   * *Zettelkasten Semantica (`mag_zettelkasten.py`):* Riconoscimento e deduplicazione (cosine similarity > 0.85) di fatti tecnici, configurazioni hardware e preferenze utente persistenti.
+   * *User Profile Engine (`mag_user_profile.py`):* Tracciamento continuo del profilo, livello tecnico, preferenze di linguaggio/stile di ciascun utente.
+   * *Hybrid Search (RRF):* Ricerca ibrida multi-modale che fonde full-text search BM25 ed embedding similarity.
+4. **Metaprompt Fusion Engine (`metaprompt_fusion.py`):**
+   * Assemblatore deterministico che orchestra le sezioni `[RUOLO DEL ROBOT]`, `[MEMORIA STORICA (MAG)]`, `[CONTESTO ATTUALE (CAG)]`, `[CONOSCENZA RECUPERATA (RAG)]` con token budgeting rigido (~2200 token) per prevenire saturazioni del context window.
+5. **Nightly Dream (`nightly_dream_service.py` & `mag_dream_consolidation.py`):**
+   * Alle 03:00 del mattino, Marcus consolida le memorie della giornata, esegue potatura sinaptica Ebbinghaus e archivia insight e fatti permanenti in SQLite.
+6. **Skill Registry:** Catalogo dinamico di tool fisici (HomeAssistant, Navigation, Exploration, Alarms, Email, Terminal).
 
 ---
 

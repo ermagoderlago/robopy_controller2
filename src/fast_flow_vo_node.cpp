@@ -578,8 +578,9 @@ void FastFlowVONode::processFrame(const cv::Mat& gray, const cv::Mat& depth,
         // Wheel Odometry Fallback: If visual tracking failed while robot is moving, apply wheel odometry delta
         if (!tracking_ok && isRobotMoving()) {
             std::lock_guard<std::mutex> lock(wheel_odom_mutex_);
-            if (has_prev_wheel_odom_ && (std::abs(wheel_delta_x_) > 1e-5 || std::abs(wheel_delta_y_) > 1e-5 || std::abs(wheel_delta_yaw_) > 1e-5)) {
-                Eigen::Vector3d t_wheel(wheel_delta_x_, wheel_delta_y_, 0.0);
+            if (has_prev_wheel_odom_ && (std::abs(wheel_delta_x_) > 1e-5 || std::abs(wheel_delta_yaw_) > 1e-5)) {
+                // Non-holonomic differential drive: only forward x translation, y is 0
+                Eigen::Vector3d t_wheel(wheel_delta_x_, 0.0, 0.0);
                 Eigen::Isometry3d T_delta = Eigen::Isometry3d::Identity();
                 T_delta.translation() = t_wheel;
                 T_delta.linear() = Eigen::AngleAxisd(wheel_delta_yaw_, Eigen::Vector3d::UnitZ()).toRotationMatrix();
@@ -591,8 +592,8 @@ void FastFlowVONode::processFrame(const cv::Mat& gray, const cv::Mat& depth,
                 
                 using_wheel_fallback_.store(true, std::memory_order_release);
                 RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
-                    "⚠️ VIO visual tracking lost — wheel odometry fallback active (dx=%.3f, dy=%.3f, dyaw=%.3f)",
-                    wheel_delta_x_, wheel_delta_y_, wheel_delta_yaw_);
+                    "⚠️ VIO visual tracking lost — wheel odometry fallback active (dx=%.3f, dyaw=%.3f)",
+                    wheel_delta_x_, wheel_delta_yaw_);
                     
                 wheel_delta_x_ = 0.0;
                 wheel_delta_y_ = 0.0;
@@ -1145,10 +1146,10 @@ void FastFlowVONode::updatePose(const TrackingResult& result) {
     last_delta_yaw_ = yaw;
 
     // Enforce strictly 2D planar motion (z=0, roll=0, pitch=0)
-    // This is vital because we fully bypassed the EKF's 'two_d_mode'.
+    // Non-holonomic differential drive constraint: lateral displacement y = 0
     Eigen::Isometry3d delta_2d = Eigen::Isometry3d::Identity();
     delta_2d.linear() = Eigen::AngleAxisd(yaw, Eigen::Vector3d::UnitZ()).toRotationMatrix();
-    delta_2d.translation() = Eigen::Vector3d(t_filtered.x(), t_filtered.y(), 0.0);
+    delta_2d.translation() = Eigen::Vector3d(t_filtered.x(), 0.0, 0.0);
 
     // Update global pose
     std::lock_guard<std::mutex> lock(state_mutex_);
@@ -1660,8 +1661,8 @@ void FastFlowVONode::wheelOdomCallback(const nav_msgs::msg::Odometry::SharedPtr 
     std::lock_guard<std::mutex> lock(wheel_odom_mutex_);
     
     if (has_prev_wheel_odom_) {
-        double dx = msg->pose.pose.position.x - prev_wheel_odom_.pose.pose.position.x;
-        double dy = msg->pose.pose.position.y - prev_wheel_odom_.pose.pose.position.y;
+        double dx_global = msg->pose.pose.position.x - prev_wheel_odom_.pose.pose.position.x;
+        double dy_global = msg->pose.pose.position.y - prev_wheel_odom_.pose.pose.position.y;
         
         // Extract yaw from quaternions
         auto q_curr = msg->pose.pose.orientation;
@@ -1676,8 +1677,12 @@ void FastFlowVONode::wheelOdomCallback(const nav_msgs::msg::Odometry::SharedPtr 
         while (dyaw > M_PI) dyaw -= 2.0 * M_PI;
         while (dyaw < -M_PI) dyaw += 2.0 * M_PI;
         
-        wheel_delta_x_ += dx;
-        wheel_delta_y_ += dy;
+        // Transform global dx, dy into ROBOT LOCAL frame at prev step
+        double dx_local = dx_global * std::cos(yaw_prev) + dy_global * std::sin(yaw_prev);
+        double dy_local = -dx_global * std::sin(yaw_prev) + dy_global * std::cos(yaw_prev);
+
+        wheel_delta_x_ += dx_local;
+        wheel_delta_y_ += dy_local;
         wheel_delta_yaw_ += dyaw;
     }
     

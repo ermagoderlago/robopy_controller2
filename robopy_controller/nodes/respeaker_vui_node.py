@@ -146,7 +146,7 @@ class ReSpeakerVUINode(Node):
         self.declare_parameter('noise_gate_threshold',  1500.0)
         self.declare_parameter('wakeword_sensitivity',  0.92)  # default alzato
         self.declare_parameter('playback_prebuffer',    2)
-        self.declare_parameter('listen_timeout_sec',    30.0)   # [v18.0] Finestra vigile 30s dopo parola chiave / ogni comando
+        self.declare_parameter('listen_timeout_sec',    180.0)  # [v21.0] Finestra conversazione estesa 180s (3 min) dopo parola chiave
         self.declare_parameter('max_silence_frames',    35)     # 35 * 20ms = 700ms di pausa naturale
         self.declare_parameter('device_name',            'ReSpeaker')
         self.declare_parameter('sample_rate',            16000)
@@ -305,7 +305,7 @@ class ReSpeakerVUINode(Node):
         self._shutdown     = False
         self._listen_timer = None
         self._listen_timer_start = 0.0
-        self._listen_timeout_sec = 8.0
+        self._listen_timeout_sec = self.get_parameter('listen_timeout_sec').get_parameter_value().double_value
         self._listen_timer_expired = False
         
         # [v18.0] Variabili per Speaker ID e Logging Offline
@@ -577,7 +577,11 @@ class ReSpeakerVUINode(Node):
             self.set_led('SUCCESS')
         else:
             self._ev_tts.clear()
-            if not self._ev_listening.is_set():
+            if self._ev_listening.is_set():
+                # [v21.0] Riavvia il timer di ascolto esteso (180s) a fine risposta AI per consentire follow-up diretti
+                self._start_listen_timer()
+                self.set_led('LISTENING')
+            else:
                 # Torna allo stato dell'umore corrente quando finisce di parlare
                 self.set_led(self._current_mood)
 
@@ -713,7 +717,7 @@ class ReSpeakerVUINode(Node):
 
     def _on_listen_timeout(self):
         self.get_logger().info(
-            f"🔔 Finestra vigile di 30s di silenzio vocale scaduta: Marcus emette beep di chiusura e torna in ascolto wakeword.")
+            f"🔔 Finestra conversazione di {self._listen_timeout_sec:.0f}s scaduta: Marcus emette beep di chiusura e torna in standby wakeword.")
         self._stop_listen_timer()
         self._ev_listening.clear()
 

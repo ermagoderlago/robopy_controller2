@@ -22,7 +22,7 @@ from ..utils.logging_utils import get_logger
 _chroma_client = None
 _client_lock = threading.Lock()
 
-def get_chroma_client(persist_dir: str) -> chromadb.PersistentClient:
+def get_chroma_client(persist_dir: str = "/home/robopy/ChromaDB_Llama") -> chromadb.PersistentClient:
     global _chroma_client
     with _client_lock:
         if _chroma_client is None:

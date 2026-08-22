@@ -1,0 +1,166 @@
+<?xml version="1.0" ?>
+<sdf version="1.9">
+  <world name="marcus_room_world">
+    <physics type="ode">
+      <real_time_update_rate>250.0</real_time_update_rate>
+      <max_step_size>0.004</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+
+    <!-- Essential Plugins for Gazebo Harmonic -->
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+
+    <!-- Light Source -->
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <attenuation>
+        <range>1000</range>
+        <constant>0.9</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <!-- Ground Plane -->
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>20 20</size>
+            </plane>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>20 20</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.3 0.3 0.3 1</ambient>
+            <diffuse>0.5 0.5 0.5 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Wall North -->
+    <model name="wall_north">
+      <static>true</static>
+      <pose>0 3.0 1.0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>6.0 0.1 2.0</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>6.0 0.1 2.0</size></box></geometry>
+          <material><ambient>0.7 0.7 0.8 1</ambient></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Wall South -->
+    <model name="wall_south">
+      <static>true</static>
+      <pose>0 -3.0 1.0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>6.0 0.1 2.0</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>6.0 0.1 2.0</size></box></geometry>
+          <material><ambient>0.7 0.7 0.8 1</ambient></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Wall East -->
+    <model name="wall_east">
+      <static>true</static>
+      <pose>3.0 0 1.0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.1 6.0 2.0</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.1 6.0 2.0</size></box></geometry>
+          <material><ambient>0.7 0.7 0.8 1</ambient></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Wall West -->
+    <model name="wall_west">
+      <static>true</static>
+      <pose>-3.0 0 1.0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.1 6.0 2.0</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.1 6.0 2.0</size></box></geometry>
+          <material><ambient>0.7 0.7 0.8 1</ambient></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Obstacle Box 1 (Red) -->
+    <model name="red_box_obstacle">
+      <static>true</static>
+      <pose>2.0 0.5 0.3 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.6 0.6 0.6</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.6 0.6 0.6</size></box></geometry>
+          <material><ambient>0.9 0.1 0.1 1</ambient></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Table Obstacle -->
+    <model name="table_obstacle">
+      <static>true</static>
+      <pose>-1.2 1.2 0.4 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>1.0 0.8 0.8</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>1.0 0.8 0.8</size></box></geometry>
+          <material><ambient>0.4 0.25 0.1 1</ambient></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Bookshelf Wall Barrier -->
+    <model name="bookshelf_barrier">
+      <static>true</static>
+      <pose>1.0 -1.5 0.75 0 0 0.785</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.4 1.2 1.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.4 1.2 1.5</size></box></geometry>
+          <material><ambient>0.2 0.4 0.8 1</ambient></material>
+        </visual>
+      </link>
+    </model>
+
+  </world>
+</sdf>
