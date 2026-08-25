@@ -204,8 +204,23 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
    `delta_2d.translation() = Eigen::Vector3d(t_filtered.x(), 0.0, 0.0);`
    Eliminata qualsiasi deriva laterale o sfarfallio trasversale durante le manovre sul posto.
 
+---
 
+## 🧭 Pipeline NoMaD v2 Reattiva & Controllore Pure Pursuit Integrato (Agosto 2026)
 
-
-
+### Architettura Ibrida ViNT + DDIM 4-step & Multi-Tier Fallback (FM-NOM-001..005)
+* **Design Reattivo:** Il nodo `nomad_reactive_pipeline_node.py` implementa il modello NoMaD v2 a 4 Hz (250ms periodo):
+  1. **ViNT Backbone:** Eseguito su Hailo-10H (Network Group A) per estrazione latente a latenza ~2.5ms.
+  2. **DDIM 4-step Sampler:** Eseguito su CPU (Core 2-3) tramite ONNX Runtime (`intra_op_num_threads=2`, `inter_op_num_threads=1`).
+  3. **Fallback Automatico Action Chunking:** Se la latenza DDIM supera 100ms per 2 cicli consecutivi, il nodo commuta istantaneamente sul modello MLP a singolo step (<5ms) per garantire la continuità temporale.
+  4. **Filtro EMA Vettorializzato:** Smoothing $(N, 2)$ con $\alpha=0.30$ e boost dinamico ad $\alpha=0.70$ su deviazioni di yaw $>30^\circ$.
+  5. **Pure Pursuit Locale:** Calcolo diretto di `/cmd_vel_nomad` con scaling cosenoidale della velocità lineare e limitazione angolare a 1.5 rad/s.
+  6. **Watchdog di Sicurezza (300ms):** Se nessun nuovo path viene generato entro 300ms, il robot pubblica `Twist()` zero e stato `RECOVERY`.
+  7. **Rilevamento Collisioni tramite IMU Camera (`/oak/imu/data` - FM-NOM-006):** Monitoraggio Jerk/Shock a 100 Hz con soglia calibrata ad $a_{xy} > 2.5\text{ m/s}^2$ e $J_{xy} > 28.0\text{ m/s}^3$ (LPF 15 Hz + debounce 20 ms), con FSM di arresto d'emergenza (0.2s), safe backoff (-0.10 m/s per 0.8s), rotazione di disimpegno (0.35 rad/s) e reset totale di buffer e filtri per ricalcolo immediato della traiettoria.
+  8. **Protezione Pareti Bianche Monocromatiche & Sensore Ultrasonico (FM-NOM-007):** Su pareti lisce o porte senza contrasto ottico ($\sigma^2_{\text{Lap}} < 18.0$), il generatore di affordance viene inibito prima dell'urto; il sensore ultrasonico `/ultrasonic_range` a $< 0.30\text{ m}$ e il mismatch tra velocità ruote e VIO ($|v_{\text{wheel}}| > 0.05$ vs $|v_{\text{vio}}| < 0.015\text{ m/s}$) attivano istantaneamente la rotazione forzata di ricerca texture.
+  9. **Protezione Meccanica da Stallo e Sovracorrente Motori (FM-MOT-004):** Se la velocità comandata $|v_{\text{cmd}}| > 0.08\text{ m/s}$ persiste con ruote bloccate $|v_{\text{wheel}}| < 0.02\text{ m/s}$ per $> 0.40\text{ s}$, la potenza PWM viene disarmata e si avvia la manovra di backoff per prevenire sovraccarichi termici.
+  10. **Persistenza Database RTAB-Map & Rimozione `--delete_db_on_start` (FM-NAV-014):** In produzione il flag `--delete_db_on_start` è severamente vietato (Regola 6 di `marcus_core_rules.md`). La mappa SLAM deve persistere tra i riavvii del servizio e del watchdog per consentire il loop closure continuo e la navigazione basata su mappa globale consolidata.
+  11. **Allineamento Topic Odometria per Nav2 BT Navigator (FM-NAV-013):** `fast_flow_vo_cpp` pubblica l'odometria VIO a 30 Hz su `/odom`. Il parametro `odom_topic` in `bt_navigator` (`nav2_params_jazzy.yaml`) deve essere configurato su `/odom` (e non `/vo/odom`) per garantire che i condition node del Behavior Tree ricevano tempestivamente la velocità e la posa del robot.
+  12. **Iniezione Ostacoli Semantici NPU & Deproiezione 3D (FM-SEM-001):** `hailo_bridge_node_cpp` pubblica bounding box 2D normalizzati su `/hailo/semantic_objects`. `semantic_costmap_injector.py` deproietta automaticamente il centro del bounding box nello spazio 3D campionando la matrice di profondità (`/camera/depth/image_raw`) con patch 3x3 mediana, inserendo l'ostacolo semantico 3D proiettato a 2D nella costmap Nav2 anche senza VLM cloud.
+  13. **Contenimento Memoria RAM & Raycasting Vettorializzato su Pi 5 (FM-MEM-011):** `semantic_costmap_injector.py` impone un cap a 500 ostacoli attivi con politica FIFO per prevenire leak di memoria durante lunghe sessioni. Il raycasting degli ostacoli negativi esegue un singolo lookup TF per frame con rotazione matriciale numpy vettorizzata, riducendo del 99% l'overhead TF su CPU.
 

@@ -1,5 +1,5 @@
 # 📊 Report Esecutivo DFMEA - Marcus AI Robot Platform
-**Data Generazione:** 2026-08-22 20:45:29  
+**Data Generazione:** 2026-08-26 00:49:29  
 **Metodologia:** AIAG-VDA FMEA Standard con Regola Override Severità ($S \ge 9 \implies$ REVISION_MANDATORY)
 
 ---
@@ -8,9 +8,9 @@
 
 | Metrica | Valore | Note / Impatto |
 | :--- | :---: | :--- |
-| **Totale Modalità di Guasto (FM)** | **76** | Copertura integrata dei sottosistemi Marcus |
-| **🟢 Risk Level LOW** | **51** | $RPN_{res} \le 50$ (Sotto controllo) |
-| **🟡 Risk Level MEDIUM** | **6** | $51 \le RPN_{res} \le 199$ (Monitoraggio attivo) |
+| **Totale Modalità di Guasto (FM)** | **92** | Copertura integrata dei sottosistemi Marcus |
+| **🟢 Risk Level LOW** | **66** | $RPN_{res} \le 50$ (Sotto controllo) |
+| **🟡 Risk Level MEDIUM** | **7** | $51 \le RPN_{res} \le 199$ (Monitoraggio attivo) |
 | **🟠 Risk Level HIGH** | **2** | $200 \le RPN_{res} \le 349$ (Mitigazione obbligatoria) |
 | **🔴 Risk Level CRITICAL** | **0** | $RPN_{res} \ge 350$ (Blocco rilasci) |
 | **🚨 REVISION_MANDATORY** | **17** | **Override Severità ($S \ge 9$)** - Massima Priorità Ingegneristica |
@@ -32,10 +32,17 @@
 - **Vision/CPU:** 1 failure modes
 - **ROS 2 DDS / Vision:** 1 failure modes
 - **AI/Trinity:** 7 failure modes
-- **Navigation/Vision:** 2 failure modes
+- **Navigation/Vision:** 4 failure modes
 - **Voice/Orchestration:** 1 failure modes
 - **Navigation/Odometry:** 1 failure modes
 - **Actuation/Odometry:** 1 failure modes
+- **Navigation/NoMaD:** 5 failure modes
+- **Vision/VPR:** 2 failure modes
+- **AI/Memory:** 2 failure modes
+- **Actuation/Hardware:** 1 failure modes
+- **Navigation/SLAM:** 2 failure modes
+- **Vision/Hailo:** 1 failure modes
+- **Memory/Resources:** 1 failure modes
 
 ---
 
@@ -78,6 +85,7 @@
 | **FM-SYS-006** | System/DDS | `fastdds_middleware` | Caduta dell'albero TF e latenza critica dei topic ROS 2 causata da Multicast Discovery Storm | 8 | 6 | 4 | **192** | `MEDIUM` | `OPEN` | [`docs/lessons/dev_and_deployment.md`](docs/lessons/dev_and_deployment.md) |
 | **FM-ACT-007** | Hardware/Power | `chassis / IMU` | Ribaltamento fisico del robot (Tipped Over / Rollover) | 9 | 5 | 4 | **180** | `REVISION_MANDATORY` | `OPEN` | [`docs/lessons/actuation_motor_driver.md`](docs/lessons/actuation_motor_driver.md) |
 | **FM-VIS-003** | Vision/Hardware | `oak_d_mount / tf_broadcaster` | Falso rilevamento ostacoli (Muri Inesistenti) o mancata rilevazione pavimento causati da Drift Meccanico (Sag) della telecamera | 8 | 6 | 2 | **96** | `MEDIUM` | `COMPLETED` | [`docs/lessons/vision_hailo_npu.md`](docs/lessons/vision_hailo_npu.md) |
+| **FM-VPR-002** | Vision/VPR | `vpr_topological_graph_node` | Ambienti visivamente simili (corridoi identici, stanze con stesso arredamento) generano embedding CosPlace con similarita > 0.84 producendo archi spuri nel grafo topologico | 8 | 3 | 3 | **72** | `MEDIUM` | `PLANNED` | [`docs/lessons/vision_hailo_npu.md`](docs/lessons/vision_hailo_npu.md) |
 | **FM-SIM-002** | Simulation/Testing | `synthetic_scenario_generator` | Divergenza tra Simulazione e Realtà ('Sim-to-Real Cognitive Gap') | 7 | 3 | 3 | **63** | `MEDIUM` | `OPEN` | [`docs/lessons/orchestration_and_rag.md`](docs/lessons/orchestration_and_rag.md) |
 | **FM-COG-003** | AI/Cognitive | `chroma_synaptic_manager / RAG` | Inquinamento Vettoriale di ChromaDB da Errate Interpretazioni di RPE (Sarcasmo / Falsi Positivi) | 6 | 3 | 3 | **54** | `MEDIUM` | `OPEN` | [`docs/lessons/orchestration_and_rag.md`](docs/lessons/orchestration_and_rag.md) |
 | **FM-COG-002** | AI/Cognitive | `PredictiveRouterNode / Amigdala Digitale` | Inibizione Sinaptica Eccessiva e Paralisi Decisionale ('Anedonia / Helplessness Learned') | 8 | 2 | 3 | **48** | `LOW` | `OPEN` | [`docs/lessons/orchestration_and_rag.md`](docs/lessons/orchestration_and_rag.md) |
@@ -85,6 +93,8 @@
 | **FM-COG-001** | AI/Cognitive | `CriticEvaluatorNode / PredictiveRouterNode` | Saturazione Dopaminergica ed Entrapment Comportamentale (Ciclo Positivo Continuo / Dipendenza) | 7 | 2 | 3 | **42** | `LOW` | `OPEN` | [`docs/lessons/orchestration_and_rag.md`](docs/lessons/orchestration_and_rag.md) |
 | **FM-ACT-001** | Hardware/Power | `waveshare_motor_driver` | Immobilità del robot con ronzio prolungato dei motori in condizioni di stiction o batteria scarica | 9 | 2 | 2 | **36** | `REVISION_MANDATORY` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#stiction-kick`](docs/lessons/actuation_motor_driver.md#stiction-kick) |
 | **FM-NAV-006** | Nav2 | `waveshare_motor_driver / oak_superpoint_odometry` | Slittamento ruote (Wheel Slip) su piastrelle/tappeti con conseguente deriva odometrica accumulata e disallineamento della posa globale | 9 | 2 | 2 | **36** | `REVISION_MANDATORY` | `OPEN` | [`docs/lessons/actuation_motor_driver.md`](docs/lessons/actuation_motor_driver.md) |
+| **FM-NOM-001** | Navigation/NoMaD | `nomad_reactive_pipeline_node` | Latenza DDIM 4-step supera 100 ms per picco CPU/GC Python, generando waypoint stale e traiettoria a scatti | 6 | 3 | 2 | **36** | `LOW` | `PLANNED` | [`docs/lessons/nav2_slam_tuning.md`](docs/lessons/nav2_slam_tuning.md) |
+| **FM-NOM-004** | Navigation/NoMaD | `nomad_reactive_pipeline_node` | Filtro EMA con alpha=0.3 ritarda la risposta in curve strette (> 60 gradi) causando overshoot del robot oltre l'angolo | 6 | 2 | 3 | **36** | `LOW` | `PLANNED` | [`docs/lessons/nav2_slam_tuning.md`](docs/lessons/nav2_slam_tuning.md) |
 | **FM-NAV-002** | Nav2 | `oak_superpoint_odometry_node` | Stallo del tracciamento VO con blocco permanente della posa a 0.000m | 8 | 2 | 2 | **32** | `LOW` | `MITIGATED` | [`docs/lessons/nav2_slam_tuning.md#visual-odometry`](docs/lessons/nav2_slam_tuning.md#visual-odometry) |
 | **FM-NAV-005** | Nav2 | `semantic_costmap_injector / rtabmap` | Corruzione permanente della mappa RTAB-Map ed inserimento di ostacoli fantasma o mancato rilevamento di ostacoli trasparenti (vetri/specchi) e sotto/sopra la Pitch della telecamera | 8 | 2 | 2 | **32** | `LOW` | `IN_PROGRESS` | [`docs/lessons/nav2_slam_tuning.md#25d-costmap`](docs/lessons/nav2_slam_tuning.md#25d-costmap) |
 | **FM-LLM-005** | AI/LangGraph | `cloud_llm_gateway / hailo_qwen_fallback` | Mancata risposta vocale dell'AI al parlato dell'utente per errore API Cloud (Quota 429, Auth 403, Billing/Abbonamento o Outage Google) | 8 | 2 | 2 | **32** | `LOW` | `OPEN` | [`docs/lessons/llm_live_api.md`](docs/lessons/llm_live_api.md) |
@@ -93,11 +103,14 @@
 | **FM-TRI-006** | AI/Trinity | `mag_zettelkasten / mag_episodic` | Allucinazione o interpretazione errata nei riassunti episodici con inserimento permanente di fatti falsi | 8 | 2 | 2 | **32** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#trinity-architecture`](docs/lessons/orchestration_and_rag.md#trinity-architecture) |
 | **FM-NAV-010** | Navigation/Vision | `nomad_navigator` | Conflitto TF odom->base_link, saturazione CPU/DDS e stallo della traiettoria visiva | 8 | 2 | 2 | **32** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#nomad-visual-navigation`](docs/lessons/nav2_slam_tuning.md#nomad-visual-navigation) |
 | **FM-NAV-008** | Nav2 | `local_planner_mppi` | Urti sistematici o micro-oscillazioni della traiettoria per incompatibilità parametrica di lungo termine | 5 | 3 | 2 | **30** | `LOW` | `COMPLETED` | [`docs/lessons/telemetry_and_autotuning.md`](docs/lessons/telemetry_and_autotuning.md) |
+| **FM-NOM-003** | Navigation/NoMaD | `nomad_reactive_pipeline_node` | MLP single-step produce waypoint meno espressivi del DDIM 4-step con curvatura insufficiente in corridoi stretti | 5 | 3 | 2 | **30** | `LOW` | `PLANNED` | [`docs/lessons/nav2_slam_tuning.md`](docs/lessons/nav2_slam_tuning.md) |
 | **FM-LLM-003** | AI/LangGraph | `live_connection_manager` | Stallo conversazionale e congelamento dello stato VUI (robot bloccato in 'THINKING' senza risposta) | 7 | 2 | 2 | **28** | `LOW` | `OPEN` | [`docs/lessons/llm_live_api.md`](docs/lessons/llm_live_api.md) |
 | **FM-VUI-005** | VUI Audio | `hailo_voiceprint_node / hailo_bridge_node` | Latenza elevata ed accumulo buffer audio (audio drift) per overhead computazionale dell'NPU durante l'inferenza di speaker ID | 7 | 2 | 2 | **28** | `LOW` | `IN_PROGRESS` | [`docs/lessons/audio_vui_pipeline.md#hailo-voiceprint`](docs/lessons/audio_vui_pipeline.md#hailo-voiceprint) |
 | **FM-VUI-012** | VUI Audio | `respeaker_vui_node` | Taglio prematuro della frase dell\'utente (Clipping interno) o impossibilità di catturare singole parole brevi come 'Sì'/'No' | 7 | 2 | 2 | **28** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#isteresi-vad`](docs/lessons/audio_vui_pipeline.md#isteresi-vad) |
 | **FM-VUI-014** | VUI Audio | `local_asr_vosk` | Accumulo di memoria RAM nativa (C++ SWIG memory leak) per ritardata garbage collection degli oggetti KaldiRecognizer distrutti | 7 | 2 | 2 | **28** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#sentinel-pattern`](docs/lessons/audio_vui_pipeline.md#sentinel-pattern) |
 | **FM-VUI-018** | VUI Audio | `hailo_kws_node` | Consumo CPU non necessario in standby (15-20%) e latenza di risveglio per l'esecuzione continua di Vosk ASR su CPU | 7 | 2 | 2 | **28** | `LOW` | `CLOSED` | [`docs/lessons/vision_hailo_npu.md`](docs/lessons/vision_hailo_npu.md) |
+| **FM-NOM-002** | Navigation/NoMaD | `nomad_reactive_pipeline_node` | Il backbone ViNT su NPU ritorna feature latenti non coerenti col frame DDIM per ritardo PCIe o context-switch inatteso | 7 | 2 | 2 | **28** | `LOW` | `PLANNED` | [`docs/lessons/vision_hailo_npu.md`](docs/lessons/vision_hailo_npu.md) |
+| **FM-VPR-001** | Vision/VPR | `vpr_topological_graph_node` | Il context-switch A a B per CosPlace blocca il Network Group A (ViNT+YOLO) per > 40 ms causando un deadline miss nel loop NoMaD 4 Hz | 7 | 2 | 2 | **28** | `LOW` | `PLANNED` | [`docs/lessons/vision_hailo_npu.md`](docs/lessons/vision_hailo_npu.md) |
 | **FM-VUI-003** | VUI Audio | `respeaker_vui_node` | Falsi rilevamenti di presenza vocale (VAD) ed invio continuo di rumore di fondo a Gemini Live | 6 | 2 | 2 | **24** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#hpf-filter`](docs/lessons/audio_vui_pipeline.md#hpf-filter) |
 | **FM-VUI-004** | VUI Audio | `respeaker_vui_node` | Acoustic Echo Leakage ed auto-interruzione continua della sintesi vocale del robot | 6 | 2 | 2 | **24** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#barge-in`](docs/lessons/audio_vui_pipeline.md#barge-in) |
 | **FM-VUI-005** | VUI Audio | `respeaker_vui_node` | Trascrizione ASR incomprensibile o allucinata ('Voce Distorta / Sorgente Lontana') | 6 | 2 | 2 | **24** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#dynamic-agc`](docs/lessons/audio_vui_pipeline.md#dynamic-agc) |
@@ -112,9 +125,15 @@
 | **FM-ACT-005** | Hardware/Power | `waveshare_motor_driver` | Reset improvviso della scheda ESP32 (Brownout Microcontrollore) per picco di assorbimento in accelerazione | 9 | 1 | 2 | **18** | `REVISION_MANDATORY` | `OPEN` | [`docs/lessons/actuation_motor_driver.md`](docs/lessons/actuation_motor_driver.md) |
 | **FM-VIS-001** | Vision | `oak_superpoint_odometry_node` | Crash per lettura Heap Out-Of-Bounds durante il parsing dei tensor di output dell'NPU Hailo | 8 | 1 | 2 | **16** | `LOW` | `CLOSED` | [`docs/lessons/vision_hailo_npu.md#memory-safety`](docs/lessons/vision_hailo_npu.md#memory-safety) |
 | **FM-VIS-002** | Vision | `hailo_bridge_node` | Race condition e crash dell'infezione NPU con errore HAILO_INVALID_OPERATION | 8 | 1 | 2 | **16** | `LOW` | `CLOSED` | [`docs/lessons/vision_hailo_npu.md#npu-concurrency`](docs/lessons/vision_hailo_npu.md#npu-concurrency) |
+| **FM-NOM-005** | Navigation/NoMaD | `nomad_reactive_pipeline_node` | Un singolo ciclo di inferenza lento (280 ms) piu GC da 30 ms superano il watchdog 300 ms causando uno stop spurio | 4 | 2 | 2 | **16** | `LOW` | `PLANNED` | [`docs/lessons/nav2_slam_tuning.md`](docs/lessons/nav2_slam_tuning.md) |
+| **FM-VPR-003** | AI/Memory | `chroma_native_store / vpr_topological_graph_node` | Un embedding con dimensionalita errata (768D da pipeline Gemini) viene inserito nella collection vpr_embeddings (512D) corrompendo l'indice HNSW | 8 | 1 | 2 | **16** | `LOW` | `PLANNED` | [`docs/lessons/orchestration_and_rag.md`](docs/lessons/orchestration_and_rag.md) |
+| **FM-VPR-004** | AI/Memory | `topological_graph.db / mag_trinity.db` | Accesso concorrente a due database SQLite WAL da thread diversi causa lock wait > 50 ms rallentando l'inserimento dei nodi topologici | 4 | 2 | 2 | **16** | `LOW` | `PLANNED` | [`docs/lessons/orchestration_and_rag.md`](docs/lessons/orchestration_and_rag.md) |
+| **FM-NOM-006** | Navigation/Vision | `nomad_reactive_pipeline_node` | Mancato rilevamento visivo di ostacolo basso, specchiato o trasparente con urto meccanico e stallo motori | 4 | 2 | 2 | **16** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#nomad-collision-recovery`](docs/lessons/nav2_slam_tuning.md#nomad-collision-recovery) |
 | **FM-VUI-001** | VUI Audio | `respeaker_vui_node` | Microfono completamente silenzioso (RMS ~40) indotto dal routing errato su PipeWire | 7 | 1 | 2 | **14** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#hardware-capture`](docs/lessons/audio_vui_pipeline.md#hardware-capture) |
 | **FM-VUI-021** | VUI Audio | `respeaker_vui_node / live_connection_manager` | Chiusura prematura della sessione conversazionale dopo pochi secondi o intromissione del robot in dialoghi e conversazioni tra terzi in sottofondo | 7 | 2 | 1 | **14** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#gestione-sessione-conversazionale-a-3-minuti`](docs/lessons/audio_vui_pipeline.md#gestione-sessione-conversazionale-a-3-minuti) |
 | **FM-TRI-002** | AI/Trinity | `rag_document_indexer` | Freeze temporaneo o blocco dell'Event Loop asyncio durante il chunking e embedding di file voluminosi | 7 | 1 | 2 | **14** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#trinity-architecture`](docs/lessons/orchestration_and_rag.md#trinity-architecture) |
+| **FM-MOT-004** | Actuation/Hardware | `waveshare_motor_driver` | Stallo meccanico delle ruote su ostacoli rigidi con assorbimento eccessivo di corrente e surriscaldamento dei driver | 3 | 2 | 2 | **12** | `LOW` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#motor-stall-protection`](docs/lessons/actuation_motor_driver.md#motor-stall-protection) |
+| **FM-NOM-007** | Navigation/Vision | `nomad_reactive_pipeline_node` | Cecità ottica su pareti bianche o porte monocromatiche con proiezione di waypoints dritti e slittamento ruote su ostacolo | 3 | 2 | 2 | **12** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#white-wall-protection`](docs/lessons/nav2_slam_tuning.md#white-wall-protection) |
 | **FM-LLM-002** | AI/LangGraph | `llm_live_api` | Risposte multiple e sovrapposte ('doppia voce') ad una singola frase dell'utente | 5 | 1 | 2 | **10** | `LOW` | `CLOSED` | [`docs/lessons/llm_live_api.md`](docs/lessons/llm_live_api.md) |
 | **FM-SYS-001** | System/DDS | `build_system` | Out-Of-Memory (OOM) Kill indotto dal compilatore C++ clang++ durante la build | 9 | 1 | 1 | **9** | `REVISION_MANDATORY` | `CLOSED` | [`marcus_core_rules.md#1-memoria-ram-e-limite-host`](marcus_core_rules.md#1-memoria-ram-e-limite-host) |
 | **FM-NAV-001** | Nav2 | `nav2_costmap_2d` | Saturazione CPU indotta da STVL 3D (Spatiotemporal Voxel Layer) con freeze del sistema | 9 | 1 | 1 | **9** | `REVISION_MANDATORY` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#25d-costmap`](docs/lessons/nav2_slam_tuning.md#25d-costmap) |
@@ -145,6 +164,10 @@
 | **FM-TRI-003** | AI/Trinity | `cag_aggregator` | Latenza eccessiva nella raccolta del contesto CAG (> 500ms) che ritarda l'invio del prompt all'LLM | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#trinity-architecture`](docs/lessons/orchestration_and_rag.md#trinity-architecture) |
 | **FM-VUI-022** | Voice/Orchestration | `nomad_exploration_skill` | Mancato riconoscimento del termine 'NOMAD' da parte dell'ASR e mancata registrazione della skill nell'AI Orchestrator | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#gestione-acronimi-stranieri-e-tolleranza-fonetica-asr`](docs/lessons/audio_vui_pipeline.md#gestione-acronimi-stranieri-e-tolleranza-fonetica-asr) |
 | **FM-LLM-001** | AI/LangGraph | `respeaker_vui_node` | Effetto 'Darth Vader' / 'Chipmunk' (audio accelerato o gravemente alterato) in riproduzione | 4 | 1 | 1 | **4** | `LOW` | `CLOSED` | [`marcus_core_rules.md#3-pipeline-vui-e-audio-pcm-streaming`](marcus_core_rules.md#3-pipeline-vui-e-audio-pcm-streaming) |
+| **FM-SEM-001** | Vision/Hailo | `semantic_costmap_injector` | Ostacoli semantici non visibili nella costmap o scartati per filtro classi restrittivo o centroid_3d mancante | 2 | 1 | 2 | **4** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#semantic-costmap-injection`](docs/lessons/nav2_slam_tuning.md#semantic-costmap-injection) |
+| **FM-NAV-013** | Navigation/SLAM | `nav2_params_jazzy.yaml` | Topic mismatch tra il publisher VIO (/odom) e il sottoscrittore BT Navigator (/vo/odom) | 2 | 1 | 1 | **2** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#odometry-topics`](docs/lessons/nav2_slam_tuning.md#odometry-topics) |
+| **FM-MEM-011** | Memory/Resources | `semantic_costmap_injector` | Crescita incontrollata (unbounded dict growth) del dizionario active_obstacles durante lunghe sessioni di esplorazione | 2 | 1 | 1 | **2** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#memory-containment`](docs/lessons/nav2_slam_tuning.md#memory-containment) |
+| **FM-NAV-014** | Navigation/SLAM | `restart_hailo.sh` | Cancellazione della mappa del database RTAB-Map ad ogni riavvio del servizio | 2 | 1 | 1 | **2** | `LOW` | `CLOSED` | [`marcus_core_rules.md#2-vincolo-di-mappatura-e-slam-no-stvl`](marcus_core_rules.md#2-vincolo-di-mappatura-e-slam-no-stvl) |
 
 ---
 

@@ -54,6 +54,8 @@ pkill -9 -f speaker_id_node || true
 pkill -9 -f foxglove_bridge || true
 pkill -9 -f foxglove_nav2_bridge || true
 pkill -9 -f nomad_navigator_node || true
+pkill -9 -f nomad_reactive_pipeline_node || true
+pkill -9 -f vpr_topological_graph_node || true
 
 # Kill camera & navigation nodes
 pkill -9 -f fast_flow_vo_cpp || true
@@ -141,6 +143,12 @@ nohup ros2 run tf2_ros static_transform_publisher \
   --frame-id base_link --child-frame-id ultrasonic_sensor \
   > /home/robopy/robopy/logs/tf_ultrasonic.log 2>&1 &
 
+nohup ros2 run tf2_ros static_transform_publisher \
+  --x 0.0 --y 0.0 --z 0.05 \
+  --roll 0.0 --pitch 0.0 --yaw 0.0 \
+  --frame-id base_link --child-frame-id chassis_imu_link \
+  > /home/robopy/robopy/logs/tf_chassis_imu.log 2>&1 &
+
 echo "👁️ Starting FastFlow C++ VIO Node..."
 > /home/robopy/robopy/logs/fast_flow_vo.log
 nohup taskset -c 2,3 ros2 run robopy_controller fast_flow_vo_cpp --ros-args \
@@ -175,7 +183,9 @@ sleep 15
 # =============================================================================
 echo "🗺️ Starting RTAB-Map SLAM..."
 > /home/robopy/robopy/logs/rtabmap.log
-nohup taskset -c 2,3 ros2 run rtabmap_slam rtabmap --delete_db_on_start --ros-args \
+# [FIX FM-NAV-014] RIMOSSO --delete_db_on_start: viola marcus_core_rules.md regola 6.
+# La mappa SLAM deve persistere tra i riavvii per la localizzazione.
+nohup taskset -c 2,3 ros2 run rtabmap_slam rtabmap --ros-args \
     --params-file /mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_controller/config/rtabmap.yaml \
     -r rgb/image:=/rgb/image \
     -r rgb/camera_info:=/camera/camera_info \
@@ -254,22 +264,22 @@ nohup ros2 run robopy_controller speaker_id_node --ros-args \
     -p speaker_hef_path:=/mnt/ssd/models/ecapa_tdnn.hef \
     > /home/robopy/robopy/logs/speaker_id_node.log 2>&1 &
 
-echo "🗺️ Starting marcus_semantic_mapper_cpp (Visual Fusion C++)..."
-> /home/robopy/robopy/logs/marcus_semantic_mapper.log
-nohup taskset -c 2,3 ros2 run robopy_controller marcus_semantic_mapper_cpp --ros-args \
-    -p publish_debug:=True \
-    > /home/robopy/robopy/logs/marcus_semantic_mapper.log 2>&1 &
-
-echo "🧱 Starting semantic_costmap_injector..."
+echo "🧱 Starting semantic_costmap_injector (Hailo 3D Obstacle & Costmap Fusion)..."
 > /home/robopy/robopy/logs/semantic_costmap_injector.log
 nohup ros2 run robopy_controller semantic_costmap_injector \
     > /home/robopy/robopy/logs/semantic_costmap_injector.log 2>&1 &
 
-echo "🧭 Starting nomad_navigator_node (Visual Navigation & Exploration)..."
-> /home/robopy/robopy/logs/nomad_navigator_node.log
-nohup ros2 run robopy_controller nomad_navigator_node \
-    --ros-args -p cmd_vel_topic:=/cmd_vel -p use_compressed:=false \
-    > /home/robopy/robopy/logs/nomad_navigator_node.log 2>&1 &
+echo "🧭 Starting nomad_reactive_pipeline_node (NoMaD v2 Reactive Pipeline - Safety Disarmed on boot)..."
+> /home/robopy/robopy/logs/nomad_reactive_pipeline_node.log
+nohup python3 -u /mnt/ssd/robopy_controller_host/install/robopy_controller/lib/python3.11/site-packages/robopy_controller/nodes/nomad_reactive_pipeline_node.py \
+    --ros-args -p cmd_vel_topic:=/cmd_vel_nomad -p image_topic:=/rgb/image -p enable_on_startup:=false \
+    </dev/null > /home/robopy/robopy/logs/nomad_reactive_pipeline_node.log 2>&1 &
+
+echo "📍 Starting vpr_topological_graph_node (VPR CosPlace & Graph)..."
+> /home/robopy/robopy/logs/vpr_topological_graph_node.log
+nohup python3 -u /mnt/ssd/robopy_controller_host/install/robopy_controller/lib/python3.11/site-packages/robopy_controller/nodes/vpr_topological_graph_node.py \
+    --ros-args -p image_topic:=/rgb/image \
+    </dev/null > /home/robopy/robopy/logs/vpr_topological_graph_node.log 2>&1 &
 
 
 echo "👥 Starting engagement_monitor (HRI Gaze/Prossemic)..."
@@ -328,7 +338,7 @@ echo "⏳ [NAV2-MONITOR] Nav2 lifecycle manager gestisce la transizione automati
 sleep 15
 
 echo "📌 [CPU-OPT] Forzatura Hot-Swap affinità CPU sui nodi C++..."
-for node_name in "fast_flow_vo_cpp" "rtabmap" "hailo_bridge_node_cpp" "marcus_semantic_mapper_cpp"; do
+for node_name in "fast_flow_vo_cpp" "rtabmap" "hailo_bridge_node_cpp"; do
     for pid in $(pgrep -f $node_name); do
         taskset -a -pc 2,3 $pid > /dev/null 2>&1 || true
     done

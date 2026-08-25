@@ -2236,11 +2236,12 @@
     occurrence: 7
     detection: 3
     rpn: 168
-  prevention_controls: Utilizzo dello script di diagnostica scripts/test_gemini_models.py
-    per auto-discovery dei modelli attivi e fallback automatico su Qwen2-VL locale
-    (Hailo NPU) con avviso vocale TTS all'utente
-  detection_controls: Intercettazione codici di errore 404/1008 ed assenza di chunk
-    audio nativi da parte di LiveConnectionManager con emissione evento /ai/live/fallback
+  prevention_controls: GeminiModelDiscovery a runtime per auto-discovery dei modelli
+    attivi (standard e live), parsing automatico degli error hint 404 per modelli
+    alternativi consigliati da Google e fallback automatico su Qwen2-VL locale (Hailo
+    NPU)
+  detection_controls: Intercettazione codici di errore 404/1008/leaked ed assenza
+    di chunk audio nativi da parte di LiveConnectionManager con emissione evento /ai/live/fallback
   residual_scoring:
     severity: 8
     occurrence: 1
@@ -2248,19 +2249,24 @@
     rpn: 8
   risk_level: LOW
   mitigation_status: CLOSED
-  recommended_action: Implementare la diagnostica automatica test_gemini_models.py
-    ed il dirottamento immediato del parlato su Qwen NPU locale
+  recommended_action: Implementare auto-discovery runtime GeminiModelDiscovery ed
+    il dirottamento del parlato su Qwen NPU locale
   verification_method: Esecuzione di scripts/test_gemini_models.py e simulazione di
-    fallimento Gemini con verifica della risposta locale da parte di Qwen NPU
-  eco_ref: docs/lessons/llm_live_api.md#scelta-modelli-e-strategia-fallback
+    modello deprecato con verifica auto-switch a modello 2026 e fallback locale
+  eco_ref: docs/ecos/llm_live_ecos.md#eco-2026-08-25-001
   lesson_ref: docs/lessons/llm_live_api.md#scelta-modelli-e-strategia-fallback
   date_identified: '2026-08-02'
-  last_updated: '2026-08-02'
+  last_updated: '2026-08-25'
   history:
   - date: '2026-08-02'
     change: Inserimento Failure Mode per gestione deprecazione modelli Gemini Live
       ed auto-fallback su Qwen NPU locale
     rpn_old: 168
+    rpn_new: 8
+  - date: '2026-08-25'
+    change: Implementato GeminiModelDiscovery a runtime, error-hint parsing da payload
+      404, fail-fast retry ed eliminazione fallback statico su modelli dismessi (ECO-2026-08-25-001).
+    rpn_old: 8
     rpn_new: 8
 - id: FM-VUI-010
   subsystem: VUI Audio
@@ -3471,3 +3477,709 @@
       pitch
     rpn_old: 256
     rpn_new: 8
+- id: FM-NOM-001
+  subsystem: Navigation/NoMaD
+  component: nomad_reactive_pipeline_node
+  function: Generazione reattiva di waypoint 2D mediante diffusione DDIM 4-step su
+    CPU con latenza controllata
+  failure_mode: Latenza DDIM 4-step supera 100 ms per picco CPU/GC Python, generando
+    waypoint stale e traiettoria a scatti
+  potential_cause: Garbage Collection Python, context-switch OS su Core 2-3, o oversubscription
+    thread ONNX Runtime
+  potential_effect: Robot rallenta o si ferma; potenziale oscillazione se i waypoint
+    stale divergono dalla posa corrente
+  classification: PERFORMANCE
+  estimation_basis: theoretical
+  related_ids:
+  - FM-SYS-005
+  - FM-NAV-010
+  initial_scoring:
+    severity: 6
+    occurrence: 7
+    detection: 3
+    rpn: 126
+  prevention_controls: Contatore consecutive_timeout >= 2 con switch ad Action Chunking
+    MLP (< 5 ms), gc.disable() nel loop critico, EMA filter alpha=0.3 per attenuare
+    discontinuita, isteresi ritorno a DDIM dopo 10 cicli stabili
+  detection_controls: Profiling time.perf_counter() su ogni step DDIM, pubblicazione
+    latenza su /nomad/diagnostics
+  residual_scoring:
+    severity: 6
+    occurrence: 3
+    detection: 2
+    rpn: 36
+  risk_level: LOW
+  mitigation_status: PLANNED
+  recommended_action: Implementare il fallback automatico Action Chunking con isteresi
+    e gc.disable() nel loop critico
+  verification_method: Test HIL di latenza DDIM end-to-end su Pi 5 (target media <
+    95 ms, P99 < 110 ms su 100 cicli)
+  eco_ref: docs/ecos/nav2_slam_ecos.md
+  lesson_ref: docs/lessons/nav2_slam_tuning.md
+  date_identified: '2026-08-24'
+  last_updated: '2026-08-24'
+  history:
+  - date: '2026-08-24'
+    change: Inserimento Failure Mode per pipeline NoMaD v2 reattiva con DDIM 4-step
+    rpn_old: 126
+    rpn_new: 126
+- id: FM-NOM-002
+  subsystem: Navigation/NoMaD
+  component: nomad_reactive_pipeline_node
+  function: Sincronizzazione coerente tra feature ViNT NPU e generazione waypoint
+    DDIM CPU
+  failure_mode: Il backbone ViNT su NPU ritorna feature latenti non coerenti col frame
+    DDIM per ritardo PCIe o context-switch inatteso
+  potential_cause: Ritardo PCIe Gen 3, context-switch firmware Hailo tra Network Group
+    A e B, o desincronizzazione del buffer frame
+  potential_effect: Waypoint incoerenti con la scena visiva corrente; possibile deviazione
+    dal percorso ottimale
+  classification: PERFORMANCE
+  estimation_basis: theoretical
+  related_ids:
+  - FM-NOM-001
+  - FM-VPR-001
+  initial_scoring:
+    severity: 7
+    occurrence: 4
+    detection: 5
+    rpn: 140
+  prevention_controls: ViNT e DDIM operano nello stesso thread sequenziale (no pipeline
+    asincrona), timestamp di validita con riesecuzione se frame > 100 ms, co-residenza
+    Network Group A elimina context-switch
+  detection_controls: Verifica timestamp coerenza frame-feature nel loop e log di
+    warning su desync > 50 ms
+  residual_scoring:
+    severity: 7
+    occurrence: 2
+    detection: 2
+    rpn: 28
+  risk_level: LOW
+  mitigation_status: PLANNED
+  recommended_action: Mantenere pipeline sequenziale sincrona ViNT-DDIM nello stesso
+    thread con validazione timestamp
+  verification_method: Test HIL con profilazione timestamp frame-feature su 500 cicli
+  eco_ref: docs/ecos/nav2_slam_ecos.md
+  lesson_ref: docs/lessons/vision_hailo_npu.md
+  date_identified: '2026-08-24'
+  last_updated: '2026-08-24'
+  history:
+  - date: '2026-08-24'
+    change: Inserimento Failure Mode per desync ViNT-DDIM nella pipeline NoMaD v2
+    rpn_old: 140
+    rpn_new: 140
+- id: FM-NOM-003
+  subsystem: Navigation/NoMaD
+  component: nomad_reactive_pipeline_node
+  function: Navigazione sicura in modalita fallback Action Chunking MLP single-step
+  failure_mode: MLP single-step produce waypoint meno espressivi del DDIM 4-step con
+    curvatura insufficiente in corridoi stretti
+  potential_cause: Capacita ridotta del modello distillato MLP rispetto al diffusion
+    model completo DDIM
+  potential_effect: Robot segue traiettorie sub-ottimali con avvicinamento eccessivo
+    a ostacoli (safety stop attivo come ultima difesa)
+  classification: PERFORMANCE
+  estimation_basis: theoretical
+  related_ids:
+  - FM-NOM-001
+  initial_scoring:
+    severity: 5
+    occurrence: 5
+    detection: 4
+    rpn: 100
+  prevention_controls: Action Chunking temporaneo con ritorno a DDIM dopo 10 cicli
+    stabili, safety stop indipendente su /safety/min_distance a Z < 0.20 m, velocita
+    lineare ridotta a 0.15 m/s in fallback
+  detection_controls: Pubblicazione mode attivo (DDIM/MLP) su /nomad/diagnostics e
+    contatore cicli in fallback
+  residual_scoring:
+    severity: 5
+    occurrence: 3
+    detection: 2
+    rpn: 30
+  risk_level: LOW
+  mitigation_status: PLANNED
+  recommended_action: Ridurre velocita lineare massima in modalita fallback e garantire
+    ritorno automatico a DDIM
+  verification_method: Test corridoio stretto (larghezza 0.8 m) in modalita MLP forzata
+  eco_ref: docs/ecos/nav2_slam_ecos.md
+  lesson_ref: docs/lessons/nav2_slam_tuning.md
+  date_identified: '2026-08-24'
+  last_updated: '2026-08-24'
+  history:
+  - date: '2026-08-24'
+    change: Inserimento Failure Mode per degradazione qualita traiettoria in fallback
+      Action Chunking
+    rpn_old: 100
+    rpn_new: 100
+- id: FM-NOM-004
+  subsystem: Navigation/NoMaD
+  component: nomad_reactive_pipeline_node
+  function: Smoothing temporale dei waypoint senza ritardo eccessivo nelle manovre
+    strette
+  failure_mode: Filtro EMA con alpha=0.3 ritarda la risposta in curve strette (> 60
+    gradi) causando overshoot del robot oltre l'angolo
+  potential_cause: Costante di tempo EMA troppo lenta per manovre ad alta curvatura
+  potential_effect: Robot taglia la curva e si avvicina alla parete; possibile contatto
+    a bassa velocita
+  classification: SAFETY
+  estimation_basis: theoretical
+  related_ids:
+  - FM-NAV-005
+  initial_scoring:
+    severity: 6
+    occurrence: 5
+    detection: 5
+    rpn: 150
+  prevention_controls: Alpha adattivo (sale a 0.7 se delta_heading > 30 gradi), Pure
+    Pursuit lookahead su indice 2 compensa ritardo EMA, speed scaling cosenoidale
+    riduce v_linear proporzionalmente all'heading error
+  detection_controls: Monitoraggio heading error istantaneo su /nomad/diagnostics
+  residual_scoring:
+    severity: 6
+    occurrence: 2
+    detection: 3
+    rpn: 36
+  risk_level: LOW
+  mitigation_status: PLANNED
+  recommended_action: Implementare alpha adattivo con soglia heading e test su percorsi
+    con curve a 90 gradi
+  verification_method: Test percorso a L (90 gradi) con misurazione distanza minima
+    dalla parete
+  eco_ref: docs/ecos/nav2_slam_ecos.md
+  lesson_ref: docs/lessons/nav2_slam_tuning.md
+  date_identified: '2026-08-24'
+  last_updated: '2026-08-24'
+  history:
+  - date: '2026-08-24'
+    change: Inserimento Failure Mode per over-smoothing EMA in manovre strette
+    rpn_old: 150
+    rpn_new: 150
+- id: FM-NOM-005
+  subsystem: Navigation/NoMaD
+  component: nomad_reactive_pipeline_node
+  function: Watchdog di sicurezza 300 ms senza false positive che arrestano il robot
+    in modo spurio
+  failure_mode: Un singolo ciclo di inferenza lento (280 ms) piu GC da 30 ms superano
+    il watchdog 300 ms causando uno stop spurio
+  potential_cause: Combinazione di latenza inferenza vicina al limite e garbage collection
+    non controllato
+  potential_effect: Robot si ferma brevemente e riparte; esperienza utente degradata
+    (moto a scatti)
+  classification: USABILITY
+  estimation_basis: theoretical
+  related_ids:
+  - FM-NOM-001
+  initial_scoring:
+    severity: 4
+    occurrence: 6
+    detection: 3
+    rpn: 72
+  prevention_controls: Watchdog basato su time.monotonic() (immune a NTP jumps), reset
+    su inferenza completata con successo, contatore stop spuri (> 3 in 10s abbassa
+    rate a 3 Hz), in modalita Action Chunking (< 5 ms) il watchdog non scatta
+  detection_controls: Contatore watchdog_fires su /nomad/diagnostics
+  residual_scoring:
+    severity: 4
+    occurrence: 2
+    detection: 2
+    rpn: 16
+  risk_level: LOW
+  mitigation_status: PLANNED
+  recommended_action: Implementare contatore adattivo di stop spuri con riduzione
+    automatica del rate
+  verification_method: Test di stress con iniezione di latenza artificiale (sleep
+    290 ms) per 50 cicli
+  eco_ref: docs/ecos/nav2_slam_ecos.md
+  lesson_ref: docs/lessons/nav2_slam_tuning.md
+  date_identified: '2026-08-24'
+  last_updated: '2026-08-24'
+  history:
+  - date: '2026-08-24'
+    change: Inserimento Failure Mode per false positive del watchdog 300 ms
+    rpn_old: 72
+    rpn_new: 72
+- id: FM-VPR-001
+  subsystem: Vision/VPR
+  component: vpr_topological_graph_node
+  function: Estrazione embedding CosPlace su NPU Hailo-10H senza bloccare il fast
+    loop NoMaD di Network Group A
+  failure_mode: Il context-switch A a B per CosPlace blocca il Network Group A (ViNT+YOLO)
+    per > 40 ms causando un deadline miss nel loop NoMaD 4 Hz
+  potential_cause: Latenza firmware PCIe per lo swap dei pesi del modello attivo sul
+    silicio Hailo-10H
+  potential_effect: Un ciclo NoMaD salta; watchdog non scatta (< 300 ms) ma la traiettoria
+    perde un update
+  classification: PERFORMANCE
+  estimation_basis: theoretical
+  related_ids:
+  - FM-NOM-001
+  - FM-NOM-002
+  initial_scoring:
+    severity: 7
+    occurrence: 5
+    detection: 4
+    rpn: 140
+  prevention_controls: Timeout hardware a 40 ms (annulla inferenza NPU e accoda per
+    veicolo fermo), fallback CPU ONNX CosPlace a priorita SCHED_IDLE, frequenza CosPlace
+    < 0.5 Hz per impatto statistico trascurabile
+  detection_controls: Misurazione tempo di context-switch via HailoRT profiler e log
+    su /vpr/diagnostics
+  residual_scoring:
+    severity: 7
+    occurrence: 2
+    detection: 2
+    rpn: 28
+  risk_level: LOW
+  mitigation_status: PLANNED
+  recommended_action: Implementare timeout non-bloccante su context-switch NPU con
+    fallback CPU ONNX
+  verification_method: Test HIL di context-switch A-B su 20 trigger CosPlace (target
+    media < 30 ms, max < 45 ms)
+  eco_ref: docs/ecos/vision_hailo_ecos.md
+  lesson_ref: docs/lessons/vision_hailo_npu.md
+  date_identified: '2026-08-24'
+  last_updated: '2026-08-24'
+  history:
+  - date: '2026-08-24'
+    change: Inserimento Failure Mode per context-switch NPU bloccante su VPR CosPlace
+    rpn_old: 140
+    rpn_new: 140
+- id: FM-VPR-002
+  subsystem: Vision/VPR
+  component: vpr_topological_graph_node
+  function: Rilevamento affidabile di loop closure topologici senza falsi positivi
+    da aliasing percettivo
+  failure_mode: Ambienti visivamente simili (corridoi identici, stanze con stesso
+    arredamento) generano embedding CosPlace con similarita > 0.84 producendo archi
+    spuri nel grafo topologico
+  potential_cause: Invarianza del modello CosPlace a variazioni locali in scene strutturalmente
+    ripetitive
+  potential_effect: Corruzione topologica con teletrasporto della posa nel grafo;
+    navigazione goal-conditioned verso nodo errato
+  classification: MISSION_CRITICAL
+  estimation_basis: theoretical
+  related_ids:
+  - FM-NAV-007
+  initial_scoring:
+    severity: 8
+    occurrence: 6
+    detection: 6
+    rpn: 288
+  prevention_controls: Filtro temporale (match valido solo se delta_kf_index >= 5),
+    filtro geometrico (distanza odometrica > 3.0 m), soglia conservativa 0.84, archi
+    loop_closure annotati con confidence e rimovibili
+  detection_controls: Pubblicazione evento su /vpr/loop_closure_event con confidence
+    e distanza, ispezione manuale su Foxglove
+  residual_scoring:
+    severity: 8
+    occurrence: 3
+    detection: 3
+    rpn: 72
+  risk_level: MEDIUM
+  mitigation_status: PLANNED
+  recommended_action: Implementare filtri temporali e geometrici multi-livello e valutare
+    verifica incrociata con Mahalanobis distance in sprint successivo
+  verification_method: Test con percorso in ambiente ripetitivo (2 corridoi identici)
+    e verifica assenza archi spuri nel grafo
+  eco_ref: docs/ecos/vision_hailo_ecos.md
+  lesson_ref: docs/lessons/vision_hailo_npu.md
+  date_identified: '2026-08-24'
+  last_updated: '2026-08-24'
+  history:
+  - date: '2026-08-24'
+    change: Inserimento Failure Mode per aliasing percettivo VPR CosPlace
+    rpn_old: 288
+    rpn_new: 288
+- id: FM-VPR-003
+  subsystem: AI/Memory
+  component: chroma_native_store / vpr_topological_graph_node
+  function: Integrita dimensionale della collection ChromaDB VPR a 512 dimensioni
+  failure_mode: Un embedding con dimensionalita errata (768D da pipeline Gemini) viene
+    inserito nella collection vpr_embeddings (512D) corrompendo l'indice HNSW
+  potential_cause: Errore di routing tra le due collection ChromaDB (robot_memories
+    768D e vpr_embeddings 512D) o bug nel preprocessamento
+  potential_effect: Query VPR restituiscono risultati casuali; loop closure impossibile
+    fino a rebuild della collection
+  classification: MISSION_CRITICAL
+  estimation_basis: theoretical
+  related_ids:
+  - FM-TRI-001
+  initial_scoring:
+    severity: 8
+    occurrence: 4
+    detection: 7
+    rpn: 224
+  prevention_controls: Validazione dimensionale assert embedding.shape == (512,) prima
+    di ogni add(), collection separata vpr_embeddings con metadata dimension 512,
+    factory method dedicato get_vpr_collection()
+  detection_controls: Exception esplicita ValueError su dimensione errata, test unitario
+    di reiezione 768D
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 2
+    rpn: 16
+  risk_level: LOW
+  mitigation_status: PLANNED
+  recommended_action: Implementare validazione dimensionale hardcoded e collection
+    ChromaDB separata per VPR
+  verification_method: Test unitario di inserimento embedding 768D nella collection
+    512D (deve rifiutare con ValueError)
+  eco_ref: docs/ecos/orchestration_rag_ecos.md
+  lesson_ref: docs/lessons/orchestration_and_rag.md
+  date_identified: '2026-08-24'
+  last_updated: '2026-08-24'
+  history:
+  - date: '2026-08-24'
+    change: Inserimento Failure Mode per corruzione dimensionale collection ChromaDB
+      VPR
+    rpn_old: 224
+    rpn_new: 224
+- id: FM-VPR-004
+  subsystem: AI/Memory
+  component: topological_graph.db / mag_trinity.db
+  function: Accesso concorrente a database SQLite WAL multipli senza lock contention
+  failure_mode: Accesso concorrente a due database SQLite WAL da thread diversi causa
+    lock wait > 50 ms rallentando l'inserimento dei nodi topologici
+  potential_cause: Competizione per il lock del filesystem NVMe tra topological_graph.db
+    e mag_trinity.db durante scritture simultanee
+  potential_effect: Ritardo nell'aggiornamento del grafo topologico; nessun impatto
+    sulla navigazione real-time
+  classification: PERFORMANCE
+  estimation_basis: theoretical
+  related_ids:
+  - FM-TRI-004
+  initial_scoring:
+    severity: 4
+    occurrence: 5
+    detection: 3
+    rpn: 60
+  prevention_controls: Database separati su file distinti NVMe (zero WAL lock condiviso),
+    PRAGMA busy_timeout = 5000 su entrambi, inserimenti VPR a < 0.5 Hz per contesa
+    statisticamente trascurabile
+  detection_controls: Log di tempo inserimento SQLite su /vpr/diagnostics
+  residual_scoring:
+    severity: 4
+    occurrence: 2
+    detection: 2
+    rpn: 16
+  risk_level: LOW
+  mitigation_status: PLANNED
+  recommended_action: Mantenere database separati e busy_timeout elevato per gestire
+    contese occasionali
+  verification_method: Stress test con 100 inserimenti concorrenti su entrambi i database
+  eco_ref: docs/ecos/orchestration_rag_ecos.md
+  lesson_ref: docs/lessons/orchestration_and_rag.md
+  date_identified: '2026-08-24'
+  last_updated: '2026-08-24'
+  history:
+  - date: '2026-08-24'
+    change: Inserimento Failure Mode per lock contention SQLite WAL tra VPR e TRINITY
+    rpn_old: 60
+    rpn_new: 60
+- id: FM-NOM-006
+  subsystem: Navigation/Vision
+  component: nomad_reactive_pipeline_node
+  function: Navigazione reattiva NoMaD senza LiDAR con recupero automatico da collisioni
+    fisiche
+  failure_mode: Mancato rilevamento visivo di ostacolo basso, specchiato o trasparente
+    con urto meccanico e stallo motori
+  potential_cause: Angolo cieco inferiore dell'ottica OAK-D Lite (pitch 8° up) o pattern
+    di texture non discriminabili dal modello visuale
+  potential_effect: Collisione meccanica con l'ostacolo, slittamento delle ruote e
+    stallo dei motori con consumo anomalo di corrente
+  classification: SAFETY_CRITICAL
+  estimation_basis: empirical
+  related_ids:
+  - FM-NOM-001
+  - FM-ACT-009
+  initial_scoring:
+    severity: 7
+    occurrence: 5
+    detection: 4
+    rpn: 140
+  prevention_controls: Monitoraggio del Jerk e shock di accelerazione su IMU OAK-D
+    Lite a 100 Hz con soglie a > 4.5 m/s² e Jerk > 45 m/s³
+  detection_controls: Macchina a stati di collision recovery con arresto immediato
+    (0.2s), retromarcia controllata (-0.10 m/s per 0.8s), rotazione di disimpegno
+    (0.35 rad/s) e reset totale di buffer/filtri EMA
+  residual_scoring:
+    severity: 4
+    occurrence: 2
+    detection: 2
+    rpn: 16
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Attivare IMUImpactDetector su /oak/imu/data integrato nella
+    pipeline NoMaD
+  verification_method: Test unitario di iniezione shock IMU, test di temporizzazione
+    FSM backoff e verifica live su robot
+  eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-08-24-002
+  lesson_ref: docs/lessons/nav2_slam_tuning.md#nomad-collision-recovery
+  date_identified: '2026-08-24'
+  last_updated: '2026-08-24'
+  history:
+  - date: '2026-08-24'
+    change: Implementato IMUImpactDetector con FSM di arresto d'emergenza, safe backoff
+      (-0.10 m/s) e reset visuale/EMA
+    rpn_old: 140
+    rpn_new: 16
+- id: FM-MOT-004
+  subsystem: Actuation/Hardware
+  component: waveshare_motor_driver
+  function: Monitoraggio stallo meccanico e protezione termica/sovracorrente dei motori
+    DC con encoder
+  failure_mode: Stallo meccanico delle ruote su ostacoli rigidi con assorbimento eccessivo
+    di corrente e surriscaldamento dei driver
+  potential_cause: Blocco del telaio contro muri/porte con velocità comandata non
+    nulla e ruote impedite nella rotazione
+  potential_effect: Caduta di tensione della batteria, potenziale surriscaldamento
+    ponte H o danno ai riduttori
+  classification: SAFETY_CRITICAL
+  estimation_basis: empirical
+  related_ids:
+  - FM-ACT-001
+  - FM-NOM-006
+  initial_scoring:
+    severity: 7
+    occurrence: 5
+    detection: 4
+    rpn: 140
+  prevention_controls: Soft-start slew rate limiter su duty cycle e monitoraggio caduta
+    di tensione da batteria
+  detection_controls: Rilevamento continuo del mismatch |v_cmd| > 0.08 m/s e |v_wheel|
+    < 0.02 m/s per t > 0.4s con sgancio PWM e backoff
+  residual_scoring:
+    severity: 3
+    occurrence: 2
+    detection: 2
+    rpn: 12
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Integrare StallSlipDetector in NoMaD e Waveshare Driver con
+    FSM di arresto d'emergenza e recovery
+  verification_method: Test unitario di iniezione stallo ruote e verifica disarmo
+    motori
+  eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-08-25-001
+  lesson_ref: docs/lessons/actuation_motor_driver.md#motor-stall-protection
+  date_identified: '2026-08-25'
+  last_updated: '2026-08-25'
+  history:
+  - date: '2026-08-25'
+    change: Introdotto StallSlipDetector con monitoraggio tracking error encoder e
+      taglio potenza motori
+    rpn_old: 140
+    rpn_new: 12
+- id: FM-NOM-007
+  subsystem: Navigation/Vision
+  component: nomad_reactive_pipeline_node
+  function: Navigazione autonoma visuale reattiva con identificazione pareti bianche
+    e protezione slittamento ruote
+  failure_mode: Cecità ottica su pareti bianche o porte monocromatiche con proiezione
+    di waypoints dritti e slittamento ruote su ostacolo
+  potential_cause: Assenza di gradienti spaziali e texture su pareti piatte monocromatiche
+    che ingannano il calcolo delle affordance visuali
+  potential_effect: Il robot si spinge contro la parete bianca facendo slittare le
+    ruote senza avanzare nel mondo reale
+  classification: SAFETY_CRITICAL
+  estimation_basis: empirical
+  related_ids:
+  - FM-NOM-006
+  - FM-MOT-004
+  initial_scoring:
+    severity: 8
+    occurrence: 5
+    detection: 4
+    rpn: 160
+  prevention_controls: Sottoscrizione al sensore ultrasonico (/ultrasonic_range) a
+    10 Hz con arresto preventivo a < 0.30m
+  detection_controls: TexturelessWallDetector basato su varianza del Laplaciano (sigma_Lap
+    < 18.0) e rilevamento slittamento (|v_wheel| > 0.05 m/s e |v_vio| < 0.015 m/s)
+  residual_scoring:
+    severity: 3
+    occurrence: 2
+    detection: 2
+    rpn: 12
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Integrare TexturelessWallDetector e sensore ultrasonico in NoMaD
+    per rotazione automatica ed evasione pareti
+  verification_method: Test unitario su frame sintetico bianco, test di prossimità
+    ultrasonica e test di slittamento ruote
+  eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-08-25-001
+  lesson_ref: docs/lessons/nav2_slam_tuning.md#white-wall-protection
+  date_identified: '2026-08-25'
+  last_updated: '2026-08-25'
+  history:
+  - date: '2026-08-25'
+    change: Implementato TexturelessWallDetector, guardia ultrasonica a 0.30m e rilevatore
+      slittamento ruote vs VIO
+    rpn_old: 160
+    rpn_new: 12
+- id: FM-NAV-013
+  subsystem: Navigation/SLAM
+  component: nav2_params_jazzy.yaml
+  function: Ricezione corretta dei messaggi di odometria da parte del BT Navigator
+    Nav2
+  failure_mode: Topic mismatch tra il publisher VIO (/odom) e il sottoscrittore BT
+    Navigator (/vo/odom)
+  potential_cause: Disallineamento nei parametri di configurazione Nav2 dopo la migrazione
+    VIO
+  potential_effect: BT Navigator non riceve odometria, timeout delle azioni di navigazione
+    e fallimento del planning
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-NAV-001
+  initial_scoring:
+    severity: 8
+    occurrence: 7
+    detection: 3
+    rpn: 168
+  prevention_controls: Allineamento del parametro odom_topic su /odom in nav2_params_jazzy.yaml
+  detection_controls: Verifica delle sottoscrizioni ROS 2 e log di Nav2 lifecycle
+  residual_scoring:
+    severity: 2
+    occurrence: 1
+    detection: 1
+    rpn: 2
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Correggere odom_topic in /odom nella sezione bt_navigator
+  verification_method: Ispezione parametri e test di navigazione Nav2
+  eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-08-26-001
+  lesson_ref: docs/lessons/nav2_slam_tuning.md#odometry-topics
+  date_identified: '2026-08-26'
+  last_updated: '2026-08-26'
+  history:
+  - date: '2026-08-26'
+    change: Allineato odom_topic a /odom in nav2_params_jazzy.yaml
+    rpn_old: 168
+    rpn_new: 2
+- id: FM-SEM-001
+  subsystem: Vision/Hailo
+  component: semantic_costmap_injector
+  function: Iniezione degli ostacoli semantici rilevati da Hailo NPU nella costmap
+    Nav2
+  failure_mode: Ostacoli semantici non visibili nella costmap o scartati per filtro
+    classi restrittivo o centroid_3d mancante
+  potential_cause: Whitelist rigida a 3 sole classi generiche e assenza di deproiezione
+    3D da depth map per rilevamenti 2D
+  potential_effect: Oggetti domestici (sedie, tavoli, porte) ignorati nella costmap,
+    rischio collisione
+  classification: SAFETY_CRITICAL
+  estimation_basis: empirical
+  related_ids:
+  - FM-VIS-001
+  initial_scoring:
+    severity: 7
+    occurrence: 8
+    detection: 4
+    rpn: 224
+  prevention_controls: Whitelist estesa di classi/label COCO e deproiezione automatica
+    2D->3D con depth map in semantic_costmap_injector
+  detection_controls: Pubblicazione marker di debug su /semantic_costmap_injector/debug
+    e PointCloud2 su /hailo_semantic_obstacles_pc
+  residual_scoring:
+    severity: 2
+    occurrence: 1
+    detection: 2
+    rpn: 4
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Implementare deproiezione depth automatica e whitelist configurabile
+  verification_method: Test unitario e visualizzazione marker su Foxglove Studio
+  eco_ref: docs/ecos/vision_hailo_ecos.md#ECO-2026-08-26-001
+  lesson_ref: docs/lessons/nav2_slam_tuning.md#semantic-costmap-injection
+  date_identified: '2026-08-26'
+  last_updated: '2026-08-26'
+  history:
+  - date: '2026-08-26'
+    change: Aggiunta deproiezione automatica depth 2D->3D e whitelist estesa in semantic_costmap_injector.py
+    rpn_old: 224
+    rpn_new: 4
+- id: FM-MEM-011
+  subsystem: Memory/Resources
+  component: semantic_costmap_injector
+  function: Gestione delimitata della memoria RAM su Raspberry Pi 5 con 4GB
+  failure_mode: Crescita incontrollata (unbounded dict growth) del dizionario active_obstacles
+    durante lunghe sessioni di esplorazione
+  potential_cause: Mancanza di un tetto massimo di elementi (cap) con eviction FIFO
+    in memoria
+  potential_effect: Saturazione progressiva della RAM e possibile trigger dell'OOM
+    killer su Pi 5
+  classification: MISSION_CRITICAL
+  estimation_basis: analytical
+  related_ids:
+  - FM-SYS-001
+  initial_scoring:
+    severity: 8
+    occurrence: 6
+    detection: 4
+    rpn: 192
+  prevention_controls: Parametro max_active_obstacles (cap a 500) con algoritmo di
+    eviction FIFO temporale del 10% degli elementi più vecchi
+  detection_controls: Monitoraggio RSS memoria e log di saturazione
+  residual_scoring:
+    severity: 2
+    occurrence: 1
+    detection: 1
+    rpn: 2
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Imporre tetto massimo di 500 ostacoli con FIFO eviction
+  verification_method: Test unitario con inserimento di oltre 600 ostacoli e verifica
+    cap
+  eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-08-26-001
+  lesson_ref: docs/lessons/nav2_slam_tuning.md#memory-containment
+  date_identified: '2026-08-26'
+  last_updated: '2026-08-26'
+  history:
+  - date: '2026-08-26'
+    change: Implementato cap a 500 ostacoli con FIFO eviction in semantic_costmap_injector.py
+    rpn_old: 192
+    rpn_new: 2
+- id: FM-NAV-014
+  subsystem: Navigation/SLAM
+  component: restart_hailo.sh
+  function: Persistenza e continuità della mappa SLAM RTAB-Map tra i riavvii del robot
+  failure_mode: Cancellazione della mappa del database RTAB-Map ad ogni riavvio del
+    servizio
+  potential_cause: Presenza del flag --delete_db_on_start nel comando di avvio di
+    rtabmap
+  potential_effect: Perdita della mappa ambientale, impossibilità di localizzazione
+    persistente e violazione di marcus_core_rules
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-NAV-001
+  initial_scoring:
+    severity: 8
+    occurrence: 9
+    detection: 2
+    rpn: 144
+  prevention_controls: Rimozione tassativa del flag --delete_db_on_start dallo script
+    restart_hailo.sh
+  detection_controls: Ispezione rtabmap.db su disco e verifica persistenza nodi SLAM
+    tra i riavvii
+  residual_scoring:
+    severity: 2
+    occurrence: 1
+    detection: 1
+    rpn: 2
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Eliminare il flag --delete_db_on_start dal lancio di rtabmap
+    in restart_hailo.sh
+  verification_method: Riavvio dello stack e verifica che rtabmap.db contenga i dati
+    della sessione precedente
+  eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-08-26-001
+  lesson_ref: marcus_core_rules.md#2-vincolo-di-mappatura-e-slam-no-stvl
+  date_identified: '2026-08-26'
+  last_updated: '2026-08-26'
+  history:
+  - date: '2026-08-26'
+    change: Rimosso il flag --delete_db_on_start da restart_hailo.sh
+    rpn_old: 144
+    rpn_new: 2

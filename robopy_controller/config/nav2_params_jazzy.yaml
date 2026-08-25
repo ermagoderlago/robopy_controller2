@@ -16,7 +16,7 @@ bt_navigator:
     use_sim_time: false
     global_frame: map
     robot_base_frame: base_link
-    odom_topic: /vo/odom  # ECO00023: fast_flow_vo pubblica qui (non più /rtabmap/odom)
+    odom_topic: /odom  # [FIX FM-NAV-013] fast_flow_vo pubblica su /odom
     transform_tolerance: 5.0
     bt_loop_duration: 10
     default_server_timeout: 40
@@ -66,9 +66,9 @@ controller_server:
     # Controller (MPPI) ottimizzato per robot cingolato non olonomo
     FollowPath:
       plugin: "nav2_mppi_controller::MPPIController"
-      time_steps: 30    # Orizzonte ridotto (robot lento, non serve guardare lontano)
+      time_steps: 20    # [CPU-OPT Pi 5] Orizzonte ridotto (robot lento, non serve guardare lontano)
       model_dt: 0.2     # Passo temporale doppio (coerente con robot lento)
-      batch_size: 500   # Ridotto per CPU/RAM Pi 5
+      batch_size: 300   # [CPU-OPT Pi 5] Ridotto da 500 a 300 per contenere CPU/RAM Pi 5
       vx_std: 0.03      # Campionamento stretto (velocità basse)
       vy_std: 0.0
       wz_std: 0.08       # Campionamento proporzionale

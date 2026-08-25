@@ -76,20 +76,19 @@ class TestNegativeObstacleAlgorithm(unittest.TestCase):
         # Mock TF buffer
         injector.tf_buffer = MagicMock()
         injector.tf_buffer.can_transform.return_value = True
+        injector.depth_lock = MagicMock()
+        injector.max_obstacles = 500
+        injector._depth_frame_counter = 5  # Set to 5 so 5+1=6 executes without throttle skip
 
-        def mock_transform(pt_cam, frame):
-            pt_out = MagicMock()
-            if pt_cam.point.y > 0.4:
-                pt_out.point.x = pt_cam.point.x
-                pt_out.point.y = pt_cam.point.z
-                pt_out.point.z = -0.25
-            else:
-                pt_out.point.x = pt_cam.point.x
-                pt_out.point.y = pt_cam.point.z
-                pt_out.point.z = 0.0
-            return pt_out
-
-        injector.tf_buffer.transform.side_effect = mock_transform
+        mock_tf = MagicMock()
+        mock_tf.transform.rotation.x = 0.0
+        mock_tf.transform.rotation.y = 0.0
+        mock_tf.transform.rotation.z = 0.0
+        mock_tf.transform.rotation.w = 1.0
+        mock_tf.transform.translation.x = 0.0
+        mock_tf.transform.translation.y = 0.0
+        mock_tf.transform.translation.z = -0.20  # floor drop offset
+        injector.tf_buffer.lookup_transform.return_value = mock_tf
 
         # Create mock image msg
         height, width = 400, 640

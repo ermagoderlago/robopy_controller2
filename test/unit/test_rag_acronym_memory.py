@@ -40,11 +40,24 @@ if 'robopy_controller.srv' not in sys.modules:
     sys.modules['robopy_controller.srv'] = mock_srv
     sys.modules['robopy_controller.msg'] = mock_srv
 
+import os
+import sys
+
+# Add robopy_controller directories to sys.path
+for p in ['.', '..', 'robopy_controller', '../robopy_controller', '/mnt/ssd/robopy_controller_host/robopy_controller', '/mnt/ssd/robopy_controller_host']:
+    if os.path.isdir(p) and p not in sys.path:
+        sys.path.insert(0, p)
+
 import unittest
 import asyncio
-from robot_ai.orchestration.conversation import ConversationManager
-from robot_ai.orchestration.memory_manager import MemoryManager
-from robot_ai.rag.memory_store import Memory, MemoryType
+try:
+    from robot_ai.orchestration.conversation import ConversationManager
+    from robot_ai.orchestration.memory_manager import MemoryManager
+    from robot_ai.rag.memory_store import Memory, MemoryType
+except ImportError:
+    from robopy_controller.robot_ai.orchestration.conversation import ConversationManager
+    from robopy_controller.robot_ai.orchestration.memory_manager import MemoryManager
+    from robopy_controller.robot_ai.rag.memory_store import Memory, MemoryType
 
 
 class TestRagAcronymMemory(unittest.TestCase):
