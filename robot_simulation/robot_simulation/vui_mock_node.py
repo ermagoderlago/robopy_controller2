@@ -29,7 +29,7 @@ class VuiMockNode(Node):
             10
         )
         
-        self.api_key = os.environ.get('GEMINI_API_KEY', 'AIzaSyDmzTCNxAhaWJZzlMvRHR3Jat79r8RwHSo')
+        self.api_key = os.environ.get('GEMINI_API_KEY', '')
         self.api_url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={self.api_key}'
         
         self.system_prompt = "Sei Marcus, un robot mobile autonomo in simulazione Gazebo. Rispondi in italiano in modo sintetico e amichevole."

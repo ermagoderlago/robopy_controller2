@@ -56,7 +56,7 @@ class DiffDriveMockNode(Node):
         self.last_time = self.get_clock().now()
 
         # Load GEMINI_API_KEY from environment or file
-        self.gemini_key = os.environ.get('GEMINI_API_KEY', 'AIzaSyDmzTCNxAhaWJZzlMvRHR3Jat79r8RwHSo')
+        self.gemini_key = os.environ.get('GEMINI_API_KEY', '')
 
         # Broadcast exact marcus_robot URDF TF Tree
         self.publish_static_transforms()
