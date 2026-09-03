@@ -186,6 +186,8 @@ setup(
             "robot_health_supervisor = robopy_controller.nodes.robot_health_supervisor:main",
             "room_mapping_scan_node = robopy_controller.nodes.room_mapping_scan_node:main",
             "attention_supervisor_node = robopy_controller.nodes.attention_supervisor_node:main",
+            "system_lifecycle_coordinator_node = robopy_controller.nodes.system_lifecycle_coordinator_node:main",
+            "live_connection_bridge_node = robopy_controller.robot_ai.services.live_connection_bridge_node:main",
             # === Cognitive Brain ===
             "chroma_synaptic_manager = robopy_controller.robot_ai.cognitive.chroma_synaptic_manager:main",
             "cognitive_amygdala = robopy_controller.robot_ai.cognitive.cognitive_amygdala:main",

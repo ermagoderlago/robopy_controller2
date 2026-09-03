@@ -380,6 +380,9 @@ void FastFlowVONode::processLoop() {
                     double ay_ros = -packet.acceleroMeter.x;
                     double az_ros = packet.acceleroMeter.y;
                     
+                    // Track forward acceleration for wheel slip detection (FM-NAV-015)
+                    last_forward_accel_imu_.store(ax_ros, std::memory_order_release);
+                    
                     imu_msg.linear_acceleration.x = ax_ros;
                     imu_msg.linear_acceleration.y = ay_ros;
                     imu_msg.linear_acceleration.z = az_ros;
@@ -388,14 +391,34 @@ void FastFlowVONode::processLoop() {
                     double gy_ros = -packet.gyroscope.x;
                     double gz_ros = packet.gyroscope.y;
                     
-                    const double GYRO_DEADBAND = 0.01;
-                    if (std::abs(gx_ros) < GYRO_DEADBAND) gx_ros = 0.0;
-                    if (std::abs(gy_ros) < GYRO_DEADBAND) gy_ros = 0.0;
-                    if (std::abs(gz_ros) < GYRO_DEADBAND) gz_ros = 0.0;
+                    // Dynamic ZUPT Gyro Z Bias Estimation (FM-NAV-017)
+                    // When robot is commanded stationary and angular motion is small, estimate gyro Z bias
+                    if (!motors_active_.load() && std::abs(gz_ros) < 0.08) {
+                        gyro_bias_accum_ += gz_ros;
+                        gyro_bias_samples_++;
+                        if (gyro_bias_samples_ >= GYRO_BIAS_WINDOW) {
+                            double avg_bias = gyro_bias_accum_ / gyro_bias_samples_;
+                            double current_bias = gyro_z_bias_.load(std::memory_order_acquire);
+                            double updated_bias = (current_bias == 0.0) ? avg_bias : (0.85 * current_bias + 0.15 * avg_bias);
+                            gyro_z_bias_.store(updated_bias, std::memory_order_release);
+                            gyro_bias_accum_ = 0.0;
+                            gyro_bias_samples_ = 0;
+                            RCLCPP_DEBUG_THROTTLE(get_logger(), *get_clock(), 15000,
+                                "🧭 [FM-NAV-017] IMU Gyro Z Bias dynamically updated: %.5f rad/s", updated_bias);
+                        }
+                    }
+                    
+                    // Subtract dynamic bias from Gyro Z
+                    double gz_corrected = gz_ros - gyro_z_bias_.load(std::memory_order_acquire);
+                    
+                    const double GYRO_DEADBAND = 0.005; // Tight deadband due to dynamic bias compensation
+                    if (std::abs(gx_ros) < 0.01) gx_ros = 0.0;
+                    if (std::abs(gy_ros) < 0.01) gy_ros = 0.0;
+                    if (std::abs(gz_corrected) < GYRO_DEADBAND) gz_corrected = 0.0;
                     
                     imu_msg.angular_velocity.x = gx_ros;
                     imu_msg.angular_velocity.y = gy_ros;
-                    imu_msg.angular_velocity.z = gz_ros;
+                    imu_msg.angular_velocity.z = gz_corrected;
                     
                     imu_msg.orientation_covariance[0] = -1;
                     
@@ -553,12 +576,50 @@ void FastFlowVONode::processFrame(const cv::Mat& gray, const cv::Mat& depth,
                     tracking_ok = true;
                     using_wheel_fallback_.store(false, std::memory_order_release);
                     
-                    // Reset wheel deltas when visual PnP is healthy
+                    // --- Online Wheel-to-VIO Calibration with Covariance & Slip Gating (FM-NAV-015) ---
+                    double d_vio = result.translation_norm;
+                    double d_wheel = 0.0;
+                    double dyaw_wheel = 0.0;
                     {
                         std::lock_guard<std::mutex> lock(wheel_odom_mutex_);
+                        d_wheel = std::sqrt(wheel_delta_x_ * wheel_delta_x_ + wheel_delta_y_ * wheel_delta_y_);
+                        dyaw_wheel = wheel_delta_yaw_;
+                        
+                        // Reset wheel deltas when visual PnP is healthy
                         wheel_delta_x_ = 0.0;
                         wheel_delta_y_ = 0.0;
                         wheel_delta_yaw_ = 0.0;
+                    }
+                    
+                    // Gating conditions for calibration update:
+                    // 1. High inlier count (result.inliers >= good_inlier_threshold)
+                    // 2. No wheel slip detected (!wheel_slip_detected_)
+                    // 3. Significant physical displacement (d_wheel > 3cm and d_vio > 2cm)
+                    bool slip = wheel_slip_detected_.load(std::memory_order_acquire);
+                    bool high_confidence_vo = (result.inliers >= config_.good_inlier_threshold);
+                    
+                    if (high_confidence_vo && !slip && d_wheel > 0.03 && d_vio > 0.02) {
+                        double instantaneous_scale = d_vio / d_wheel;
+                        if (instantaneous_scale >= 0.75 && instantaneous_scale <= 1.25) {
+                            double cur_scale = wheel_scale_.load(std::memory_order_acquire);
+                            double new_scale = 0.95 * cur_scale + 0.05 * instantaneous_scale;
+                            // Clamp to strict safe boundary [0.85, 1.15]
+                            new_scale = std::max(0.85, std::min(1.15, new_scale));
+                            wheel_scale_.store(new_scale, std::memory_order_release);
+                        }
+                    }
+                    
+                    if (high_confidence_vo && !slip && std::abs(dyaw_wheel) > 0.05 && std::abs(last_delta_yaw_) > 0.03) {
+                        double instantaneous_yaw_diff = last_delta_yaw_ - dyaw_wheel;
+                        while (instantaneous_yaw_diff > M_PI) instantaneous_yaw_diff -= 2.0 * M_PI;
+                        while (instantaneous_yaw_diff < -M_PI) instantaneous_yaw_diff += 2.0 * M_PI;
+                        
+                        if (std::abs(instantaneous_yaw_diff) < 0.20) {
+                            double cur_yaw_off = wheel_yaw_offset_.load(std::memory_order_acquire);
+                            double new_yaw_off = 0.95 * cur_yaw_off + 0.05 * instantaneous_yaw_diff;
+                            new_yaw_off = std::max(-0.15, std::min(0.15, new_yaw_off));
+                            wheel_yaw_offset_.store(new_yaw_off, std::memory_order_release);
+                        }
                     }
                 }
             }
@@ -575,15 +636,22 @@ void FastFlowVONode::processFrame(const cv::Mat& gray, const cv::Mat& depth,
             publishDebugView(gray, prev_pts, curr_pts, {}, stamp);
         }
         
-        // Wheel Odometry Fallback: If visual tracking failed while robot is moving, apply wheel odometry delta
+        // Wheel Odometry Fallback: If visual tracking failed while robot is moving, apply calibrated wheel odometry delta
         if (!tracking_ok && isRobotMoving()) {
             std::lock_guard<std::mutex> lock(wheel_odom_mutex_);
             if (has_prev_wheel_odom_ && (std::abs(wheel_delta_x_) > 1e-5 || std::abs(wheel_delta_yaw_) > 1e-5)) {
+                // Apply calibrated scale and yaw offset (FM-NAV-015)
+                double scale = wheel_scale_.load(std::memory_order_acquire);
+                double yaw_offset = wheel_yaw_offset_.load(std::memory_order_acquire);
+                
+                double calibrated_dx = wheel_delta_x_ * scale;
+                double calibrated_dyaw = wheel_delta_yaw_ + yaw_offset;
+                
                 // Non-holonomic differential drive: only forward x translation, y is 0
-                Eigen::Vector3d t_wheel(wheel_delta_x_, 0.0, 0.0);
+                Eigen::Vector3d t_wheel(calibrated_dx, 0.0, 0.0);
                 Eigen::Isometry3d T_delta = Eigen::Isometry3d::Identity();
                 T_delta.translation() = t_wheel;
-                T_delta.linear() = Eigen::AngleAxisd(wheel_delta_yaw_, Eigen::Vector3d::UnitZ()).toRotationMatrix();
+                T_delta.linear() = Eigen::AngleAxisd(calibrated_dyaw, Eigen::Vector3d::UnitZ()).toRotationMatrix();
                 
                 {
                     std::lock_guard<std::mutex> pose_lock(state_mutex_);
@@ -592,8 +660,8 @@ void FastFlowVONode::processFrame(const cv::Mat& gray, const cv::Mat& depth,
                 
                 using_wheel_fallback_.store(true, std::memory_order_release);
                 RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
-                    "⚠️ VIO visual tracking lost — wheel odometry fallback active (dx=%.3f, dyaw=%.3f)",
-                    wheel_delta_x_, wheel_delta_yaw_);
+                    "⚠️ [FM-NAV-015] VIO visual tracking lost — calibrated wheel fallback active (dx=%.3f [scale=%.2f], dyaw=%.3f)",
+                    calibrated_dx, scale, calibrated_dyaw);
                     
                 wheel_delta_x_ = 0.0;
                 wheel_delta_y_ = 0.0;
@@ -1421,6 +1489,22 @@ void FastFlowVONode::publishDiagnostics(const rclcpp::Time& stamp) {
     kv.value = std::to_string(processed_frames_.load(std::memory_order_relaxed));
     status.values.push_back(kv);
 
+    kv.key = "Wheel_Scale";
+    oss.str("");
+    oss << std::fixed << std::setprecision(3) << wheel_scale_.load(std::memory_order_acquire);
+    kv.value = oss.str();
+    status.values.push_back(kv);
+
+    kv.key = "Wheel_Slip";
+    kv.value = wheel_slip_detected_.load(std::memory_order_acquire) ? "DETECTED" : "NOMINAL";
+    status.values.push_back(kv);
+
+    kv.key = "Gyro_Z_Bias";
+    oss.str("");
+    oss << std::fixed << std::setprecision(5) << gyro_z_bias_.load(std::memory_order_acquire) << " rad/s";
+    kv.value = oss.str();
+    status.values.push_back(kv);
+
     kv.key = "FPS";
     oss.str("");
     double elapsed = (stamp - start_time_).seconds();
@@ -1684,6 +1768,24 @@ void FastFlowVONode::wheelOdomCallback(const nav_msgs::msg::Odometry::SharedPtr 
         wheel_delta_x_ += dx_local;
         wheel_delta_y_ += dy_local;
         wheel_delta_yaw_ += dyaw;
+        
+        // Wheel slip detection (FM-NAV-015): compare wheel linear acceleration vs IMU forward acceleration
+        rclcpp::Time current_stamp = msg->header.stamp;
+        double dt = (last_wheel_time_.nanoseconds() > 0) ? (current_stamp - last_wheel_time_).seconds() : 0.033;
+        if (dt > 0.005 && dt < 0.2) {
+            double current_speed = msg->twist.twist.linear.x;
+            double wheel_accel = (current_speed - last_wheel_speed_) / dt;
+            last_wheel_speed_ = current_speed;
+            
+            double imu_accel = last_forward_accel_imu_.load(std::memory_order_acquire);
+            double accel_diff = std::abs(wheel_accel - imu_accel);
+            bool slip = (accel_diff > 0.25); // 0.25 m/s^2 slip threshold
+            wheel_slip_detected_.store(slip, std::memory_order_release);
+        }
+        last_wheel_time_ = current_stamp;
+    } else {
+        last_wheel_time_ = msg->header.stamp;
+        last_wheel_speed_ = msg->twist.twist.linear.x;
     }
     
     prev_wheel_odom_ = *msg;

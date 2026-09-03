@@ -363,6 +363,10 @@ class ReSpeakerVUINode(Node):
         
         self.sub_speaker = self.create_subscription(
             String, '/speaker/identity', self._speaker_identity_cb, 10)
+            
+        # Lifecycle Operating State Subscription
+        self.sub_operating_state = self.create_subscription(
+            String, '/system/operating_state', self._operating_state_callback, 10)
 
         # ------------------------------------------------------------------ #
         # Timer e loop asincroni
@@ -441,7 +445,38 @@ class ReSpeakerVUINode(Node):
             f"stt_gain={self.stt_gain}"
         )
 
+    def _operating_state_callback(self, msg: String):
+        state = msg.data.upper()
+        if state == "HUMAN_INTERACTION_MODE":
+            self.apply_realtime_priority(True)
+        else:
+            self.apply_realtime_priority(False)
 
+    def apply_realtime_priority(self, enable: bool):
+        """Applies Linux real-time scheduling priority (or high niceness) to the audio VUI thread."""
+        try:
+            if hasattr(os, 'sched_setscheduler'):
+                pid = os.getpid()
+                if enable:
+                    try:
+                        param = os.sched_param(50)
+                        os.sched_setscheduler(pid, os.SCHED_RR, param)
+                        self.get_logger().info("[VUI_PRIORITY] Linux Real-Time SCHED_RR (Priority 50) abilitato per Human Interaction.")
+                    except (PermissionError, AttributeError):
+                        try:
+                            os.nice(-10)
+                            self.get_logger().info("[VUI_PRIORITY] os.nice(-10) applicato per Human Interaction.")
+                        except Exception:
+                            pass
+                else:
+                    try:
+                        param = os.sched_param(0)
+                        os.sched_setscheduler(pid, os.SCHED_OTHER, param)
+                        self.get_logger().info("[VUI_PRIORITY] Linux SCHED_OTHER ripristinato.")
+                    except Exception:
+                        pass
+        except Exception as e:
+            self.get_logger().debug(f"[VUI_PRIORITY] Priority switch unavailable: {e}")
 
     def _parameter_callback(self, params):
         from rcl_interfaces.msg import SetParametersResult

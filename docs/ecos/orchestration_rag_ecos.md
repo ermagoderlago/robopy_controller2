@@ -91,3 +91,26 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
   * Registrati i Failure Modes FM-TRI-001..FM-TRI-007 in `fmea/dfmea.yaml`.
   * Creata la test suite completa in `tests/test_trinity_full.py`.
 
+---
+
+## 📈 ECO-2026-08-28-LIFECYCLE-SENTINEL: Memory Pressure Sentinel & Gestione Ciclo di Vita su 4GB RAM
+* **Stato:** ✅ **Completato in Workspace Locale (Pronto per Deploy)**
+* **Descrizione:** Implementazione del coordinatore centralizzato del ciclo di vita ROS 2 (`system_lifecycle_coordinator_node.py`) e del Memory Pressure Sentinel basato su Linux PSI (`/proc/pressure/memory`), per prevenire memory creep ed eliminare i riavvii brutali da watchdog bash.
+* **Modifiche apportate:**
+  * Creato `robopy_controller/nodes/system_lifecycle_coordinator_node.py`:
+    - Monitoraggio Linux PSI a 2 Hz con soglia `full avg10 >= 0.30` (WARNING_FREEZE) e `full avg10 >= 0.60` (CRITICAL_EVICT).
+    - Gestione FSM a 3 stati: `NAVIGATION_ACTIVE` (navigazione/SLAM prioritaria, daydreaming sospeso), `DOCKED_DREAM` (navigazione inattiva, consolidamento e DeepSeek attivi), `HUMAN_INTERACTION_MODE` (RTAB-Map a 0.25 Hz, priority boost su VUI audio).
+  * Modificato `robopy_controller/robot_ai/orchestration/memory_manager.py`:
+    - Aggiunte funzioni `freeze_embeddings()`, `unfreeze_embeddings()` e `clear_transient_buffers()` con gating sui vettori.
+  * Modificato `robopy_controller/robot_ai/services/nightly_dream_service.py`:
+    - Aggiunti metodi di controllo `suspend()` e `resume()`.
+  * Modificato `robopy_controller/robot_ai/orchestration/orchestrator.py`:
+    - Sottoscrizione ai topic `/system/operating_state`, `/system/memory_freeze`, `/system/emergency_evict`.
+  * Modificato `robopy_controller/nodes/respeaker_vui_node.py`:
+    - Implementato `apply_realtime_priority()` con `os.sched_setscheduler` (`SCHED_RR` / `os.nice(-10)`).
+  * Modificato `setup.py` e `restart_hailo.sh`:
+    - Registrato entry point e inserito l'avvio sequenziale del coordinator.
+  * Creata suite di test unitari `test/unit/test_memory_pressure_sentinel.py` (7/7 PASS).
+  * Registrato il Failure Mode `FM-SYS-008` in `fmea/dfmea.yaml` e generato `IMP-SYS-008_lifecycle_memory_sentinel.md`.
+
+

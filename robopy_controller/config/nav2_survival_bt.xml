@@ -17,24 +17,21 @@
         </RecoveryNode>
       </PipelineSequence>
 
-      <!-- Sequenza di Sblocco Sopravvivenza (In caso di timeout / ostacolo invisibile) -->
+      <!-- Sequenza di Sblocco Sopravvivenza (FM-NAV-019: Safe Recovery senza spin cieco) -->
       <Sequence name="SurvivalRecoverySequence">
-        <!-- 1. Indietreggia alla cieca per sbloccarsi -->
-        <BackUp backup_dist="0.15" backup_speed="0.15" name="DisengageBackUp" error_code_id="{backup_error_code}"/>
+        <!-- 1. Indietreggia controllato e lento per disimpegno sicuro -->
+        <BackUp backup_dist="0.08" backup_speed="0.08" name="DisengageBackUp" error_code_id="{backup_error_code}"/>
         
         <Wait wait_duration="0.5"/>
         
-        <!-- 2. Pulisci la memoria locale e globale -->
+        <!-- 2. Pulisci la memoria locale e globale per sbloccare costmap transitorie -->
         <ClearEntireCostmap name="ClearGlobalCostmap-Recovery" service_name="/global_costmap/clear_entirely_global_costmap"/>
         <ClearEntireCostmap name="ClearLocalCostmap-Recovery" service_name="/local_costmap/clear_entirely_local_costmap"/>
         
-        <!-- 3. Ruota sul posto di 90 gradi per aggiornare l'odometria visiva e mappare -->
-        <!-- 90 gradi = 1.57 radianti -->
-        <Spin spin_dist="1.57" name="MappingSpin90Deg" error_code_id="{spin_error_code}"/>
-        
+        <!-- 3. Breve pausa di stabilizzazione sensoriale (nessun spin cieco fuori dal FoV camera) -->
         <Wait wait_duration="0.5"/>
         
-        <!-- 4. Ricalcola un percorso fresco dallo spazio appena scoperto -->
+        <!-- 4. Ricalcola un percorso fresco dallo spazio aggiornato -->
         <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased" error_code_id="{compute_path_error_code}"/>
       </Sequence>
       

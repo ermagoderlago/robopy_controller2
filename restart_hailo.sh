@@ -46,6 +46,7 @@ pkill -9 -f marcus_semantic_mapper_cpp || true
 pkill -9 -f semantic_costmap_injector || true
 pkill -9 -f engagement_monitor || true
 pkill -9 -f robot_health_supervisor || true
+pkill -9 -f system_lifecycle_coordinator_node || true
 pkill -9 -f attention_supervisor_node || true
 pkill -9 -f localization_fuser_node || true
 pkill -9 -f battery_manager_node || true
@@ -291,6 +292,11 @@ echo "🌐 Starting cloud_watchdog_node (Local NPU vs Cloud Fallback)..."
 > /home/robopy/robopy/logs/cloud_watchdog_node.log
 nohup ros2 run robopy_controller cloud_watchdog_node \
     > /home/robopy/robopy/logs/cloud_watchdog_node.log 2>&1 &
+
+echo "🛡️ Starting system_lifecycle_coordinator_node (Memory Pressure Sentinel & Lifecycle)..."
+> /home/robopy/robopy/logs/system_lifecycle_coordinator_node.log
+nohup ros2 run robopy_controller system_lifecycle_coordinator_node \
+    > /home/robopy/robopy/logs/system_lifecycle_coordinator_node.log 2>&1 &
 
 echo "🤖 Starting robot_ai_node (Cognitive Orchestrator)..."
 > /home/robopy/robopy/logs/robot_ai_node_debug_TEST4.log

@@ -56,14 +56,16 @@ rtabmap:
     Grid/FootprintWidth: "0.18"
     Grid/FootprintHeight: "0.10"
 
-    # Loop Closure — DBoW3 nativo C++ (ORB/FAST)
+    # Loop Closure — DBoW3 nativo C++ (ORB/FAST) (FM-NAV-016)
     Kp/MaxFeatures: "1000"
     Kp/MinFeatures: "30"          # Scarta frame con meno di 30 feature visive (guardrail pareti spoglie)
     Kp/DetectorStrategy: "8"      # 8 = ORB / FAST (DBoW3 nativo C++)
+    Kp/RoiRatios: "0.0 0.0 0.10 0.0" # Taglia il 10% inferiore dell'immagine (evita falsi match su riflessi/texture pavimento)
     Vis/FeatureType: "6"          # GFTT/BRIEF — veloce su RPi5
     Vis/MinInliers: "15"          # Almeno 15 match 3D stabili per convalidare lo spostamento
+    Vis/PnPReprojError: "2.5"     # Tolleranza riproiezione PnP rigida contro aliasing percettivo
     Vis/CorType: "0"              # Features nativo C++
-    Rtabmap/LoopThr: "0.15"
+    Rtabmap/LoopThr: "0.20"       # Soglia di similarità innalzata a 0.20 (previene falsi loop in corridoi simmetrici)
     RGBD/LoopClosureReextractFeatures: "true"
 
     # 3DoF forzato (robot 2D)

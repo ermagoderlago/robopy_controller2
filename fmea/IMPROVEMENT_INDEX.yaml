@@ -80,6 +80,45 @@ improvements:
     status: "COMPLETED"
     domain: "nav2_slam"
 
+  FM-NAV-015:
+    title: "Miglioramento Odometria: Gating Covariante e Freeze Calibrazione Ruote su Wheel Slip"
+    file: "docs/improvements/IMP-NAV-015_wheel_slip_gating.md"
+    status: "COMPLETED"
+    domain: "nav2_slam"
+
+  FM-NAV-016:
+    title: "Miglioramento SLAM: Anti-Aliasing Percettivo e Strict Geometric Verification in RTAB-Map"
+    file: "docs/improvements/IMP-NAV-016_rtabmap_antialiasing.md"
+    status: "COMPLETED"
+    domain: "nav2_slam"
+
+  FM-NAV-017:
+    title: "Miglioramento Odometria: Dynamic ZUPT Gyro Z Bias Auto-Nulling per Deriva Termica BMI270"
+    file: "docs/improvements/IMP-NAV-017_imu_bias_zupt.md"
+    status: "COMPLETED"
+    domain: "nav2_slam"
+
+  FM-NAV-019:
+    title: "Miglioramento Navigazione: Safe Recovery Behavior Tree e Costmap Persistence Policy"
+    file: "docs/improvements/IMP-NAV-019_nav2_safe_recovery.md"
+    status: "COMPLETED"
+    domain: "nav2_slam"
+
+  FM-SYS-008:
+    title: "Miglioramento Sistema: Memory Pressure Sentinel e Gestione Aggressiva Lifecycle su 4GB RAM"
+    file: "docs/improvements/IMP-SYS-008_lifecycle_memory_sentinel.md"
+    status: "COMPLETED"
+    domain: "cognitive_ai"
+
+  FM-VUI-023:
+    title: "Miglioramento VUI: Smembramento Pipeline Cognitiva in Bridge, Audio Buffer e Skill Action Server"
+    file: "docs/improvements/IMP-VUI-023_cognitive_pipeline_modularization.md"
+    status: "COMPLETED"
+    domain: "audio_vui"
+
+
+
+
 
 
 

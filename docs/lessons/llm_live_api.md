@@ -89,4 +89,16 @@ Questo documento documenta la gestione del bidi-streaming vocale, la latenza dei
   - Implementare una callback Python sincrona e diretta `register_audio_callback` tra `LLMServiceNode` e `AIOrchestrator`.
   - Poiché il loop di ricezione WebSocket di Gemini gira sul thread a ciclo singolo asincrono di asyncio, la callback diretta inoltra i chunk in ordine cronologico perfetto e sequenziale. La pubblicazione finale su `/respeaker/speaker_audio` avviene così in modo strettamente ordinato, ripristinando la pulizia assoluta dell'audio in cuffia/altoparlante.
 
+---
+
+## 🧩 Smembramento Architetturale Monolite `llm_service.py` (FM-VUI-023)
+
+### 1. Scomposizione Modulare
+* **Problema:** Il monolite originario (>46 KB) concentrava socket WebSocket, ring buffer FIFO, turn-taking, software AEC e skill execution nello stesso thread/processo, causando contesa del GIL e audio glitch.
+* **Architettura a 3 Sottostrutture:**
+  1. **`live_connection_bridge_node` (`robopy_controller/robot_ai/services/live_connection_bridge_node.py`):** Nodo leggero e focalizzato unicamente sul ciclo di vita del WebSocket asincrono bidi-streaming di Gemini Live.
+  2. **`audio_buffer_manager` (`robopy_controller/robot_ai/services/audio_buffer_manager.py`):** Modulo thread-safe isolato con calcolo RMS continuo, Acoustic Echo Suppression (scarto dei frame mic a bassa energia durante il parlato dello speaker) e barge-in reattivo (flushing istantaneo del buffer speaker su interruzione vocale).
+  3. **`skill_action_server` (`robopy_controller/robot_ai/orchestration/skill_action_server.py`):** Server di azioni asincrono per l'orchestrazione delle skill con feedback di avanzamento in streaming continuo (es. stanze esplorate in `search_skill`) e gestione nativa della preemption con blocco immediato della navigazione.
+
+
 

@@ -63,5 +63,20 @@ Questo documento traccia la cronologia delle modifiche ingegneristiche (ECO) app
   * In `live_connection_manager.py`, `llm_service.py` ed `orchestrator.py`, introdotto il callback `on_fallback_needed` ed il topic `/ai/live/fallback` per rilevare errori 404/1008 o disconnessioni Gemini, avvisando l'utente via TTS locale (*"Gemini non è al momento raggiungibile..."*) e dirottando le richieste dell'utente sull'NPU locale via `/hailo/vlm/ask_question`.
   * Aggiornato `sync_marcus.sh` nello Step 1 (Back-Sync) per sincronizzare il file `.env` dal robot al PC, evitando la sovrascrittura da parte del PC dei modelli auto-scoperti dal robot.
 
+---
+
+## 📈 ECO-2026-08-28-COGNITIVE-PIPELINE-SPLIT: Smembramento Architetturale Monolite `llm_service.py`
+* **Stato:** ✅ **Completato in Workspace Locale (Pronto per Deploy)**
+* **Descrizione:** Smembramento del monolite `llm_service.py` (>46 KB) in tre sottostrutture indipendenti e disaccoppiate: gestione WebSocket Live bidi-streaming (`live_connection_bridge_node`), gestione buffering audio PCM 16kHz & echo suppression (`audio_buffer_manager`), e action server asincrono per l'orchestrazione delle skill (`skill_action_server`) con streaming feedback e preemption.
+* **Modifiche apportate:**
+  * Creato `robopy_controller/robot_ai/services/audio_buffer_manager.py`: gestione bounded FIFO deques, calcolo RMS normalized energy, cancellazione software eco e barge-in speech detector.
+  * Creato `robopy_controller/robot_ai/orchestration/skill_action_server.py`: Action Server asincrono con tracciamento `GoalStatus`, streaming feedback da generatori asincroni e preemption immediata con stop motore (`nav_client.stop()`).
+  * Creato `robopy_controller/robot_ai/services/live_connection_bridge_node.py`: nodo ROS 2 dedicato unicamente alla gestione del socket WebSocket bidi-streaming della Gemini Live API.
+  * Refactoring di `robopy_controller/robot_ai/services/llm_service.py`: alleggerito e integrato con `AudioBufferManager` mantenendo piena retrocompatibilità.
+  * Registrato `live_connection_bridge_node` in `setup.py` (entry points).
+  * Creata test suite completa in `test/unit/test_cognitive_pipeline_split.py` (7/7 PASS).
+  * Registrato il Failure Mode `FM-VUI-023` in `fmea/dfmea.yaml` ed elaborato `IMP-VUI-023_cognitive_pipeline_modularization.md`.
+
+
 
 

@@ -304,9 +304,19 @@ private:
     double wheel_delta_yaw_ = 0.0;
     void wheelOdomCallback(const nav_msgs::msg::Odometry::SharedPtr msg);
     
-    // Online Wheel-to-VIO Auto-Calibration Parameters
-    std::atomic<double> wheel_scale_{1.0};           // Dynamic ratio s = d_vio / d_wheel
-    std::atomic<double> wheel_yaw_offset_{0.0};       // Dynamic yaw offset theta_vio - theta_wheel
+    // Online Wheel-to-VIO Auto-Calibration Parameters with Covariance Gating (FM-NAV-015)
+    std::atomic<double> wheel_scale_{1.0};           // Dynamic ratio s = d_vio / d_wheel (clamped [0.85, 1.15])
+    std::atomic<double> wheel_yaw_offset_{0.0};       // Dynamic yaw offset theta_vio - theta_wheel (clamped [-0.15, 0.15])
+    std::atomic<bool> wheel_slip_detected_{false};
+    double last_wheel_speed_ = 0.0;
+    rclcpp::Time last_wheel_time_;
+    std::atomic<double> last_forward_accel_imu_{0.0};
+    
+    // Dynamic IMU Gyro Z Bias Estimation (ZUPT Dynamic Calibration - FM-NAV-017)
+    std::atomic<double> gyro_z_bias_{0.0};
+    int gyro_bias_samples_ = 0;
+    double gyro_bias_accum_ = 0.0;
+    static const int GYRO_BIAS_WINDOW = 50;
     
     // IMU Pitch Calibration (auto-calibrates camera pitch from gravity vector at startup)
     std::atomic<bool> pitch_calibrated_{false};

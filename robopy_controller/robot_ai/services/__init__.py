@@ -19,6 +19,8 @@ from robopy_controller.robot_ai.services.face_recognition_service import FaceRec
 from robopy_controller.robot_ai.services.speaker_recognition_service import SpeakerRecognitionService, SpeakerRecognitionResult
 from robopy_controller.robot_ai.services.visual_memory_service import VisualMemoryService
 from robopy_controller.robot_ai.services.deepseek_service import DeepSeekService
+from robopy_controller.robot_ai.services.audio_buffer_manager import AudioBufferManager
+from robopy_controller.robot_ai.services.live_connection_bridge_node import LiveConnectionBridgeNode
 
 __all__ = [
     "LLMService",
@@ -34,4 +36,6 @@ __all__ = [
     "SpeakerRecognitionResult",
     "VisualMemoryService",
     "DeepSeekService",
+    "AudioBufferManager",
+    "LiveConnectionBridgeNode",
 ]

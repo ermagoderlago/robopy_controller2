@@ -201,6 +201,7 @@ local_costmap:
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: True
+        combination_method: 1  # [FM-NAV-019] 1=Maximum (preserva memoria ostacoli noti)
         observation_sources: scan
         scan:
           topic: "/scan"
@@ -218,8 +219,6 @@ global_costmap:
     ros__parameters:
       update_frequency: 1.0
       publish_frequency: 1.0
-      update_frequency: 1.0
-      publish_frequency: 1.0
       global_frame: map
       robot_base_frame: base_link
       use_sim_time: false
@@ -232,6 +231,7 @@ global_costmap:
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: True
+        combination_method: 1  # [FM-NAV-019] 1=Maximum (preserva memoria ostacoli)
         observation_sources: scan
         scan:
           topic: /scan

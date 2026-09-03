@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Robot AI Integrations - Navigation
 ===================================
@@ -23,6 +25,13 @@ try:
     HAS_ROS = True
 except ImportError:
     HAS_ROS = False
+    LaserScan = Any
+    PoseStamped = Any
+    PoseWithCovarianceStamped = Any
+    Twist = Any
+    NavigateToPose = Any
+    GoalStatus = Any
+
 
 from ..core.config_manager import ConfigManager
 from ..core.exceptions import NavigationError

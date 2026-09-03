@@ -50,6 +50,7 @@ from robopy_controller.robot_ai.services.llm_models import (
 )
 from robopy_controller.robot_ai.services.llm_circuit_breaker import CircuitBreaker, retry_with_backoff
 from robopy_controller.robot_ai.services.live_connection_manager import LiveConnectionManager
+from robopy_controller.robot_ai.services.audio_buffer_manager import AudioBufferManager
 
 
 # ---------------------------------------------------------------------------
@@ -169,8 +170,11 @@ class LLMServiceNode(Node):
         self._async_thread.start()
 
         # ------------------------------------------------------------------
-        # 10. Inizializzazione risorse async e LiveConnectionManager
+        # 10. Audio Buffer Manager & Live Connection Manager
         # ------------------------------------------------------------------
+        self.audio_buffer = AudioBufferManager()
+        self.audio_buffer.set_barge_in_callback(self._on_barge_in_triggered)
+
         self._live_mgr = None
         if self._client:
             init_future = asyncio.run_coroutine_threadsafe(
@@ -309,9 +313,12 @@ class LLMServiceNode(Node):
             self._live_mgr.on_wakeword_detected()
 
     def audio_callback_ros(self, msg: AudioData):
-        if not self._client or not self._live_mgr:
+        if not self._client or not self._live_mgr or not msg.data:
             return
-        self._live_mgr.send_audio_chunk(msg.data)
+        raw_bytes = bytes(msg.data)
+        accepted = self.audio_buffer.push_mic_chunk(raw_bytes)
+        if accepted:
+            self._live_mgr.send_audio_chunk(raw_bytes)
 
     def generate_callback_ros(self, request, response):
         if not self._client:
@@ -776,6 +783,10 @@ class LLMServiceNode(Node):
         self._direct_audio_callback = callback
 
     def _on_live_audio_received(self, data: bytes):
+        if hasattr(self, 'audio_buffer'):
+            self.audio_buffer.set_speaker_playing(True)
+            self.audio_buffer.push_speaker_chunk(data)
+
         if hasattr(self, '_direct_audio_callback') and self._direct_audio_callback:
             try:
                 self._direct_audio_callback(data)
@@ -794,9 +805,18 @@ class LLMServiceNode(Node):
 
     def _on_live_interrupt(self, interrupted: bool):
         if interrupted:
+            if hasattr(self, 'audio_buffer'):
+                self.audio_buffer.clear_speaker_buffer()
             msg_interrupt = Bool()
             msg_interrupt.data = True
             self.pub_interrupt.publish(msg_interrupt)
+
+    def _on_barge_in_triggered(self):
+        self.get_logger().info("🛑 [Barge-In] Parola dell'utente sovrapposta allo speaker: interruzione Live.")
+        if hasattr(self, 'audio_buffer'):
+            self.audio_buffer.clear_speaker_buffer()
+        if self._live_mgr:
+            asyncio.run_coroutine_threadsafe(self._live_mgr.interrupt(), self._loop)
 
     def _on_live_fallback_needed(self, err_reason: str):
         self.get_logger().warning(f"⚠️ [Live API Fallback] Triggerato fallback su Qwen NPU per errore: {err_reason}")
@@ -835,6 +855,8 @@ class LLMServiceNode(Node):
                 continue
 
     def _on_live_turn_complete(self, user_text: str, model_text: str):
+        if hasattr(self, 'audio_buffer'):
+            self.audio_buffer.set_speaker_playing(False)
         if model_text:
             self.get_logger().info(f"💾 [CRONOLOGIA] Salvato turno in memoria -> Utente: '{user_text}' | Marcus: '{model_text}'")
             self._live_conversation_history.append((user_text, model_text))

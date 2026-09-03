@@ -55,6 +55,21 @@ class NightlyDreamService:
         
         # Ensure log dir exists
         os.makedirs(os.path.dirname(self.log_path), exist_ok=True)
+        self._is_suspended = True  # Suspended by default until DOCKED_DREAM
+
+    def suspend(self):
+        """Suspends dreaming/daydreaming during active navigation to save CPU/RAM."""
+        self._is_suspended = True
+        self.logger.info("[NIGHTLY_DREAM] Service SUSPENDED (Navigation/Active Mode).")
+
+    def resume(self):
+        """Resumes dreaming/daydreaming when docked."""
+        self._is_suspended = False
+        self.logger.info("[NIGHTLY_DREAM] Service RESUMED (Docked Dream Mode).")
+
+    @property
+    def is_suspended(self) -> bool:
+        return self._is_suspended
 
     def set_skills_summary(self, summary: str):
         """Set the summary of available skills."""

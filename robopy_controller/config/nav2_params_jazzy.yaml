@@ -128,6 +128,7 @@ local_costmap:
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: true
+        combination_method: 1  # [FM-NAV-019] 1=Maximum (preserva costi ostacoli noti)
         observation_sources: scan semantic_objects hailo_semantic_objects
         scan:
           topic: /scan
@@ -191,6 +192,7 @@ global_costmap:
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: true
+        combination_method: 1  # [FM-NAV-019] 1=Maximum (preserva memoria ostacoli)
         observation_sources: scan semantic_objects hailo_semantic_objects
         scan:
           topic: /scan

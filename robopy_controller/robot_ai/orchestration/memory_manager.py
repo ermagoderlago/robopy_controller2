@@ -14,7 +14,31 @@ class MemoryManager:
         self._embedding_cache = {}
         self._max_cache = 100
         self._shutdown = False
+        self._frozen = False
         self._logger = get_logger("memory_manager")
+
+    def freeze_embeddings(self):
+        """Freeze new embedding generation to relieve memory pressure."""
+        self._frozen = True
+        self._logger.warning("[MEMORY_MANAGER] Embeddings FROZEN by Memory Pressure Sentinel.")
+
+    def unfreeze_embeddings(self):
+        """Resume nominal embedding generation."""
+        self._frozen = False
+        self._logger.info("[MEMORY_MANAGER] Embeddings UNFROZEN.")
+
+    def clear_transient_buffers(self):
+        """Evicts transient embedding caches and clears processing queue under emergency."""
+        cleared_items = 0
+        while not self._queue.empty():
+            try:
+                self._queue.get_nowait()
+                self._queue.task_done()
+                cleared_items += 1
+            except Exception:
+                break
+        self._embedding_cache.clear()
+        self._logger.warning(f"[MEMORY_MANAGER] Evicted {cleared_items} queued memories and flushed embedding cache.")
 
     def start(self):
         self._worker_task = asyncio.create_task(self._worker())
@@ -29,7 +53,9 @@ class MemoryManager:
                 pass
 
     async def store_background(self, user_text: str, robot_text: str, mem_type: str):
-        if self._shutdown:
+        if self._shutdown or self._frozen:
+            if self._frozen:
+                self._logger.debug("[MEMORY_MANAGER] Dropping memory storage because embeddings are frozen under memory pressure.")
             return
         content = f"User: {user_text}\nRobot: {robot_text}"
         try:

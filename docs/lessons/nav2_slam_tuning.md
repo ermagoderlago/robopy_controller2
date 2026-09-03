@@ -224,3 +224,24 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
   12. **Iniezione Ostacoli Semantici NPU & Deproiezione 3D (FM-SEM-001):** `hailo_bridge_node_cpp` pubblica bounding box 2D normalizzati su `/hailo/semantic_objects`. `semantic_costmap_injector.py` deproietta automaticamente il centro del bounding box nello spazio 3D campionando la matrice di profondità (`/camera/depth/image_raw`) con patch 3x3 mediana, inserendo l'ostacolo semantico 3D proiettato a 2D nella costmap Nav2 anche senza VLM cloud.
   13. **Contenimento Memoria RAM & Raycasting Vettorializzato su Pi 5 (FM-MEM-011):** `semantic_costmap_injector.py` impone un cap a 500 ostacoli attivi con politica FIFO per prevenire leak di memoria durante lunghe sessioni. Il raycasting degli ostacoli negativi esegue un singolo lookup TF per frame con rotazione matriciale numpy vettorizzata, riducendo del 99% l'overhead TF su CPU.
 
+---
+
+## 🛡️ Mitigazioni DFMEA Odometria & Navigazione (Agosto 2026)
+
+### Gating Covariante e Freeze Calibrazione Ruote su Wheel Slip (FM-NAV-015)
+* **Problema:** Nelle transizioni di pavimentazione (piastrelle $\rightarrow$ tappeto), lo slittamento delle ruote durante cali di tracking VIO avvelenava il fattore di scala metrica `wheel_scale_`.
+* **Soluzione:** `fast_flow_vo_node.cpp` confronta in tempo reale l'accelerazione lineare delle ruote con l'accelerazione longitudinale IMU. Se $|\Delta a| > 0.25\text{ m/s}^2$ o gli inlier scendono sotto 30, la calibrazione viene congelata e `wheel_scale_` rimane confinato nel range di sicurezza $[0.85, 1.15]$.
+
+### Blindatura Anti-Aliasing e Strict Geometric Verification in RTAB-Map (FM-NAV-016)
+* **Problema:** Corridoi simmetrici e porte identiche inducevano falsi loop closure in DBoW3, distorcendo l'albero TF `map -> odom`.
+* **Soluzione:** In `rtabmap.yaml`, soglia di similarità `Rtabmap/LoopThr` innalzata a `0.20`, tolleranza PnP `Vis/PnPReprojError: "2.5"`, e maschera ROI pavimento `Kp/RoiRatios: "0.0 0.0 0.10 0.0"` per escludere il 10% inferiore dell'immagine e prevenire falsi agganci su riflessi/fughe di piastrelle.
+
+### ZUPT Dinamico & Compensazione Deriva Termica Bias Giroscopio Z (FM-NAV-017)
+* **Problema:** Su sessioni lunghe (>30 min), il riscaldamento del Pi 5 e dell'Hailo-10H riscaldava l'IMU BMI270, generando drift termico dello zero-rate offset sull'asse Z.
+* **Soluzione:** In `fast_flow_vo_node.cpp`, quando il robot è fermo a comandi nulli, il nodo accumula 50 campioni di $\omega_z$ raw per stimare il bias dinamico `gyro_z_bias_` e lo sottrae real-time da ogni pacchetto prima del deadband e dell'integrazione di posa.
+
+### Safe Recovery Sequence & Costmap Persistence Policy (FM-NAV-019)
+* **Problema:** In spazi stretti, lo svuotamento della costmap unito a uno spin a 90° faceva urtare il robot contro ostacoli laterali o posteriori non confermati dalla camera frontale (FOV $72.9^\circ$).
+* **Soluzione:** Impostato `combination_method: 1` (Maximum) in `nav2_params_jazzy.yaml` per preservare gli ostacoli noti, e sostituito lo spin a 90° in `nav2_survival_bt.xml` con un disimpegno dolce (micro-backup da 8 cm, attesa di ricaricamento sensoriale e ripianificazione diretta).
+
+

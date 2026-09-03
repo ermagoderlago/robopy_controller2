@@ -214,6 +214,11 @@ class AIOrchestrator(Node):
         self.create_subscription(String, '/ai/live/fallback', self._fallback_callback, 10)
         self.pub_hailo_vlm = self.create_publisher(String, '/hailo/vlm/ask_question', 10)
 
+        # Lifecycle & Memory Pressure Sentinel Subscriptions
+        self.create_subscription(String, '/system/operating_state', self._operating_state_callback, 10)
+        self.create_subscription(Bool, '/system/memory_freeze', self._memory_freeze_callback, 10)
+        self.create_subscription(Bool, '/system/emergency_evict', self._emergency_evict_callback, 10)
+
         # Timer reattivi (10 Hz = 0.1s sufficiente per sicurezza reattiva, evita saturazione CPU Python)
         t1 = self.create_timer(0.1, self._reactive_loop_callback)
         t2 = self.create_timer(10.0, self._ha_update_callback)
@@ -256,6 +261,35 @@ class AIOrchestrator(Node):
                   self.scheduler.add_job(self._check_proactive_email_notifications, 'interval', minutes=30)
                   self.ai_logger.info("📧 Job schedulati email (Spam Cleanup 02:00, Briefing 07:30, Proactive Check 1min) registrati nel scheduler!")
 
+    def _operating_state_callback(self, msg: String):
+        state = msg.data.upper()
+        self.ai_logger.info(f"[AI_ORCHESTRATOR] Received operating state update: {state}")
+        if state == "NAVIGATION_ACTIVE":
+            # Suspend heavy background daydreaming & heavy indexing to save CPU/RAM for Nav2/SLAM
+            if hasattr(self, 'nightly_dream_service') and self.nightly_dream_service:
+                self.nightly_dream_service.suspend()
+        elif state == "DOCKED_DREAM":
+            # Resume nightly dream analysis and memory consolidation
+            if hasattr(self, 'nightly_dream_service') and self.nightly_dream_service:
+                self.nightly_dream_service.resume()
+
+    def _memory_freeze_callback(self, msg: Bool):
+        if msg.data:
+            self.ai_logger.warn("[AI_ORCHESTRATOR] MEMORY PRESSURE WARNING: Freezing embedding creation!")
+            if hasattr(self, 'memory_manager') and self.memory_manager:
+                self.memory_manager.freeze_embeddings()
+        else:
+            self.ai_logger.info("[AI_ORCHESTRATOR] MEMORY PRESSURE NOMINAL: Unfreezing embedding creation.")
+            if hasattr(self, 'memory_manager') and self.memory_manager:
+                self.memory_manager.unfreeze_embeddings()
+
+    def _emergency_evict_callback(self, msg: Bool):
+        if msg.data:
+            self.ai_logger.error("[AI_ORCHESTRATOR] MEMORY PRESSURE CRITICAL: Executing emergency cache eviction!")
+            if hasattr(self, 'memory_manager') and self.memory_manager:
+                self.memory_manager.clear_transient_buffers()
+            import gc
+            gc.collect()
 
     def _reactive_loop_callback(self):
         if self._shutdown_flag:

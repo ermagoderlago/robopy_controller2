@@ -230,6 +230,27 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
   * **[AVVIO AUTOMATICO E WRAPPER]** `scripts/nomad_navigator_node`, `install/.../nomad_navigator_node`, `restart_hailo.sh`:
     - Creato script eseguibile di lancio e inserito il nodo nella sequenza automatica di avvio di `restart_hailo.sh`.
 
+---
+
+## 📈 ECO-2026-08-28-NAV-DFMEA-FIXES: Mitigazioni Software DFMEA per Odometria, SLAM e Safe Recovery
+* **Stato:** ✅ **Completato in Workspace Locale (Pronto per Deploy al Prossimo Avvio del Robot)**
+* **Descrizione:** Implementazione completa delle mitigazioni software scaturite dall'analisi DFMEA con NotebookLM: gating covariante su wheel slip in `fast_flow_vo_cpp`, stima dinamica e auto-nulling del bias gyro Z BMI270, blindatura parametri anti-aliasing in RTAB-Map, e safe recovery behavior tree senza blind spin in Nav2.
+* **Modifiche apportate:**
+  * **[ODOMETRIA C++ / VIO]** `src/fast_flow_vo_node.hpp` e `src/fast_flow_vo_node.cpp`:
+    - Rilevamento continuo di wheel slip tramite confronto accelerazione differenziale ruote vs IMU forward acceleration ($|\Delta a| > 0.25\text{ m/s}^2$).
+    - Congelamento dell'auto-calibrazione `wheel_scale_` e `wheel_yaw_offset_` durante slip o VIO debole, con clamping rigido in $[0.85, 1.15]$ (FM-NAV-015).
+    - Algoritmo ZUPT dinamico con stima a finestra mobile del bias $\omega_z$ a robot fermo e compensazione in tempo reale (FM-NAV-017).
+    - Esposte metriche `Wheel_Scale`, `Wheel_Slip`, `Gyro_Z_Bias` sul topic `/diagnostics`.
+  * **[CONFIGURAZIONE SLAM]** `robopy_controller/config/rtabmap.yaml`:
+    - Innalzata la soglia di loop closure `Rtabmap/LoopThr: "0.20"`, impostata tolleranza riproiezione `Vis/PnPReprojError: "2.5"`, e aggiunta maschera ROI pavimento `Kp/RoiRatios: "0.0 0.0 0.10 0.0"` per prevenire falsi loop closure in ambienti simmetrici (FM-NAV-016).
+  * **[NAV2 BEHAVIOR TREE & COSTMAP]** `robopy_controller/config/nav2_survival_bt.xml`, `nav2_params_jazzy.yaml`, `nav2_params.yaml`:
+    - Rimosso il nodo di rotazione cieca a 90° `<Spin>` dalla sequenza di recovery a seguito del costmap clearing, sostituito con micro-arretramento controllato (8 cm) e ripianificazione (FM-NAV-019).
+    - Aggiunto `combination_method: 1` (Maximum) nei layer costmap per preservare gli ostacoli noti fuori dal FoV.
+  * **[TEST UNITARI & FMEA]** `test/unit/test_dfmea_nav_mitigations.py`, `fmea/dfmea.yaml`, `fmea/IMPROVEMENT_INDEX.yaml`:
+    - Creata suite unitaria di validazione (5/5 PASS).
+    - Aggiornato il database DFMEA registrando i nuovi FM (FM-NAV-015..019) e ricalcolati gli RPN residui.
+
+
 
 
 

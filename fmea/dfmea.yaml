@@ -4183,3 +4183,317 @@
     change: Rimosso il flag --delete_db_on_start da restart_hailo.sh
     rpn_old: 144
     rpn_new: 2
+- id: FM-NAV-015
+  subsystem: Nav2
+  component: fast_flow_vo_cpp
+  function: Stima robusta e continua del fattore di scala dell'odometria ruote senza
+    avvelenamento da slittamento
+  failure_mode: Avvelenamento permanente del fattore di scala wheel_scale_ indotto
+    da wheel slip durante transizioni di superficie
+  potential_cause: Variazione improvvisa di attrito (piastrelle -> tappeto) con slittamento
+    asimmetrico contemporaneo a calo di tracking VIO
+  potential_effect: Distorsione permanente della metrica odometrica ruote, continue
+    correzioni oscillatorie e crash del planner locale Nav2
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-NAV-002
+  initial_scoring:
+    severity: 8
+    occurrence: 7
+    detection: 8
+    rpn: 448
+  prevention_controls: Gating covariante dell'auto-calibrazione (congelamento se inliers
+    < 30 o delta_a > 0.25 m/s^2) e clamping rigido [0.85, 1.15]
+  detection_controls: Monitor diagnostico dello stato Wheel_Slip e telemetria rapporto
+    VIO/Wheel
+  residual_scoring:
+    severity: 8
+    occurrence: 2
+    detection: 2
+    rpn: 32
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Attivare il gating accelerometrico e il congelamento della calibrazione
+    su wheel slip in fast_flow_vo_node.cpp
+  verification_method: Test unitario test_dfmea_nav_mitigations.py con simulazione
+    transizione ad alto slip
+  eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-08-28-NAV-DFMEA-FIXES
+  lesson_ref: docs/lessons/nav2_slam_tuning.md#wheel-slip-gating
+  date_identified: '2026-08-28'
+  last_updated: '2026-08-28'
+  history:
+  - date: '2026-08-28'
+    change: Implementato Gating Covariante e Freeze Calibrazione Ruote su Wheel Slip
+      in fast_flow_vo_node.cpp
+    rpn_old: 448
+    rpn_new: 32
+- id: FM-NAV-016
+  subsystem: Nav2
+  component: rtabmap
+  function: Riconoscimento accurato dei luoghi (Loop Closure) ed esclusione di falsi
+    positivi in ambienti simmetrici
+  failure_mode: Falso aggancio del grafo SLAM (False Loop Closure) con rotazione/traslazione
+    spuria della mappa globale
+  potential_cause: Aliasing percettivo in corridoi simmetrici/porte identiche e risoluzione
+    ridotta della mappa di profondità per la verifica geometrica RANSAC
+  potential_effect: Distorsione dell'albero TF map -> odom, sovrapposizione di muri
+    reali nella costmap Nav2 e stallo del planner
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-NAV-005
+  initial_scoring:
+    severity: 9
+    occurrence: 6
+    detection: 7
+    rpn: 378
+  prevention_controls: Innalzamento soglia LoopThr a 0.20, tolleranza PnPReprojError
+    a 2.5px e maschera ROI pavimento Kp/RoiRatios 10%
+  detection_controls: Diagnostica consistenza TF map->odom e verifica inliers geometrici
+    DBoW3
+  residual_scoring:
+    severity: 9
+    occurrence: 2
+    detection: 2
+    rpn: 36
+  risk_level: REVISION_MANDATORY
+  mitigation_status: CLOSED
+  recommended_action: Applicare la blindatura dei parametri DBoW3 e la maschera ROI
+    anti-riflesso pavimento in rtabmap.yaml
+  verification_method: Test unitario test_dfmea_nav_mitigations.py e verifica parametri
+    rtabmap.yaml
+  eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-08-28-NAV-DFMEA-FIXES
+  lesson_ref: docs/lessons/nav2_slam_tuning.md#rtabmap-anti-aliasing
+  date_identified: '2026-08-28'
+  last_updated: '2026-08-28'
+  history:
+  - date: '2026-08-28'
+    change: Rafforzata la soglia di similarità e verifica geometrica RANSAC in rtabmap.yaml
+    rpn_old: 378
+    rpn_new: 36
+- id: FM-NAV-017
+  subsystem: Nav2
+  component: fast_flow_vo_cpp
+  function: Stima accurata e stabile dell'orientamento Yaw (theta) senza deriva termica
+    del sensore giroscopico
+  failure_mode: Drift angolare continuo dell'angolo di Yaw indotto dal riscaldamento
+    di Raspberry Pi 5 e Hailo-10H
+  potential_cause: Deriva termica non lineare dello zero-rate offset del giroscopio
+    asse Z dell'IMU Bosch BMI270 su sessioni prolungate (>30 min)
+  potential_effect: Rotazione apparente fittizia a robot fermo, false correzioni cinematiche
+    di Nav2 e traiettorie serpeggianti
+  classification: PERFORMANCE
+  estimation_basis: measured
+  related_ids:
+  - FM-NAV-012
+  initial_scoring:
+    severity: 7
+    occurrence: 8
+    detection: 8
+    rpn: 448
+  prevention_controls: Algoritmo ZUPT Dinamico con stima e sottrazione automatica
+    continua del bias giroscopico Z a robot fermo
+  detection_controls: Monitoraggio continuo della metrica Gyro_Z_Bias nei log diagnostici
+    di fast_flow_vo
+  residual_scoring:
+    severity: 7
+    occurrence: 2
+    detection: 2
+    rpn: 28
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Implementare il tracking del bias Z a finestra mobile e la sottrazione
+    in real-time in processIMU()
+  verification_method: Test unitario test_dfmea_nav_mitigations.py con simulazione
+    di drift termico statico
+  eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-08-28-NAV-DFMEA-FIXES
+  lesson_ref: docs/lessons/nav2_slam_tuning.md#imu-bias-zupt
+  date_identified: '2026-08-28'
+  last_updated: '2026-08-28'
+  history:
+  - date: '2026-08-28'
+    change: Integrato ZUPT dinamico con compensazione automatica bias gyro Z in fast_flow_vo_node.cpp
+    rpn_old: 448
+    rpn_new: 28
+- id: FM-NAV-018
+  subsystem: Hardware/Power
+  component: navigation_sensors
+  function: Rilevamento continuo degli ostacoli a 360 gradi a livello del pavimento
+    per la navigazione sicura del footprint
+  failure_mode: Cecità geometrica totale al di fuori del campo visivo primario (FOV
+    72.9 H) con rischio di collisione laterale o posteriore
+  potential_cause: Assenza di un sensore LiDAR 2D a scansione continua a 360 gradi
+    (limite hardware ottico OAK-D Lite)
+  potential_effect: Collisione con ostacoli bassi, persone o animali durante rotazioni
+    sul posto o manovre di arretramento
+  classification: SAFETY
+  estimation_basis: inferred
+  related_ids:
+  - FM-NAV-005
+  - FM-NAV-019
+  initial_scoring:
+    severity: 9
+    occurrence: 9
+    detection: 9
+    rpn: 729
+  prevention_controls: Integrazione hardware di un sensore LiDAR 2D 360 gradi (LDROBOT
+    LD19 / RPLiDAR C1) collegato via UART a 230400 baud
+  detection_controls: Scansione laser continua a 10Hz sul topic /scan_lidar e validazione
+    geometrica a 360 gradi
+  residual_scoring:
+    severity: 9
+    occurrence: 9
+    detection: 9
+    rpn: 729
+  risk_level: REVISION_MANDATORY
+  mitigation_status: OPEN
+  recommended_action: Progettare supporto meccanico e integrare il modulo LDROBOT
+    LD19 UART 360 gradi per la dual-layer costmap fusion
+  verification_method: Stress test di rotazione in ambiente ad alta densità di ostacoli
+    non visibili frontalmente
+  eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-08-28-NAV-DFMEA-FIXES
+  lesson_ref: marcus_core_rules.md
+  date_identified: '2026-08-28'
+  last_updated: '2026-08-28'
+  history:
+  - date: '2026-08-28'
+    change: Formalizzata modalità di guasto hardware cecità 360 gradi da analisi DFMEA
+      NotebookLM
+    rpn_old: 729
+    rpn_new: 729
+- id: FM-NAV-019
+  subsystem: Nav2
+  component: nav2_bt_navigator
+  function: Disimpegno sicuro da stalli in spazi stretti senza cancellazione prematura
+    degli ostacoli noti
+  failure_mode: Collisione contro ostacoli laterali o posteriori durante le manovre
+    di recupero (Recovery Behaviors)
+  potential_cause: Svuotamento della costmap locale (ClearEntireCostmap) unito a rotazione
+    cieca a 90 gradi con sensore frontale a FOV limitato
+  potential_effect: Urto del footprint differenziale del robot contro tavoli/sedie
+    precedentemente cancellati dalla memoria locale
+  classification: SAFETY
+  estimation_basis: measured
+  related_ids:
+  - FM-NAV-018
+  initial_scoring:
+    severity: 8
+    occurrence: 8
+    detection: 8
+    rpn: 512
+  prevention_controls: Rimozione rotazione cieca da nav2_survival_bt.xml, disimpegno
+    dolce con micro-backup 8cm e policy combination_method=1
+  detection_controls: Diagnostica stallo MPPI e test di recupero in spazi angusti
+  residual_scoring:
+    severity: 8
+    occurrence: 2
+    detection: 2
+    rpn: 32
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Sostituire lo spin a 90 gradi con un disimpegno lineare controllato
+    e forzare combination_method=1 nelle costmap
+  verification_method: Test unitario test_dfmea_nav_mitigations.py e validazione BT
+    XML
+  eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-08-28-NAV-DFMEA-FIXES
+  lesson_ref: docs/lessons/nav2_slam_tuning.md#safe-recovery
+  date_identified: '2026-08-28'
+  last_updated: '2026-08-28'
+  history:
+  - date: '2026-08-28'
+    change: Rimosso blind spin dal recovery BT ed introdotta persistence policy combination_method=1
+    rpn_old: 512
+    rpn_new: 32
+- id: FM-SYS-008
+  subsystem: Cloud, Memory & Orchestration
+  component: system_lifecycle_coordinator_node
+  function: Coordinamento del ciclo di vita dei nodi e prevenzione memory creep su
+    4GB RAM host
+  failure_mode: OOM Crash da saturazione progressiva della memoria RAM (DDS creep,
+    RAG embeddings) e riavvio distruttivo da watchdog
+  potential_cause: Esecuzione simultanea continua di Nav2, RTAB-Map, ChromaDB e inferenza
+    modelli senza gestione lifecycle per stati operativi
+  potential_effect: Terminazione forzata dell'intero stack ROS 2, perdita dello stato
+    di missione e blocco operativo del robot
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-MEM-011
+  - FM-SYS-001
+  initial_scoring:
+    severity: 8
+    occurrence: 7
+    detection: 8
+    rpn: 448
+  prevention_controls: Memory Pressure Sentinel con monitoraggio Linux PSI (/proc/pressure/memory),
+    freeze automatico embeddings a full avg10 >= 0.30, eviction e malloc_trim a >=
+    0.60, e lifecycle states (NAVIGATION_ACTIVE, DOCKED_DREAM, HUMAN_INTERACTION_MODE)
+  detection_controls: Telemetria continua topic /system/memory_pressure e diagnostica
+    PSI
+  residual_scoring:
+    severity: 8
+    occurrence: 2
+    detection: 1
+    rpn: 16
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Adottare il coordinatore centralizzato del ciclo di vita e il
+    sentinel PSI per la sospensione automatica dei nodi non vitali
+  verification_method: Test unitario test_memory_pressure_sentinel.py e simulazione
+    PSI
+  eco_ref: docs/ecos/orchestration_rag_ecos.md#ECO-2026-08-28-LIFECYCLE-SENTINEL
+  lesson_ref: docs/lessons/orchestration_and_rag.md#memory-pressure-sentinel
+  date_identified: '2026-08-28'
+  last_updated: '2026-08-28'
+  history:
+  - date: '2026-08-28'
+    change: Implementato System Lifecycle Coordinator e Memory Pressure Sentinel basato
+      su Linux PSI
+    rpn_old: 448
+    rpn_new: 16
+- id: FM-VUI-023
+  subsystem: Audio & VUI
+  component: live_connection_bridge_node
+  function: Gestione bidi-streaming WebSocket Gemini Live e buffering audio senza
+    saturazione GIL
+  failure_mode: Latenza audio elevata, audio glitches e mancata cancellazione di skill
+    dovuta a monolite llm_service.py (>46KB)
+  potential_cause: Accorpamento di WebSocket I/O, audio ring buffering, AEC e dispatching
+    sincrono/asincrono delle skill nello stesso processo
+  potential_effect: Degrado severo dell'esperienza vocale (interruzioni a scatti,
+    latenze >2s) e impossibilità di fermare skill lunghe in navigazione
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-VUI-007
+  - FM-VUI-015
+  initial_scoring:
+    severity: 7
+    occurrence: 7
+    detection: 8
+    rpn: 392
+  prevention_controls: Smembramento architetturale in 3 sottostrutture indipendenti
+    (live_connection_bridge_node, audio_buffer_manager, skill_action_server con supporto
+    nativo a streaming feedback e preemption immediata)
+  detection_controls: Metriche di jitter audio e feedback di preemption su goal cancellati
+  residual_scoring:
+    severity: 7
+    occurrence: 2
+    detection: 1
+    rpn: 14
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Separare la gestione della connessione WebSocket, i buffer audio
+    FIFO e l'action server delle abilità
+  verification_method: Suite test unitari test_cognitive_pipeline_split.py (7/7 PASS)
+  eco_ref: docs/ecos/llm_live_ecos.md#ECO-2026-08-28-COGNITIVE-PIPELINE-SPLIT
+  lesson_ref: docs/lessons/llm_live_api.md#cognitive-pipeline-modularization
+  date_identified: '2026-08-28'
+  last_updated: '2026-08-28'
+  history:
+  - date: '2026-08-28'
+    change: Smembrato llm_service in live_connection_bridge_node, audio_buffer_manager
+      e skill_action_server
+    rpn_old: 392
+    rpn_new: 14
