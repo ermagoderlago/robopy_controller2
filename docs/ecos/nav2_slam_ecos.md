@@ -250,6 +250,30 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
     - Creata suite unitaria di validazione (5/5 PASS).
     - Aggiornato il database DFMEA registrando i nuovi FM (FM-NAV-015..019) e ricalcolati gli RPN residui.
 
+---
+
+## 📈 ECO-2026-09-04-001: Integrazione Slamtec RPLIDAR C1 (360° ToF), ICP Scan Matching RTAB-Map e Udev Serial Binding
+* **Stato:** ✅ **Completato, Testato su Hardware e Attivo su Marcus**
+* **Descrizione:** Integrazione completa del sensore LiDAR planare ToF Slamtec RPLIDAR C1 su ROS 2 Jazzy. Disaccoppiamento persistente delle porte seriali CP2102N con udev rules, eliminazione del nodo simulato `depthimage_to_laserscan_node`, riconfigurazione di RTAB-Map con registrazione ibrida Visual + ICP Scan Matching (`Reg/Strategy: 2`), aggiornamento delle costmap Nav2 e avvio della nuova sessione di mappatura 360° vergine.
+* **Modifiche apportate:**
+  * **[DRIVER & WORKSPACE PI 5]** `/home/robopy/lidar_ws`:
+    - Clonazione e compilazione sequenziale `-j1 -O3 -mcpu=cortex-a76+crypto` del driver `sllidar_ros2` per ROS 2 Jazzy.
+    - Configurazione a 460800 baud, frequenza di scansione 10 Hz, portata 16 metri ToF su topic `/scan`.
+  * **[PERSISTENZA SERIALE UDEV]** `/etc/udev/rules.d/99-marcus-serial.rules`:
+    - `/dev/rplidar` associato stabilmente al chip CP2102N con seriale `1af3e590ed31f11197da945f30d20014`.
+    - `/dev/motor_driver` associato stabilmente alla scheda motori Waveshare ESP32 con seriale `4c7fd634626cef11acaca4adc169b110`.
+    - Eliminata qualsiasi collisione di enumerazione dinamica al boot tra `/dev/ttyUSB0` e `/dev/ttyUSB1`.
+  * **[ALBERO DELLE TRASFORMATE TF2]** `restart_hailo.sh`, `launch/marcus_bringup.launch.py`:
+    - Aggiunto publisher statico TF: `base_link -> laser` con coordinate CAD `[0.08, 0.0, 0.18]`, rpy `[0, 0, 0]`.
+  * **[COESISTENZA MULTI-SENSORE & NAV2 COSTMAP]** `nav2_params_jazzy.yaml`, `nav2_params.yaml`:
+    - Rimossa la dipendenza esclusiva dalla camera: il topic `/scan` è alimentato dal sensore fisico a 360° ToF (`obstacle_max_range: 8.0m`, `raytrace_max_range: 10.0m`).
+    - Mantenuto attivo il layer di sicurezza ostacoli negativi e caduta scale su `/visual_objects_pc` generato da `semantic_costmap_injector.py` (OAK-D Lite).
+  * **[RTAB-MAP ICP SLAM & MAPPATURA VERGINE]** `robopy_controller/config/rtabmap.yaml`:
+    - Abilitato `subscribe_scan: true`, `Reg/Strategy: "2"` (Visual + ICP Laser), `Grid/Sensor: "2"` (Both LiDAR + Depth), `Grid/FromDepth: "false"`.
+    - Eseguito backup della mappa legacy in `/mnt/ssd/rtabmap_pre_lidar_backup.db`.
+    - Attivato `Mem/IncrementalMemory: "true"` per la creazione pulita della nuova mappa da zero su `/mnt/ssd/rtabmap.db`.
+
+
 
 
 

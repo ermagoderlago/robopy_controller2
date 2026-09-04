@@ -10,7 +10,7 @@ Changelog v5.1:
 
 Changelog v5.0:
   [#1] Rimosso intero stack DSP float32 (SciPy Butterworth, sosfilt, scalatura):
-       Porcupine e WebRTC VAD ricevono il segnale int16 grezzo dal mic.
+       WebRTC VAD e Vosk ASR ricevono il segnale int16 grezzo dal mic.
   [#2] CPU usage su Pi5: da ~40% a ~2-3%.
   [#3] Rimosse tutte le stampe di debug nel hot-path del callback.
 
@@ -200,9 +200,6 @@ class ReSpeakerVUINode(Node):
             self.voiceprint_mgr = None
             self.memory_engine = None
 
-        self.porcupine = None # Porcupine eliminato definitivamente
-        self.frame_length = 512
-
         # [v17.5] Inizializzazione Vosk ASR
         if HAS_VOSK_ASR:
             self.vosk_mgr = VoskASRManager(on_text_cb=self._on_vosk_text)
@@ -229,11 +226,6 @@ class ReSpeakerVUINode(Node):
 
         # [DSP-HOT] Pre-roll bytearray pre-allocato (evita allocazioni frequenti)
         self._preroll_ba = bytearray(PRE_ROLL_BYTES)
-
-        # [v3.1] Residuo Porcupine (evita perdita campioni wake-word)
-        self._porcupine_residual_buf = np.empty(self.frame_length, dtype=np.int16)
-        self._porcupine_residual_len = 0
-        self._porcupine_assembly_buf = np.empty(self.frame_length, dtype=np.int16)
 
         # [v3.0] Stato VAD
         if HAS_WEBRTCVAD:
@@ -631,7 +623,7 @@ class ReSpeakerVUINode(Node):
         """[v11.0] Tracks if Spotify is playing to inhibit VAD"""
         self._is_music_playing = msg.data
         if msg.data:
-            self.get_logger().info("🎵 [MUSIC] Spotify in riproduzione: VAD inibito (Porcupine attivo).")
+            self.get_logger().info("🎵 [MUSIC] Spotify in riproduzione: VAD inibito (Wake Word attiva).")
         else:
             self.get_logger().info("🎵 [MUSIC] Spotify in pausa: VAD riattivato.")
 
@@ -826,8 +818,11 @@ class ReSpeakerVUINode(Node):
         # [DSP-HOT] Calcolo RMS per noise gate pre-VAD (su segnale BOOSTED)
         rms = np.sqrt(np.mean(frame_boosted.astype(np.float32)**2))
         
-        # Soglia dinamica: aumentiamo leggermente durante il TTS per ignorare eco residua
+        # Soglia dinamica: adattata al rumore ambientale ed elevata leggermente durante il TTS
         current_threshold = self.noise_gate_threshold
+        if getattr(self, 'enable_adaptive_threshold', True):
+            adaptive_target = max(65.0, getattr(self, '_ambient_noise_ema', 30.0) * 2.2)
+            current_threshold = min(current_threshold, adaptive_target)
         if self._is_tts_speaking:
             current_threshold *= 1.2
             
@@ -982,13 +977,16 @@ class ReSpeakerVUINode(Node):
                 msg_enroll.data = target_name
                 self._speaker_enroll_pub.publish(msg_enroll)
 
-        if ("marcus" in text_lower or "marco" in text_lower or "robot" in text_lower) and not is_speaker_active:
+        wakeword_tokens = ["marcus", "marco", "marcos", "markus", "robot", "ascolta", "plauso"]
+        if any(w in text_lower for w in wakeword_tokens) and not is_speaker_active:
             self._on_wakeword_detected()
 
     def _on_wakeword_detected(self):
         """Gestisce le azioni da compiere quando viene rilevata la wake word."""
-        if self._ev_listening.is_set():
-            return # Già in ascolto, evita beep multipli se la parola è ripetuta
+        now = time.monotonic()
+        if now - getattr(self, '_last_wakeword_time', 0.0) < 2.0:
+            return  # Debounce anti-doppio beep ravvicinato (2s)
+        self._last_wakeword_time = now
 
         self.get_logger().info("WAKE WORD 'MARCUS' RILEVATA!")
         self._ev_listening.set()
@@ -1042,7 +1040,7 @@ class ReSpeakerVUINode(Node):
 
     # ------------------------------------------------------------------ #
     # Worker thread di processamento audio in background
-    # Esegue tutta la logica pesante di VAD e Porcupine
+    # Esegue tutta la logica di VAD e ASR
     # ------------------------------------------------------------------ #
     def _audio_processing_worker(self):
         self.get_logger().info("Worker thread di processamento audio VUI avviato.")
@@ -1051,8 +1049,6 @@ class ReSpeakerVUINode(Node):
                 in_data = self._audio_in_queue.get(timeout=0.1)
             except queue.Empty:
                 continue
-
-            # [v6.5] Audio processing continues even when Porcupine is disabled/None
 
             try:
                 # ---------------------------------------------------------- #
@@ -1216,7 +1212,7 @@ class ReSpeakerVUINode(Node):
                         f"MaxSilence={self._cfg_max_silence} frames (Gain: {stt_gain_to_use:.2f}x)")
                 
                 # ---------------------------------------------------------- #
-                # Applica stt_gain_to_use al segnale d'ingresso filtrato per VAD e Porcupine
+                # Applica stt_gain_to_use al segnale d'ingresso filtrato per VAD e Vosk
                 # con Peak Limiter / AGC software [v17.0]
                 # ---------------------------------------------------------- #
                 # 1. Applica il guadagno software iniziale sul segnale HPF selezionato

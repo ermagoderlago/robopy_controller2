@@ -1,5 +1,6 @@
 import asyncio
 import threading
+import time
 from typing import Optional, List, Dict, Callable
 from rclpy.node import Node
 from sensor_msgs.msg import CompressedImage
@@ -189,6 +190,9 @@ class AIOrchestrator(Node):
         )
         self.conversation_manager.document_callback = self._on_ai_document
 
+        self._last_text_input = ""
+        self._last_text_time = 0.0
+
         self._loop = asyncio.new_event_loop()
         
         # Attiva servizi async thread e ROS callbacks
@@ -205,9 +209,9 @@ class AIOrchestrator(Node):
         self.create_subscription(Detection2DArray, '/hailo/face/detections', self._face_detections_callback, 5)
         self.create_subscription(Float32MultiArray, '/hailo/face/embeddings', self._face_embeddings_callback, 5)
         self.create_subscription(DiagnosticArray, '/diagnostics', self._diagnostics_callback, 10)
-        self.create_subscription(String, '/ai/input/text', self._text_input_callback, 10)
-        self.create_subscription(String, 'ai/input/text', self._text_input_callback, 10)
+        # Sottoscrizioni testo: una per il topic standard Foxglove/UI e una per il topic ROS nativo
         self.create_subscription(String, '/robopy/conversation_rx', self._text_input_callback, 10)
+        self.create_subscription(String, '/ai/input/text', self._text_input_callback, 10)
         self.create_subscription(String, 'ai/input/document', self._document_input_callback, 10)
         self.create_subscription(String, 'ai/input/voice_test', self._voice_test_callback, 10)
         self.create_subscription(AudioData, '/ai/conversation/audio_chunk', self._audio_chunk_callback, 10)
@@ -401,8 +405,23 @@ class AIOrchestrator(Node):
     def _text_input_callback(self, msg):
         if self._shutdown_flag:
             return
+        if not msg.data:
+            return
+        text = msg.data.strip()
+        if not text:
+            return
+
+        now = time.time()
+        # [ANTI-ECHO] Deduplicazione difensiva: ignora richieste identiche entro 10.0s
+        if text == self._last_text_input and (now - self._last_text_time) < 10.0:
+            self.ai_logger.warning(f"🚫 [Deduplicator] Ignorato input testuale duplicato su topic ROS entro 10.0s: '{text[:50]}'")
+            return
+
+        self._last_text_input = text
+        self._last_text_time = now
+
         asyncio.run_coroutine_threadsafe(
-            self.conversation_manager.process_input(msg.data, source="text"), self._loop
+            self.conversation_manager.process_input(text, source="text"), self._loop
         )
 
     def _document_input_callback(self, msg):

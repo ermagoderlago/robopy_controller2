@@ -395,13 +395,6 @@ echo "[NAV2-ENSURE] Done."
         output='screen'
     )
 
-    wake_word_node = Node(
-        package='robopy_controller',
-        executable='wake_word_node',
-        name='wake_word_sentinel',
-        output='screen'
-    )
-
     ultrasonic_node = Node(
         package='robopy_controller',
         executable='ultrasonic_sensor',
@@ -443,7 +436,6 @@ echo "[NAV2-ENSURE] Done."
         foxglove,
         foxglove_bridge,
         audio_capture_node,
-        wake_word_node,     # Fallback sw wake word (Porcupine)
         respeaker_node,     # HW wake word + LED + speaker routing
         robot_ai_node,
         homeassistant_node,

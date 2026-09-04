@@ -1,10 +1,19 @@
 import os
+import sys
 import json
 import queue
 import threading
 import datetime
 import time
 import gc
+
+# Garantisce l'accesso a vosk anche se eseguito da /usr/bin/python3
+for venv_site in [
+    "/home/robopy/ros2_venv/lib/python3.11/site-packages",
+    "/home/robopy/ros2_venv/lib/python3.12/site-packages"
+]:
+    if os.path.exists(venv_site) and venv_site not in sys.path:
+        sys.path.append(venv_site)
 
 try:
     import vosk
@@ -79,13 +88,18 @@ class VoskASRManager:
             # Vosk logs too much by default
             vosk.SetLogLevel(-1)
             self.model = vosk.Model(self.model_path)
-            # [v19.4] Vocabolario completo aperto per riconoscimento italiano preciso e zero allucinazioni su rumori
-            self.recognizer = vosk.KaldiRecognizer(self.model, self.sample_rate)
+            # [v21.1] Grammar mirata per Wake Word istantaneo e preciso su Vosk offline
+            self.wake_grammar = json.dumps([
+                "marcus", "marco", "marcos", "markus", "robot",
+                "ascolta", "fermati", "stop", "zitto", "silenzio",
+                "io sono", "mi chiamo", "[unk]"
+            ])
+            self.recognizer = vosk.KaldiRecognizer(self.model, self.sample_rate, self.wake_grammar)
             self.recognizer.SetWords(True) # [v20.0] Abilita timestamp per parola nell'output JSON
             
             self._worker_thread = threading.Thread(target=self._worker, daemon=True, name="vosk_worker")
             self._worker_thread.start()
-            print("✅ [VoskASR] Motore offline (Full Italian Vocabulary ASR) inizializzato!")
+            print("✅ [VoskASR] Motore offline (Targeted Wake-Word Grammar ASR) inizializzato!")
         except Exception as e:
             print(f"❌ [VoskASR] Errore inizializzazione: {e}")
 
@@ -126,7 +140,7 @@ class VoskASRManager:
                         del self.recognizer
                         self.recognizer = None
                         gc.collect()
-                        self.recognizer = vosk.KaldiRecognizer(self.model, self.sample_rate)
+                        self.recognizer = vosk.KaldiRecognizer(self.model, self.sample_rate, self.wake_grammar)
                         self.recognizer.SetWords(True)
                     continue
 

@@ -42,12 +42,37 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'use_sim_time': use_sim_time,
-            'port': '/dev/ttyUSB0',
+            'port': '/dev/motor_driver',
             'baudrate': 115200,
             'wheel_separation': 0.285,
             'wheel_radius': 0.0325,
             'encoder_cpr': 1440
         }]
+    )
+
+    # 2b. Slamtec RPLIDAR C1 Launch & Static Transform (base_link -> laser)
+    laser_tf_node = Node(
+        package='tf2_ros',
+        executable='static_transform_publisher',
+        name='base_link_to_laser_tf',
+        arguments=['--x', '0.08', '--y', '0.0', '--z', '0.18', '--yaw', '0.0', '--pitch', '0.0', '--roll', '0.0', '--frame-id', 'base_link', '--child-frame-id', 'laser'],
+        output='screen'
+    )
+
+    rplidar_node = Node(
+        package='sllidar_ros2',
+        executable='sllidar_node',
+        name='sllidar_node',
+        parameters=[{
+            'channel_type': 'serial',
+            'serial_port': '/dev/rplidar',
+            'serial_baudrate': 460800,
+            'frame_id': 'laser',
+            'inverted': False,
+            'angle_compensate': True,
+            'scan_mode': 'Standard'
+        }],
+        output='screen'
     )
 
     # 3. OAK-D Lite Vision Node (Pinned to CPU Core 2,3)
@@ -129,6 +154,8 @@ def generate_launch_description():
         declare_enable_roudi,
         roudi_process,
         motor_driver_node,
+        laser_tf_node,
+        rplidar_node,
         oak_d_node,
         hailo_bridge_node,
         localization_fuser_node,

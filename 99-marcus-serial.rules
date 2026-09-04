@@ -1,0 +1,7 @@
+# Marcus Robot Serial Devices - Persistent Symlinks & Permissions
+
+# Slamtec RPLIDAR C1
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", ATTRS{serial}=="1af3e590ed31f11197da945f30d20014", MODE="0666", GROUP="dialout", SYMLINK+="rplidar"
+
+# Waveshare General Driver (ESP32 - Motori & Odometria)
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", ATTRS{serial}=="4c7fd634626cef11acaca4adc169b110", MODE="0666", GROUP="dialout", SYMLINK+="motor_driver"

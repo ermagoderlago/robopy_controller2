@@ -95,7 +95,7 @@ class TTSService:
                     self._output_stream = self._pyaudio_interface.open(
                         format=pyaudio.paInt16,
                         channels=1,
-                        rate=16000,
+                        rate=24000,
                         output=True,
                         output_device_index=self._respeaker_device_index  # None = default
                     )
@@ -273,7 +273,7 @@ class TTSService:
                 
                 audio_config = texttospeech.AudioConfig(
                     audio_encoding=texttospeech.AudioEncoding.LINEAR16,
-                    sample_rate_hertz=16000,
+                    sample_rate_hertz=24000,
                     speaking_rate=self.ai_config.tts.speaking_rate,
                     pitch=self.ai_config.tts.pitch
                 )
@@ -317,7 +317,7 @@ class TTSService:
                     cmd = [
                         "ffmpeg", "-y", "-i", mp3_path,
                         "-f", "s16le", "-acodec", "pcm_s16le",
-                        "-ar", "16000", "-ac", "1", raw_path
+                        "-ar", "24000", "-ac", "1", raw_path
                     ]
                     subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     

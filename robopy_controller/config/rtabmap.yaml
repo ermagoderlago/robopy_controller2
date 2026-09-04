@@ -7,7 +7,7 @@ rtabmap:
     # Sorgenti dati
     subscribe_rgb: true
     subscribe_depth: true
-    subscribe_scan: false        # Grid/FromDepth: true crea la mappa 2D direttamente da RGB-D
+    subscribe_scan: true         # Abilitato RPLIDAR C1 360° (/scan)
     subscribe_odom_info: false   # VIO non espone odom_info
 
     # Sincronizzazione
@@ -21,7 +21,7 @@ rtabmap:
     Rtabmap/CreateIntermediateNodes: "false"
     Mem/NotLinkedNodesKept: "true"
     Mem/SaveRawData: "false"
-    Mem/IncrementalMemory: "true"
+    Mem/IncrementalMemory: "true"  # Modalità Mappatura attiva per nuova scansione 360° LiDAR + Depth
 
     # Timing e performance (RPi5 4GB)
     Rtabmap/TimeThr: "0"
@@ -40,11 +40,11 @@ rtabmap:
     Optimizer/Iterations: "30"
     Optimizer/Slam2D: "true"
 
-    # Griglia occupancy da Depth Camera (2.5D Proiezione)
-    Grid/RangeMin: "0.25"
-    Grid/RangeMax: "5.0"
-    Grid/Sensor: "1"              # 1 = Depth Camera / 3D Point Cloud -> 2D Occupancy Grid
-    Grid/FromDepth: "true"
+    # Griglia occupancy con fusione Multi-Sensore (LiDAR 360° + 2.5D Depth Camera)
+    Grid/RangeMin: "0.05"
+    Grid/RangeMax: "16.0"
+    Grid/Sensor: "2"              # 2 = Both (LiDAR 2D 360° + Depth Camera 3D)
+    Grid/FromDepth: "false"       # false = Usa lo scan LiDAR come base metrica primaria
     Grid/3D: "false"
     Grid/RayTracing: "true"
     Grid/MaxObstacleHeight: "1.5"
@@ -68,5 +68,8 @@ rtabmap:
     Rtabmap/LoopThr: "0.20"       # Soglia di similarità innalzata a 0.20 (previene falsi loop in corridoi simmetrici)
     RGBD/LoopClosureReextractFeatures: "true"
 
-    # 3DoF forzato (robot 2D)
+    # Registrazione e Allineamento Scan Matching (Visual + ICP)
+    Reg/Strategy: "2"            # 2 = Visual + ICP (massima robustezza: visual loop closure + ICP laser precision)
     Reg/Force3DoF: "true"
+    Icp/VoxelSize: "0.05"
+    Icp/MaxCorrespondenceDistance: "0.15"

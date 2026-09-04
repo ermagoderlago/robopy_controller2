@@ -313,9 +313,13 @@ class LLMServiceNode(Node):
             self._live_mgr.on_wakeword_detected()
 
     def audio_callback_ros(self, msg: AudioData):
-        if not self._client or not self._live_mgr or not msg.data:
+        if not self._client or not self._live_mgr or msg.data is None:
             return
         raw_bytes = bytes(msg.data)
+        if len(raw_bytes) == 0:
+            # Segnale End-of-Speech inviato dal VAD: inoltra direttamente a live_mgr per emettere activity_end
+            self._live_mgr.send_audio_chunk(b'')
+            return
         accepted = self.audio_buffer.push_mic_chunk(raw_bytes)
         if accepted:
             self._live_mgr.send_audio_chunk(raw_bytes)

@@ -58,15 +58,6 @@ class ConversationManager:
             self._logger.warning(f"TrinityEngine initialization failed (using fallback): {e}")
             self.trinity_engine = None
 
-        # Dynamically wrap speak to respect chat silencing
-        original_speak = self.tts.speak
-        async def wrapped_speak(text, *args, **kwargs):
-            if getattr(self, '_current_source', '') == "text":
-                self._logger.info(f"[MUTE] Chat silenziata: non riproduco '{text}' vocalmente")
-                return
-            return await original_speak(text, *args, **kwargs)
-        self.tts.speak = wrapped_speak
-
     def set_latest_frame(self, frame):
         try:
             self._frame_queue.put_nowait(frame)
@@ -94,31 +85,49 @@ class ConversationManager:
         self._current_source = source
         self.metrics.inc_requests_total()
 
-        if self._is_emergency(text):
-            await self._handle_emergency()
-            self.metrics.inc_requests_success()
-            return
-
-        if self._mic_muted and source == "audio":
-            self._logger.debug("Mic muted, ignoring audio input.")
-            return
-
-        # [v15.2] Ignora input di testo duplicati generati da ASR client-side se già gestiti dalla Live API
-        is_duplicate = False
-        if hasattr(self.llm, 'is_duplicate_text'):
-            is_duplicate = self.llm.is_duplicate_text(text)
-
-        if source == "text" and is_duplicate:
-            self._logger.info(f"Ignorato input testuale duplicato ASR: '{text}' (duplicato={is_duplicate})")
-            self.metrics.inc_requests_success()
-            return
-
-        async with self._processing_lock:
-            success = await self._process_locked(text, source)
-            if success:
+        try:
+            if self._is_emergency(text):
+                await self._handle_emergency()
                 self.metrics.inc_requests_success()
-            else:
-                self.metrics.inc_requests_failed()
+                return
+
+            if self._mic_muted and source == "audio":
+                self._logger.debug("Mic muted, ignoring audio input.")
+                return
+
+            # [v15.2] Ignora input di testo duplicati generati da ASR client-side se già gestiti dalla Live API
+            is_duplicate = False
+            if hasattr(self.llm, 'is_duplicate_text'):
+                is_duplicate = self.llm.is_duplicate_text(text)
+
+            if source == "text" and is_duplicate:
+                self._logger.info(f"Ignorato input testuale duplicato ASR: '{text}' (duplicato={is_duplicate})")
+                self.metrics.inc_requests_success()
+                return
+
+            # [ANTI-ECHO] Deduplicazione conversazionale: ignora messaggi di testo identici entro 10.0s
+            if source == "text":
+                import time
+                now = time.time()
+                norm_text = text.strip().lower()
+                if not hasattr(self, '_anti_echo_cache'):
+                    self._anti_echo_cache = []
+                self._anti_echo_cache = [(t, ts) for t, ts in self._anti_echo_cache if now - ts < 15.0]
+                for prev_text, ts in self._anti_echo_cache:
+                    if norm_text == prev_text and (now - ts) < 10.0:
+                        self._logger.warning(f"🚫 [ConversationManager] Ignorato input testuale identico entro 10.0s: '{text}'")
+                        self.metrics.inc_requests_success()
+                        return
+                self._anti_echo_cache.append((norm_text, now))
+
+            async with self._processing_lock:
+                success = await self._process_locked(text, source)
+                if success:
+                    self.metrics.inc_requests_success()
+                else:
+                    self.metrics.inc_requests_failed()
+        finally:
+            self._current_source = ""
 
     async def process_document(self, text: str, document_data: str, mime_type: str, filename: str):
         """Process an incoming document (PDF, TIFF, etc.)"""
@@ -143,6 +152,10 @@ class ConversationManager:
         clean_text = self._sanitizer.sanitize(text)
         self.world_model.recent_interactions.append(f"User: {clean_text}")
 
+        # Se la sorgente è audio (microfono/voce in locale), riproduci vocalmente con TTS.
+        # Se la sorgente è testo (chat remota / Foxglove), rispondi SOLO via chat senza azionare lo speaker.
+        should_speak = (source == "audio")
+
         # --- Voice-triggered Face Enrollment ---
         enroll_match = re.search(r'\b(?:quest[ao]\s+è|ti\s+presento|lui\s+è|lei\s+è)\s+([a-zA-Z]+)', clean_text, re.IGNORECASE)
         if enroll_match:
@@ -157,7 +170,10 @@ class ConversationManager:
                     success = face_svc.start_enrollment(name_candidate, num_samples=10)
                     if success:
                         self._logger.info(f"Enrollment session started via VUI for: {name_candidate}")
-                        await self.tts.speak(f"Va bene, inizio a imparare il volto di {name_candidate.capitalize()}. Guarda la telecamera per favore.")
+                        if should_speak:
+                            await self.tts.speak(f"Va bene, inizio a imparare il volto di {name_candidate.capitalize()}. Guarda la telecamera per favore.")
+                        if self.response_callback:
+                            self.response_callback(f"Va bene, inizio a imparare il volto di {name_candidate.capitalize()}. Guarda la telecamera per favore.")
                         return True
 
         # --- Voice-triggered Speaker Enrollment ---
@@ -174,7 +190,10 @@ class ConversationManager:
                     msg.data = name_candidate
                     self.node.speaker_trigger_pub.publish(msg)
                     self._logger.info(f"Speaker enrollment session started via VUI for: {name_candidate}")
-                    await self.tts.speak(f"Va bene, inizio a registrare le impronte della tua voce come {name_candidate.capitalize()}. Continua a parlarmi per favore.")
+                    if should_speak:
+                        await self.tts.speak(f"Va bene, inizio a registrare le impronte della tua voce come {name_candidate.capitalize()}. Continua a parlarmi per favore.")
+                    if self.response_callback:
+                        self.response_callback(f"Va bene, inizio a registrare le impronte della tua voce come {name_candidate.capitalize()}. Continua a parlarmi per favore.")
                     return True
 
         # --- Dopamine Biometric Alignment (Input Flow) ---
@@ -211,7 +230,8 @@ class ConversationManager:
             try:
                 texts = await self.skill_executor.execute_skill(skill.name, {"text": clean_text})
                 for t in texts:
-                    await self.tts.speak(t)
+                    if should_speak:
+                        await self.tts.speak(t)
                     if self.response_callback:
                         self.response_callback(t)
                 
@@ -225,7 +245,8 @@ class ConversationManager:
                 self._logger.error(f"Errore fast-path skill execution: {e}")
                 self.llm.flag_tool_failure()
                 err_msg = "Uhm... Dunque, scusami, ho avuto un piccolo intoppo nel comando rapido."
-                await self.tts.speak(err_msg)
+                if should_speak:
+                    await self.tts.speak(err_msg)
                 if self.response_callback:
                     self.response_callback(err_msg)
                 
@@ -240,7 +261,10 @@ class ConversationManager:
 
         # Offline fallback
         if self.metrics.connectivity_state == "OFFLINE":
-            await self.tts.speak("Sono offline, riprova più tardi.")
+            if should_speak:
+                await self.tts.speak("Sono offline, riprova più tardi.")
+            if self.response_callback:
+                self.response_callback("Sono offline, riprova più tardi.")
             return True
 
         ha_context = self.ha_context_provider()
@@ -324,10 +348,6 @@ class ConversationManager:
         except:
              pass
 
-        # Temporarily inject biomimetic prompt override into LLM
-        original_sys_prompt = self.llm._system_prompt
-        self.llm.set_system_prompt(self.agent_state.system_prompt_override)
-
         try:
             start = time.perf_counter()
             is_live = False
@@ -375,15 +395,16 @@ class ConversationManager:
         except asyncio.TimeoutError:
             self.metrics.record_llm_error("timeout")
             self._logger.error("LLM timeout both Live and Standard.")
-            await self.tts.speak("Non riesco a connettermi al cervello.")
+            err_timeout = "Non riesco a connettermi al cervello."
+            if should_speak:
+                await self.tts.speak(err_timeout)
+            if self.response_callback:
+                self.response_callback(err_timeout)
             return False
         except Exception as e:
             self.metrics.record_llm_error("unexpected")
             self._logger.error(f"LLM call failed: {e}", exc_info=True)
             return False
-        finally:
-            # Restore the original system prompt
-            self.llm.set_system_prompt(original_sys_prompt)
 
         # Post LLM validation -> prevent emergency action
         response_text = getattr(response, "text", "")
@@ -425,7 +446,7 @@ class ConversationManager:
 
             try:
                 async for t in self.skill_executor.execute_actions_stream(explicit_actions):
-                      if not is_live:
+                      if should_speak and not is_live:
                            await self.tts.speak(t)
                       if self.response_callback:
                            self.response_callback(t)
@@ -441,11 +462,10 @@ class ConversationManager:
             except Exception as e:
                 self._logger.error(f"Errore durante l'esecuzione delle skill: {e}", exc_info=True)
                 self.llm.flag_tool_failure()
-                if not is_live:
-                    err_msg = "Uhm... Dunque, scusami, ho avuto un piccolo intoppo nell'eseguire questa azione."
+                err_msg = "Uhm... Dunque, scusami, ho avuto un piccolo intoppo nell'eseguire questa azione."
+                if should_speak and not is_live:
                     await self.tts.speak(err_msg)
                 if self.response_callback:
-                     err_msg = "Uhm... Dunque, scusami, ho avuto un piccolo intoppo nell'eseguire questa azione."
                      self.response_callback(err_msg)
                      
                 # Critic evaluation on failed skill executions
@@ -462,7 +482,7 @@ class ConversationManager:
             response_text = "Ho analizzato l'hardware visivamente e prodotto un report a schermo."
 
         if response_text:
-            if not is_live:
+            if should_speak and not is_live:
                 await self.tts.speak(response_text)
             self.world_model.recent_interactions.append(f"Robot: {response_text[:50]}...")
             if self.response_callback:
@@ -476,12 +496,20 @@ class ConversationManager:
         # TRINITY MAG Autobiographical & Fact Recording
         if response_text and self.trinity_engine and self.trinity_engine.enabled:
             try:
+                extracted_facts = None
+                if is_factual:
+                    extracted_facts = [{
+                        "fact_text": f"{clean_text} -> {response_text}",
+                        "fact_type": "KNOWLEDGE",
+                        "confidence": 1.0
+                    }]
                 await self.trinity_engine.record_interaction(
                     user_text=clean_text,
                     robot_response=response_text,
                     actions_taken=[a.get("action_type", a.get("name", "")) for a in response_actions],
                     was_successful=True,
-                    user_identity=user_id
+                    user_identity=user_id,
+                    extracted_facts=extracted_facts
                 )
             except Exception as e:
                 self._logger.debug(f"TRINITY background recording skipped: {e}")

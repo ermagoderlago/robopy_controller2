@@ -113,4 +113,43 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
   * Creata suite di test unitari `test/unit/test_memory_pressure_sentinel.py` (7/7 PASS).
   * Registrato il Failure Mode `FM-SYS-008` in `fmea/dfmea.yaml` e generato `IMP-SYS-008_lifecycle_memory_sentinel.md`.
 
+---
+
+## 📈 ECO-2026-09-03-003: Anti-Echo Text Input Deduplication & Subscription Normalization on /robopy/conversation_rx
+* **Stato:** ✅ **Completato, Sincronizzato e Collaudato sul Robot**
+* **Descrizione:** Risoluzione definitiva del triplice trigger dei comandi testuali e dell'attivazione impropria del prompt di insistenza/ripetizione dell'LLM (FM-COG-003).
+* **Modifiche apportate:**
+  * **[NORMALIZZAZIONE SOTTOSCRIZIONI ROS 2]** `restart_hailo.sh`, `launch/robot_ia_launch.py`, `robopy_controller/robot_ai/orchestration/orchestrator.py`:
+    - Rimosso il remapping concorrente `--ros-args -r /ai/input/text:=/robopy/conversation_rx`.
+    - Eliminata la doppia sottoscrizione `/ai/input/text` e `ai/input/text` nel nodo `robot_ai_orchestrator`, lasciando esattamente 1 sottoscrizione a `/robopy/conversation_rx` ed 1 a `/ai/input/text`.
+    - `Subscription count` sul topic `/robopy/conversation_rx` verificato e ridotto da 3 a **1**.
+  * **[DEDUPLICATORE ROS 2 CALLBACK]** `robopy_controller/robot_ai/orchestration/orchestrator.py`:
+    - Implementato filtro reattivo in `_text_input_callback` con blocco temporale di 10.0 secondi su messaggi identici consecutivi.
+  * **[ANTI-ECHO CACHE CONVERSAZIONALE]** `robopy_controller/robot_ai/orchestration/conversation.py`:
+    - Introdotto ring buffer `_anti_echo_cache` (15s TTL) in `process_input` per scartare stringhe identiche ricevute entro 10.0 secondi, isolato da `_recent_inputs` per prevenire regressioni di tipo.
+  * **[FMEA]** Registrato `FM-COG-003` in `fmea/dfmea.yaml` (RPN 378 -> 12).
+
+---
+
+## 📈 ECO-2026-09-04-001: TRINITY Memory Retrieval, Acronym Identity Enforcing, MemoryInfoSkill Bugfix & Audio Unmute
+* **Stato:** ✅ **Completato, Sincronizzato e Collaudato sul Robot**
+* **Descrizione:** Risoluzione integrata delle criticità di amnesia sull'acronimo MARCUS, assenza di recupero memorie RAG/MAG, blocco di `MemoryInfoSkill` e silenziamento vocale su chat da Foxglove (FM-COG-004).
+* **Modifiche apportate:**
+  * **[PRESERVAZIONE PROMPT DI SISTEMA]** `robopy_controller/robot_ai/orchestration/conversation.py`:
+    - Rimosso `self.llm.set_system_prompt(self.agent_state.system_prompt_override)` che azzerava l'identità del robot prima di ogni chiamata LLM.
+    - Rimosso `wrapped_speak` che silenziava sistematicamente il parlato quando l'input proveniva da chat (`source == "text"`).
+    - Aggiunta estrazione e persistenza di `extracted_facts` a `trinity_engine.record_interaction(...)` per popolare la tabella Zettelkasten `semantic_facts`.
+  * **[ROBUSTEZZA METAPROMPT E ACRONIMO BLINDATO]** `robopy_controller/robot_ai/trinity/metaprompt_fusion.py`:
+    - Corretto il metodo `_truncate_to_budget` per troncare su caratteri invece di restituire stringa vuota al superamento del budget.
+    - Blindata l'identità nel blocco `[RUOLO DEL ROBOT]`: vincolo stringente sull'acronimo "Modular Autonomous Robotic Control Unit System" e divieto di divagazioni latine/Marte.
+  * **[INTENT ROUTING BILINGUE E ANTI-ECHO RAG/MAG]** `robopy_controller/robot_ai/trinity/intent_router.py`, `trinity_engine.py`, `mag_episodic.py`:
+    - Aggiunte keyword italiane per la classificazione di `MEMORY`.
+    - Implementato recupero prioritario di `LEARNED_FACT` in `_retrieve_rag_conversational`.
+    - Filtrati i vecchi turni con risposte negative/evasive ("non ho visto molto di nuovo") sia in RAG che negli episodi MAG per rompere l'echo loop.
+  * **[MEMORY MANAGER & SKILL REFACTOR]** `robopy_controller/robot_ai/orchestration/memory_manager.py`, `robopy_controller/robot_ai/skills/builtin/memory_info_skill.py`:
+    - Aggiunti i metodi asincroni `get_stats()` e `list_loaded_documents()` in `MemoryManager`.
+    - Ristretto il matcher di `MemoryInfoSkill` per evitare l'intercettazione indebita di conversazioni naturali.
+  * **[FMEA]** Registrato `FM-COG-004` in `fmea/dfmea.yaml` (RPN 336 -> 12).
+
+
 

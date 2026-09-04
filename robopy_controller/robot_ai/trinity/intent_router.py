@@ -34,12 +34,17 @@ class IntentRouter:
         self.logger = get_logger(self.__class__.__name__)
         # Lightweight keyword/regex matching patterns (no ML needed)
         self.patterns = {
-            IntentCategory.CODING: re.compile(r'\b(code|python|debug|error|exception|script|function|class)\b', re.IGNORECASE),
-            IntentCategory.NAVIGATION: re.compile(r'\b(go to|move|navigate|room|kitchen|living room|map|location|where is)\b', re.IGNORECASE),
-            IntentCategory.CONVERSATION: re.compile(r'\b(hello|hi|how are you|feel|feeling|joke|chat)\b', re.IGNORECASE),
-            IntentCategory.SMART_HOME: re.compile(r'\b(light|lights|turn on|turn off|temperature|thermostat|device|smart plug)\b', re.IGNORECASE),
-            IntentCategory.DIAGNOSTIC: re.compile(r'\b(system status|battery|health|broken|failed|cpu|ram|logs|diagnostic)\b', re.IGNORECASE),
-            IntentCategory.MEMORY: re.compile(r'\b(remember|recall|past|yesterday|last time|did you|have you)\b', re.IGNORECASE),
+            IntentCategory.CODING: re.compile(r'\b(code|python|debug|error|exception|script|function|class|codice|errore|funzione|classe)\b', re.IGNORECASE),
+            IntentCategory.NAVIGATION: re.compile(r'\b(go to|move|navigate|room|kitchen|living room|map|location|where is|vai in|muoviti|naviga|stanza|cucina|salotto|mappa|dove si trova)\b', re.IGNORECASE),
+            IntentCategory.CONVERSATION: re.compile(r'\b(hello|hi|how are you|feel|feeling|joke|chat|ciao|buongiorno|buonasera|come stai|barzelletta|chiacchiera)\b', re.IGNORECASE),
+            IntentCategory.SMART_HOME: re.compile(r'\b(light|lights|turn on|turn off|temperature|thermostat|device|smart plug|luce|luci|accendi|spegni|termostato|dispositivo)\b', re.IGNORECASE),
+            IntentCategory.DIAGNOSTIC: re.compile(r'\b(system status|battery|health|broken|failed|cpu|ram|logs|diagnostic|stato sistema|batteria|salute|guasto|carico)\b', re.IGNORECASE),
+            IntentCategory.MEMORY: re.compile(
+                r'\b(remember|recall|past|yesterday|last time|did you|have you|'
+                r'ricordi|ricordare|memoria|appreso|imparato|fatto ieri|visto oggi|ascoltato|'
+                r'annotato|cosa sai|cosa ricordi|chi sono|il mio nome|acronimo|significato|cosa significa)\b',
+                re.IGNORECASE
+            ),
         }
 
     def classify(self, text: str) -> IntentCategory:

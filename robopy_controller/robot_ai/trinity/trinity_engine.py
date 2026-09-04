@@ -96,17 +96,38 @@ class TrinityEngine:
         self.logger.info(f"🧠 TrinityEngine initialized successfully. Enabled: {self.enabled}")
 
     async def _retrieve_rag_conversational(self, clean_text: str, top_k: int = 3) -> str:
-        """Retrieves conversational memories from ChromaDB memory_store."""
+        """Retrieves conversational memories and learned facts from ChromaDB memory_store."""
         if not self.memory_store:
             return ""
         try:
             results = await self.memory_store.search(clean_text, top_k=top_k)
             memories = []
             for res in results:
-                if hasattr(res, 'score') and res.score >= 0.40:
-                    memories.append(f"- {res.memory.content}")
+                content = res.memory.content if hasattr(res, 'memory') else getattr(res, 'content', '')
+                if not content:
+                    continue
+                # Filtra risposte evasive o generiche passate per non creare echo loop
+                content_lower = content.lower()
+                if "non ho visto molto di nuovo" in content_lower or "problema di connessione" in content_lower:
+                    continue
+                if hasattr(res, 'score') and res.score >= 0.35:
+                    memories.append(f"- {content}")
                 elif hasattr(res, 'content'):
-                    memories.append(f"- {res.content}")
+                    memories.append(f"- {content}")
+
+            # Se la query riguarda l'apprendimento o l'identità, recupera anche i fatti appresi recenti
+            is_learning_query = any(k in clean_text.lower() for k in ["appreso", "imparato", "memoria", "ricordi", "ricordare", "acronimo", "significa"])
+            if is_learning_query and hasattr(self.memory_store, 'get_recent'):
+                try:
+                    from ..rag.memory_store import MemoryType
+                    facts = self.memory_store.get_recent(limit=4, memory_type=MemoryType.LEARNED_FACT)
+                    for f in facts:
+                        fact_line = f"- [FATTO APPRESO]: {f.content}"
+                        if fact_line not in memories:
+                            memories.append(fact_line)
+                except Exception as e:
+                    self.logger.debug(f"Learned facts lookup error: {e}")
+
             return "\n".join(memories)
         except Exception as e:
             self.logger.warning(f"RAG conversational search error: {e}")

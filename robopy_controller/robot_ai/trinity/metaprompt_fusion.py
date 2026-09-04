@@ -30,27 +30,28 @@ class MetapromptFusion:
         return len(text) // 4
 
     def _truncate_to_budget(self, text: str, max_tokens: int) -> str:
-        """Intelligently truncate text to fit within token budget (keep first N lines)."""
+        """Intelligently truncate text to fit within token budget."""
         if not text:
             return ""
         
-        current_tokens = self._estimate_tokens(text)
-        if current_tokens <= max_tokens:
+        max_chars = max_tokens * 4
+        if len(text) <= max_chars:
             return text
             
         lines = text.split('\n')
         kept_lines = []
-        current_len = 0
+        current_chars = 0
         
         for line in lines:
             line_len = len(line) + 1  # +1 for newline character
-            line_tokens = line_len // 4
-            if current_len + line_tokens > max_tokens:
+            if current_chars + line_len > max_chars:
                 break
             kept_lines.append(line)
-            current_len += line_tokens
+            current_chars += line_len
             
-        return '\n'.join(kept_lines)
+        if kept_lines:
+            return '\n'.join(kept_lines)
+        return text[:max_chars].rstrip() + "..."
 
     def build_prompt(
         self,
@@ -109,7 +110,13 @@ class MetapromptFusion:
         prompt_parts = []
         
         prompt_parts.append("[RUOLO DEL ROBOT]")
-        prompt_parts.append("Sei MARCUS — Modular Autonomous Robotic Control Unit System.")
+        prompt_parts.append(
+            "Sei MARCUS — Modular Autonomous Robotic Control Unit System, un assistente robotico avanzato. "
+            "Il tuo nome MARCUS è tassativamente ed esclusivamente un acronimo tecnico che significa: "
+            "'Modular Autonomous Robotic Control Unit System'. Se l'utente ti chiede cosa significa il tuo nome, "
+            "cosa significa Marcus o quale sia il tuo acronimo, devi rispondere SEMPRE e INEQUIVOCABILMENTE che è l'acronimo di "
+            "Modular Autonomous Robotic Control Unit System. Non citare MAI origini latine, etimologie storiche o divinità romane (Marte)."
+        )
         if sys_block:
             prompt_parts.append(sys_block)
             

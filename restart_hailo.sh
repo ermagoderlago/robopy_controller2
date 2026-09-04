@@ -5,8 +5,8 @@
 # --- Gestione Watchdog di Sopravvivenza ---
 if [ -z "$FROM_WATCHDOG" ]; then
     echo "🛑 Disattivazione temporanea del Watchdog per riavvio manuale..."
-    sudo systemctl stop marcus-watchdog.service || true
-    systemctl --user stop marcus-watchdog.service || true
+    sudo -n systemctl stop marcus-watchdog.service 2>/dev/null || true
+    systemctl --user stop marcus-watchdog.service 2>/dev/null || true
     pkill -9 -f watchdog.sh || true
 fi
 
@@ -59,6 +59,7 @@ pkill -9 -f nomad_reactive_pipeline_node || true
 pkill -9 -f vpr_topological_graph_node || true
 
 # Kill camera & navigation nodes
+pkill -9 -f sllidar_node || true
 pkill -9 -f fast_flow_vo_cpp || true
 pkill -9 -f oak_driver_node || true
 pkill -9 -f oak_superpoint_odometry_cpp || true
@@ -98,7 +99,7 @@ sleep 1
 echo "⚙️ Starting waveshare_motor_driver..."
 > /home/robopy/robopy/logs/waveshare_motor_driver.log
 nohup ros2 run robopy_controller waveshare_motor_driver --ros-args \
-    -p serial_port:=/dev/ttyUSB0 \
+    -p serial_port:=/dev/motor_driver \
     -p baud_rate:=115200 \
     -p wheel_radius:=0.0335 \
     -p wheel_separation:=0.285 \
@@ -113,7 +114,13 @@ nohup ros2 run robopy_controller waveshare_motor_driver --ros-args \
     > /home/robopy/robopy/logs/waveshare_motor_driver.log 2>&1 &
 
 
-echo "📐 Starting CAD static TF publishers (OAK-D Lite 8° pitch UP, Z=0.2616m)..."
+echo "📐 Starting CAD static TF publishers (OAK-D Lite 8° pitch UP, Z=0.2616m, RPLIDAR C1 Z=0.18m)..."
+nohup ros2 run tf2_ros static_transform_publisher \
+  --x 0.08 --y 0.0 --z 0.18 \
+  --roll 0.0 --pitch 0.0 --yaw 0.0 \
+  --frame-id base_link --child-frame-id laser \
+  > /home/robopy/robopy/logs/tf_laser.log 2>&1 &
+
 nohup ros2 run tf2_ros static_transform_publisher \
   --x 0.0332 --y 0.0 --z 0.2616 \
   --roll 0.0 --pitch -0.1396 --yaw 0.0 \
@@ -161,14 +168,18 @@ nohup taskset -c 2,3 ros2 run robopy_controller fast_flow_vo_cpp --ros-args \
     > /home/robopy/robopy/logs/fast_flow_vo.log 2>&1 &
 sleep 3
 
-echo "📡 Starting depthimage_to_laserscan (Floor Anti-Reflection Filter)..."
-> /home/robopy/robopy/logs/depthimage_to_laserscan.log
-nohup ros2 run depthimage_to_laserscan depthimage_to_laserscan_node \
-    --ros-args -r image:=/camera/depth/image_raw -r camera_info:=/camera/camera_info_scan -r scan:=/scan \
-    -p target_frame:=base_link \
-    -p min_height:=0.04 -p max_height:=0.80 \
-    -p range_min:=0.3 -p range_max:=4.0 \
-    > /home/robopy/robopy/logs/depthimage_to_laserscan.log 2>&1 &
+echo "📡 Starting Slamtec RPLIDAR C1 (360° ToF Laser Scan)..."
+> /home/robopy/robopy/logs/sllidar_c1.log
+source /home/robopy/lidar_ws/install/setup.bash 2>/dev/null || true
+nohup ros2 run sllidar_ros2 sllidar_node --ros-args \
+    -p channel_type:=serial \
+    -p serial_port:=/dev/rplidar \
+    -p serial_baudrate:=460800 \
+    -p frame_id:=laser \
+    -p inverted:=false \
+    -p angle_compensate:=true \
+    -p scan_mode:=Standard \
+    > /home/robopy/robopy/logs/sllidar_c1.log 2>&1 &
 
 echo "📡 Starting ultrasonic_sensor..."
 > /home/robopy/robopy/logs/ultrasonic_sensor.log
@@ -213,7 +224,7 @@ nohup ros2 run robopy_controller respeaker_vui_node --ros-args \
     -r __node:=respeaker_vui_node \
     -p use_sim_time:=False \
     -p stt_gain:=2.5 \
-    -p noise_gate_threshold:=400.0 \
+    -p noise_gate_threshold:=85.0 \
     -p listen_timeout_sec:=180.0 \
     -p wakeword_sensitivity:=0.95 \
     -p enable_barge_in:=true \
@@ -301,7 +312,6 @@ nohup ros2 run robopy_controller system_lifecycle_coordinator_node \
 echo "🤖 Starting robot_ai_node (Cognitive Orchestrator)..."
 > /home/robopy/robopy/logs/robot_ai_node_debug_TEST4.log
 nohup ros2 run robopy_controller robot_ai_node \
-    --ros-args -r /ai/input/text:=/robopy/conversation_rx \
     > /home/robopy/robopy/logs/robot_ai_node_debug_TEST4.log 2>&1 &
 
 echo "🔌 Starting foxglove_bridge..."

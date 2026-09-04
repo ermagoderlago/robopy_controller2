@@ -28,15 +28,17 @@ class MemoryInfoSkill(BaseSkill):
 
     def match(self, text: str, context: Dict[str, Any] = None) -> float:
         text_lower = text.lower()
-        # Parole chiave fondamentali
-        has_base_kw = any(kw in text_lower for kw in ["documenti", "memoria", "database", "rag"])
-        # Intenzioni (lista, elenco, quanti, ecc.)
-        has_intent = any(q in text_lower for q in ["quanti", "quali", "cosa", "stato", "elenco", "lista", "riepilogo", "fammi un documento"])
+        # Escludi esplicitamente domande conversazionali su ricordi, fatti appresi o persone
+        conversational_kw = ["appreso", "imparato", "fatto", "visto", "sentito", "ieri", "oggi", "di me", "su di me", "chi sono", "mio nome", "acronimo", "ricordi", "ricordare"]
+        if any(ck in text_lower for ck in conversational_kw):
+            return 0.0
+
+        # Richieste esplicite di statistiche o elenco documenti tecnici RAG
+        has_doc_kw = any(kw in text_lower for kw in ["documenti", "documento", "database", "rag", "frammenti", "chunks", "file caricati"])
+        has_intent = any(q in text_lower for q in ["quanti", "quali", "stato", "elenco", "lista", "riepilogo", "statistiche", "fammi un documento"])
         
-        if has_base_kw and has_intent:
-            return 0.98
-        elif has_base_kw:
-            return 0.4
+        if has_doc_kw and has_intent:
+            return 0.96
         return 0.0
 
     async def execute(self, text: str, context: Dict[str, Any] = None) -> AsyncGenerator[SkillResult, None]:

@@ -120,6 +120,20 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
   * **Prevenzione Battery Cliff (DFMEA FM-SYS-004):** Chiuso failure mode con creazione del progetto `IMP-SYS-004_battery_cliff.md` e procedura di shutdown controllato `sudo systemctl poweroff` previa sincronizzazione file `sync`.
   * **Configurazione e Build:** Creato `battery_params.yaml`, wrapper `scripts/battery_manager_node`, e registrati entry points in `setup.py` e `CMakeLists.txt`.
 
+---
+
+## 📈 ECO-2026-09-04-013: Migrazione Seriale a `/dev/motor_driver` via Udev Rules e Coesistenza LiDAR C1
+* **Stato:** ✅ **Completato, Testato su Hardware e Attivo su Marcus**
+* **Descrizione:** Risoluzione del Failure Mode critico di collisione delle porte USB seriali (FM-MOT-004) dovuto alla presenza di due bridge Silicon Labs CP2102N identici (Waveshare General Driver ESP32 e adattatore Slamtec RPLIDAR C1).
+* **Modifiche apportate:**
+  * **[REGOLA UDEV LINUX]** `/etc/udev/rules.d/99-marcus-serial.rules`:
+    - Creata regola con discriminazione su `ATTRS{serial}` per assegnare stabilmente il symlink persistente `/dev/motor_driver` al controllore ESP32 (`4c7fd634626cef11acaca4adc169b110`).
+    - Eliminata la variabilità di enumerazione che portava la scheda motori a scambiarsi tra `/dev/ttyUSB0` e `/dev/ttyUSB1` ad ogni reboot.
+  * **[NODO DRIVER & LAUNCH]** `restart_hailo.sh`, `launch/marcus_bringup.launch.py`:
+    - Aggiornato parametro `serial_port` a `/dev/motor_driver`.
+    - Verificata la stabilità della telemetria a 20 Hz (`odl`, `odr`, tensione batteria `v`) senza alcuna perdita di frame durante il funzionamento del LiDAR.
+
+
 
 
 

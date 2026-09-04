@@ -212,7 +212,7 @@ class ASRService:
                         self.logger.info(f"Recognized: {transcript}")
                         
                         # Check wake word if configured
-                        # Note: Streaming wake word detection is better done locally (e.g. Porcupine)
+                        # Note: Streaming wake word detection is done locally (e.g. Vosk / Hailo KWS)
                         # This checks if the full sentence starts with wake word
                         wake_word = self.ai_config.asr.wake_word
                         if wake_word and not transcript.lower().startswith(wake_word.lower()):

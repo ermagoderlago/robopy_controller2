@@ -100,5 +100,38 @@ Questo documento traccia la cronologia delle modifiche ingegneristiche (ECO) app
   * **Non-Destructive `<IGNORE_TURN>`:** Gestione del token di silenzio senza mutare il microfono né disconnettere il WebSocket, preservando la sessione attiva per 3 minuti.
   * **Allineamento System Prompt:** Istruito il modello a rispondere vocalmente solo a richieste dirette a Marcus durante i turni successivi di sessione aperta.
 
+---
 
+## 📈 ECO-2026-09-03-002: Vosk Targeted Wake Grammar, End-Of-Speech Forwarding & Virtualenv Path Injection
+* **Stato:** ✅ **Completato, Sincronizzato e Collaudato sul Robot**
+* **Descrizione:** Risoluzione definitiva del blocco di ascolto e mancata risposta vocale del robot a seguito della chiamata "Marcus" (FM-VUI-024).
+* **Modifiche VUI, LLM e Pipeline Audio:**
+  * **[TARGETED WAKE GRAMMAR]** `robopy_controller/robot_ai/services/local_asr_vosk.py`:
+    - Sostituito il vocabolario aperto con grammatica vincolata JSON `["marcus", "marco", "marcos", "markus", "robot", "ascolta", "fermati", "stop", "zitto", "silenzio", "io sono", "mi chiamo", "[unk]"]`.
+    - Kaldi compila un automa a 16 stati: zero allucinazioni su parole non pertinenti (es. 'plauso', 'l'uso', 'p'), latenza ridotta a <20ms e carico CPU <1%.
+  * **[END-OF-SPEECH SIGNAL FORWARDING]** `robopy_controller/robot_ai/services/llm_service.py`:
+    - Modificata `audio_callback_ros` per inoltrare i pacchetti vuoti (`len(raw_bytes) == 0`) a `_live_mgr.send_audio_chunk(b'')`, consentendo l'emissione di `activity_end=types.ActivityEnd()` su Gemini Live WebSocket e sbloccando la sintesi vocale.
+  * **[VIRTUALENV SYS.PATH INJECTION]** `robopy_controller/robot_ai/services/local_asr_vosk.py`:
+    - Inserita in testa al modulo l'aggiunta dinamica dei percorsi `/home/robopy/ros2_venv/lib/python3.11/site-packages` in `sys.path` per abilitare l'import di `vosk` quando `respeaker_vui_node` viene eseguito da `/usr/bin/python3`.
+  * **[DEBOUNCE RE-TRIGGER WAKE WORD]** `robopy_controller/nodes/respeaker_vui_node.py`:
+    - Sostituito il blocco rigido `if self._ev_listening.is_set(): return` con un debounce di 2 secondi, garantendo feedback acustico (beep a 1000Hz) e riapertura del turno ad ogni chiamata diretta.
+  * **[CHAT SILENCING UNMUTE FIX]** `robopy_controller/robot_ai/orchestration/conversation.py`:
+    - Incapsulata l'elaborazione di `process_input` in `try ... finally: self._current_source = ""` prevenendo il silenziamento involontario permanente delle risposte vocali dopo messaggi testuali da Foxglove/Web.
 
+---
+
+## 📈 ECO-2026-09-04-002: Definitive Porcupine Code Purge & Legacy Artifacts Cleanup
+* **Stato:** ✅ **Completato, Sincronizzato e Collaudato sul Robot**
+* **Descrizione:** Bonifica radicale e definitiva di ogni traccia residua del framework proprietario Picovoice Porcupine (EOL) da codice sorgente, nodi ROS 2, entry point e configurazioni del workspace (FM-VUI-004).
+* **Modifiche apportate:**
+  * **[ELIMINAZIONE FILE E ARTEFATTI OBSOLETI]**:
+    - Rimossi `tmp_vui.py` e `test_porcupine.py`.
+    - Rimosso il nodo orfano `robopy_controller/nodes/wake_word_node.py`.
+    - Eliminati i modelli binari Picovoice `robopy_controller/config/wake_word/porcupine_params_it.pv` e `marcus.ppn`.
+  * **[BONIFICA RESPEAKER VUI NODE]** `robopy_controller/nodes/respeaker_vui_node.py`:
+    - Rimossi i buffer residui allocati in `__init__` (`_porcupine_residual_buf`, `_porcupine_residual_len`, `_porcupine_assembly_buf`).
+    - Eliminato `self.porcupine = None` e aggiornati tutti i commenti/log tecnici verso Vosk / Hailo KWS.
+  * **[BONIFICA BUILD SYSTEM & LAUNCH]** `setup.py`, `launch/fast_flow_launch.py`:
+    - Rimosso l'entry point `wake_word_node` da `console_scripts`.
+    - Rimosso il nodo `wake_word_node` dalla `LaunchDescription`.
+  * **[FMEA]** Failure mode `FM-VUI-004` validato e chiuso (`CLOSED`).

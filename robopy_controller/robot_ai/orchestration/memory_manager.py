@@ -98,3 +98,38 @@ class MemoryManager:
                 break
             except Exception as e:
                 self._logger.error(f"Memory worker error: {e}")
+
+    async def get_stats(self) -> dict:
+        """Returns memory statistics for skills and diagnostics."""
+        try:
+            if hasattr(self.memory_store, 'get_statistics'):
+                stats = self.memory_store.get_statistics()
+                return {
+                    "total_chunks": stats.get("total_memories", 0),
+                    "status": stats.get("status", "ready"),
+                    "by_type": stats.get("by_type", {})
+                }
+            elif hasattr(self.memory_store, 'count'):
+                return {
+                    "total_chunks": self.memory_store.count(),
+                    "status": "ready"
+                }
+        except Exception as e:
+            self._logger.warning(f"Error getting memory stats: {e}")
+        return {"total_chunks": 0, "status": "unknown"}
+
+    async def list_loaded_documents(self) -> list:
+        """Returns list of distinct loaded documents."""
+        try:
+            if hasattr(self.memory_store, '_collection'):
+                results = self.memory_store._collection.get(include=["metadatas"])
+                docs = set()
+                for m in results.get("metadatas", []) or []:
+                    if m and "document_name" in m:
+                        docs.add(m["document_name"])
+                    elif m and "filename" in m:
+                        docs.add(m["filename"])
+                return sorted(list(docs))
+        except Exception as e:
+            self._logger.warning(f"Error listing documents: {e}")
+        return []

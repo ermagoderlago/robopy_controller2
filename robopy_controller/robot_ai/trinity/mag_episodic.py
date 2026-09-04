@@ -83,7 +83,11 @@ class EpisodicMemoryEngine:
         
         episodes_text = "RECENT EPISODES:\n"
         for ep in memory_data.get("episodes", []):
-            episodes_text += f"- Q: {ep.get('user_input', '')} | A: {ep.get('robot_response', '')}\n"
+            resp = ep.get('robot_response', '')
+            resp_lower = resp.lower()
+            if "non ho visto molto di nuovo" in resp_lower or "problema di connessione" in resp_lower:
+                continue
+            episodes_text += f"- Q: {ep.get('user_input', '')} | A: {resp}\n"
         sections["episodes"] = episodes_text
 
         facts_text = self._fact_store.to_prompt_section(memory_data.get("facts", []), max_tokens=250)

@@ -787,7 +787,7 @@
     detection: 2
     rpn: 32
   risk_level: LOW
-  mitigation_status: IN_PROGRESS
+  mitigation_status: CLOSED
   recommended_action: Valutare l'integrazione hardware di un LiDAR 2D 360° (es. RPLiDAR
     C1 / STL-27L) o implementare una pipeline software di Neural Depth Completion
     su NPU Hailo-10H
@@ -796,11 +796,16 @@
   eco_ref: docs/ecos/nav2_slam_ecos.md
   lesson_ref: docs/lessons/nav2_slam_tuning.md#25d-costmap
   date_identified: '2026-07-30'
-  last_updated: '2026-07-30'
+  last_updated: '2026-09-04'
   history:
   - date: '2026-07-30'
     change: Audit approfondito del codebase e identificazione rischio corruzione mappa
     rpn_old: 384
+    rpn_new: 32
+  - date: '2026-09-04'
+    change: Integrazione completata Slamtec RPLIDAR C1 (/dev/rplidar @ 460800 baud).
+      Scan matching ICP e costmap 360 attivi.
+    rpn_old: 32
     rpn_new: 32
 - id: FM-NAV-006
   subsystem: Nav2
@@ -1971,19 +1976,24 @@
     detection: 1
     rpn: 9
   risk_level: REVISION_MANDATORY
-  mitigation_status: IN_PROGRESS
-  recommended_action: Migrare la pipeline di wake word su modello KWS compilato per
-    NPU Hailo-10H o modello ONNX locale privo di cloud auth
+  mitigation_status: CLOSED
+  recommended_action: Mantenere la pipeline wake word basata su Vosk ASR e NPU Hailo-10H
+    KWS
   verification_method: Pronuncia della parola 'Marcus' ed ascolto del segnale audio
     di attivazione
-  eco_ref: docs/ecos/audio_vui_ecos.md#ECO-2026-07-30-003
+  eco_ref: docs/ecos/audio_vui_ecos.md#ECO-2026-09-04-002
   lesson_ref: docs/lessons/audio_vui_pipeline.md#picovoice-free-tier-eol
   date_identified: '2026-07-30'
-  last_updated: '2026-07-30'
+  last_updated: '2026-09-04'
   history:
   - date: '2026-07-30'
     change: Identificata dismissione piano gratuito Picovoice e pianificata sostituzione
       con Hailo-10H KWS
+    rpn_old: 162
+    rpn_new: 9
+  - date: '2026-09-04'
+    change: Eliminazione definitiva e totale di Picovoice Porcupine da codice, nodi,
+      entry point e filesystem (ECO-2026-09-04-002)
     rpn_old: 162
     rpn_new: 9
 - id: FM-VUI-005
@@ -4497,3 +4507,323 @@
       e skill_action_server
     rpn_old: 392
     rpn_new: 14
+- id: FM-NAV-020
+  subsystem: Navigation & SLAM
+  component: rtabmap
+  function: Persistenza grafo SLAM e dizionario visivo DBoW3 senza saturazione storage
+  failure_mode: Saturazione MicroSD al 100% (0 byte liberi), runaway log da 4.1GB
+    e Load Average 18.10 dovuto a loop continuo VWDictionary.cpp:741 su database da
+    16GB
+  potential_cause: Allocazione del database rtabmap.db sulla partizione root MicroSD
+    senza limitazione temporale/storage e svuotamento dizionario visivo DBoW3
+  potential_effect: Freeze totale del sistema operativo, [Errno 28] No space left
+    on device su tutti i processi Python e fallimento di tutti i nodi ROS 2
+  classification: CATASTROPHIC
+  estimation_basis: measured
+  related_ids:
+  - FM-SYS-008
+  initial_scoring:
+    severity: 8
+    occurrence: 8
+    detection: 7
+    rpn: 448
+  prevention_controls: Spostamento permanente del database rtabmap.db su SSD esterno
+    /mnt/ssd (240GB) tramite symlink e ripristino mappa integra salotto.db (313MB)
+  detection_controls: Sentinel disco periodico e bonifica preventiva cartelle log
+  residual_scoring:
+    severity: 8
+    occurrence: 2
+    detection: 1
+    rpn: 16
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Mantenere rtabmap.db su SSD esterno e monitorare lo spazio libero
+    root
+  verification_method: Ispezione df -h su MicroSD (23 GB liberi) e restart_hailo.sh
+    nominale
+  eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-09-03-001
+  lesson_ref: docs/lessons/nav2_slam_tuning.md#FM-NAV-020
+  date_identified: '2026-09-03'
+  last_updated: '2026-09-03'
+  history:
+  - date: '2026-09-03'
+    change: Spostato rtabmap.db su /mnt/ssd, ripristinata mappa salotto.db e bonificati
+      23GB log
+    rpn_old: 448
+    rpn_new: 16
+- id: FM-NAV-025
+  subsystem: Navigation & SLAM
+  component: rtabmap_slam
+  function: Stabilità albero TF map->odom e localizzazione continua in ambienti noti
+  failure_mode: Crash irreversibile RTAB-Map per UException Memory.cpp:3473 addLink
+    e conseguente collasso di Nav2 e blackout canali 3D Foxglove Studio
+  potential_cause: Esecuzione di rtabmap con Mem/IncrementalMemory='true' su mappa
+    preesistente complessa, con rigetto di loop closure a score non positivo e peso
+    nodi incongruente
+  potential_effect: Disconnessione TF globale, crash di Nav2 in navigazione e schermata
+    nera su Foxglove Studio
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-NAV-020
+  initial_scoring:
+    severity: 7
+    occurrence: 7
+    detection: 6
+    rpn: 294
+  prevention_controls: Impostazione Mem/IncrementalMemory='false' (Modalità Localizzazione
+    Pura) in rtabmap.yaml durante navigazione su mappe consolidate
+  detection_controls: Monitoraggio del processo rtabmap in background e topic TF map->odom
+  residual_scoring:
+    severity: 7
+    occurrence: 1
+    detection: 1
+    rpn: 7
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Eseguire RTAB-Map in modalità localizzazione pura su salotto.db
+  verification_method: Riavvio dello stack e verifica streaming TF su Foxglove Studio
+  eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-09-03-001
+  lesson_ref: docs/lessons/nav2_slam_tuning.md#FM-NAV-025
+  date_identified: '2026-09-03'
+  last_updated: '2026-09-03'
+  history:
+  - date: '2026-09-03'
+    change: Impostato Mem/IncrementalMemory='false' e validata localizzazione senza
+      crash
+    rpn_old: 294
+    rpn_new: 7
+- id: FM-VUI-024
+  subsystem: Audio & VUI
+  component: respeaker_vui_node
+  function: Rilevamento continuo e affidabile della wake word 'Marcus' ed emissione
+    risposta vocale
+  failure_mode: Robot non risponde alla chiamata vocale 'Marcus', assenza di beep
+    di ingaggio e blocco infinito dell'ascolto Gemini Live senza sintesi audio
+  potential_cause: Vocabolario aperto Vosk che allucinava 'plauso', pacchetti vuoti
+    End-Of-Speech scartati in llm_service.py (ActivityEnd non inviato), import venv
+    mancante e mute leakage
+  potential_effect: Completa inoperabilità dell'interfaccia vocale naturale HRI del
+    robot
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-VUI-021
+  - FM-VUI-023
+  initial_scoring:
+    severity: 9
+    occurrence: 8
+    detection: 7
+    rpn: 504
+  prevention_controls: Grammatica vincolata FST (16 stati) in Vosk, inoltro pacchetti
+    vuoti EOS a live_mgr, iniezione dinamica sys.path in local_asr_vosk.py, debounce
+    2s su wake word e blocco try...finally su _current_source in conversation.py
+  detection_controls: Log di ingaggio 🗣️ [VOSK ASR], beep 1000Hz ed evento ActivityEnd
+  residual_scoring:
+    severity: 9
+    occurrence: 1
+    detection: 1
+    rpn: 9
+  risk_level: REVISION_MANDATORY
+  mitigation_status: CLOSED
+  recommended_action: Applicare targeted grammar FST a Vosk, inoltrare frame vuoti
+    EOS e sanare sys.path
+  verification_method: Test impulse /wake_word e verifica risposta vocale Live API
+    su Pi 5
+  eco_ref: docs/ecos/audio_vui_ecos.md#ECO-2026-09-03-002
+  lesson_ref: docs/lessons/audio_vui_pipeline.md#FM-VUI-024
+  date_identified: '2026-09-03'
+  last_updated: '2026-09-03'
+  history:
+  - date: '2026-09-03'
+    change: Implementata targeted grammar FST, fix End-of-Speech, fix venv sys.path
+      e chat unmute
+    rpn_old: 504
+    rpn_new: 9
+- id: FM-SYS-009
+  subsystem: System & Infra
+  component: restart_hailo.sh
+  function: Riavvio sequenziale autonomo e non interattivo dello stack robotico
+  failure_mode: Freeze dello script di avvio al punto stop watchdog dovuto a prompt
+    password sudo
+  potential_cause: Invocazione di sudo privo del flag -n in ambiente subshell headless/background
+  potential_effect: Mancato avvio dei 30 nodi ROS 2 e robot bloccato con stack offline
+  classification: OPERATIONAL
+  estimation_basis: measured
+  related_ids:
+  - FM-SYS-007
+  initial_scoring:
+    severity: 8
+    occurrence: 6
+    detection: 7
+    rpn: 336
+  prevention_controls: Adozione del flag non-interattivo 'sudo -n' con redirect stderr
+    a /dev/null e bypass automatico con variabile d'ambiente FROM_WATCHDOG=1
+  detection_controls: Tracciamento log di avvio in /home/robopy/robopy/logs/restart_hailo_run.log
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Usare sempre 'sudo -n' negli script shell headless
+  verification_method: Esecuzione headless di restart_hailo.sh con FROM_WATCHDOG=1
+  eco_ref: docs/lessons/dev_and_deployment.md#FM-SYS-009
+  lesson_ref: docs/lessons/dev_and_deployment.md#FM-SYS-009
+  date_identified: '2026-09-03'
+  last_updated: '2026-09-03'
+  history:
+  - date: '2026-09-03'
+    change: Aggiunto flag sudo -n e validata esecuzione headless senza blocco TTY
+    rpn_old: 336
+    rpn_new: 8
+- id: FM-COG-003
+  subsystem: Orchestration & RAG
+  component: orchestrator & conversation
+  function: Ricezione ed esecuzione univoca dei comandi testuali da Foxglove Studio
+    e Web UI
+  failure_mode: Triplice ricezione ed elaborazione dei messaggi inviati su /robopy/conversation_rx,
+    con conseguente scatto del prompt di insistenza ripetuta dell'LLM (repeat_count
+    >= 2)
+  potential_cause: Sottoscrizione concorrente a /ai/input/text e ai/input/text combinata
+    con il remapping ROS 2 --ros-args -r /ai/input/text:=/robopy/conversation_rx in
+    restart_hailo.sh, che generava 3 endpoint DDS distinti per lo stesso topic sul
+    nodo orchestratore
+  potential_effect: Degrado dell'esperienza conversazionale, risposte stizzite o confuse
+    dell'LLM su presunti problemi di connessione e triplo consumo di token API
+  classification: OPERATIONAL
+  estimation_basis: measured
+  related_ids:
+  - FM-VUI-024
+  initial_scoring:
+    severity: 6
+    occurrence: 9
+    detection: 7
+    rpn: 378
+  prevention_controls: Eliminazione del remapping ridondante in restart_hailo.sh e
+    robot_ia_launch.py, unificazione delle sottoscrizioni a 1 endpoint univoco, deduplicatore
+    reattivo ROS 2 a 10s in _text_input_callback e ring buffer _anti_echo_cache in
+    conversation.py
+  detection_controls: Ispezione ros2 topic info /robopy/conversation_rx --verbose
+    (Subscription count = 1) e log warning 🚫 [Deduplicator]
+  residual_scoring:
+    severity: 6
+    occurrence: 2
+    detection: 1
+    rpn: 12
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Mantenere le sottoscrizioni normalizzate a 1 per topic e la
+    cache anti-echo
+  verification_method: Doppio invio rapido su /robopy/conversation_rx e test di risposta
+    singola
+  eco_ref: docs/ecos/orchestration_rag_ecos.md#ECO-2026-09-03-003
+  lesson_ref: docs/lessons/orchestration_and_rag.md#FM-COG-003
+  date_identified: '2026-09-03'
+  last_updated: '2026-09-03'
+  history:
+  - date: '2026-09-03'
+    change: Rimossi remappings ridondanti, ridotta sottoscrizione da 3 a 1 e introdotta
+      cache anti-echo 10s
+    rpn_old: 378
+    rpn_new: 12
+- id: FM-COG-004
+  subsystem: Orchestration & RAG
+  component: conversation, metaprompt_fusion, memory_manager & memory_info_skill
+  function: Recupero semantico delle memorie RAG/MAG, identità acronimo MARCUS ed
+    esecuzione skill informative di memoria
+  failure_mode: Mancato recupero fatti appresi (echo loop su 'non ho visto nulla di
+    nuovo'), allucinazione etimologica latina/dio Marte sul nome MARCUS, crash MemoryInfoSkill
+    (AttributeError get_stats) e muting vocale su chat
+  potential_cause: Cancellazione distruttiva del system prompt via set_system_prompt(''),
+    bug di troncamento in _truncate_to_budget, intent router monolingua inglese, assenza
+    metodi get_stats in MemoryManager e wrapper muto su TTS per sorgente testo
+  potential_effect: Marcus non sa chi è né cosa ha appreso, dà risposte errate o generiche,
+    va in crash sulle statistiche di memoria e non parla a voce alle richieste testuali
+    da Foxglove
+  classification: FUNCTIONAL
+  estimation_basis: measured
+  related_ids:
+  - FM-COG-003
+  initial_scoring:
+    severity: 7
+    occurrence: 8
+    detection: 6
+    rpn: 336
+  prevention_controls: Preservazione del system prompt master, vincolo comportamentale
+    rigido sull'acronimo nel metaprompt, estrazione fatti Zettelkasten su record_interaction,
+    metodi get_stats/list_loaded_documents in MemoryManager, regex italiane nell'intent
+    router e rimozione muting TTS
+  detection_controls: Collaudo conversazionale live su /robopy/conversation_rx, ispezione
+    conversations.jsonl e log di emissione audio gTTS
+  residual_scoring:
+    severity: 6
+    occurrence: 2
+    detection: 1
+    rpn: 12
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Mantenere sincronizzati il metaprompt e i filtri di memoria
+    a lungo termine
+  verification_method: Query testuali 'cosa significa Marcus?', 'cosa hai appreso
+    oggi?' e 'quanti documenti hai caricato in memoria?' verificate con successo su
+    robot live
+  eco_ref: docs/ecos/orchestration_rag_ecos.md#ECO-2026-09-04-001
+  lesson_ref: docs/lessons/orchestration_and_rag.md#FM-COG-004
+  date_identified: '2026-09-04'
+  last_updated: '2026-09-04'
+  history:
+  - date: '2026-09-04'
+    change: Risolto azzeramento prompt, bug troncamento, arricchito intent router,
+      implementati metodi memory manager e sbloccato TTS
+    rpn_old: 336
+    rpn_new: 12
+- id: FM-MOT-004
+  subsystem: Chassis & Motion
+  component: waveshare_motor_driver & sllidar_node
+  function: Connessione seriale deterministica e indipendente per scheda motori ESP32
+    e LiDAR Slamtec RPLIDAR C1
+  failure_mode: Inversione dinamica o collisione delle porte seriali (/dev/ttyUSB0
+    vs /dev/ttyUSB1) al reboot, con conseguente blocco dei motori o del LiDAR
+  potential_cause: Entrambi i dispositivi condividono chip ponte USB-UART Silicon
+    Labs CP2102N (10c4:ea60) identici, soggetti a race condition di enumerazione del
+    kernel Linux
+  potential_effect: Perdita di telemetria motori o blocco della scansione laser 360°,
+    incapacità di movimento o arresto d'emergenza Nav2
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-MOT-003
+  - FM-SYS-007
+  initial_scoring:
+    severity: 9
+    occurrence: 7
+    detection: 6
+    rpn: 378
+  prevention_controls: Regole udev persistenti (/etc/udev/rules.d/99-marcus-serial.rules)
+    con discriminazione deterministica su ATTRS{serial}, generando i symlink fissi
+    /dev/rplidar e /dev/motor_driver
+  detection_controls: Ispezione symlink udev e diagnostica continua in waveshare_motor_driver
+    e sllidar_node
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  risk_level: REVISION_MANDATORY
+  mitigation_status: CLOSED
+  recommended_action: Usare sempre i symlink udev persistenti /dev/motor_driver e
+    /dev/rplidar nei launch file e script di avvio
+  verification_method: Reboot di Marcus e verifica della persistenza dei symlink /dev/rplidar
+    e /dev/motor_driver e corretta telemetria a 20Hz
+  eco_ref: docs/ecos/actuation_ecos.md#ECO-2026-09-04-013
+  lesson_ref: docs/lessons/actuation_motor_driver.md#FM-MOT-004
+  date_identified: '2026-09-04'
+  last_updated: '2026-09-04'
+  history:
+  - date: '2026-09-04'
+    change: Create regole udev 99-marcus-serial.rules su seriali univoci CP2102N e
+      aggiornati script di avvio
+    rpn_old: 378
+    rpn_new: 8

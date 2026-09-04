@@ -68,3 +68,27 @@ Questo documento raccoglie le linee guida operative, le ricette di build e le le
      ros2 topic info /hailo/annotated_image/compressed --verbose
      ```
 
+---
+
+## 🔒 Esecuzione Script in Background e Compatibilità Sudo (FM-SYS-009)
+
+* **Problema:** L'invocazione di comandi con privilegi (`sudo systemctl ...`) all'interno di script di avvio lanciati in background o tramite agenti headless (`nohup ... &` o subshell non interattive senza TTY) provoca il blocco asintotico del processo se sudo richiede la password, congelando l'intero script prima dello spawn dei nodi successivi.
+* **Risoluzione & Regola Permanente:**
+  1. Negli script di orchestrazione (`restart_hailo.sh`), usare tassativamente il flag **`-n`** (non-interactive):
+     ```bash
+     sudo -n systemctl stop marcus-watchdog.service 2>/dev/null || true
+     ```
+  2. Prevedere bypass basati su variabili d'ambiente (es. `FROM_WATCHDOG=1`) per evitare chiamate privilegiate ridondanti durante riavvii automatici o remoti.
+
+---
+
+## 🐍 Risoluzione Percorsi Virtualenv vs Python di Sistema (FM-SYS-010)
+
+* **Problema:** I nodi eseguiti con il comando `ros2 run <package> <node>` impiegano di default l'interprete `/usr/bin/python3` del sistema operativo host, privo dei pacchetti installati nella virtualenv utente (`~/ros2_venv/`). Moduli come `vosk`, `depthai` o librerie scientifiche compilate falliscono l'importazione con `ModuleNotFoundError` o vengono disabilitati da blocchi `try ... except ImportError:` silenziosi.
+* **Risoluzione:** I moduli che dipendono da librerie situate in virtualenv isolate devono includere nei percorsi di import un meccanismo di iniezione difensiva:
+  ```python
+  for p in ["/home/robopy/ros2_venv/lib/python3.11/site-packages", "/home/robopy/ros2_venv/lib/python3.12/site-packages"]:
+      if os.path.exists(p) and p not in sys.path:
+          sys.path.append(p)
+  ```
+  Questo garantisce l'esecuzione trasparente sia all'interno che all'esterno di virtualenv attive.

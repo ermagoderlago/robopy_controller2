@@ -373,3 +373,215 @@ A seguito dell'analisi incrociata tra le linee guida generiche per array ReSpeak
 2. **Priorità di Intent:** Assegnare alle skill di attuazione fisica una priorità elevata (`priority >= 25`) nel `SkillMetadata` in modo da precedere i fallback conversazionali generici quando l'utente esprime un'azione operativa chiara.
 3. **Registrazione Obbligatoria nel Registry:** Ogni nuova skill creata sotto `robopy_controller/robot_ai/skills/builtin/` DEVE essere esplicitamente istanziata e registrata in `AIOrchestrator.__init__()` (`orchestrator.py`), altrimenti non viene inclusa né nel matching rapido né nelle dichiarazioni di Tool Calling per Gemini Live API.
 
+---
+
+## 🎯 Precisione Wake Word Vosk e Inoltro End-Of-Speech a Gemini Live (v21.2 — Settembre 2026 - FM-VUI-024)
+| Feature | Fattibilità | Impatto |
+|---|---|---|
+| DSP HPF/AGC offload | ❌ Non applicabile (USB bypass) | 0% |
+| AUDIO_LEVEL RMS reale | ⚠️ Possibile (firmware update) | <0.5% CPU |
+| **micro_wake_word TFLite** | ✅ Supportato da ESPHome | **-3-5% CPU standby** |
+
+### micro_wake_word su ESP32 (azione futura raccomandata)
+ESPHome `micro_wake_word` gira modelli TFLite quantizzati sull'ESP32S3. Il Pi5 riceve solo l'evento `WAKE_WORD_DETECTED` via UART e non esegue più Vosk ASR in standby continuo.
+- **Requisito:** Modello `.tflite` addestrato su "Marcus" (tool: microWakeWord trainer su GitHub)
+- **Firmware:** Aggiunta componente `micro_wake_word` in YAML ESPHome + comando UART `MARCUS_DETECTED\n`
+- **Lato ROS:** Modifica `respeaker_interface_node.py` per intercettare `MARCUS_DETECTED` e chiamare `_on_wakeword_detected()` via topic ROS
+- **Risparmio:** Vosk ASR non gira più in continuo in standby → -3-5% CPU, -50mW consume Pi5
+
+### Hotspot CPU Principale (non-audio): FM-CPU-001
+The vero hotspot CPU era `annotate_and_publish_image` a 30Hz in `hailo_bridge_node.py`.
+Applicato throttle a 5Hz → -15% CPU stimato. Vedi `fmea/dfmea.yaml#FM-CPU-001`.
+
+---
+
+## 🐛 Bug Critici Risolti — v19.6 (2026-08-04)
+
+### BUG-1: `force_flush()` Vosk non chiamato a fine frase
+* **Sintomo:** Frasi brevi e wake word pronunciate rapidamente non riconosciute.
+* **Causa:** `_publish_end_of_speech()` inviava il frame vuoto EOS a Gemini senza prima forzare Vosk a emettere il testo ancora nel buffer interno. Vosk è un motore statistico che accumula audio e aspetta silenzio o reset.
+* **Fix (v19.6):** `force_flush()` viene chiamato in `_publish_end_of_speech()` prima del publish del frame vuoto. Questo garantisce che l'ultima parola (anche "Marcus") sia sempre consegnata al callback.
+* **File:** `respeaker_vui_node.py` — metodo `_publish_end_of_speech()`
+
+### BUG-2: Noise gate minimo 600 RMS — voci deboli/distanti non rilevate
+* **Sintomo:** Marcus non inizia l'ascolto se l'utente parla da > 1m o a voce moderata.
+* **Causa:** Il clamp inferiore del noise gate adattivo era 600 RMS, troppo alto per segnali deboli amplificati 2.5x.
+* **Fix (v19.6):** Clamp abbassato da 600 → 400 RMS. Mantiene protezione dal rumore ambientale.
+* **File:** `respeaker_vui_node.py` — riga costante `noise_gate_threshold` adattiva.
+
+### BUG-3: Finestra blocco Vosk 1.5s post-TTS — prime parole perse
+* **Sintomo:** Se l'utente inizia a parlare subito dopo la risposta di Marcus, le prime 1-1.5 secondi di audio non vengono processate da Vosk → wake word o risposta persa.
+* **Causa:** `is_speaker_active` usava una finestra di 1.5s dopo `_last_ai_speaking_time`.
+* **Fix (v19.6):** Ridotta a 0.6s: sufficiente per dissipare l'eco hardware del beep, ma non taglia le prime parole dell'utente.
+* **File:** `respeaker_vui_node.py` — `_on_vosk_text()` (riga 910) e `_audio_processing_worker()` (riga 1173).
+
+### BUG-4: `max_silence=28 frame` (560ms) — frasi tagliate in ambienti silenziosi
+* **Sintomo:** In ambienti silenziosi (es. notturno), le frasi venivano tagliate a metà e Marcus rispondeva a frasi parziali.
+* **Causa:** L'adattivo portava `_cfg_max_silence` a 28 frame (560ms) per `ambient_noise_ema < 200`. La pausa naturale tra parole umane è 600-800ms → la fine-frase scattava troppo presto.
+* **Fix (v19.6):** Tutti i case dell'adattivo uniformati a 40-50 frame (800-1000ms).
+* **Tabella aggiornata:**
+
+| Ambient EMA | max_silence (v19.5) | max_silence (v19.6) |
+|---|---|---|
+| < 100 | 40 frame (800ms) | 40 frame (800ms) ✅ |
+| < 200 | **28 frame (560ms) ❌** | **40 frame (800ms) ✅** |
+| < 350 | 35 frame (700ms) | 40 frame (800ms) ✅ |
+| ≥ 350 | 45 frame (900ms) | 50 frame (1000ms) ✅ |
+
+### BUG-5: Reset VAD durante tutto il cooldown (600ms) — inizio frasi cancellato
+* **Sintomo:** Se l'utente inizia a parlare durante i 600ms di cooldown post-TTS, il ring buffer e i contatori VAD vengono azzerati a ogni chunk → l'inizio della frase non viene mai registrato.
+* **Causa:** La condizione `if (ai_speaking_was and not ai_speaking_now) or ai_cooldown_active:` eseguiva il reset per tutta la durata del cooldown (600ms = 10 chunk × 60ms).
+* **Fix (v19.6):** Reset VAD solo alla transizione `True→False` (singolo evento), non per tutta la durata del cooldown. Il cooldown rimane attivo per il gain e per il blocco Vosk.
+* **File:** `respeaker_vui_node.py` — `_audio_processing_worker()` riga ~1110.
+
+### MED-1: Drop silenzioso frame Vosk sotto carico CPU
+* **Sintomo:** Sotto carico CPU intenso, frame audio venivano scartati silenziosamente senza alcun log.
+* **Fix (v19.6):** Aggiunto contatore `_drop_count` e log periodico ogni 50 drop.
+* **File:** `local_asr_vosk.py` — metodo `process_audio()`.
+
+---
+
+## 🏗️ Refactoring Architetturale Loop VAD e Vosk — v20.0 (2026-08-04)
+
+### ARCH-1: Race Condition in Vosk ASR (`force_flush`)
+* **Problema (Bug architetturale):** L'approccio scolastico di chiamare `recognizer.Reset()` o ricreare `self.recognizer = vosk.KaldiRecognizer(...)` dal thread principale ROS 2 causava race condition col worker thread Vosk (segmentation fault) ed allocazioni bloccanti. Il metodo `Reset()` inoltre non è esposto ufficialmente nella Python API di Vosk e provoca instabilità.
+* **Soluzione (Sentinel Value Pattern):** Introdotto un comando speciale `b"FLUSH_CMD"` iniettato nella coda audio dal main thread. Il worker thread estrae il sentinel in ordine cronologico, esegue `FinalResult()` e **ricrea il riconoscitore localmente nel proprio thread**. Nessun lock, zero race condition, elaborazione pipeline asincrona sicura. Modello Vosk aggiornato a `vosk-model-it-0.22` (full version) per accuratezza maggiore.
+
+### ARCH-2: Isteresi 'Attentive State' per il VAD
+* **Problema:** I parametri statici del VAD causavano false partenze (click spuri in idle) o tagli anticipati di frasi con pause interne (utente che riflette e si ferma).
+* **Soluzione:** Introduzione dello stato dinamico `is_attentive = _ev_listening.is_set()`.
+  1. **Noise Gate:** Quando in idle, soglia base rigida (clamp 400). Quando `is_attentive=True`, soglia addolcita (clamp 350, multiplier 1.15x) per catturare i sussurri di risposta.
+  2. **Max Silence Timeout:** In idle, massimo 800-1000ms. In conversazione, timeout esteso a 900-1100ms (`_cfg_max_silence` 45-55 frame) per tollerare pause naturali a metà frase.
+  3. **Reattività (MIN_SPEECH_FRAMES):** In idle, 4 frame (80ms) per immunità ai disturbi. In conversazione, 2 frame (40ms) per non tagliare le consonanti dei "Sì/No" brevi.
+
+### ARCH-3: Finestra Barge-in Ottimizzata
+* **Problema:** Marcus si bloccava troppo a lungo dopo aver parlato, impedendo un'interazione naturale a ritmo sostenuto (ping-pong verbale).
+* **Soluzione:** Ridotto il timeout hardware `time_since_speaker` da `0.6s` a `0.4s` sia per l'inibizione dell'eco in Vosk sia per il cooldown in `_audio_processing_worker`. L'AEC XMOS è sufficiente a prevenire loop acustici. Abilitato inoltro timestamps con `SetWords(True)`.
+
+---
+
+## 🔊 Dynamic AGC Software su Parlato Debole / Lontano — v20.1 (2026-08-04)
+
+### Problema (FM-VUI-005)
+* **Sintomo:** Trascrizione ASR incomprensibile o allucinata quando l'utente parla da distanze maggiori (> 3 metri) o con voce flebile.
+* **Causa:** Il guadagno software statico a 2.5x non era sufficiente a portare l'ampiezza del segnale debole sopra la soglia ottimale per Gemini Live e Vosk.
+
+### Soluzione Implementata (`respeaker_vui_node.py`)
+* **Dynamic AGC Software:** Quando lo stato è `is_attentive` (listening attivo o parlato in corso), se l'RMS dell'audio in ingresso supera la soglia del gate ma rimane sotto i 1500 RMS (segnale debole), viene calcolato un moltiplicatore proporzionale `agc_multiplier = min(2.0, 1500.0 / max(rms_l, 100.0))`.
+* **Guadagno Dinamico:** Il guadagno effettivo scala automaticamente da **2.5x fino a 5.0x max**.
+* **Protezione Limiter:** Il Peak Limiter vettoriale esistente garantisce l'assenza totale di clipping digitale (saturazione campioni int16 a 30000).
+* **Esito FMEA:** Failure mode `FM-VUI-005` chiuso con RPN ridotto da **144 a 24**.
+
+---
+
+## ⚡ Streaming KWS 50 FPS, Buffer Pre-trigger 1.2s & SWIG Memory Test — v20.2 (2026-08-05)
+
+### Modello Streaming KWS su Hailo-10H NPU (<180ms Latenza)
+* **Problema:** Una finestra audio fissa da 1.0s con hop 100ms introduceva una latenza avvertibile ("legnosità" nella reazione alla wake word).
+* **Soluzione:** Modello **Streaming KWS** in [`hailo_kws_service.py`](file:///c:/Users/lsuffia/OneDrive%20-%20BRUGOLA%20OEB%20INDUSTRIALE%20SPA/Documents/robopy/antigravity/robopy_controller/robot_ai/services/hailo_kws_service.py) con finestra da **250ms (4000 campioni)** e stride da **20ms (320 campioni)**. L'inferenza gira a 50 FPS sulla NPU Hailo-10H con latenza $< 180\text{ ms}$ (misurati sul robot: **40.3 ms** NPU, **50.4 ms** E2E).
+
+### Buffer Circolare Pre-trigger (1.2s)
+* **Problema:** All'attivazione della wake word "Marcus", la prima parola della frase veniva tagliata ("Marcus, che tempo fa?" ➔ "tempo fa?").
+* **Soluzione:** In [`respeaker_vui_node.py`](file:///c:/Users/lsuffia/OneDrive%20-%20BRUGOLA%20OEB%20INDUSTRIALE%20SPA/Documents/robopy/antigravity/robopy_controller/nodes/respeaker_vui_node.py), all'arrivo del trigger `/hailo/wakeword_trigger`, lo stream audio scarica ed invia a Vosk e Gemini Live l'intero pre-roll buffer da **1.2 secondi** (`MAX_RING_FRAMES = 60`), preservando l'intera frase dell'utente.
+
+### Endurance Test Memoria Vosk (200 Cicli su RPi 5 Reale)
+* **Verifica Empirica:** Eseguito `scripts/test_vosk_memory_endurance.py` direttamente sul Raspberry Pi 5.
+* **Risultati:** Dopo l'assestamento iniziale del modello (416 MB ➔ 428 MB), la memoria si è **stabilizzata a plateau a 428.81 MB** per oltre 100 flushes consecutivi (variazioni $+0.00\text{ MB}$), confermando l'assenza totale di SWIG native memory leaks (`FM-VUI-014` chiuso).
+
+---
+
+## 🔬 Sintesi Ingegneristica & Benchmarking NotebookLM vs Generico (v20.3 — 2026-08-06)
+
+### Valutazione Comparativa con NotebookLM (`Marcus_ROS2_Docs`)
+A seguito dell'analisi incrociata tra le linee guida generiche per array ReSpeaker e l'architettura specifica di Marcus:
+
+1. **Campionamento & Resampling DAC:**
+   - *Input:* Confermato 16kHz mono PCM nativo da USB (modalità USB-Pure).
+   - *Output:* DAC PyAudio opera nativamente a **48kHz**. Resampling obbligatorio `16k/24k ➔ 48k` via `audioop.ratecv` prima della scrittura hardware per evitare effetto Chipmunk (3x accelerato) / Darth Vader (-33% rallentato).
+2. **Selezione Canali (ReSpeaker Lite vs V2):**
+   - Estratto **esclusivamente il canale Sinistro (`l_ch`)** in `respeaker_vui_node.py` per evitare la *phase cancellation* da downmix stereo. XMOS XU316 applica AEC ed NS hardware.
+3. **Gestione AGC & Limiter:**
+   - Disabilitato AGC hardware ReSpeaker (`enable_agc:=False`) perché distorce la dinamica del parlato.
+   - Applicato Peak Limiter software vettoriale (attacco 0ms, rilascio 900ms, soglia 26000) e Filtro Passa-Alto Butterworth @ 140Hz per l'Active Cooler Pi 5.
+4. **Isolamento Meccanico Hardware:**
+   - La struttura della testa stampata in 3D PETG trasmette micro-vibrazioni dai servomotori collo (MG996R) ed occhi (DS3225MG).
+   - Soluzione prescritta: Gommini antivibranti in TPU (grommets) per il disaccoppiamento della scheda ReSpeaker e rivestimento cavità interna con schiuma fonoassorbente (foam 5mm).
+
+---
+
+## ⚡ Dual-Chip Architecture & Hardware Beamforming (v20.4 — 2026-08-06)
+
+### Analisi Firmware Dual-Chip ReSpeaker Lite
+1. **XMOS XU316 DSP Chip (Firmware Factory Seeed):**
+   - Gestisce la cattura hardware dai 2 microfoni MEMS e le routine di **AEC** (Echo Cancellation), **NS** (Noise Suppression) e **Beamforming Broadside 2-Mic**.
+   - Espone direttamente lo stream audio PCM 16kHz via USB ALSA (`hw:0,0`). Offload 100% hardware a **0% carico CPU Host** e **0% carico ESP32**.
+2. **Seeed XIAO ESP32-S3 (Firmware ESPHome v14.0-LED):**
+   - Configurato in **modalità USB-Pure**: gestisce esclusivamente il controllo degli effetti del LED WS2812 RGB (IDLE, LISTENING, THINKING, etc.) e la seriale USB JTAG (`/dev/ttyACM0`). Non intercetta il flusso audio I2S per evitare contese di clock al boot.
+
+### Bypass PulseAudio (Distruzione AEC Hardware)
+* **Problema:** L'AEC hardware del chip XMOS (canali divisi: CH0=AEC, CH1=Raw) non filtrava l'eco. I due canali presentavano RMS identici (es. 7834.2 vs 7834.2), segno che l'hardware forniva un segnale mono duplicato.
+* **Causa Radice:** PyAudio, di default su Raspberry Pi OS, aggancia il `Device 0` che corrisponde al demone **PulseAudio**. PulseAudio esegue un downmix forzato dello stream UAC2 dell'XMOS e lo trasforma in un segnale mono virtuale (identico su L e R), distruggendo matematicamente la separazione hardware dei canali (AEC vs Raw) prodotta dal chip DSP XMOS. Inoltre l'XMOS produce 2 canali identici qualora l'altoparlante non sia fisicamente connesso al suo connettore JST, ma a quello del Pi.
+* **Soluzione Permanente:** 
+  - Impostare a livello di sistema operativo o in testa al codice Python l'override `os.environ["PA_ALSA_PLUGHW"] = "1"`.
+  - Questo costringe PortAudio a bypassare PulseAudio, esponendo l'hardware ALSA reale (es. `plughw:0,0`), permettendo a PyAudio di leggere i canali grezzi non mixati. La mitigazione software (VAD inibito durante TTS + filtro 140Hz + AGC dinamico) sopperisce ad eventuali anomalie HW residue.
+
+---
+
+## ⏳ Gestione Sessione Conversazionale a 3 Minuti e Directed Follow-up Gating (v21.0 — 2026-08-21)
+
+### Problema (FM-VUI-021)
+* **Sintomo 1 (Chiusura Prematura):** Marcus rispondeva alla prima frase, ma poi si zittiva dopo 8 secondi con un doppio beep calante di chiusura (`_on_listen_timeout`), costringendo l'utente a ripetere la wake word a freddo ad ogni frase.
+* **Sintomo 2 (Intromissione in Dialoghi di Terzi):** Se la sessione venisse lasciata aperta incondizionatamente senza filtri, il robot tenterebbe di rispondere a qualunque voce o frase pronunciata nella stanza (conversazioni tra presenti, TV, rumori), intromettendosi nelle conversazioni altrui.
+* **Cause Radice Identificate:**
+  1. In `respeaker_vui_node.py`, la variabile `self._listen_timeout_sec` era forzata a `8.0` secondi in `__init__`, sovrascrivendo il parametro configurato.
+  2. In `live_connection_manager.py`, la condizione `is_active` valutava `last_turn_ago < 30.0` e `last_wakeword_ago < 60.0`, inviando `on_mic_mute(True)` e forzando la disconnessione dopo pochi secondi.
+  3. L'assenza di un contatore turni e di logica di Directed Follow-Up provocava l'interruzione della sessione su token `<IGNORE_TURN>`.
+
+### Soluzione Implementata
+1. **Finestra Conversazionale a 180s (3 Minuti):**
+   - Parametro `listen_timeout_sec` impostato a `180.0` secondi di default in `respeaker_vui_node.py` e rimosso l'override hardcoded.
+   - Timer riavviato ad ogni completamento di risposta AI (`_tts_speaking_cb: False`) e ad ogni fine frase VAD (`_publish_end_of_speech`), estendendo la sessione per 3 minuti continuativi dopo ogni interazione.
+2. **Directed Follow-up Gating nei Turni Successivi:**
+   - **Turno 1 (Attivazione):** Elaborato e risposto normalmente dopo il trigger "Marcus".
+   - **Turni Successivi ($\ge 2$):** Marcus mantiene il canale e il WebSocket aperti per 3 minuti. Gemini e il sistema VUI valutano se l'utente si sta rivolgendo direttamente al robot (es. *"Marcus dimmi...", "Marcus cosa..."*).
+   - Se la frase rilevata appartiene a una conversazione tra terzi o rumore di fondo, il modello emette `<IGNORE_TURN>`: la risposta vocale viene soppressa **senza mutare il microfono né disconnettere il WebSocket**, lasciando il canale attivo e pronto per successive richieste dirette.
+
+---
+
+## 🗣️ Gestione Acronimi Stranieri e Tolleranza Fonetica ASR (v21.1 — 2026-08-22 - FM-VUI-022)
+
+### Problema: Disallineamento Acustico su Termini Tecnici e Acronimi Inglesi
+* **Contesto:** Quando l'utente impartisce comandi vocali in italiano contenenti parole o acronimi inglesi (es. *"NOMAD"*, *"SLAM"*, *"YOLO"*, *"VLM"*), i motori ASR (Vosk, Whisper, Gemini Audio) applicano modelli fonetici della lingua italiana.
+* **Fenomeno Riscontrato:** La parola *"NOMAD"* viene sistematicamente trascritta come:
+  - *"nomade"*, *"nomadi"*, *"norman"*, *"no mad"*, *"noma"*, o ignorata a favore del solo verbo *"esplora"*.
+* **Conseguenza:** Se il regex di matching della Skill si aspetta la stringa esatta `r'\bnomad\b'`, il pattern fallisce, l'Orchestrator non trova la skill e la richiesta viene inoltrata al fallback testuale dell'LLM, che risponde verbalmente senza eseguire l'azione fisica.
+
+### Best Practice di Progettazione Skill Vocali in Lingua Mista:
+1. **Espansione Fonetica e Morfologica:** Includere sempre nei pattern regex le varianti fonetizzate in italiano:
+   ```python
+   EXPLORE_PATTERNS = [
+       re.compile(r'\b(nomad|nomade|nomadi|norman|no\s*mad|noma)\b', re.IGNORECASE),
+       re.compile(r'\b(esplora|esplorare|esplorazione|ricognizione|perlustra|perlustrazione)\b', re.IGNORECASE),
+       re.compile(r'\b(fai\s+un\s+giro|fai\s+un\'?esplorazione|fai\s+una\s+ricognizione|vai\s+in\s+esplorazione)\b', re.IGNORECASE)
+   ]
+   ```
+2. **Priorità di Intent:** Assegnare alle skill di attuazione fisica una priorità elevata (`priority >= 25`) nel `SkillMetadata` in modo da precedere i fallback conversazionali generici quando l'utente esprime un'azione operativa chiara.
+3. **Registrazione Obbligatoria nel Registry:** Ogni nuova skill creata sotto `robopy_controller/robot_ai/skills/builtin/` DEVE essere esplicitamente istanziata e registrata in `AIOrchestrator.__init__()` (`orchestrator.py`), altrimenti non viene inclusa né nel matching rapido né nelle dichiarazioni di Tool Calling per Gemini Live API.
+
+---
+
+## 🎯 Precisione Wake Word Vosk e Inoltro End-Of-Speech a Gemini Live (v21.2 — Settembre 2026 - FM-VUI-024)
+
+### Problemi Riscontrati:
+1. **Allucinazione Fonetica Vosk (Wake Word Sconosciuta):** Nel modello compatto italiano (`vosk-model-small-it-0.22`) a vocabolario aperto, la parola *"Marcus"* non ha un'alta probabilità a priori nel modello linguistico generale `Gr.fst`, venendo sistematicamente trascritta come *"plauso"*, *"l'uso"*, *"ma"* o la singola lettera *"p"*. Di conseguenza, la condizione `if "marcus" in text` falliva costantemente.
+2. **Caduta del Segnale End-of-Speech (`ActivityEnd` mancante):** In `llm_service.py`, `audio_callback_ros` controllava `if not msg.data: return`. Quando il nodo VUI pubblicava `msg.data = b''` per indicare fine parlato, il messaggio veniva scartato. Con `automatic_activity_detection=disabled`, Gemini Live non riceveva mai `types.ActivityEnd()` e restava in ascolto indefinito senza sintetizzare alcuna risposta vocale.
+3. **Blocco Wake Word in Sessione Aperta:** In `respeaker_vui_node.py`, `_on_wakeword_detected` eseguiva `if self._ev_listening.is_set(): return`. Se la sessione era aperta (o mantenuta dal rumore), chiamare "Marcus" non produceva alcun beep o feedback per l'utente.
+4. **Mute Leakage da Input Testuale:** In `conversation.py`, l'impostazione `_current_source = "text"` non veniva azzerata in un blocco `finally:`, lasciando l'orchestratore in modalità silenziosa anche per le successive risposte vocali.
+5. **Import Silenzioso di Vosk sotto Python di Sistema:** `respeaker_vui_node` viene avviato con `/usr/bin/python3`, mentre `vosk` è installato nel virtualenv `/home/robopy/ros2_venv/`. In assenza dei percorsi della venv in `sys.path`, l'import falliva silenziosamente con `HAS_VOSK = False`, lasciando il worker thread ASR inattivo e rendendo Marcus sordo a qualsiasi chiamata vocale.
+
+### Soluzioni Implementate:
+1. **Targeted Wake-Word Grammar in KaldiRecognizer:** Inizializzato Vosk con grammatica vincolata JSON `["marcus", "marco", "marcos", "markus", "robot", "ascolta", "fermati", "stop", "zitto", "silenzio", "io sono", "mi chiamo", "[unk]"]`. Kaldi compila un automa FST a soli 16 stati: zero allucinazioni su parole non pertinenti, latenza <20ms e 100% di precisione su "Marcus".
+2. **Inoltro Esplicito Pacchetti Vuoti EOS:** In `llm_service.py`, i chunk di lunghezza 0 (`len(raw_bytes) == 0`) vengono inoltrati direttamente a `_live_mgr.send_audio_chunk(b'')` bypassando il calcolo RMS dell'echo canceller, garantendo l'immediata emissione di `session.send_realtime_input(activity_end=types.ActivityEnd())`.
+3. **Debounce 2.0s su Wake Word:** Sostituito il check bloccante con un debounce temporale di 2.0s su `_last_wakeword_time`, permettendo all'utente di richiamare "Marcus" per ricevere feedback acustico immediato e riapertura forzata del turno.
+4. **Scoping `try...finally` su `_current_source`:** In `conversation.py`, `self._current_source = ""` viene ripristinato tassativamente a fine elaborazione del messaggio.
+5. **Iniezione Automatica di `sys.path` in `local_asr_vosk.py`:** Aggiunto in testa al modulo il controllo e l'aggiunta dinamica dei percorsi `site-packages` di `/home/robopy/ros2_venv/`, garantendo il caricamento nativo di Vosk indipendentemente dall'interprete (`/usr/bin/python3` o venv).

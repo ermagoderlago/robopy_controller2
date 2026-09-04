@@ -19,6 +19,7 @@ Marcus è progettato per essere un **assistente domestico multimodale ed empatic
 ```mermaid
 graph TB
     subgraph "Sensori & Attuatori"
+        LIDAR["Slamtec RPLIDAR C1 (360° ToF)"]
         CAM["OAK-D Lite Camera"]
         MIC["ReSpeaker USB Mic Array"]
         MOT["Waveshare Motor Driver"]
@@ -69,6 +70,7 @@ graph TB
     ORCH --> GEMINI
     ORCH --> DEEP
     US --> NAV
+    LIDAR --> NAV
 ```
 
 ---
@@ -77,15 +79,18 @@ graph TB
 
 Marcus si muove su una base mobile differenziale, gestendo il movimento e la mappatura in modo robusto tramite ROS 2:
 
-* **Controllo Motori e Telemetria:** Il nodo `waveshare_motor_driver` comunica via seriale (`/dev/ttyUSB0`) con la board motori ESP32. Riceve comandi di velocità lineare/angolare `/cmd_vel` e pubblica i dati di odometria `/odom` calcolati dagli encoder delle ruote (1440 tick per rivoluzione). Supporta la calibrazione dinamica closed-loop (tramite la skill `calibration` V2) confrontando la posa reale di `/vo/odom` con la posa stimata di `/odom` per auto-calibrare il raggio ruota (`wheel_radius`) e la traccia (`wheel_separation`) sotto il 2% di errore residuo.
+* **Controllo Motori e Telemetria:** Il nodo `waveshare_motor_driver` comunica via seriale persistente (`/dev/motor_driver` con fallback `/dev/ttyUSB0`) con la board motori ESP32. Riceve comandi di velocità lineare/angolare `/cmd_vel` e pubblica i dati di odometria `/odom_wheel` (o `/odom`) calcolati dagli encoder delle ruote (1440 tick per rivoluzione). Supporta la calibrazione dinamica closed-loop (tramite la skill `calibration` V2) confrontando la posa reale di `/vo/odom` con la posa stimata di `/odom` per auto-calibrare il raggio ruota (`wheel_radius`) e la traccia (`wheel_separation`) sotto il 2% di errore residuo.
 * **Architettura di Movimento Relativo (`MotionManager` & Controllo Closed-Loop PID):** Il pacchetto `robot_ai.motion` (`MotionPrimitive`, `MotionSequence`, `MotionManager`) fornisce l'ossatura cinematico-temporale e l'anello di controllo PID closed-loop agganciato all'odometria reale degli encoder (`/odom`) per l'esecuzione di comandi di movimento diretto a distanza e angolo (es. *"muoviti in avanti di 30cm"*, *"gira a sinistra di 90 gradi"*, *"spostati indietro di 0.5 metri"*). Se il robot incontra resistenza nei piccoli movimenti, l'anello PID incrementa dinamicamente la velocità e la coppia erogata finché l'odometria non misura l'esatto raggiungimento del target.
 * **Sicurezza Attiva & Diagnostica Chassis:** Il driver motori monitora costantemente lo stato del movimento per prevenire collisioni e sovraccarichi:
   * *Stallo meccanico:* se viene impartito un comando di moto ma le ruote non girano (velocità da encoder $\approx 0$ per $> 1.0$ s).
   * *Slittamento/Ostacolo:* se le ruote girano ma il robot è fermo visivamente rispetto allo SLAM (velocità visiva $v_{vo} < 0.008$ m/s per $> 1.0$ s).
   * *Sovraccarico elettrico:* se si registra una caduta di tensione della batteria $> 2.0$ V rispetto allo stato di riposo (corrispondente a un picco anomalo di assorbimento).
   Al rilevamento di una di queste condizioni, viene pubblicato uno stato `ERROR` sul topic `/diagnostics` (nodo `motor_stall`). L'orchestratore AI intercetta il diagnostico, attiva l'arresto di emergenza (`emergency_stop()`) e avverte l'utente vocalmente.
-* **SLAM e Localizzazione:** Utilizza **RTAB-Map** (`rtabmap_slam`) per generare mappe d'ambiente 2D/3D in modalità multi-sessione incrementale (`Mem/IncrementalMemory: true`) sfruttando l'estrazione visiva DBoW3 nativa C++ (`Kp/DetectorStrategy: 8`). Include filtri anti-aliasing percettivo con soglia di similarità rafforzata (`Rtabmap/LoopThr: 0.20`), tolleranza PnP a 2.5px e maschera ROI del pavimento (`Kp/RoiRatios: 10%`) per escludere falsi loop closure su riflessi. Se spento e riacceso in una stanza diversa, avvia una nuova sessione autonoma per prevenire la corruzione delle mappe esistenti. Supporta la scansione controllata della stanza tramite `room_mapping_scan_node`.
-* **Odometria Visivo-Inerziale & Robustezza (`fast_flow_vo_cpp`):** Il nodo VIO nativo integra il tracciamento feature MyriadX a basso consumo con la stima IMU a 200 Hz. Include il rilevamento real-time dello slittamento delle ruote (*wheel slip gating* con blocco della calibrazione scala se $\Delta a > 0.25\text{ m/s}^2$) e l'algoritmo ZUPT dinamico che stima e sottrae automaticamente il drift termico del giroscopio asse Z dell'IMU BMI270 a robot fermo.
+* **LiDAR Planare a 360° Slamtec RPLIDAR C1 (`sllidar_node`):** Sensore Time-of-Flight (ToF) a 360° operante su `/dev/rplidar` a 460800 baud (10 Hz, 5 kHz sample rate, raggio 16 metri). Fornisce la copertura metrica 2D continua a 360° per le costmap di Nav2 (annullando ogni punto cieco in retromarcia e rotazione) e lo scan-matching geometrico ICP ad alta frequenza per lo SLAM.
+* **SLAM e Localizzazione Ibrida Multi-Sensore:** Utilizza **RTAB-Map** (`rtabmap_slam`) per generare e mantenere mappe d'ambiente 2D/3D con fusione duale (`Grid/Sensor: 2` Both, `Reg/Strategy: 2` Visual + ICP):
+  * *Scan Matching Laser 2D ICP:* Allinea real-time ogni scansione laser del LiDAR C1 per correggere millimetricamente l'orientamento yaw e la traslazione metrica.
+  * *Loop Closure Visivo DBoW3:* Riconoscimento globale di landmark e chiusura di anelli complessi da telecamera OAK-D Lite (`Kp/DetectorStrategy: 8`). Include filtri anti-aliasing percettivo con soglia di similarità rafforzata (`Rtabmap/LoopThr: 0.20`), tolleranza PnP a 2.5px e maschera ROI del pavimento (`Kp/RoiRatios: 10%`).
+* **Odometria Visivo-Inerziale & Robustezza (`fast_flow_vo_cpp` & `localization_fuser_node`):** Fusione locale ad alta frequenza (30-50 Hz) che unisce la dinamica lineare degli encoder ruote con l'heading immediato del giroscopio BMI270 a 200 Hz (con compensazione dinamica del pitch sag a $8^\circ$) e la stima VIO di MyriadX. Non usa `robot_localization` EKF per prevenire blocchi o deadlock storici da flag IMU non conformi (`FM-NAV-004`).
 * **Supervisor di Sicurezza & Interlock Hardware ESP32:** Il nodo `robot_health_supervisor.py` valuta continuativamente le soglie di confidenza VIO, temperatura CPU, occupazione RAM e tensione batteria nei tre stati GREEN, YELLOW e RED. In caso di anomalie critiche (RED) o perdita del sensore di visione ($>300\,\text{ms}$), emette una frenata attiva a Priorità 0 su `/cmd_vel_mux/input/safety_override`. A livello hardware, l'ESP32 gestisce in autonomia 3 sensori ad ultrasuoni e paraurti meccanici cablati direttamente ai bridge H per il freno di emergenza fisico in caso di distacco della telecamera.
 * **Evitamento Ostacoli, Autocalibrazione & Auto-Consapevolezza (No STVL):**
   > [!IMPORTANT]
@@ -94,8 +99,7 @@ Marcus si muove su una base mobile differenziale, gestendo il movimento e la map
   * **Rilevamento Ostacoli Negativi (Prevenzione Caduta Scale):** Algoritmo *Depth-Gradient Hole Raycasting* integrato in `semantic_costmap_injector.py` che scansiona la profondità della telecamera 3D per dislivelli ($\Delta Z > 15\text{ cm}$) ed inietta ostacoli letali in costmap prima che il robot possa cadere.
   * **Safe Recovery & Persistence Policy Nav2:** In caso di stallo in passaggi angusti, le costmap Nav2 operano con `combination_method: 1` (Maximum) e la sequenza di recupero (`nav2_survival_bt.xml`) evita rotazioni cieche a 90° sul posto, adottando un disimpegno lineare controllato da 8 cm e ripianificazione diretta.
 * **Navigazione Autonoma Vision-Based (Modello Fondazionale NOMAD) & Nav2:**
-  * *Pianificazione Visiva NOMAD (`nomad_navigator_node.py`):* Modello fondazionale di navigazione visiva NoMaD che opera direttamente dallo stream RGB dell'OAK-D Lite. Predice waypoint 2D ad orizzonte mobile a 4 Hz in modalità *Unconditioned Exploration* (esplorazione autonoma e scoperta di nuove aree) e *Goal-Conditioned Navigation* (verso landmark visivi memorizzati in ChromaDB), pilotando il robot con un controller Pure Pursuit locale direttamente su `/cmd_vel` senza richiedere un LiDAR.
-  * *Predisposizione Futura LiDAR:* L'architettura è strutturata in modo che l'aggiunta futura di un LiDAR 2D 360° fornisca la costmap metrica continua di Nav2 per validare geometricamente i percorsi di NOMAD.
+  * *Pianificazione Visiva NOMAD (`nomad_navigator_node.py`):* Modello fondazionale di navigazione visiva NoMaD che opera direttamente dallo stream RGB dell'OAK-D Lite. Predice waypoint 2D ad orizzonte mobile a 4 Hz in modalità *Unconditioned Exploration* (esplorazione autonoma e scoperta di nuove aree) e *Goal-Conditioned Navigation* (verso landmark visivi memorizzati in ChromaDB), pilotando il robot con un controller Pure Pursuit locale direttamente su `/cmd_vel`. La costmap a 360° del LiDAR C1 funge da guardrail geometrico assoluto contro collisioni laterali e posteriori.
   * *Skill Esplorazione NOMAD (`NomadExplorationSkill`):* Consente all'utente di comandare vocalmente o via chat l'esplorazione (*"Marcus, esplora con NOMAD"*, *"Esplora la casa"*, *"Fai una ricognizione"*, *"Mappa la stanza"*, con tolleranza fonetica su varianti ASR) mappando in parallelo l'ambiente con RTAB-Map SLAM.
 * **Gestione Alimentazione, Battery Management System (BMS) & Voltage Feed-Forward:**
   Marcus dispone di un'architettura di alimentazione a doppio binario (*Power Path OR-ing* tramite diodi ideali). Il nodo `battery_manager_node.py` gestisce:
@@ -186,3 +190,13 @@ Marcus combina tre paradigmi armonizzati di memoria e contesto gestiti dal motor
 
 ### Sinergia Multimodale (Lungo termine)
 * **Obiettivo:** Fondere face embedding + speaker embedding in un punteggio di confidenza biometrico unico per prevenire spoofing ed impersonificazioni.
+
+---
+
+## 🛡️ Governance & Auto-Evoluzione con Antigravity
+
+Per consentire l'evoluzione autonoma del codice di Marcus direttamente a bordo del Raspberry Pi 5 tramite l'agente **Antigravity (Gemini 3.8)**, l'architettura è regolata dalla suite di **Schede Tecniche di Sviluppo e Sicurezza** ([/docs/specs/INDEX_SCHEDE_TECNICHE.md](file:///c:/Users/lsuffia/OneDrive%20-%20BRUGOLA%20OEB%20INDUSTRIALE%20SPA/Documents/robopy/antigravity/docs/specs/INDEX_SCHEDE_TECNICHE.md)):
+* 🔴 **Zona Rossa (Hard Constraints):** Vincoli fisici, limiti termici/elettrici, arresto nodi pre-build, compilazione sequenziale `colcon build -j1`, divieto STVL 3D e soglie BMS a 9.0V/9.9V inviolabili dall'agente.
+* 🟢 **Zona Verde (Auto-Evolution):** Ottimizzazione autonoma di algoritmi interni, tuning iperparametri entro intervalli validati, prompt engineering TRINITY, caching e test unitari.
+* 🟡 **Zona Gialla (Human Gate):** Modifiche a contratti ROS 2 (topics, services, action messages), pinout hardware o modelli compilati HEF, che richiedono approvazione umana esplicita.
+

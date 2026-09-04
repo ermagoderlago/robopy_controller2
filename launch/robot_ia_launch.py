@@ -129,10 +129,7 @@ def generate_launch_description():
         parameters=[{
             'gemini_api_key': os.getenv('GEMINI_API_KEY', ''),
             'audio_volume': LaunchConfiguration('audio_volume'),
-        }],
-        remappings=[
-            ('/ai/input/text', '/robopy/conversation_rx'),
-        ]
+        }]
     )
 
     # Home Assistant Integration

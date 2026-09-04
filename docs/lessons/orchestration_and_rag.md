@@ -129,3 +129,44 @@ L'architettura TRINITY integra i tre paradigmi di memoria e contesto operando a 
 * **`NAVIGATION_ACTIVE`:** Piena banda CPU/RAM riservata a VIO, RTAB-Map (1.5 Hz) e Nav2 MPPI; sospensione di `nightly_dream_service` ed estrazioni vettoriali pesanti.
 * **`DOCKED_DREAM`:** Robot in carica ($V \ge 12.65\text{V}$ o stato `DOCKED`); disattivazione stack Nav2 e VIO per riallocare le risorse al consolidamento notturno dei log e all'inferenza DeepSeek.
 * **`HUMAN_INTERACTION_MODE`:** RTAB-Map throttled a **0.25 Hz** (1 frame ogni 4s) e priority boost real-time sul processo audio VUI (`respeaker_vui_node`) con `os.sched_setscheduler` (`SCHED_RR` / `os.nice(-10)`), azzerando jitter e latenze vocali.
+
+---
+
+## 🔁 Triplice Sottoscrizione Topic Testo e Prevenzione Echo Loop (FM-COG-003)
+
+* **Problema:** Quando l'operatore pubblicava un messaggio testuale dal pannello Foxglove Studio o dalla Web UI sul topic `/robopy/conversation_rx`, Marcus elaborava la richiesta per tre volte consecutive in parallelo. Al terzo turno scattava la condizione `repeat_count >= 2` del filtro contestuale in `conversation.py`, che iniettava nell'LLM il suggerimento: *"L'utente ti sta ponendo questa domanda per la terza volta... chiedigli in modo amichevole se c'è un problema di connessione o se non ti ha sentito bene"*. L'LLM generava quindi risposte di stupore per l'apparente insistenza dell'utente (*"Uhm... ciao Luca. Beh, mi sembra di avertelo appena detto, sai? Forse c'è un problema di connessione..."*).
+* **Cause Radice Identificate:**
+  1. **Sovrapposizione di Remapping e Sottoscrizioni Concorrenti:** Nel nodo `robot_ai_orchestrator` (`orchestrator.py`), erano registrate contemporaneamente tre sottoscrizioni:
+     ```python
+     self.create_subscription(String, '/ai/input/text', self._text_input_callback, 10)
+     self.create_subscription(String, 'ai/input/text', self._text_input_callback, 10)
+     self.create_subscription(String, '/robopy/conversation_rx', self._text_input_callback, 10)
+     ```
+     Contemporaneamente, nello script di lancio [`restart_hailo.sh`](file:///c:/Users/lsuffia/OneDrive%20-%20BRUGOLA%20OEB%20INDUSTRIALE%20SPA/Documents/robopy/antigravity/restart_hailo.sh) e in `robot_ia_launch.py` veniva passato il remapping `--ros-args -r /ai/input/text:=/robopy/conversation_rx`.
+     In ROS 2, la regola di remapping trasformava sia `/ai/input/text` sia `ai/input/text` in `/robopy/conversation_rx`. Unendosi alla sottoscrizione diretta, DDS generava **3 distinti endpoint di sottoscrizione (Subscription count: 3)** per lo stesso topic sullo stesso nodo, scatenando 3 esecuzioni di callback per ogni singolo messaggio.
+  2. **Assenza di Deduplicazione Testuale:** Il callback `_text_input_callback` inoltrava acriticamente qualsiasi stringa non vuota ad `asyncio.run_coroutine_threadsafe(self.conversation_manager.process_input)`.
+* **Soluzione Architetturale a Tre Livelli:**
+  1. **Normalizzazione Sottoscrizioni ROS 2:** Rimosso il remapping `--ros-args -r /ai/input/text:=/robopy/conversation_rx` da `restart_hailo.sh` e `robot_ia_launch.py`. In `orchestrator.py`, registrata esattamente **una sola** sottoscrizione a `/robopy/conversation_rx` ed **una sola** a `/ai/input/text`, riducendo il conteggio di DDS a 1 endpoint univoco.
+  2. **Deduplicatore Reattivo ROS 2 (Livello Callback):** In `_text_input_callback`, introdotta la memoria `self._last_text_input` con finestra mobile di 10.0 secondi. Qualsiasi messaggio identico ricevuto entro 10.0s viene scartato con warning di log prima di entrare nella pipeline asyncio.
+  3. **Anti-Echo Cache Cognitiva (Livello Conversazionale):** In `conversation.py`, introdotto il ring buffer `self._anti_echo_cache` (separato da `self._recent_inputs` per evitare type conflict tra tuple e dizionari) che intercetta e silenzia duplicati testuali entro 10.0s anche in caso di canali concorrenti o ritrasmissioni DDS.
+
+---
+
+## 🧠 Recupero Memoria RAG/MAG, Acronimo MARCUS, MemoryInfoSkill e TTS Chat (FM-COG-004)
+
+* **Problema:** Quando l'utente interrogava Marcus dalla chat (topic `/robopy/conversation_rx`) con domande sui suoi ricordi ("cosa hai appreso oggi?"), Marcus non estraeva alcuna informazione o cadeva in echo loop ripetitivi (*"non ho visto molto di nuovo, ho fatto il mio sogno notturno"*). Se interrogato sul significato del suo nome ("cosa significa Marcus?"), Marcus inventava una derivazione dall'etimologia latina e dal dio Marte, ignorando il proprio acronimo. Inoltre, chiedendo se avesse annotato qualcosa in memoria, `MemoryInfoSkill` andava in crash con `AttributeError: 'MemoryManager' object has no attribute 'get_stats'`, e le risposte testuali risultavano completamente mute sullo speaker del robot.
+* **Cause Radice Identificate:**
+  1. **Cancellazione Distruttiva del System Prompt:** In `conversation.py` (linee 337 e 395), il codice eseguiva prima di ogni inferenza `self.llm.set_system_prompt(self.agent_state.system_prompt_override)`. Poiché l'override era solitamente stringa vuota `""`, l'intero prompt di sistema fondamentale di Marcus (comprensivo del ruolo e dell'identità) veniva cancellato, lasciando l'LLM senza istruzioni di personalità.
+  2. **Bug di Troncamento Token in `metaprompt_fusion.py`:** La funzione `_truncate_to_budget` effettuava `lines = text.split('\n')` e interrompeva il ciclo al primo elemento se la riga superava il budget, restituendo `""` e scartando completamente l'intero blocco `sys_block`.
+  3. **Assenza di Vincolo Comportamentale sull'Acronimo:** Nel Metaprompt mancava una regola che vietasse esplicitamente divagazioni mitologiche o latine sul nome Marcus, imponendo la definizione tecnica esatta.
+  4. **Intent Router Monolingua Inglese:** `intent_router.py` categorizzava come `MEMORY` solo parole chiave inglesi (`remember`, `recall`). Domande in italiano come *"cosa hai appreso?"* o *"cosa ricordi?"* venivano declassate a `GENERAL`.
+  5. **Mancata Estrazione Fatti Zettelkasten:** `conversation.py` non passava fatti semantici a `record_interaction`, lasciando la tabella `semantic_facts` in SQLite con zero record.
+  6. **Dirottamento e Crash di `MemoryInfoSkill`:** La regex di match catturava indebitamente qualsiasi frase con "memoria" + "cosa" (confidenza 0.98), invocando poi metodi inesistenti (`get_stats()`, `list_loaded_documents()`) su `MemoryManager`.
+  7. **Muting Vocale su Chat Testuale:** Un wrapper su `self.tts.speak` silenziava l'audio ogni volta che la sorgente era `"text"`, impedendo a Marcus di parlare quando riceveva messaggi da Foxglove.
+* **Soluzione Architetturale Implementata:**
+  1. **Preservazione System Prompt:** Rimossa la sovrascrittura di `self.llm._system_prompt` in `conversation.py`. L'inhibition prompt viene fuso nativamente nel metaprompt TRINITY.
+  2. **Robustezza Troncamento e Acronimo Blindato:** In `metaprompt_fusion.py`, `_truncate_to_budget` esegue fallback per troncamento caratteri anziché scartare il testo. Nel blocco `[RUOLO DEL ROBOT]` è inserita la regola tassativa che MARCUS è esclusivamente l'acronimo di *"Modular Autonomous Robotic Control Unit System"*, con divieto esplicito di citare divinità latine o Marte.
+  3. **Bilingual Intent Routing & Anti-Echo RAG/MAG:** In `intent_router.py` aggiunte regex in italiano per `MEMORY` e gli altri intenti. In `trinity_engine.py` e `mag_episodic.py`, filtrati i vecchi template di risposta negativi e recuperati prioritariamente i `LEARNED_FACT` dalla memoria a lungo termine.
+  4. **Armonizzazione `MemoryInfoSkill` & `MemoryManager`:** In `MemoryManager` implementati `get_stats()` e `list_loaded_documents()`. Ristretto il matcher di `MemoryInfoSkill` affinché operi solo su richieste esplicite di file/documenti tecnici caricati.
+  5. **TTS Unmute:** Rimosso il blocco muto da `conversation.py`: Marcus parla ad alta voce anche in risposta a comandi testuali da Foxglove Studio.
+

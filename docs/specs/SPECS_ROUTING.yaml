@@ -1,0 +1,292 @@
+# ==============================================================================
+# 🧭 MARCUS SPECIFICATIONS ROUTING TABLE (SPECS_ROUTING.yaml)
+# ==============================================================================
+# Questa tabella di instradamento permette all'agente Antigravity (Gemini 3.8)
+# di determinare in modo istantaneo e deterministico quale Scheda Tecnica (SPEC-XX)
+# DEVE leggere con il tool `view_file` PRIMA di scrivere o modificare codice.
+#
+# REGOLA TASSATIVA:
+# Se il task tocca un file che corrisponde a uno dei path_patterns sottostanti,
+# l'agente DEVE eseguire `view_file` sul file `spec_file` corrispondente.
+# ==============================================================================
+
+version: "1.0"
+governance_doc: "docs/specs/INDEX_SCHEDE_TECNICHE.md"
+
+routes:
+  # ----------------------------------------------------------------------------
+  # SPEC-01: Chassis, Attuazione, Motori & Cinematica
+  # ----------------------------------------------------------------------------
+  - spec_id: "SPEC-01"
+    spec_file: "docs/specs/SPEC-01_actuation_and_motion.md"
+    title: "Chassis, Attuazione, Motori & Cinematica"
+    path_patterns:
+      - "robopy_controller/nodes/waveshare_motor_driver.py"
+      - "robopy_controller/nodes/servo_coda_node.py"
+      - "robopy_controller/nodes/servo_node.py"
+      - "robopy_controller/nodes/teleop_node.py"
+      - "robopy_controller/nodes/teleop_bridge_node.py"
+      - "robopy_controller/nodes/bluedot_node.py"
+      - "robopy_controller/robot_ai/motion/**"
+      - "robopy_controller/robot_corpo/**"
+      - "urdf/**"
+      - "test_motore_remote.py"
+      - "test_motori_remote.py"
+      - "test_raw_serial.py"
+      - "test_encoder.py"
+      - "tests/test_waveshare_motor_driver.py"
+      - "tests/test_motion_manager.py"
+      - "tests/test_wheel_slip_gating.py"
+    key_topics:
+      - "/cmd_vel"
+      - "/odom"
+      - "/cmd_vel_mux/**"
+      - "/motor/**"
+      - "/servo/**"
+    mandatory_red_zone_checks:
+      - "Watchdog timeout 500ms inviolabile"
+      - "Velocità lineare max 0.40 m/s"
+      - "Velocità angolare max 1.80 rad/s"
+      - "Baud rate seriale 115200 su /dev/ttyUSB0"
+      - "Encoder fisici 1440 CPR nominali"
+      - "Freno emergenza stallo (encoder=0 per >1.0s con comando)"
+
+  # ----------------------------------------------------------------------------
+  # SPEC-02: Navigazione, SLAM, Costmap 2.5D & Evitamento Ostacoli
+  # ----------------------------------------------------------------------------
+  - spec_id: "SPEC-02"
+    spec_file: "docs/specs/SPEC-02_navigation_and_slam.md"
+    title: "Navigazione, SLAM, Costmap 2.5D & Evitamento Ostacoli"
+    path_patterns:
+      - "robopy_controller/nodes/semantic_costmap_injector.py"
+      - "robopy_controller/nodes/extrinsic_camera_calibrator.py"
+      - "robopy_controller/nodes/nomad_navigator_node.py"
+      - "robopy_controller/nodes/nomad_reactive_pipeline_node.py"
+      - "robopy_controller/nodes/fast_flow_vo_node.cpp"
+      - "robopy_controller/nodes/rtabmap_node.py"
+      - "robopy_controller/nodes/map_manager_node.py"
+      - "robopy_controller/nodes/room_mapping_scan_node.py"
+      - "robopy_controller/nodes/ekf_localization_node.py"
+      - "robopy_controller/nodes/localization_fuser_node.py"
+      - "robopy_controller/nodes/odometria_ibrida_node.py"
+      - "robopy_controller/nodes/oak_superpoint_odometry_node.py"
+      - "robopy_controller/nodes/spectacular_vio_node.py"
+      - "robopy_controller/nodes/nav2_bridge_node.py"
+      - "robopy_controller/nodes/foxglove_nav2_bridge.py"
+      - "robopy_controller/nodes/mppi_telemetry_logger.py"
+      - "robopy_controller/nodes/mppi_offline_autotuner.py"
+      - "robopy_controller/config/nav2_params*.yaml"
+      - "robopy_controller/config/nav2_survival_bt.xml"
+      - "robopy_controller/config/rtabmap*.yaml"
+      - "robopy_controller/config/ekf*.yaml"
+      - "launch/fast_flow_launch.py"
+      - "tests/test_negative_obstacles.py"
+      - "tests/test_semantic_costmap_injector.py"
+      - "tests/test_extrinsic_camera_calibrator.py"
+    key_topics:
+      - "/map"
+      - "/costmap/**"
+      - "/vo/odom"
+      - "/plan"
+      - "/hailo_semantic_obstacles_pc"
+    mandatory_red_zone_checks:
+      - "Divieto assoluto di STVL 3D (usare solo griglia 2.5D con decadimento)"
+      - "Rilevamento ostacoli negativi / drop-off attivo (dislivello > 15 cm letale)"
+      - "Costmap combination_method: 1 (Maximum)"
+      - "Albero TF REP-105: odom -> base_link -> camera_link -> camera_optical_frame"
+      - "Path nav2_survival_bt.xml installato fisso"
+
+  # ----------------------------------------------------------------------------
+  # SPEC-03: Visione Computazionale, OAK-D Lite & NPU Hailo-10H
+  # ----------------------------------------------------------------------------
+  - spec_id: "SPEC-03"
+    spec_file: "docs/specs/SPEC-03_vision_and_hailo_npu.md"
+    title: "Visione Computazionale, OAK-D Lite & NPU Hailo-10H"
+    path_patterns:
+      - "robopy_controller/nodes/hailo_bridge_node.py"
+      - "robopy_controller/nodes/hailo_vlm_node.py"
+      - "robopy_controller/nodes/oak_driver_node.py"
+      - "robopy_controller/nodes/oak_d_lite_node.py"
+      - "robopy_controller/nodes/oakd_camera_publisher*.py"
+      - "robopy_controller/nodes/camera_publisher*.py"
+      - "robopy_controller/nodes/dynamic_camera_tf_node.py"
+      - "robopy_controller/nodes/image_compressor_node.py"
+      - "robopy_controller/nodes/web_video_stream_node.py"
+      - "robopy_controller/nodes/object_detection_node*.py"
+      - "robopy_controller/nodes/object_3d_mapper.py"
+      - "robopy_controller/face_enrollment_offline.py"
+      - "robopy_controller/depth/**"
+      - "robopy_controller/features/**"
+      - "src/hailo_bridge_node.cpp"
+      - "src/marcus_semantic_mapper_node.cpp"
+      - "*.hef"
+      - "*.har"
+      - "tests/test_hailo_bridge.py"
+      - "tests/test_face_recognition_pipeline.py"
+      - "tests/test_superpoint_matcher.py"
+    key_topics:
+      - "/camera/rgb/image_raw"
+      - "/camera/depth/image_raw"
+      - "/hailo/**"
+      - "/detected_objects"
+    mandatory_red_zone_checks:
+      - "OAK-D Lite collegata solo a porta USB 3.0 SuperSpeed (Blu)"
+      - "Hub USB alimentato esternamente per camera ed SSD"
+      - "Core Pinning nodi C++ su CPU Core 2 e 3"
+      - "Zero allocazioni dinamiche in callback"
+      - "Hailo-10H API: solo InferModel (no legacy VStream)"
+      - "Normalizzazione L2 obbligatoria su embedding ArcFace"
+
+  # ----------------------------------------------------------------------------
+  # SPEC-04: Voice User Interface (VUI) & Audio Pipeline
+  # ----------------------------------------------------------------------------
+  - spec_id: "SPEC-04"
+    spec_file: "docs/specs/SPEC-04_audio_vui_pipeline.md"
+    title: "Voice User Interface (VUI) & Audio Pipeline"
+    path_patterns:
+      - "robopy_controller/nodes/respeaker_vui_node.py"
+      - "robopy_controller/nodes/respeaker_interface_node.py"
+      - "robopy_controller/nodes/voiceprint_manager.py"
+      - "robopy_controller/nodes/memory_decay_engine.py"
+      - "robopy_controller/nodes/hailo_kws_node.py"
+      - "robopy_controller/nodes/speaker_id_node.py"
+      - "robopy_controller/robot_ai/core/audio_buffer_manager.py"
+      - "robopy_controller/robot_ai/services/asr_service.py"
+      - "robopy_controller/robot_ai/services/tts_service.py"
+      - "robopy_controller/robot_ai/services/local_asr_vosk.py"
+      - "robopy_controller/robot_ai/services/llm_service.py"
+      - "robopy_controller/robot_ai/services/live_connection_manager.py"
+      - "robopy_controller/files_utili/respeaker*.yaml"
+      - "tests/test_audio_buffer_manager.py"
+      - "tests/test_vui_audio_resampling.py"
+      - "tests/test_voiceprint_manager.py"
+      - "tests/test_extended_session_gating.py"
+    key_topics:
+      - "/audio/mic"
+      - "/audio/speaker"
+      - "/vui/**"
+      - "/voiceprint/**"
+    mandatory_red_zone_checks:
+      - "Frequenza pipeline ROS fissa a 16000 Hz mono PCM 16-bit"
+      - "Resampling hardware a 48kHz via audioop.ratecv"
+      - "Estrazione esclusiva del Canale Sinistro del microfono"
+      - "Attenuazione software 3.0x pre-cast int16"
+      - "Barge-in: stt_gain a 0.1x durante riproduzione TTS"
+      - "Isolamento device esclusivo ALSA/PyAudio"
+      - "Wakeword su Hailo NPU (no librerie commerciali esterne)"
+
+  # ----------------------------------------------------------------------------
+  # SPEC-05: Cervello Cognitivo TRINITY (RAG, CAG, MAG) & Skills
+  # ----------------------------------------------------------------------------
+  - spec_id: "SPEC-05"
+    spec_file: "docs/specs/SPEC-05_cognitive_brain_trinity.md"
+    title: "Cervello Cognitivo TRINITY (RAG, CAG, MAG) & Skills"
+    path_patterns:
+      - "robopy_controller/robot_ai/trinity/**"
+      - "robopy_controller/robot_ai/cognitive/**"
+      - "robopy_controller/robot_ai/rag/**"
+      - "robopy_controller/robot_ai/skills/**"
+      - "robopy_controller/robot_ai/orchestration/**"
+      - "robopy_controller/nodes/homeassistant_node.py"
+      - "robopy_controller/nodes/engagement_monitor.py"
+      - "robopy_controller/nodes/robot_ai_node.py"
+      - "launch/robot_ia_launch.py"
+      - "tests/test_trinity_engine.py"
+      - "tests/test_metaprompt_fusion.py"
+      - "tests/test_amygdala.py"
+      - "tests/test_mag_database.py"
+    key_topics:
+      - "/robot/cognitive/**"
+      - "/robot/trinity/**"
+      - "/robot/skills/**"
+      - "/robot/personality/**"
+    mandatory_red_zone_checks:
+      - "Token budget rigido metaprompt <= 2500 token (target 2200 token)"
+      - "SQLite WAL mode + synchronous = NORMAL su mag_database.db"
+      - "Amigdala Emergency Hijack ha precedenza assoluta sul moto"
+      - "Pre-flight Kinematic Sandbox obbligatoria per tutte le skill"
+      - "Esclusione tassativa di secrets.yaml e .env dall'indicizzazione RAG"
+      - "LRU cache vettoriale limitata a max 64 elementi"
+
+  # ----------------------------------------------------------------------------
+  # SPEC-06: Alimentazione (BMS), Hardware Safety & Monitoraggio Termico
+  # ----------------------------------------------------------------------------
+  - spec_id: "SPEC-06"
+    spec_file: "docs/specs/SPEC-06_power_bms_thermal_safety.md"
+    title: "Alimentazione (BMS), Hardware Safety & Monitoraggio Termico"
+    path_patterns:
+      - "robopy_controller/nodes/battery_manager_node.py"
+      - "robopy_controller/nodes/robot_health_supervisor.py"
+      - "robopy_controller/nodes/vision_safety_node.py"
+      - "robopy_controller/ultrasonic_sensor.py"
+      - "robopy_controller/config/battery_params.yaml"
+      - "tests/test_battery_manager.py"
+      - "tests/test_battery_transient_sag.py"
+      - "tests/test_robot_health_supervisor.py"
+    key_topics:
+      - "/robot/battery/**"
+      - "/robot/health_status"
+      - "/robot/system/shutdown"
+      - "/robot/docking/trigger"
+      - "/diagnostics"
+    mandatory_red_zone_checks:
+      - "Soglia shutdown critico 9.00V con timer 3.0s"
+      - "Soglia docking 9.90V con timer 3.0s"
+      - "Filtro anti-sag 20 campioni (5Hz) minimo"
+      - "Tensione rete rilevata >= 12.70V (inibizione docking)"
+      - "Temp CPU >= 80C arresta navigazione"
+      - "Temp NPU >= 85C arresta inferenza continua"
+      - "Chiusura filesystem pulita: sync; sudo shutdown -h now"
+
+  # ----------------------------------------------------------------------------
+  # SPEC-07: Sistema Operativo Pi 5 (4GB RAM), Build & Lifecycle
+  # ----------------------------------------------------------------------------
+  - spec_id: "SPEC-07"
+    spec_file: "docs/specs/SPEC-07_system_os_build_lifecycle.md"
+    title: "Sistema Operativo Pi 5 (4GB RAM), Build & Lifecycle"
+    path_patterns:
+      - "CMakeLists.txt"
+      - "setup.py"
+      - "setup.cfg"
+      - "package.xml"
+      - "sync_marcus.sh"
+      - "sync_marcus.bat"
+      - "compile_wsl.sh"
+      - "restart.sh"
+      - "restart_hailo.sh"
+      - "build_clang.sh"
+      - "bringup_fix.sh"
+      - "robopy_controller/nodes/system_lifecycle_coordinator_node.py"
+      - "robopy_controller/nodes/cloud_watchdog_node.py"
+      - "robopy_controller/nodes/performance_monitor.py"
+      - "tests/test_lifecycle_coordinator.py"
+      - "tests/test_system_bom_cleanliness.py"
+    key_topics:
+      - "/system/**"
+      - "/watchdog/**"
+      - "/lifecycle/**"
+    mandatory_red_zone_checks:
+      - "Tetto RAM 4GB fisico"
+      - "MAKEFLAGS='-j1' colcon build --parallel-workers 1"
+      - "Ottimizzazione CPU -O3 -mcpu=cortex-a76+crypto"
+      - "Arresto preventivo nodi e watchdog prima della build"
+      - "Divieto assoluto di caratteri BOM UTF-8 (\\xEF\\xBB\\xBF)"
+      - "Core allocation: Core 0-1 I/O, Core 2-3 C++"
+
+  # ----------------------------------------------------------------------------
+  # SPEC-00: Meta-Regole di Auto-Evoluzione & Governance Antigravity
+  # ----------------------------------------------------------------------------
+  - spec_id: "SPEC-00"
+    spec_file: "docs/specs/SPEC-00_antigravity_governance.md"
+    title: "Meta-Regole di Auto-Evoluzione & Governance Antigravity"
+    path_patterns:
+      - ".agents/**"
+      - "docs/specs/**"
+      - "fmea/**"
+      - ".agent/**"
+      - "tests/**"
+    mandatory_red_zone_checks:
+      - "Vietato committare direttamente su main/master (usare branch feature)"
+      - "Divieto di bypassare o rilassare le schede tecniche SPEC-XX"
+      - "Esecuzione obbligatoria test di non-regressione pre-merge"
+      - "Rollback immediato in caso di fallimento test o memory leak"

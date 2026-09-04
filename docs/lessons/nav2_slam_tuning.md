@@ -244,4 +244,53 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
 * **Problema:** In spazi stretti, lo svuotamento della costmap unito a uno spin a 90° faceva urtare il robot contro ostacoli laterali o posteriori non confermati dalla camera frontale (FOV $72.9^\circ$).
 * **Soluzione:** Impostato `combination_method: 1` (Maximum) in `nav2_params_jazzy.yaml` per preservare gli ostacoli noti, e sostituito lo spin a 90° in `nav2_survival_bt.xml` con un disimpegno dolce (micro-backup da 8 cm, attesa di ricaricamento sensoriale e ripianificazione diretta).
 
+### Allocazione Storage Database RTAB-Map su SSD e Prevenzione Runaway Log (FM-NAV-020)
+* **Problema:** La persistenza SLAM non vincolata su MicroSD (`/home/robopy/.ros/rtabmap.db`) ha portato il database a superare 16 GB (95.959 nodi accumulati). A seguito di corruzione o svuotamento del dizionario visuale DBoW3 (`dict size=0`), RTAB-Map è entrato in un loop continuo di errori (`VWDictionary.cpp:741::addWordRef()`), generando oltre 4 GB di log in `/home/robopy/robopy/logs/rtabmap.log` e saturando al 100% la partizione root `/` (0 byte disponibili). Questo ha indotto `[Errno 28] No space left on device` a catena su tutti i processi Python e un Load Average della CPU a 18.10.
+* **Soluzione:**
+  1. **Storage su SSD Esterno:** `rtabmap.db` deve risiedere permanentemente su `/mnt/ssd/rtabmap.db` (SSD da 240GB con oltre 170GB liberi), collegato tramite symlink da `/home/robopy/.ros/rtabmap.db` per garantire compatibilità trasparente.
+  2. **Ripristino Mappa Valida:** Utilizzata la mappa consolidata `salotto.db` (313 MB, 1.352 nodi e 335.360 parole visuali integre), azzerando istantaneamente il loop di errore `VWDictionary`.
+  3. **Bonifica Log:** Troncatura periodica di `rtabmap.log` e svuotamento di `~/.ros/log/*`, liberando oltre 23 GB di spazio sulla MicroSD.
+
+### Prevenzione Crash UException `Memory.cpp:3473::addLink()` e Modalità Localizzazione Pura su Mappe Esistenti (FM-NAV-025)
+* **Problema:** L'avvio di RTAB-Map con `Mem/IncrementalMemory: "true"` (modalità mappatura attiva) su un database pre-mappato (`salotto.db`, 313 MB) fa sì che il nodo cerchi di espandere continuamente il grafo anche a robot fermo (frequenza 1.5 Hz), accumulando oltre 3 GB di dati sensoriali non compressi in pochi minuti. In presenza di loop closure rigettati con punteggio non positivo o connessioni tra nodi con pesi incongruenti, RTAB-Map genera l'eccezione fatale C++:
+  ```text
+  [FATAL] (Memory.cpp:3473::addLink()) Condition (fromS->getWeight() >= 0 && toS->getWeight() >= 0) not met!
+  terminate called after throwing an instance of 'UException'
+  [ros2run]: Aborted
+  ```
+* **Conseguenze a Catena sul Sistema:**
+  1. **Crollo dell'Albero TF:** Con la terminazione di `rtabmap`, svanisce istantaneamente la trasformata `map -> odom`.
+  2. **Freeze di Nav2:** Il lifecycle manager e i server di pianificazione globale/locale bloccano la navigazione in attesa dell'autorità globale di posa.
+  3. **Blackout Foxglove Studio:** Venendo a mancare il frame `map` e il topic `/map`, Foxglove disconnette i canali 3D e visualizza schermo nero ("tutto spento").
+* **Soluzione & Regola Permanente di Architettura:**
+  1. **Modalità Localizzazione Pura su Mappe Esistenti:** In `robopy_controller/config/rtabmap.yaml`, impostare tassativamente:
+     ```yaml
+     Mem/IncrementalMemory: "false"
+     ```
+     In modalità localizzazione pura, RTAB-Map non inserisce nuovi nodi nel database, azzera le scritture su disco, abbatte il consumo RAM (<250 MB) ed elimina qualsiasi rischio di eccezione `addLink()`, garantendo la pubblicazione continua e stabile del TF `map -> odom`.
+  2. **Workflow per Nuove Mappature:** Se si desidera cartografare un nuovo ambiente, iniziare sempre con un database vergine/vuoto (`/mnt/ssd/rtabmap.db`) e non eseguire mai append incrementale su mappe legacy complesse.
+
+### Integrazione Hardware Slamtec RPLIDAR C1 & Coesistenza Multi-Sensore (FM-NAV-005)
+* **Contesto:** Per superare i limiti di campo visivo ristretto della sola camera OAK-D Lite (75° HFOV, cecità a 360° durante manovre e superfici vetrate/specchiate), è stato integrato un sensore LiDAR planare a tempo di volo **Slamtec RPLIDAR C1** collegato via USB (`/dev/rplidar` a 460800 baud).
+* **Regola Udev Persistente:** Poiché la scheda motori Waveshare e l'adattatore RPLIDAR C1 impiegano entrambi ponti CP2102N (`10c4:ea60`), è stata creata la regola `/etc/udev/rules.d/99-marcus-serial.rules` basata sui numeri di serie univoci:
+  - `/dev/rplidar` $\rightarrow$ S/N `1af3e590ed31f11197da945f30d20014` (RPLIDAR C1)
+  - `/dev/motor_driver` $\rightarrow$ S/N `4c7fd634626cef11acaca4adc169b110` (Scheda Motori ESP32)
+* **Architettura a Doppia Scala (Local Fuser + Global ICP):**
+  - **Scala Locale (`odom -> base_link` @ 30 Hz):** Gestita da `localization_fuser_node.py` unendo cinematica encoder ruote, IMU BMI270 200 Hz con pitch sag compensato ($8^\circ$) e confidenza VIO. Non si usa `robot_localization` EKF per prevenire deadlock da flag IMU non conformi (`FM-NAV-004`).
+  - **Scala Globale & SLAM (`map -> odom` @ 1.5 Hz):** In `rtabmap.yaml`, abilitato `subscribe_scan: true`, `Reg/Strategy: "2"` (Visual + ICP) e `Grid/Sensor: "2"` (Both). Il LiDAR C1 fornisce scan matching metrico 2D continuo per sopprimere ogni deriva di orientamento, mentre la camera garantisce loop closure semantica e DBoW3.
+* **Coesistenza con OAK-D Lite (Salvaguardia Ostacoli Negativi - FM-NAV-009):**
+  - Il LiDAR 2D planare spara orizzontalmente nel vuoto e non può rilevare gradini o scale in discesa.
+  - La camera OAK-D Lite resta attiva in parallelo su `semantic_costmap_injector.py` (Depth Hole Raycasting, $\Delta Z > 15\text{ cm}$) e mascheramento dinamico YOLOv8 su NPU Hailo-10H.
+* **Ottimizzazione CPU Pi 5:**
+  - Dismesso il nodo software `depthimage_to_laserscan_node`, risparmiando cicli CPU critici per il middleware DDS e la navigazione.
+* **Foxglove Studio Visualizzazione `/scan` & Risoluzione Alert Rosso:**
+  - Se nel pannello 3D di Foxglove compare un'icona rossa di allert `! /scan`, la causa è l'impostazione di default `Color mode: Color map` con `Color field: intensity` su `auto`.
+  - Poiché il driver sllidar_ros2 in modalità standard fornisce intensità uniforme, la colormap non ha range dinamico e genera un warning visivo pur visualizzando correttamente i punti geometrici a 360°.
+  - **Soluzione:** Impostare in Foxglove `Color mode: Flat` (colore fisso) o `Color field: range`.
+* **Workflow Ciclo di Vita Mappe SLAM (Nuova Mappatura vs Localizzazione):**
+  - Per generare una nuova mappa metricamente accurata con il LiDAR a 360°, la mappa legacy (creata con sola camera 70°) deve essere archiviata (`/mnt/ssd/rtabmap_pre_lidar_backup.db`).
+  - Si avvia RTAB-Map con `Mem/IncrementalMemory: "true"` su un database vergine (`/mnt/ssd/rtabmap.db`).
+  - Una volta completato il giro dell'ambiente con chiusura dell'anello (loop closure), si imposta nuovamente `Mem/IncrementalMemory: "false"` per blindare la mappa contro corruzioni o crash da allocazione continua di nodi.
+
+
 
