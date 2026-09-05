@@ -196,7 +196,34 @@ Marcus combina tre paradigmi armonizzati di memoria e contesto gestiti dal motor
 ## 🛡️ Governance & Auto-Evoluzione con Antigravity
 
 Per consentire l'evoluzione autonoma del codice di Marcus direttamente a bordo del Raspberry Pi 5 tramite l'agente **Antigravity (Gemini 3.8)**, l'architettura è regolata dalla suite di **Schede Tecniche di Sviluppo e Sicurezza** ([/docs/specs/INDEX_SCHEDE_TECNICHE.md](file:///c:/Users/lsuffia/OneDrive%20-%20BRUGOLA%20OEB%20INDUSTRIALE%20SPA/Documents/robopy/antigravity/docs/specs/INDEX_SCHEDE_TECNICHE.md)):
-* 🔴 **Zona Rossa (Hard Constraints):** Vincoli fisici, limiti termici/elettrici, arresto nodi pre-build, compilazione sequenziale `colcon build -j1`, divieto STVL 3D e soglie BMS a 9.0V/9.9V inviolabili dall'agente.
+* 🔴 **Zona Rossa (Hard Constraints):** Vincoli fisici, limiti termici/elettrici, arresto nodi pre-build, compilazione sequenziale `colcon build -j1`, divieto STVL 3D e soglie BMS a 9.0V/9.9V inviolabili dall'agente. Zero forzature consentite sul robot.
 * 🟢 **Zona Verde (Auto-Evolution):** Ottimizzazione autonoma di algoritmi interni, tuning iperparametri entro intervalli validati, prompt engineering TRINITY, caching e test unitari.
 * 🟡 **Zona Gialla (Human Gate):** Modifiche a contratti ROS 2 (topics, services, action messages), pinout hardware o modelli compilati HEF, che richiedono approvazione umana esplicita.
+
+---
+
+## 🗣️ Dialogo Tecnico, Accesso Documentale & Creazione Skill con Feedback Vocale
+
+Marcus può dialogare in linguaggio naturale con l'utente su qualsiasi aspetto della propria ingegneria:
+1. **Accesso alla Documentazione Completa (`RobotDocumentationService` & `ConsultDocumentationSkill`):**
+   * *DFMEA:* L'utente può chiedere *"Marcus, cosa dice la FMEA sui motori?"* o *"Quali sono i guasti con RPN più alto?"* ed ottenere una risposta immediata e dettagliata.
+   * *ECO Storici:* *"Quali modifiche hai fatto in autonomia?"* Marcus recupera gli Engineering Change Order registrati con firma `🤖 Generata autonomamente da Marcus`.
+   * *Schede Tecniche & Regole:* *"Quali sono i vincoli di Zona Rossa per la navigazione?"* o *"Cosa prevede la SPEC-05 sul budget dei token?"*.
+   * *Lesson Learned:* *"Cosa abbiamo imparato sul campionamento audio a 16kHz?"*.
+   * *File di Configurazione:* Marcus può leggere e spiegare qualsiasi file di codice o configurazione nel workspace (con divieto assoluto e perimetrale di aprire `.env` o `secrets.yaml`).
+2. **Dialogo On-Demand con Antigravity (`ConsultAntigravitySkill`):**
+   * Dicendo *"Marcus, chiedi ad Antigravity un parere su questa funzione"* o *"Cosa pensa Antigravity di questo errore?"*, Marcus apre una sessione di consultazione con Gemini 3.8 con extended thinking e spiega all'utente l'analisi tecnica fornita da Antigravity, come un collega che consulta uno specialista senior.
+   * Rispetto rigoroso della quota a 4 ore (soglia 90%) per non esaurire il budget.
+3. **Osservabilità Real-Time della Creazione Skill (`CreaSkill`):**
+   * Quando l'utente chiede di creare o apprendere una nuova abilità (*"Marcus, crea una skill per controllare il meteo"*), il robot avvia la pipeline e comunica vocalmente e in tempo reale all'utente cosa sta accadendo:
+     - *"Sto analizzando la tua richiesta per definire l'architettura della skill..."*
+     - *"Ho aperto una sessione con Antigravity. Sta elaborando il codice Python con Gemini 3.8..."*
+     - *"Antigravity ha completato la bozza. Ora eseguo la verifica di sicurezza statica AST..."*
+     - *"Verifica superata. Procedo con il collaudo in sandbox simulata ROS..."*
+     - *(Se c'è un intoppo):* *"Nel collaudo sandbox è emerso un problema (...). Sto chiedendo ad Antigravity di correggere la bozza..."*
+     - *(Se la quota è satura al 90%):* *"Abbiamo raggiunto il 90% della quota token per questa sessione. Ho salvato il lavoro e lo riprenderò appena possibile."*
+     - *"Fantastico! Il collaudo ha avuto successo ed ho registrato la nuova abilità nel mio sistema."*
+   * In qualsiasi momento l'utente può chiedere: *"Marcus, a che punto è la creazione della skill?"* o *"Cosa sta facendo Antigravity?"* ed ottenere un aggiornamento istantaneo.
+4. **Memoria Autobiografica Continua:**
+   * Ogni skill creata o successo evolutivo viene fissato sia in `docs/evolution/evolution_journal.md` che nella tabella SQLite `episodes` e `semantic_facts` di MAG, permettendo a Marcus di ricordare e raccontare con autentico senso di continuità la propria storia e il proprio percorso di auto-miglioramento.
 

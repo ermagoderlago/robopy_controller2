@@ -134,18 +134,39 @@ class TrinityEngine:
             return ""
 
     async def _retrieve_rag_knowledge(self, clean_text: str, top_k: int = 4) -> str:
-        """Retrieves technical documentation/code chunks from Knowledge Base."""
-        if not self.rag_knowledge:
-            return ""
-        try:
-            loop = asyncio.get_running_loop()
-            results = await loop.run_in_executor(
-                None, lambda: self.rag_knowledge.query_knowledge(clean_text, top_k=top_k, min_score=0.30)
-            )
-            return self.rag_knowledge.format_for_prompt(results, max_tokens=800)
-        except Exception as e:
-            self.logger.warning(f"RAG knowledge search error: {e}")
-            return ""
+        """Retrieves technical documentation/code chunks from Knowledge Base and official robot docs."""
+        res_text = ""
+        loop = asyncio.get_running_loop()
+
+        if self.rag_knowledge:
+            try:
+                results = await loop.run_in_executor(
+                    None, lambda: self.rag_knowledge.query_knowledge(clean_text, top_k=top_k, min_score=0.30)
+                )
+                if results:
+                    res_text = self.rag_knowledge.format_for_prompt(results, max_tokens=800)
+            except Exception as e:
+                self.logger.warning(f"RAG knowledge search error: {e}")
+
+        # Se non ci sono risultati da ChromaDB o se la query riguarda direttamente la documentazione tecnica
+        doc_keywords = ["fmea", "dfmea", "eco", "spec", "scheda", "regol", "lezion", "lesson", "antigravity", "quota", "evoluzion"]
+        if not res_text or res_text == "No relevant context found." or any(k in clean_text.lower() for k in doc_keywords):
+            try:
+                from ..services.robot_documentation_service import RobotDocumentationService
+                doc_service = RobotDocumentationService()
+                doc_answer = await loop.run_in_executor(
+                    None, lambda: doc_service.answer_documentation_query(clean_text)
+                )
+                if doc_answer and "non ho trovato riferimenti esatti" not in doc_answer.lower():
+                    doc_section = f"### DOCUMENTAZIONE UFFICIALE ROBOT (DFMEA, ECO, SPEC) ###\n{doc_answer}\n"
+                    if res_text and res_text != "No relevant context found.":
+                        res_text = doc_section + "\n" + res_text
+                    else:
+                        res_text = doc_section
+            except Exception as doc_err:
+                self.logger.debug(f"Robot documentation retrieval fallback error: {doc_err}")
+
+        return res_text
 
     async def _retrieve_cag_context(self) -> Dict[str, str]:
         """Retrieves live CAG context snapshot."""

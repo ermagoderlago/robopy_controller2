@@ -21,10 +21,13 @@ except ImportError:
 try:
     from robot_ai.rag.chroma_native_store import get_chroma_client
 except ImportError:
-    # Fallback to standard chromadb if not found
-    import chromadb
-    def get_chroma_client():
-        return chromadb.PersistentClient(path="./chroma_db", settings=chromadb.config.Settings(anonymized_telemetry=False))
+    try:
+        import chromadb
+        def get_chroma_client():
+            return chromadb.PersistentClient(path="./chroma_db", settings=chromadb.config.Settings(anonymized_telemetry=False))
+    except ImportError:
+        def get_chroma_client():
+            return None
 
 # For float16 embeddings
 try:

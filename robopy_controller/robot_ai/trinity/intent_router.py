@@ -12,6 +12,7 @@ class IntentCategory(Enum):
     SMART_HOME = auto()
     DIAGNOSTIC = auto()
     MEMORY = auto()
+    DOCUMENTATION = auto()
     GENERAL = auto()
 
 @dataclass
@@ -34,6 +35,12 @@ class IntentRouter:
         self.logger = get_logger(self.__class__.__name__)
         # Lightweight keyword/regex matching patterns (no ML needed)
         self.patterns = {
+            IntentCategory.DOCUMENTATION: re.compile(
+                r'\b(fmea|dfmea|eco|lezione|lezioni|lesson|scheda tecnica|specifica|spec-|'
+                r'zona rossa|zona verde|zona gialla|regola|regole|antigravity|evoluzione|'
+                r'automiglioramento|quota|token|diario)\b',
+                re.IGNORECASE
+            ),
             IntentCategory.CODING: re.compile(r'\b(code|python|debug|error|exception|script|function|class|codice|errore|funzione|classe)\b', re.IGNORECASE),
             IntentCategory.NAVIGATION: re.compile(r'\b(go to|move|navigate|room|kitchen|living room|map|location|where is|vai in|muoviti|naviga|stanza|cucina|salotto|mappa|dove si trova)\b', re.IGNORECASE),
             IntentCategory.CONVERSATION: re.compile(r'\b(hello|hi|how are you|feel|feeling|joke|chat|ciao|buongiorno|buonasera|come stai|barzelletta|chiacchiera)\b', re.IGNORECASE),
@@ -90,6 +97,11 @@ class IntentRouter:
             config.mag_episodic = 1.0
             config.mag_facts = 1.0
             config.rag_knowledge_enabled = 0.2
+        elif category == IntentCategory.DOCUMENTATION:
+            config.rag_knowledge_enabled = 1.0
+            config.rag_enabled = 1.0
+            config.mag_facts = 1.0
+            config.mag_episodic = 0.8
         elif category == IntentCategory.GENERAL:
             # Keep defaults for balanced retrieval
             pass

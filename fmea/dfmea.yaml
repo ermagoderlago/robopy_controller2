@@ -4827,3 +4827,222 @@
       aggiornati script di avvio
     rpn_old: 378
     rpn_new: 8
+- id: FM-LLM-006
+  subsystem: AI/LangGraph
+  component: dynamic_skill_creator / curiosity_evolution_engine
+  function: Generazione controllata ed autonoma di nuove abilità Python (Skills) tramite
+    Antigravity Agent
+  failure_mode: Loop ricorsivo o continuo di auto-modifica (AI Recursion Trap) con
+    saturazione token API e blocco CPU
+  potential_cause: Richieste a catena o auto-innesco continuo senza cooldown tra cicli
+    di generazione
+  potential_effect: Esaurimento quota API Gemini/Antigravity, surriscaldamento host
+    Pi 5 e blocco della reattività del robot
+  classification: PERFORMANCE
+  estimation_basis: theoretical
+  related_ids:
+  - FM-LLM-004
+  initial_scoring:
+    severity: 7
+    occurrence: 5
+    detection: 3
+    rpn: 105
+  prevention_controls: Cooldown temporale minimo (1h durante la veglia) e confinamento
+    dei cicli di generazione multi-iterazione al Nightly Dream (is_suspended == False)
+  detection_controls: Conteggio iterazioni (MAX_ITERATIONS = 3) e rate limiter nei
+    log di curiosity_evolution_engine
+  residual_scoring:
+    severity: 7
+    occurrence: 2
+    detection: 2
+    rpn: 28
+  risk_level: LOW
+  mitigation_status: IN_PROGRESS
+  recommended_action: Limitare i cicli di auto-modifica intensiva alla modalità DOCKED_DREAM
+    con watchdog di timeout sessione
+  verification_method: Test di stress di auto-innesco consecutivo verificando l'intervento
+    del rate limiter
+  eco_ref: docs/ecos/orchestration_rag_ecos.md
+  lesson_ref: docs/lessons/orchestration_and_rag.md
+  date_identified: '2026-09-05'
+  last_updated: '2026-09-05'
+  history:
+  - date: '2026-09-05'
+    change: Identificato rischio loop ricorsivo di generazione autonoma con Antigravity
+    rpn_old: 105
+    rpn_new: 28
+- id: FM-SYS-009
+  subsystem: System/DDS
+  component: antigravity_localharness & memory_sentinel
+  function: Allocazione memoria e coesistenza sicura del processo Antigravity Agent
+    con il middleware ROS 2 su host 4GB RAM
+  failure_mode: Picco di consumo RAM durante il reasoning dell'Agente con conseguente
+    OOM Kill di processi ROS 2 critici
+  potential_cause: Esecuzione di task di codice complessi mentre sono attivi contemporaneamente
+    nodi C++ pesanti (Hailo, VIO, Nav2)
+  potential_effect: Chiusura forzata da kernel Linux di nodi motori o navigazione
+    (OOM Killer)
+  classification: MISSION_CRITICAL
+  estimation_basis: inferred
+  related_ids:
+  - FM-SYS-001
+  - FM-SYS-008
+  initial_scoring:
+    severity: 9
+    occurrence: 4
+    detection: 3
+    rpn: 108
+  prevention_controls: Flag enable_subagents=False in CapabilitiesConfig per evitare
+    processi concorrenti e Memory Sentinel Gate (SPEC-07)
+  detection_controls: Controllo RAM disponibile (> 1.0 GB) prima di istanziare Agent
+    e monitoraggio via system_lifecycle_coordinator_node
+  residual_scoring:
+    severity: 9
+    occurrence: 1
+    detection: 2
+    rpn: 18
+  risk_level: REVISION_MANDATORY
+  mitigation_status: IN_PROGRESS
+  recommended_action: Inibire l'avvio di sessioni Antigravity pesanti se la memoria
+    disponibile a bordo del Pi 5 è inferiore a 1000 MB
+  verification_method: Stress test memoria con Agent attivo e verifica che i worker
+    concorrenti siano disabilitati
+  eco_ref: docs/lessons/dev_and_deployment.md
+  lesson_ref: marcus_core_rules.md#1-memoria-ram-e-limite-host
+  date_identified: '2026-09-05'
+  last_updated: '2026-09-05'
+  history:
+  - date: '2026-09-05'
+    change: Definito Memory Sentinel Gate per isolare il reasoning Antigravity su
+      Pi 5
+    rpn_old: 108
+    rpn_new: 18
+- id: FM-LLM-007
+  subsystem: AI/Trinity
+  component: dynamic_skill_creator / base_skill
+  function: Aderenza contrattuale e compatibilità di firma delle nuove abilità generate
+    rispetto all'interfaccia BaseSkill
+  failure_mode: Deriva semantica o firma asincrona non valida in match/execute non
+    rilevata dal compilatore AST di base
+  potential_cause: Allucinazione del modello o utilizzo di convenzioni discordanti
+    nei metodi get_metadata, match ed execute
+  potential_effect: Eccezione non gestita a runtime durante l'invocazione vocale o
+    mancato routing dell'intento da IntentRouter
+  classification: PERFORMANCE
+  estimation_basis: measured
+  related_ids:
+  - FM-LLM-004
+  initial_scoring:
+    severity: 7
+    occurrence: 4
+    detection: 2
+    rpn: 56
+  prevention_controls: Verifica AST obbligatoria dei metodi astratti BaseSkill e validazione
+    dinamica dei parametri in SkillSandbox
+  detection_controls: Pre-flight smoke test in SkillSandbox con asserzione formale
+    dei tipi restituiti (SkillResult, SkillMetadata)
+  residual_scoring:
+    severity: 7
+    occurrence: 1
+    detection: 1
+    rpn: 7
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Eseguire sempre uno smoke test dinamico (match + execute) in
+    SkillSandbox prima di promuovere il file in staging
+  verification_method: Esecuzione di test_skill_security_validator_ast e collaudo
+    run_autonomous_evolution_cycle.py
+  eco_ref: docs/ecos/orchestration_rag_ecos.md
+  lesson_ref: docs/lessons/orchestration_and_rag.md
+  date_identified: '2026-09-05'
+  last_updated: '2026-09-05'
+  history:
+  - date: '2026-09-05'
+    change: Implementato pre-flight smoke test contrattuale in SkillSandbox
+    rpn_old: 56
+    rpn_new: 7
+- id: FM-SYS-010
+  subsystem: System/Support
+  component: skill_sandbox / filesystem
+  function: Gestione dello storage NVMe ed epurazione dei file temporanei generati
+    durante l'auto-evoluzione
+  failure_mode: Saturazione progressiva dello storage flash SSD NVMe a causa dell'accumulo
+    di script di prova e log di sandbox
+  potential_cause: Mancata rimozione di file temporanei e report falliti ad ogni iterazione
+    del ciclo di evoluzione
+  potential_effect: Spazio disco esaurito (No space left on device), corruzione database
+    SQLite WAL autobiografico (mag_database.db)
+  classification: HW_DAMAGE
+  estimation_basis: inferred
+  related_ids:
+  - FM-SYS-004
+  initial_scoring:
+    severity: 8
+    occurrence: 4
+    detection: 2
+    rpn: 64
+  prevention_controls: Pulizia automatica della directory scratch/dream_sandbox/ all'inizio
+    di ciascun ciclo di generazione
+  detection_controls: Ispezione disco all'avvio del ciclo e rotazione dei log temporanei
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Mantenere solo l'ultimo script validato nella sandbox ed eliminare
+    gli scarti non promossi
+  verification_method: Verifica rimozione cartella temporanea post-collaudo in run_autonomous_evolution_cycle.py
+  eco_ref: docs/lessons/dev_and_deployment.md
+  lesson_ref: marcus_core_rules.md
+  date_identified: '2026-09-05'
+  last_updated: '2026-09-05'
+  history:
+  - date: '2026-09-05'
+    change: Aggiunto rmtree preventivo su dream_sandbox prima di ogni esecuzione
+    rpn_old: 64
+    rpn_new: 8
+- id: FM-LLM-008
+  subsystem: AI/LangGraph
+  component: curiosity_evolution_engine & security_validator
+  function: Rilevamento deterministico e inibizione di tentativi di bypass del Safe
+    Gating di Zona Rossa
+  failure_mode: Tentativo di aggiramento indiretto dei vincoli di sicurezza (es. reflection,
+    setattr, comandi mascherati)
+  potential_cause: Prompt complesso o allucinazione dell'agente che ricorre a wrapper
+    dinamici per eludere i controlli a stringa
+  potential_effect: Modifica non autorizzata di parametri critici di sicurezza fisica
+    (velocità motori o arresto d'emergenza)
+  classification: MISSION_CRITICAL
+  estimation_basis: theoretical
+  related_ids:
+  - FM-LLM-004
+  - FM-MOT-001
+  initial_scoring:
+    severity: 9
+    occurrence: 3
+    detection: 2
+    rpn: 54
+  prevention_controls: Regole AST SecurityValidator che bloccano chiamate a eval,
+    exec, __import__, getattr, setattr dinamici e Safe Gating a stringa
+  detection_controls: Parsing AST multilivello e reindirizzamento forzato verso RED_ZONE_IDEAS_RFC.md
+  residual_scoring:
+    severity: 9
+    occurrence: 1
+    detection: 1
+    rpn: 9
+  risk_level: REVISION_MANDATORY
+  mitigation_status: CLOSED
+  recommended_action: Vietare categoricamente costrutti di introspezione dinamica
+    e manipolazione namespace nei moduli generati
+  verification_method: Test con codice offuscato in test_antigravity_evolution_suite.py
+  eco_ref: docs/specs/SPEC-00_antigravity_governance.md
+  lesson_ref: docs/specs/SPEC-00_antigravity_governance.md
+  date_identified: '2026-09-05'
+  last_updated: '2026-09-05'
+  history:
+  - date: '2026-09-05'
+    change: Implementato filtro AST di sicurezza su reflection e deviazione su RFC
+    rpn_old: 54
+    rpn_new: 9

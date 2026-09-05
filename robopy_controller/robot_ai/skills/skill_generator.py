@@ -329,6 +329,7 @@ Il codice generato ha fallito il Quality Gate. Correggi gli errori seguenti.
         request: SkillRequest,
         raw_code: str,
         iteration: int = 1,
+        on_progress: Optional[Any] = None,
     ) -> SkillGenerationResult:
         """
         Processa il codice generato: estrae, valida, testa e logga.
@@ -337,10 +338,20 @@ Il codice generato ha fallito il Quality Gate. Correggi gli errori seguenti.
             request: Richiesta di generazione
             raw_code: Codice grezzo (può contenere tag <SKILL_CODE>)
             iteration: Numero iterazione corrente (1-based)
+            on_progress: Callback opzionale (status, natural_phrase, details) per feedback real-time
 
         Returns:
             SkillGenerationResult con esito completo
         """
+        async def _notify(status: str, msg: str, details: Optional[Dict[str, Any]] = None):
+            if on_progress:
+                try:
+                    res = on_progress(status, msg, details or {})
+                    if asyncio.iscoroutine(res):
+                        await res
+                except Exception as notify_err:
+                    logger.debug(f"Errore notifica progresso: {notify_err}")
+
         self._current_iteration = iteration
         timestamp = datetime.utcnow().isoformat()
 
@@ -348,6 +359,8 @@ Il codice generato ha fallito il Quality Gate. Correggi gli errori seguenti.
         code = self._extract_code(raw_code)
         if not code:
             code = raw_code  # Fallback: usa tutto come codice
+
+        await _notify("AST_CHECKING", "Controllo il codice con il validatore statico AST per verificare sicurezza e permessi.")
 
         # Aggiungi header
         rak_hash = self.compute_rak_hash()
@@ -377,21 +390,29 @@ Il codice generato ha fallito il Quality Gate. Correggi gli errori seguenti.
         ast_result = self.validator.validate(code)
         if not ast_result.is_valid:
             errors.extend(ast_result.errors)
+        else:
+            await _notify("AST_PASSED", "Verifica AST superata con successo: nessun import o comando non sicuro rilevato.")
 
         # 3b: Smoke Test (import isolato)
         smoke_error = None
         if ast_result.is_safe:
+            await _notify("SMOKE_TESTING", "Eseguo lo smoke test per verificare sintassi e corretto caricamento del modulo...")
             smoke_error = await self._smoke_test(staging_file)
             if smoke_error:
                 errors.append(f"Smoke test fallito: {smoke_error}")
+            else:
+                await _notify("SMOKE_PASSED", "Modulo importato correttamente.")
 
         # 3c: Sandbox ROS
         sandbox_result = None
         if not errors:
+            await _notify("SANDBOX_TESTING", "Avvio il collaudo nel sandbox cinematico per verificare l'esecuzione dei comandi ROS...")
             test_utt = request.test_utterances[0] if request.test_utterances else "test"
             sandbox_result = await self.sandbox.run(staging_file, test_utt)
             if not sandbox_result.success:
                 errors.append(f"Sandbox fallita: {sandbox_result.error}")
+            else:
+                await _notify("SANDBOX_PASSED", "Collaudo in sandbox completato senza violazioni né crash.")
 
         # --- Logging ---
         iter_log = IterationLog(
@@ -407,6 +428,7 @@ Il codice generato ha fallito il Quality Gate. Correggi gli errori seguenti.
 
         # Determina azione
         if errors:
+            first_err = errors[0][:150]
             if iteration >= MAX_ITERATIONS:
                 iter_log.action_taken = f"Abort - max iterazioni raggiunto ({MAX_ITERATIONS})"
                 # Sposta in failed
@@ -417,6 +439,8 @@ Il codice generato ha fallito il Quality Gate. Correggi gli errori seguenti.
                 # Scrivi log e failure report
                 self._write_iteration_log(request, iter_log)
                 failure_report = self._write_failure_report(request, errors)
+
+                await _notify("FAILED", f"Purtroppo non sono riuscito a validare la skill dopo {MAX_ITERATIONS} tentativi ({first_err}).")
 
                 return SkillGenerationResult(
                     success=False,
@@ -429,6 +453,8 @@ Il codice generato ha fallito il Quality Gate. Correggi gli errori seguenti.
                 iter_log.action_taken = "Self-repair prompt necessario"
                 self._write_iteration_log(request, iter_log)
 
+                await _notify("ISSUE_DETECTED", f"Nel collaudo è emerso un problema: {first_err}. Chiedo ad Antigravity di correggere la bozza.")
+
                 return SkillGenerationResult(
                     success=False,
                     skill_name=request.name,
@@ -439,6 +465,8 @@ Il codice generato ha fallito il Quality Gate. Correggi gli errori seguenti.
         else:
             iter_log.action_taken = "Quality Gate superato - skill pronta per approvazione"
             self._write_iteration_log(request, iter_log)
+
+            await _notify("COMPLETED", f"Perfetto! La skill '{request.name}' ha superato tutti i controlli ed è pronta all'uso.")
 
             return SkillGenerationResult(
                 success=True,
@@ -714,6 +742,7 @@ File di log disponibili:
         self,
         request: SkillRequest,
         code_provider,  # Callable[[str], Awaitable[str]] - funzione che chiama Gemini
+        on_progress: Optional[Any] = None,
     ) -> SkillGenerationResult:
         """
         Esegue l'intera pipeline di generazione con retry automatico.
@@ -721,10 +750,22 @@ File di log disponibili:
         Args:
             request: Richiesta di generazione
             code_provider: Async callable che riceve un prompt e restituisce il codice
+            on_progress: Callback opzionale (status, natural_phrase, details) per feedback real-time
 
         Returns:
             SkillGenerationResult finale
         """
+        async def _notify(status: str, msg: str, details: Optional[Dict[str, Any]] = None):
+            if on_progress:
+                try:
+                    res = on_progress(status, msg, details or {})
+                    if asyncio.iscoroutine(res):
+                        await res
+                except Exception as notify_err:
+                    logger.debug(f"Errore notifica progresso: {notify_err}")
+
+        await _notify("ANALYZING", f"Sto analizzando la richiesta per creare la skill '{request.name}' e recuperando il contesto architetturale.")
+
         last_result = None
         last_code = ""
         errors = []
@@ -733,23 +774,37 @@ File di log disponibili:
             # Prepara prompt
             if iteration == 1:
                 prompt = self.prepare_prompt(request)
+                await _notify("ANTIGRAVITY_THINKING", f"Ho aperto una sessione con Antigravity. Sta elaborando l'architettura della skill '{request.name}'...")
             else:
                 prompt = self.prepare_repair_prompt(
                     request, last_code, errors
                 )
+                await _notify("ANTIGRAVITY_REPAIR", f"Sto inviando i log degli errori ad Antigravity per correggere la bozza (iterazione {iteration}/{MAX_ITERATIONS})...")
 
             # Ottieni codice
             try:
                 raw_code = await code_provider(prompt)
+                await _notify("CODE_RECEIVED", f"Antigravity ha completato la bozza del codice. Ora avvio la pipeline di validazione.")
             except Exception as e:
+                err_str = str(e)
+                if "QUOTA_90_PERCENT" in err_str:
+                    logger.warning(f"Generazione skill sospesa per quota: {e}")
+                    await _notify("QUOTA_SUSPENDED", "Abbiamo raggiunto il 90% della quota token per questa sessione di 4 ore. Ho salvato il checkpoint per completare la skill nella prossima sessione.")
+                    return SkillGenerationResult(
+                        success=False,
+                        skill_name=request.name,
+                        iterations=iteration,
+                        failure_report="Attività sospesa per raggiungimento della soglia 90% della quota token sulle 4 ore (checkpoint salvato)."
+                    )
                 logger.error(f"Code provider fallito iter {iteration}: {e}")
+                await _notify("PROVIDER_ERROR", f"Si è verificato un errore durante la generazione con l'agente: {e}")
                 continue
 
             last_code = raw_code
 
             # Processa
             result = await self.process_generated_code(
-                request, raw_code, iteration
+                request, raw_code, iteration, on_progress=on_progress
             )
 
             if result.success:

@@ -14,6 +14,9 @@ Quando Antigravity è attivo sul robot:
 1. **Lavora sempre in isolamento (Git Feature Branch):** È severamente vietato modificare direttamente il branch `main` o i file installati in produzione (`/mnt/ssd/robopy_controller_host/install/`). Ogni sviluppo deve avvenire su un branch dedicato `agent/IMP-XXX-descrizione`.
 2. **Validazione Sandboxed:** Prima di proporre o unire codice, l'agente DEVE eseguire i test di non-regressione locali (`pytest`, check sintassi, test di importazione) su un'istanza shadow o mock.
 3. **Verifica Risorse:** Durante la generazione o il test, l'agente deve monitorare che il consumo di memoria RAM non superi l'80% (3.2 GB su 4.0 GB totali).
+4. **Divieto Assoluto di Forzatura Soluzioni su Raspberry Pi (Zero-Forcing Policy):** Mentre su PC lo sviluppatore umano può decidere di forzare una modifica o ignorare un warning, sul Raspberry Pi l'agente Antigravity NON HA ALCUNA AUTORIZZAZIONE A FORZARE. Se una soluzione fallisce la validazione AST (`SecurityValidator`) o lo smoke test cinematico in `SkillSandbox`, viene scartata (max 3 tentativi di retry, poi abort); se tocca la Zona Rossa, viene obbligatoriamente dirottata in `RED_ZONE_IDEAS_RFC.md`.
+5. **Dicitura Obbligatoria negli ECO:** Ogni Engineering Change Order creato a seguito di codice o refactoring generato dal robot deve riportare esplicitamente: `* **Autore:** 🤖 **Generata autonomamente da Marcus** (Antigravity Engine)`.
+6. **Modello AI Primario:** L'agente adotta come modello primario la famiglia **Gemini 3.8** (`gemini-3.8-flash` con extended thinking integrato / `gemini-3.8-pro`), con fallback trasparente a serie 2.5.
 
 ---
 

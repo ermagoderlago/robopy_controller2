@@ -17,6 +17,7 @@ from ..services.embedding_service import EmbeddingService
 from ..services.llm_service import LLMService
 from ..core.config_manager import ConfigManager
 from ..utils.logging_utils import get_logger
+from .curiosity_evolution_engine import CuriosityEvolutionEngine
 
 
 class NightlyDreamService:
@@ -56,6 +57,9 @@ class NightlyDreamService:
         # Ensure log dir exists
         os.makedirs(os.path.dirname(self.log_path), exist_ok=True)
         self._is_suspended = True  # Suspended by default until DOCKED_DREAM
+        
+        # Motore di curiosità e auto-evoluzione integrato
+        self.curiosity_engine = CuriosityEvolutionEngine()
 
     def suspend(self):
         """Suspends dreaming/daydreaming during active navigation to save CPU/RAM."""
@@ -440,6 +444,89 @@ Versione: {robot.version}.
         else:
             self.logger.error(f"Failed to refine and verify skill '{skill_name}' in sandbox.")
             return {"status": "failed", "skill_attempted": skill_name}
+
+    async def run_curiosity_cycle(self) -> Dict[str, Any]:
+        """
+        Esegue un ciclo proattivo di curiosità e auto-miglioramento.
+        1. Consulta DFMEA per individuare il Failure Mode a massima priorità.
+        2. Formula un quesito tecnico mirato.
+        3. Elabora proposte di soluzione o refactoring.
+        4. Esegue il Safe Gating:
+           - Se Zona Rossa: rifiuto autonomo e compilazione RFC in docs/ideas/RED_ZONE_IDEAS_RFC.md.
+           - Se Zona Verde: registrazione nel diario di evoluzione e dispatch a sandbox.
+        """
+        self.logger.info("Avvio Ciclo di Curiosità & Auto-Evoluzione...")
+        top_fms = self.curiosity_engine.get_top_priority_failure_modes(limit=1)
+        target_fm = top_fms[0] if top_fms else None
+        
+        subsystem = target_fm.get("subsystem", "General/Cognitive") if target_fm else "General/Cognitive"
+        inquiry_spec = self.curiosity_engine.generate_curiosity_inquiry(subsystem, target_fm)
+        
+        self.logger.info(f"Quesito di curiosità formulato: {inquiry_spec['question']}")
+        
+        # Genera proposta tecnica via LLM
+        prompt = f"""
+Sei il motore di curiosità e auto-evoluzione di Marcus.
+Rispondi con un'analisi concisa e una proposta di miglioramento software per il robot.
+
+CONTESTO:
+- Sottosistema: {subsystem}
+- Quesito Tecnico: {inquiry_spec['question']}
+- Failure Mode target: {target_fm.get('id', 'N/A') if target_fm else 'Esplorazione libera'}
+
+Fornisci:
+1. TITOLO: breve titolo della proposta
+2. DESCRIZIONE: 2-3 frasi sull'approccio
+3. CODICE_PROPOSTO: eventuale snippet o logica proposta
+4. ANALISI_RISCHIO: se tocca componenti critici (motori, RAM 4GB, compilazione -j1, file segreti)
+
+Rispondi in italiano in modo strutturato.
+"""
+        try:
+            response = await self.llm_service.generate(prompt, max_tokens=1500)
+            analysis_text = response.text or ""
+            
+            # Valutazione di sicurezza Zona Rossa
+            is_safe, spec_violated, rule_violated = self.curiosity_engine.evaluate_proposal_safety(
+                inquiry_spec["question"], analysis_text
+            )
+            
+            if not is_safe:
+                self.logger.warning(f"La proposta tocca la Zona Rossa ({spec_violated}: {rule_violated})! Blocco esecuzione e apertura RFC.")
+                rfc_id = f"RFC-AUTO-{datetime.now().strftime('%Y%m%d%H%M')}"
+                self.curiosity_engine.log_red_zone_rfc(
+                    rfc_id=rfc_id,
+                    title=f"Proposta autonoma per {inquiry_spec['subsystem']} ({target_fm.get('id', 'N/A') if target_fm else 'Curiosity'})",
+                    subsystem=subsystem,
+                    spec_violated=spec_violated or "SPEC-00",
+                    rule_violated=rule_violated or "Vincolo critico",
+                    description=analysis_text[:500],
+                    benefits="Miglioramento architetturale identificato dal ciclo notturno.",
+                    risks="Potenziale impatto su vincoli hardware/sistema protetti da Zona Rossa."
+                )
+                self.curiosity_engine.log_evolution_experience(
+                    cycle_name=f"Ciclo Curiosità {subsystem}",
+                    subsystem=subsystem,
+                    failure_mode_id=target_fm.get('id') if target_fm else None,
+                    inquiry=inquiry_spec["question"],
+                    action_taken=f"Rifiuto esecuzione autonoma (Zona Rossa: {spec_violated}). Trascritto RFC {rfc_id}.",
+                    outcome="SAFE_RFC_FILED"
+                )
+                return {"status": "rfc_filed", "rfc_id": rfc_id, "spec": spec_violated}
+            else:
+                self.logger.info("Proposta verificata: Zona Verde! Procedura sicura.")
+                self.curiosity_engine.log_evolution_experience(
+                    cycle_name=f"Ciclo Curiosità {subsystem}",
+                    subsystem=subsystem,
+                    failure_mode_id=target_fm.get('id') if target_fm else None,
+                    inquiry=inquiry_spec["question"],
+                    action_taken="Analisi completata e catalogata in Zona Verde.",
+                    outcome="SUCCESS_GREEN_ZONE"
+                )
+                return {"status": "success", "subsystem": subsystem}
+        except Exception as e:
+            self.logger.error(f"Errore durante il ciclo di curiosità: {e}")
+            return {"status": "error", "error": str(e)}
 
     async def _detect_skill_gaps(self, context_text: str) -> Optional[Dict[str, Any]]:
         """Invokes Gemini to semantically analyze transcripts for skill shortcomings."""

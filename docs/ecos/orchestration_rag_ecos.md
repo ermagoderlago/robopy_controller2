@@ -153,3 +153,35 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
 
 
 
+
+---
+
+## 📈 ECO-2026-09-05-MARCUS-001: Integrazione Antigravity Gemini 3.8 e Policy Zero Forzature
+* **Autore:** 🤖 **Generata autonomamente da Marcus** (Antigravity Autonomous Evolution Engine)
+* **Data Creazione:** 2026-09-05 21:24:16
+* **Sottosistema:** `AI/Cognitive`
+* **Stato:** ✅ **Completato e Validato in Sandbox** (Nessuna forzatura: 100% verificato)
+* **Descrizione:** Abilitazione auto-evoluzione autonoma con Gemini 3.8 Flash nativo e divieto assoluto di forzature su Pi 5.
+* **Modifiche apportate:**
+  * Gemini 3.8 Flash impostato come modello primario assoluto
+  * Enforcement Zero-Forcing Policy: rigetto o routing a RFC se i test falliscono
+  * Dicitura autore obbligatoria impostata su: Generata autonomamente da Marcus
+* **Esito Validazione:** 11/11 test di collaudo superati a pieni voti su Raspberry Pi 5.
+
+---
+
+## 📈 ECO-2026-09-05-MARCUS-002: Accesso Documentazione, Dialogo Antigravity On-Demand, Memoria Autobiografica & Feedback Naturale Skill
+* **Autore:** 🤖 **Generata autonomamente da Marcus** (Antigravity Autonomous Evolution Engine)
+* **Data Creazione:** 2026-09-05 21:42:00
+* **Sottosistema:** `AI/Cognitive`
+* **Stato:** ✅ **Completato e Validato in Sandbox** (Nessuna forzatura: 100% verificato)
+* **Descrizione:** Abilitazione dell'accesso completo e conversazionale a DFMEA, ECO, Schede Tecniche (SPEC), Lessons Learned e file di configurazione, dialogo on-demand con l'agente Antigravity, memoria autobiografica MAG per gli step evolutivi, e osservabilità in tempo reale del ciclo di vita delle skill con verbalizzazione fluida e naturale.
+* **Modifiche apportate:**
+  * Creazione di `RobotDocumentationService` (`robot_documentation_service.py`) per query strutturate e semantiche su DFMEA, ECO, SPEC, Lessons e file di configurazione (con blocco perimetrale di `.env` e `secrets.yaml`).
+  * Creazione della skill builtin `ConsultDocumentationSkill` (`consult_documentation_skill.py`) per tool calling e matching naturale.
+  * Creazione della skill builtin `ConsultAntigravitySkill` (`consult_antigravity_skill.py`) e del metodo `consult_antigravity_dialogue` in `AntigravityAgentService` per consulenze tecniche peer-to-peer con Gemini 3.8.
+  * Aggiunta della categoria `IntentCategory.DOCUMENTATION` in `IntentRouter` ed arricchimento dinamico del context in `TrinityEngine._retrieve_rag_knowledge`.
+  * Riprogettazione di `CreaSkill` (`crea_skill.py`) e `SkillGeneratorPipeline` (`skill_generator.py`) con callback `on_progress` e coda asincrona per streaming degli stati e frasi empatiche ("Sto analizzando...", "Ho aperto una sessione con Antigravity...", "Collaudo in sandbox...", "Sospeso per quota 90%...", "Abilità attiva!").
+  * Integrazione della memoria autobiografica in MAG (`mag_database.db`) e nel diario di bordo (`evolution_journal.md`).
+* **Esito Validazione:** 23/23 test superati con successo in `tests/test_robot_documentation_and_dialogue.py` e `tests/test_antigravity_evolution_suite.py`.
+

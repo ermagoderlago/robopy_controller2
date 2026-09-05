@@ -170,3 +170,46 @@ L'architettura TRINITY integra i tre paradigmi di memoria e contesto operando a 
   4. **Armonizzazione `MemoryInfoSkill` & `MemoryManager`:** In `MemoryManager` implementati `get_stats()` e `list_loaded_documents()`. Ristretto il matcher di `MemoryInfoSkill` affinché operi solo su richieste esplicite di file/documenti tecnici caricati.
   5. **TTS Unmute:** Rimosso il blocco muto da `conversation.py`: Marcus parla ad alta voce anche in risposta a comandi testuali da Foxglove Studio.
 
+---
+
+## 🤖 Governance Antigravity, Modelli Gemini Flagship e Rolling Quota Tracker 4h (Sprint Auto-Evoluzione)
+
+* **Contesto & Obiettivo:** Integrazione dell'agente autonomo Google Antigravity a bordo del Raspberry Pi 5 per l'auto-evoluzione continua, creazione autonoma di skill e risoluzione automatica delle failure DFMEA.
+* **Modello AI Utilizzato:**
+  - L'SDK nativo Antigravity (aarch64 `localharness`) adotta come predefinito `gemini-3.8-flash` (`DEFAULT_MODEL`) e `gemini-3.1-flash-lite-image`.
+  - In `AntigravityAgentService`, è implementata la prioritizzazione dinamica verso i modelli flagship più avanzati: prioritario `gemini-2.5-pro` (massima capacità di reasoning e code architecture), con fallback trasparente a `gemini-3.8-flash` e `gemini-2.5-flash`.
+* **Vincolo Quota Token a 4 Ore (Soglia Rigida 90%):**
+  - **Problema:** Gli account con abbonamento Antigravity/Google AI operano con finestre di quota scorrevoli (rolling window) di 4 ore (14.400 secondi). Se il robot esaurisse la quota durante la notte o in compiti pesanti, rischierebbe l'interruzione brusca (429 Rate Limit) lasciando codice a metà o bloccando le comunicazioni vocali.
+  - **Soluzione Architetturale (`TokenQuotaTracker`):**
+    - Monitoraggio continuo tramite ledger persistente (`docs/evolution/token_quota_ledger.json`).
+    - Calcolo dell'utilizzo reale ricavato dai metadati restituiti dall'API (`usage_metadata.total_token_count`).
+    - **Soglia di Sicurezza al 90%:** Quando l'uso cumulato proiettato raggiunge o supera il 90% del budget a 4 ore, ogni nuova operazione pesante viene congelata in sicurezza senza sollevare eccezioni distruttive.
+* **Persistenza Stato & Ripresa nelle Sedute Successive (`EvolutionCheckpointManager`):**
+  - Quando scatta il blocco del 90%, l'attività viene serializzata in `docs/evolution/evolution_checkpoint.json` conservando `task_id`, `conversation_id`, step completati, artifact parziali e timestamp di ripresa.
+  - Grazie al supporto nativo dell'SDK per `SessionContinuationMode.RESUME`, nelle sedute successive (quando la finestra a 4 ore scende sotto l'80% o al ciclo notturno successivo) il robot si riallaccia esattamente allo stesso thread di conversazione senza perdere il contesto e finalizza l'attività senza sprecare token doppi.
+
+---
+
+## 📚 Accesso alla Conoscenza Tecnica Completa, Dialogo On-Demand e Streaming Real-Time delle Skill
+
+* **Problema Risolto:** Marcus necessitava di poter discutere liberamente di tutta la propria architettura ingegneristica (DFMEA, ECO, Schede Tecniche SPEC, Lessons Learned), consultare Antigravity all'occorrenza per pareri architetturali, mantenere memoria autobiografica dei propri step evolutivi, e informare l'utente in tempo reale e con linguaggio naturale durante la sintesi di nuove capacità operative.
+* **Architettura Implementata:**
+  1. **Servizio di Documentazione Unificato (`RobotDocumentationService`):**
+     - Parser e motore di ricerca semantica/strutturata per `fmea/dfmea.yaml`, `docs/ecos/`, `docs/specs/`, `docs/lessons/`, e file di configurazione del workspace.
+     - Blocco perimetrale di sicurezza (SPEC-05/SPEC-00): divieto categorico di accedere a `.env` e `secrets.yaml`.
+     - Risolutore in linguaggio naturale: smista le domande dell'utente fornendo risposte immediate ed esatte.
+  2. **Skill `ConsultDocumentationSkill` & `ConsultAntigravitySkill`:**
+     - Esposizione verso Gemini Live API sia via Tool Calling che matching in linguaggio naturale.
+     - Marcus può dialogare on-demand con l'Agente Antigravity (Gemini 3.8) come consulente senior per analizzare codice o risolvere problemi complessi, traducendo la risposta per l'utente.
+  3. **Integrazione TRINITY Metaprompt Fusion:**
+     - Nuova categoria `IntentCategory.DOCUMENTATION` in `IntentRouter` con boosting di `rag_knowledge_enabled` e `mag_facts` a 1.0.
+     - Fallback arricchito in `TrinityEngine._retrieve_rag_knowledge`: la documentazione ufficiale viene fusa direttamente nel prompt se ChromaDB non ha corrispondenze esatte.
+  4. **Pipeline Skill con Osservabilità Real-Time & Streaming VUI:**
+     - In `SkillGeneratorPipeline` introdotto il callback asincrono `on_progress` per emettere stati strutturati: `ANALYZING` ➔ `ANTIGRAVITY_THINKING` ➔ `CODE_RECEIVED` ➔ `AST_CHECKING` ➔ `SMOKE_TESTING` ➔ `SANDBOX_TESTING` ➔ `ISSUE_DETECTED` ➔ `COMPLETED` o `QUOTA_SUSPENDED`.
+     - In `CreaSkill` streaming tramite `asyncio.Queue` che permette all'Orchestratore di verbalizzare vocalmente e in tempo reale ogni passaggio all'utente con tono amichevole, rassicurante e trasparente.
+     - Risposta alle query di stato dell'utente ("A che punto è la skill?", "Cosa sta facendo Antigravity?").
+  5. **Memoria Autobiografica Persistente (MAG & Diario):**
+     - Ogni skill creata o ciclo evolutivo viene automaticamente archiviato in `mag_database.db` (`episodes` e `semantic_facts`) e nel diario `docs/evolution/evolution_journal.md`, consentendo a Marcus di ricordare e raccontare con continuità identitaria la propria crescita nel tempo.
+
+
+

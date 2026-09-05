@@ -7,10 +7,13 @@ from robot_ai.utils import get_logger
 try:
     from robot_ai.rag.chroma_native_store import get_chroma_client
 except ImportError:
-    # Fallback to standard chromadb if not found
-    import chromadb
-    def get_chroma_client():
-        return chromadb.PersistentClient(path="./chroma_db")
+    try:
+        import chromadb
+        def get_chroma_client():
+            return chromadb.PersistentClient(path="./chroma_db")
+    except ImportError:
+        def get_chroma_client():
+            return None
 
 # For float16 embeddings
 try:
@@ -88,6 +91,8 @@ class KnowledgeQueryEngine:
         """
         Queries the ChromaDB collection and returns formatted, reranked chunks.
         """
+        if not self.client:
+            return []
         with self._lock:
             try:
                 collection = self.client.get_or_create_collection(

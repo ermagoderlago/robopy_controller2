@@ -40,33 +40,37 @@ ${SSH_CMD} -n ${TARGET_HOST} "echo '✅ Connessione SSH stabilita con successo'"
 
 # --- STEP 1: BACK-SYNC (ROBOT -> PC) ---
 echo ""
-echo "📥 [1/4] Back-Sync: Recupero aggiornamenti dal Robot..."
+echo "📥 [1/4] Back-Sync: Recupero aggiornamenti dal Robot (Anti-Flattening Guard)..."
 
 # Recupera skill generate/aggiornate sul robot
 rsync -auvz --progress -e "${RSYNC_SSH}" \
     --exclude='__pycache__/' --exclude='*.pyc' \
-    ${TARGET_HOST}:${TARGET_DIR}/robopy_controller/robot_ai/skills/active/ \
-    ./robopy_controller/robot_ai/skills/active/ 2>/dev/null || echo "  ⚠️  Cartella active/ non trovata sul robot, skip."
+    ${TARGET_HOST}:${TARGET_DIR}/robopy_controller/robot_ai/skills/ \
+    ./robopy_controller/robot_ai/skills/ 2>/dev/null || echo "  ⚠️  Cartella skills/ non trovata sul robot, skip."
 
+# Recupera documentazione aggiornata dal robot (lezioni, ECO, schede)
 rsync -auvz --progress -e "${RSYNC_SSH}" \
-    --exclude='__pycache__/' --exclude='*.pyc' \
-    ${TARGET_HOST}:${TARGET_DIR}/robopy_controller/robot_ai/skills/staging/ \
-    ./robopy_controller/robot_ai/skills/staging/ 2>/dev/null || echo "  ⚠️  Cartella staging/ non trovata sul robot, skip."
+    ${TARGET_HOST}:${TARGET_DIR}/docs/ \
+    ./docs/ 2>/dev/null || echo "  ⚠️  Cartella docs/ non trovata sul robot, skip."
 
+# Recupera database FMEA e report esecutivo aggiornati dal robot
 rsync -auvz --progress -e "${RSYNC_SSH}" \
-    --exclude='__pycache__/' --exclude='*.pyc' \
-    ${TARGET_HOST}:${TARGET_DIR}/robopy_controller/robot_ai/skills/script/ \
-    ./robopy_controller/robot_ai/skills/script/ 2>/dev/null || echo "  ⚠️  Cartella script/ non trovata sul robot, skip."
+    ${TARGET_HOST}:${TARGET_DIR}/fmea/ \
+    ./fmea/ 2>/dev/null || echo "  ⚠️  Cartella fmea/ non trovata sul robot, skip."
 
 # Recupera logs aggiornati
 rsync -auvz -e "${RSYNC_SSH}" \
     ${TARGET_HOST}:${TARGET_DIR}/robopy_controller/logs/ \
     ./robopy_controller/logs/ 2>/dev/null || echo "  ⚠️  Cartella logs/ non trovata sul robot, skip."
 
-# Recupera WORKSPACE_STATE, files_topic e .env aggiornati dal robot (es. modelli Gemini auto-scoperti)
+# Recupera WORKSPACE_STATE, ECO.md, files_topic e .env aggiornati dal robot
 rsync -auvz -e "${RSYNC_SSH}" \
     ${TARGET_HOST}:${TARGET_DIR}/WORKSPACE_STATE.md \
     ./WORKSPACE_STATE.md 2>/dev/null || echo "  ⚠️  WORKSPACE_STATE.md non trovato, skip."
+
+rsync -auvz -e "${RSYNC_SSH}" \
+    ${TARGET_HOST}:${TARGET_DIR}/ECO.md \
+    ./ECO.md 2>/dev/null || echo "  ⚠️  ECO.md non trovato, skip."
 
 rsync -auvz -e "${RSYNC_SSH}" \
     ${TARGET_HOST}:${TARGET_DIR}/files_topic.md \
@@ -76,16 +80,17 @@ rsync -auvz -e "${RSYNC_SSH}" \
     ${TARGET_HOST}:${TARGET_DIR}/.env \
     ./.env 2>/dev/null || echo "  ⚠️  .env non trovato sul robot, skip."
 
-# --- STEP 2: FORWARD-SYNC (PC -> ROBOT) - Workspace completo ---
+# --- STEP 2: FORWARD-SYNC (PC -> ROBOT) - Con flag --update (-u) per preservare modifiche robot ---
 echo ""
-echo "📤 [2/4] Forward-Sync: Aggiornamento workspace completo sul Robot..."
+echo "📤 [2/4] Forward-Sync: Aggiornamento workspace sul Robot (rispetta file più recenti sul robot)..."
 
-# Sync esplicito del .env (contiene LIVE_MODEL_NAME e tutte le API key aggiornate)
-rsync -avz -e "${RSYNC_SSH}" \
+# Sync del .env se necessario
+rsync -auvz -e "${RSYNC_SSH}" \
     ./.env ${TARGET_HOST}:${TARGET_DIR}/.env
 echo "   ✅ .env sincronizzato."
 
-rsync -avz --progress -e "${RSYNC_SSH}" \
+# Forward sync con -u (--update): non sovrascrive MAI file aventi data più recente sul robot
+rsync -auvz --progress -e "${RSYNC_SSH}" \
     --exclude='.git/' \
     --exclude='.agent/' \
     --exclude='.cache/' \

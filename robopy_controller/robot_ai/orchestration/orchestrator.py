@@ -38,6 +38,8 @@ from robot_ai.skills.builtin.calibration_skill import CalibrationSkill
 from robot_ai.skills.builtin.alarm_skill import AlarmSkill
 from robot_ai.skills.builtin.email_skill import EmailSkill
 from robot_ai.skills.builtin.crea_skill import CreaSkill
+from robot_ai.skills.builtin.consult_documentation_skill import ConsultDocumentationSkill
+from robot_ai.skills.builtin.consult_antigravity_skill import ConsultAntigravitySkill
 from robot_ai.skills.builtin.memory_info_skill import MemoryInfoSkill
 from robot_ai.skills.builtin.timer_skill import TimerSkill
 from robot_ai.skills.builtin.nomad_exploration_skill import NomadExplorationSkill
@@ -140,9 +142,11 @@ class AIOrchestrator(Node):
         else:
              self.skill_registry.register(AlarmSkill())
 
-        # Registrazione skill builtin email, crea_skill, memory_info, timer, nomad
+        # Registrazione skill builtin email, crea_skill, documentazione, antigravity, memory_info, timer, nomad
         self.skill_registry.register(EmailSkill(self.llm_service, self.config, self.memory_manager))
         self.skill_registry.register(CreaSkill(self.llm_service))
+        self.skill_registry.register(ConsultDocumentationSkill())
+        self.skill_registry.register(ConsultAntigravitySkill())
         self.skill_registry.register(MemoryInfoSkill(self.memory_manager))
         self.skill_registry.register(TimerSkill())
         self.skill_registry.register(NomadExplorationSkill(
