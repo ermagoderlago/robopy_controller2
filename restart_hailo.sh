@@ -114,10 +114,10 @@ nohup ros2 run robopy_controller waveshare_motor_driver --ros-args \
     > /home/robopy/robopy/logs/waveshare_motor_driver.log 2>&1 &
 
 
-echo "📐 Starting CAD static TF publishers (OAK-D Lite 8° pitch UP, Z=0.2616m, RPLIDAR C1 Z=0.18m)..."
+echo "📐 Starting CAD static TF publishers (OAK-D Lite 8° pitch UP, Z=0.2616m, RPLIDAR C1 Z=0.18m, yaw 180°)..."
 nohup ros2 run tf2_ros static_transform_publisher \
   --x 0.08 --y 0.0 --z 0.18 \
-  --roll 0.0 --pitch 0.0 --yaw 0.0 \
+  --roll 0.0 --pitch 0.0 --yaw 3.14159265 \
   --frame-id base_link --child-frame-id laser \
   > /home/robopy/robopy/logs/tf_laser.log 2>&1 &
 

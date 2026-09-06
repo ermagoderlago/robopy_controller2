@@ -287,6 +287,8 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
   - Se nel pannello 3D di Foxglove compare un'icona rossa di allert `! /scan`, la causa è l'impostazione di default `Color mode: Color map` con `Color field: intensity` su `auto`.
   - Poiché il driver sllidar_ros2 in modalità standard fornisce intensità uniforme, la colormap non ha range dinamico e genera un warning visivo pur visualizzando correttamente i punti geometrici a 360°.
   - **Soluzione:** Impostare in Foxglove `Color mode: Flat` (colore fisso) o `Color field: range`.
+* **Calibrazione Orientamento Asse Z (`base_link -> laser`):**
+  - Se il sensore fisico RPLIDAR C1 è montato con l'azimuth zero rivolto all'indietro rispetto al muso del robot, la trasformata statica TF2 deve avere orientamento `--yaw 3.14159265` (rotazione di $180^\circ$ / $\pi$ radianti attorno all'asse Z), evitando che i punti ostacolo frontali vengano proiettati dietro allo chassis nelle costmap Nav2 e in RTAB-Map.
 * **Workflow Ciclo di Vita Mappe SLAM (Nuova Mappatura vs Localizzazione):**
   - Per generare una nuova mappa metricamente accurata con il LiDAR a 360°, la mappa legacy (creata con sola camera 70°) deve essere archiviata (`/mnt/ssd/rtabmap_pre_lidar_backup.db`).
   - Si avvia RTAB-Map con `Mem/IncrementalMemory: "true"` su un database vergine (`/mnt/ssd/rtabmap.db`).

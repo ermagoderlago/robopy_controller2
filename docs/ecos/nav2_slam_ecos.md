@@ -273,6 +273,18 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
     - Eseguito backup della mappa legacy in `/mnt/ssd/rtabmap_pre_lidar_backup.db`.
     - Attivato `Mem/IncrementalMemory: "true"` per la creazione pulita della nuova mappa da zero su `/mnt/ssd/rtabmap.db`.
 
+---
+
+## 📈 ECO-2026-09-06-001: Calibrazione Orientamento RPLIDAR C1 (Rotazione 180° / π rad asse Z)
+* **Stato:** ✅ **Completato, Sincronizzato e Applicato su Marcus**
+* **Autore:** 🤖 **Generata autonomamente da Marcus** (Antigravity Engine)
+* **Descrizione:** Riorientamento della trasformata statica TF2 `base_link -> laser` per allineare l'azimuth zero del LiDAR RPLIDAR C1 con l'avanti del robot. Poiché il sensore fisico è montato con l'azimuth 0° rivolto all'indietro, lo yaw della trasformata è stato impostato a $\pi$ radianti ($180^\circ$, `3.14159265` rad), ruotando la nuvola scan sul suo asse Z.
+* **Modifiche apportate:**
+  * **[TRASFORMATA STATICA TF2]** `restart_hailo.sh`, `launch/marcus_bringup.launch.py`:
+    - Aggiornato parametro `--yaw` da `0.0` a `3.14159265` (180° attorno all'asse Z) per `base_link -> laser`.
+    - Eseguito hot-swap live del nodo static transform publisher sul robot senza interruzione dei nodi SLAM/Nav2.
+
+
 
 
 
