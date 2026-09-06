@@ -284,6 +284,40 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
     - Aggiornato parametro `--yaw` da `0.0` a `3.14159265` (180° attorno all'asse Z) per `base_link -> laser`.
     - Eseguito hot-swap live del nodo static transform publisher sul robot senza interruzione dei nodi SLAM/Nav2.
 
+---
+
+## 📈 ECO-2026-09-06-002: RTAB-Map 360° LiDAR ICP Loop Closure & Motion Stabilization
+* **Stato:** ✅ **Completato, Sincronizzato e Applicato su Marcus**
+* **Autore:** 🤖 **Generata autonomamente da Marcus** (Antigravity Engine)
+* **Descrizione:** Riconfigurazione dello stack SLAM RTAB-Map per delegare primariamente la chiusura dell'anello (loop closure) allo Scan Matching 2D (ICP) del LiDAR RPLIDAR C1 a 360°, eliminando la dipendenza limitante dal FOV 72° della videocamera e risolvendo i falsi rigetti di loop indotti da `RGBD/OptimizeMaxError`. Stabilizzato l'inserimento dei nodi nel grafo per eliminare il jitter visivo in Foxglove Studio.
+* **Modifiche apportate:**
+  * **[CONFIGURAZIONE SLAM]** `robopy_controller/config/rtabmap.yaml`:
+    - Impostato `Reg/Strategy: "1"` (ICP geometrico prioritario su scan 360°).
+    - Abilitato `RGBD/ProximityAngle: "360"` e raggio `RGBD/LocalRadius: "2.5"` per rilevare chiusure di loop indipendentemente dall'angolo di rientro.
+    - Impostato `RGBD/OptimizeMaxError: "0"` e `RGBD/LoopClosureRejectionWithGraph: "false"` per impedire lo scarto sistematico dei loop validati dall'ICP.
+    - Allargato il bacino di cattura ICP `Icp/MaxCorrespondenceDistance: "0.30"` con soglia minima di inlier `Icp/CorrespondenceRatio: "0.25"`.
+    - Ammorbidite le soglie di creazione nodi a `RGBD/AngularUpdate: "0.15"` (~8.6°) e `RGBD/LinearUpdate: "0.15"` (15 cm).
+  * **[STARTUP SCRIPT]** `restart_hailo.sh`:
+    - Aggiunto esplicitamente `-r scan:=/scan` al comando di esecuzione di `rtabmap`.
+  * **[VIO C++ METROLOGIA]** `src/fast_flow_vo_node.cpp`:
+    - Rettificata la covarianza base a `5e-4` per una corretta elasticità del grafo di posa.
+    - Protetto il calcolo di `calibrated_dyaw` nel fallback ruote per evitare accumulo di offset durante traslazioni pure.
+
+---
+
+## 📈 ECO-2026-09-06-003: Preflight Check Deterministico /map & Prevenzione Race Condition Lifecycle Nav2
+* **Stato:** ✅ **Completato, Sincronizzato e Applicato su Marcus**
+* **Autore:** 🤖 **Generata autonomamente da Marcus** (Antigravity Engine)
+* **Descrizione:** Eliminata la race condition tra il caricamento del database cartografico RTAB-Map (`rtabmap.db` >1.8 GB) e il bringup dei nodi Nav2 (`planner_server`, `controller_server`, `behavior_server`, `bt_navigator`). Lo script di avvio `restart_hailo.sh` ora attende reattivamente la prima pubblicazione valida del topic `/map` prima di lanciare Nav2, eliminando l'errore `Invalid frame ID "map"` e i fallimenti di transizione lifecycle.
+* **Modifiche apportate:**
+  * **[STARTUP SCRIPT]** `restart_hailo.sh`:
+    - Sostituito il timer fisso `sleep 15` prima del lancio di Nav2 con un ciclo di polling deterministico su `timeout 3 ros2 topic echo /map --once --field header` (timeout massimo 60s).
+    - Nav2 viene avviato esattamente all'istante di pubblicazione della prima mappa e della registrazione del frame `map` in TF2.
+  * **[LIFECYCLE MANAGEMENT LIVE]**:
+    - Ripristinato e attivato a caldo lo stack Nav2 attualmente in esecuzione tramite chiamate di servizio `ManageLifecycleNodes(command=1)` (reset) e `ManageLifecycleNodes(command=0)` (startup), portando tutti i 4 server nello stato `active [3]`.
+
+
+
 
 
 

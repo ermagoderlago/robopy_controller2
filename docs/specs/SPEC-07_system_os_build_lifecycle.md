@@ -57,6 +57,7 @@ Le prescrizioni di questa sezione sono assoluti fisici. La loro inosservanza pro
 | **BOM UTF-8 (`\xEF\xBB\xBF`)** | Divieto assoluto di caratteri BOM nei file sorgente | `OSError: [Errno 8] Exec format error` all'avvio ROS 2 | FM-SYS-002 |
 | **Pinning Core CPU** | Nodi C++ vincolati ai Core 2 e 3; I/O su Core 0 e 1 | Starvation dei thread DDS e perdita pacchetti seriali | FM-VIS-006 |
 | **Politica di Scrittura su SSD** | Divieto di log non compressi o print continui a disco | Usura prematura delle celle flash e degrado I/O | FM-SYS-004 |
+| **Persistenza Grafo SLAM su SSD** | Vietato salvare `rtabmap.db` su MicroSD; vincolo `/mnt/ssd/rtabmap.db` | Riempimento al 100% disco MicroSD e crash OOM/I/O | FM-NAV-020 |
 
 ---
 

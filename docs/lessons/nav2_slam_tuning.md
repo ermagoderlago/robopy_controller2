@@ -236,6 +236,20 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
 * **Problema:** Corridoi simmetrici e porte identiche inducevano falsi loop closure in DBoW3, distorcendo l'albero TF `map -> odom`.
 * **Soluzione:** In `rtabmap.yaml`, soglia di similarità `Rtabmap/LoopThr` innalzata a `0.20`, tolleranza PnP `Vis/PnPReprojError: "2.5"`, e maschera ROI pavimento `Kp/RoiRatios: "0.0 0.0 0.10 0.0"` per escludere il 10% inferiore dell'immagine e prevenire falsi agganci su riflessi/fughe di piastrelle.
 
+* **Prevenzione Errore 'Invalid frame ID "map"' & Race Condition al Boot di Nav2 (Settembre 2026):**
+  - **Sintomo:** All'avvio di Marcus con `restart_hailo.sh`, `nav2.log` riporta ripetutamente:
+    `[global_costmap.global_costmap]: Timed out waiting for transform from base_link to map to become available, tf error: Invalid frame ID "map" - frame does not exist`
+    `[lifecycle_manager_navigation]: Failed to change state for node: planner_server`
+    e `planner_server`, `behavior_server`, `bt_navigator` abortiscono rimanendo nello stato `inactive [2]`.
+  - **Causa Radice:** Race condition tra il tempo di caricamento/deserializzazione del database RTAB-Map (`rtabmap.db`, specie se pesante >1 GB con migliaia di nodi, che richiede >15-20 secondi su Raspberry Pi 5) e lo stack Nav2 lanciato con un semplice `sleep 15`. Quando Nav2 attiva `global_costmap`, interroga `canTransform("map", "base_link")`. Poiché RTAB-Map non ha ancora pubblicato il primo messaggio su `/map` né il transform `map -> odom`, Nav2 va in timeout e abortisce il lifecycle bringup.
+  - **Risoluzione a Caldo:** Una volta che RTAB-Map ha pubblicato la mappa, è possibile ripristinare e attivare l'intero stack Nav2 senza riavviare i processi chiamando il servizio di lifecycle management:
+    ```bash
+    ros2 service call /lifecycle_manager_navigation/manage_nodes nav2_msgs/srv/ManageLifecycleNodes '{command: 1}' # Reset
+    ros2 service call /lifecycle_manager_navigation/manage_nodes nav2_msgs/srv/ManageLifecycleNodes '{command: 0}' # Startup
+    ```
+  - **Prevenzione Architetturale (Preflight Check Deterministico):** In `restart_hailo.sh`, il timer statico `sleep 15` è stato sostituito da un ciclo di polling reattivo:
+    `timeout 3 ros2 topic echo /map --once --field header` con timeout fino a 60 secondi. Nav2 viene avviato esattamente nell'istante in cui RTAB-Map ha generato e pubblicato il primo frame della mappa, garantendo al 100% l'esistenza di `map -> odom` e la transizione immediata a `active [3]`.
+
 ### ZUPT Dinamico & Compensazione Deriva Termica Bias Giroscopio Z (FM-NAV-017)
 * **Problema:** Su sessioni lunghe (>30 min), il riscaldamento del Pi 5 e dell'Hailo-10H riscaldava l'IMU BMI270, generando drift termico dello zero-rate offset sull'asse Z.
 * **Soluzione:** In `fast_flow_vo_node.cpp`, quando il robot è fermo a comandi nulli, il nodo accumula 50 campioni di $\omega_z$ raw per stimare il bias dinamico `gyro_z_bias_` e lo sottrae real-time da ogni pacchetto prima del deadband e dell'integrazione di posa.
@@ -293,6 +307,27 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
   - Per generare una nuova mappa metricamente accurata con il LiDAR a 360°, la mappa legacy (creata con sola camera 70°) deve essere archiviata (`/mnt/ssd/rtabmap_pre_lidar_backup.db`).
   - Si avvia RTAB-Map con `Mem/IncrementalMemory: "true"` su un database vergine (`/mnt/ssd/rtabmap.db`).
   - Una volta completato il giro dell'ambiente con chiusura dell'anello (loop closure), si imposta nuovamente `Mem/IncrementalMemory: "false"` per blindare la mappa contro corruzioni o crash da allocazione continua di nodi.
+* **LiDAR ICP Loop Closure vs Visual Matching & Risoluzione OptimizeMaxError (Settembre 2026):**
+  - **Bottleneck di `Reg/Strategy: 2`:** La modalità ibrida (Visual + ICP) subordina l'esecuzione dell'ICP al successo preventivo del PnP visivo ($N_{inliers} \ge 15$). A causa del campo visivo limitato dell'OAK-D Lite (72° HFOV), se il robot torna nel punto iniziale con un'inclinazione diversa (>30°-45°) o su pareti bianche/spoglie, il matching visivo fallisce e l'ICP del LiDAR 360° non viene nemmeno provato.
+  - **Soluzione `Reg/Strategy: 1`:** Impostando `Reg/Strategy: "1"`, RTAB-Map calcola la trasformazione geometrica del loop closure direttamente dallo scan laser 2D a 360° tramite ICP. Il LiDAR ToF "vede" l'intero perimetro della stanza in contemporanea, chiudendo il loop anche se la camera è orientata lateralmente o verso pareti senza texture.
+  - **Proximity Loop a 360°:** Con `RGBD/ProximityBySpace: "true"`, `RGBD/LocalRadius: "2.5"` e soprattutto `RGBD/ProximityAngle: "360"`, RTAB-Map cerca candidati di prossimità spaziale e ne convalida la posa con ICP 2D senza restrizioni angolari.
+  - **Disattivazione `RGBD/OptimizeMaxError: 0`:** In presenza di odometria con covarianza rigida ($10^{-5}$), una modesta deriva reale (15-20 cm o 10°) genera un residuo post-ottimizzazione $> 9\sigma$. Con `OptimizeMaxError: 3.0`, RTAB-Map scartava sistematicamente i loop reali validi ("Rejecting all added loop closures ... ratio 9.16"). Con `OptimizeMaxError: 0`, la validazione del loop è affidata interamente alla bontà geometrica dell'ICP (`Icp/CorrespondenceRatio: 0.25`, `Icp/MaxCorrespondenceDistance: 0.30m`).
+  - **Stabilizzazione Visualizzazione Foxglove Studio:**
+    - I nodi venivano generati troppo frequentemente (`AngularUpdate: 0.087` = 5°), inducendo ricalcoli continui del grafo a 1.5 Hz e saltelli su `map -> odom`. Ammorbidendo a `AngularUpdate: "0.15"` (~8.6°) e `LinearUpdate: "0.15"` (15 cm), l'aggiornamento del grafo risulta fluido e privo di jitter visivo.
+    - Se l'operatore osserva micro-scatti con Fixed Frame impostato su `map`, ciò deriva dalla natura discreta (1.5 Hz) del TF globale; impostando temporaneamente il Fixed Frame su `odom`, si visualizza la cinematica fluida a 20 Hz di `fast_flow_vo_cpp`.
+
+### Smart Standby: Spegnimento Rotore LiDAR C1 e Congelamento SLAM RTAB-Map su Inattività > 2 Minuti (FM-PWR-001)
+* **Problema:** Quando Marcus resta fermo per periodi prolungati (es. in ascolto vocale, pianificazione o idle per oltre 2 minuti), il rotore ToF a specchio prismatico del LiDAR RPLIDAR C1 continua a girare a 10 Hz a vuoto, provocando:
+  1. Usura meccanica dei cuscinetti e del diodo laser (MTBF degradato).
+  2. Assorbimento elettrico parassita costante dalla batteria LiPo 3S (~1.5-2.0W continui).
+  3. Tentativi continui di RTAB-Map di processare frame a vuoto se in modalità mapping, impegnando CPU e RAM.
+* **Architettura di Spegnimento e Risveglio Reattivo (`sensor_standby_manager.py`):**
+  - **Inattività Deterministica (120s):** Monitora assenza di moti da `/odom_wheel`, `/cmd_vel` e verifica l'immobilità inerziale tramite IMU OAK-D Lite (`/oak/imu/data` con $\|\vec{a}\| \approx 9.81\text{ m/s}^2 \pm 0.35\text{ m/s}^2$ e $\|\vec{\omega}\| \le 0.15\text{ rad/s}$).
+  - **Standby:** Invoca `/stop_motor` su `sllidar_node` e `/rtabmap/pause` su `rtabmap`.
+  - **Risveglio Reattivo:** L'IMU risveglia istantaneamente i sensori se una forza esterna scuote o solleva il robot ($|\Delta a| > 0.35\text{ m/s}^2$ o rotazione $> 8.6^\circ/\text{s}$), oppure se viene pubblicato un comando `/cmd_vel`.
+  - **Motion Gating:** Durante il transitorio di ripartenza del rotore LiDAR (~1 secondo), il driver motori mantiene bloccate le ruote (`motion_gate == False`) finché non vengono convalidate le prime 2 scansioni laser a 360°, prevenendo movimenti a cieco senza percezione perimetrale.
+
+
 
 
 

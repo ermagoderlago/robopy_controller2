@@ -796,7 +796,7 @@
   eco_ref: docs/ecos/nav2_slam_ecos.md
   lesson_ref: docs/lessons/nav2_slam_tuning.md#25d-costmap
   date_identified: '2026-07-30'
-  last_updated: '2026-09-04'
+  last_updated: '2026-09-06'
   history:
   - date: '2026-07-30'
     change: Audit approfondito del codebase e identificazione rischio corruzione mappa
@@ -805,6 +805,12 @@
   - date: '2026-09-04'
     change: Integrazione completata Slamtec RPLIDAR C1 (/dev/rplidar @ 460800 baud).
       Scan matching ICP e costmap 360 attivi.
+    rpn_old: 32
+    rpn_new: 32
+  - date: '2026-09-06'
+    change: 'Ottimizzato RTAB-Map per Loop Closure LiDAR ICP 2D prioritario (Reg/Strategy:
+      1), Proximity 360 gradi, OptimizeMaxError disabilitato e ammorbidimento inserimento
+      nodi.'
     rpn_old: 32
     rpn_new: 32
 - id: FM-NAV-006
@@ -5046,3 +5052,98 @@
     change: Implementato filtro AST di sicurezza su reflection e deviazione su RFC
     rpn_old: 54
     rpn_new: 9
+- id: FM-NAV-026
+  subsystem: Navigation & SLAM
+  component: restart_hailo.sh / lifecycle_manager_navigation
+  function: Avvio ordinato e sincronizzato dello stack Nav2 dopo l'inizializzazione
+    della mappa RTAB-Map
+  failure_mode: Abort del bringup Nav2 e stallo dei nodi in inactive per timeout Invalid
+    frame ID map
+  potential_cause: Race condition al boot con timer fisso sleep 15 mentre RTAB-Map
+    deserializza un database >1GB impiegando >20s prima di pubblicare /map
+  potential_effect: Pianificatore e navigatore non operativi (stato inactive [2]),
+    impossibilita di inviare goal o generare costmap
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-NAV-003
+  - FM-NAV-020
+  initial_scoring:
+    severity: 8
+    occurrence: 7
+    detection: 2
+    rpn: 112
+  prevention_controls: Ciclo di polling reattivo timeout 3 ros2 topic echo /map --once
+    in restart_hailo.sh prima del lancio di Nav2
+  detection_controls: Log di lifecycle_manager_navigation e ros2 lifecycle get
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Sincronizzare l'avvio di Nav2 alla disponibilita provata del
+    topic /map e archiviare database SLAM sovraccarichi
+  verification_method: Avvio deterministico con echo /map e verifica stato active
+    [3] di tutti i server Nav2
+  eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-09-06-003
+  lesson_ref: docs/lessons/nav2_slam_tuning.md#prevenzione-errore-invalid-frame-id-map
+  date_identified: '2026-09-06'
+  last_updated: '2026-09-06'
+  history:
+  - date: '2026-09-06'
+    change: Implementato preflight check /map reattivo in restart_hailo.sh e ripristinati
+      nodi Nav2 active a caldo
+    rpn_old: 112
+    rpn_new: 8
+- id: FM-PWR-001
+  subsystem: Hardware/Power & Sensors
+  component: sensor_standby_manager.py / RPLIDAR C1 / RTAB-Map
+  function: Gestione del risparmio energetico e salvaguardia del rotore ottico del
+    LiDAR C1 e del grafo SLAM RTAB-Map durante prolungata inattività
+  failure_mode: Usura meccanica continua a vuoto del rotore RPLIDAR C1, consumo energetico
+    superfluo e sovraccarico computazionale di RTAB-Map quando il robot è stazionario
+    per > 2 minuti
+  potential_cause: Assenza di una logica di standby perimetrale per i sensori attivi
+    a 360° e mantenimento continuo del mapping SLAM a vuoto con motori spenti
+  potential_effect: Degrado prematuro dei cuscinetti e del diodo laser del LiDAR,
+    consumo parassita della batteria LiPo 3S, accumulo ridondante di nodi nel database
+    SQLite NVMe
+  classification: RESOURCE_EXHAUSTION
+  estimation_basis: measured
+  related_ids:
+  - FM-SYS-003
+  - FM-NAV-020
+  - FM-MOT-001
+  initial_scoring:
+    severity: 7
+    occurrence: 8
+    detection: 2
+    rpn: 112
+  prevention_controls: Nodo sensor_standby_manager con standby automatico a 120s,
+    spegnimento rotore C1 (/stop_motor), congelamento SLAM (/rtabmap/pause), risveglio
+    da IMU o cmd_vel con motion gating hardware (/robot/motion_gate)
+  detection_controls: Supervisione dinamica IMU 10Hz, topic /robot/sensor_power_state
+    e diagnostica di sistema
+  residual_scoring:
+    severity: 7
+    occurrence: 1
+    detection: 1
+    rpn: 7
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Attivare sensor_standby_manager in restart_hailo.sh e vincolare
+    il driver motori al topic /robot/motion_gate
+  verification_method: Test unitari pytest su sensor_standby_manager e motion gating
+    in waveshare_motor_driver
+  eco_ref: docs/ecos/actuation_ecos.md#ECO-2026-09-06-004
+  lesson_ref: docs/lessons/actuation_motor_driver.md#smart-standby-motion-gating
+  date_identified: '2026-09-06'
+  last_updated: '2026-09-06'
+  history:
+  - date: '2026-09-06'
+    change: Implementato nodo sensor_standby_manager.py, motion gating in waveshare_motor_driver.py
+      e suite test unitari
+    rpn_old: 112
+    rpn_new: 7

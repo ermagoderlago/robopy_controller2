@@ -57,6 +57,7 @@ pkill -9 -f foxglove_nav2_bridge || true
 pkill -9 -f nomad_navigator_node || true
 pkill -9 -f nomad_reactive_pipeline_node || true
 pkill -9 -f vpr_topological_graph_node || true
+pkill -9 -f sensor_standby_manager || true
 
 # Kill camera & navigation nodes
 pkill -9 -f sllidar_node || true
@@ -195,14 +196,21 @@ sleep 15
 # =============================================================================
 echo "🗺️ Starting RTAB-Map SLAM..."
 > /home/robopy/robopy/logs/rtabmap.log
-# [FIX FM-NAV-014] RIMOSSO --delete_db_on_start: viola marcus_core_rules.md regola 6.
-# La mappa SLAM deve persistere tra i riavvii per la localizzazione.
-nohup taskset -c 2,3 ros2 run rtabmap_slam rtabmap --ros-args \
+# [FM-NAV-014] Di default la mappa persiste. Se richiesto esplicitamente (--delete-db o RESET_DB=1), si avvia con --delete_db_on_start
+DELETE_DB_FLAG=""
+if [ "$1" = "--delete-db" ] || [ "$RESET_DB" = "1" ]; then
+    echo "🧹 [SLAM-RESET] Reset database RTAB-Map richiesto: avvio con --delete_db_on_start..."
+    DELETE_DB_FLAG="--delete_db_on_start"
+fi
+
+nohup taskset -c 2,3 ros2 run rtabmap_slam rtabmap $DELETE_DB_FLAG --ros-args \
     --params-file /mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_controller/config/rtabmap.yaml \
+    -p database_path:=/mnt/ssd/rtabmap.db \
     -r rgb/image:=/rgb/image \
     -r rgb/camera_info:=/camera/camera_info \
     -r depth/image:=/camera/depth/image_raw \
     -r odom:=/odom \
+    -r scan:=/scan \
     > /home/robopy/robopy/logs/rtabmap.log 2>&1 &
 
 
@@ -265,6 +273,14 @@ echo "🔋 Starting battery_manager_node (BMS & Anti-Sag Supervisor)..."
 nohup ros2 run robopy_controller battery_manager_node --ros-args \
     --params-file /mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_controller/config/battery_params.yaml \
     > /home/robopy/robopy/logs/battery_manager_node.log 2>&1 &
+
+echo "💤 Starting sensor_standby_manager (Smart Standby & Sensor Power-Save)..."
+> /home/robopy/robopy/logs/sensor_standby_manager.log
+nohup ros2 run robopy_controller sensor_standby_manager --ros-args \
+    -p idle_timeout_sec:=120.0 \
+    -p imu_accel_threshold:=0.35 \
+    -p imu_gyro_threshold:=0.15 \
+    </dev/null > /home/robopy/robopy/logs/sensor_standby_manager.log 2>&1 &
 
 echo "⚠️ Starting attention_supervisor_node (Context/CPU Switching)..."
 > /home/robopy/robopy/logs/attention_supervisor_node.log
@@ -333,9 +349,27 @@ echo "🔵 Starting bluedot_node..."
 nohup ros2 run robopy_controller bluedot_node \
     > /home/robopy/robopy/logs/bluedot_node.log 2>&1 &
 
-# Attendiamo che RTAB-Map crei il frame map->odom e lo stack AI si stabilizzi
-echo "⏳ Attesa stabilità SLAM e AI (15 secondi)..."
-sleep 15
+# Attendiamo in modo dinamico e deterministico che RTAB-Map pubblichi la mappa e il frame 'map'
+echo "⏳ [NAV2-PREFLIGHT] Attesa pubblicazione mappa e frame 'map' da RTAB-Map (fino a 60s)..."
+MAP_TIMEOUT=60
+MAP_ELAPSED=0
+MAP_READY=false
+while [ $MAP_ELAPSED -lt $MAP_TIMEOUT ]; do
+    if timeout 3 ros2 topic echo /map --once --field header > /dev/null 2>&1; then
+        echo "✅ [NAV2-PREFLIGHT] Mappa e frame 'map' rilevati con successo dopo ${MAP_ELAPSED}s!"
+        MAP_READY=true
+        break
+    fi
+    sleep 2
+    MAP_ELAPSED=$((MAP_ELAPSED + 2))
+    echo "   ... in attesa di /map (${MAP_ELAPSED}s/${MAP_TIMEOUT}s)..."
+done
+
+if [ "$MAP_READY" = false ]; then
+    echo "⚠️ [NAV2-PREFLIGHT] Timeout attesa mappa (${MAP_TIMEOUT}s), avvio Nav2 comunque in fallback..."
+else
+    sleep 2
+fi
 
 # =============================================================================
 # STEP 3: AVVIO NAV2 STACK (Solo dopo che i sensori e TF odom/map sono stabili)

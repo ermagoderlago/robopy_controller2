@@ -32,6 +32,11 @@ Per garantire la sopravvivenza hardware, la fluidità di esecuzione ed evitare i
 * **C++ Core Pinning:** I nodi C++ ad alto consumo computazionale (es. `marcus_semantic_mapper_cpp` e `hailo_bridge_node`) devono essere vincolati esplicitamente ai **CPU Core 2 e 3** del Raspberry Pi 5 per evitare interferenze con i thread asincroni del kernel e di I/O (Core 0-1).
 * **Zero Allocazioni in Callback:** Le callback di processing critiche (es. mapper 3D) devono operare su strutture pre-allocate per evitare garbage collection e contese sul thread real-time.
 
+### 5. Allocazione Mappa e Database SLAM (Obbligo Vincolante SSD NVMe - FM-NAV-020)
+* **Regola Inviolabile:** Il database cartografico RTAB-Map (`rtabmap.db`) e qualsiasi file di persistenza del grafo SLAM DEVONO risiedere **esclusivamente su supporto SSD esterno/NVMe** montato su `/mnt/ssd/rtabmap.db`.
+* **Divieto Assoluto Scrittura Mappa su MicroSD:** È severamente vietato salvare, copiare o lasciare che RTAB-Map generi il database cartografico sulla memoria flash MicroSD (`/dev/mmcblk0p2` o directory `~/.ros/` senza symlink integro). L'accumulo di nodi e descrittori visivi DBoW3 provoca la saturazione del 100% della MicroSD (`[Errno 28] No space left on device`), runaway log e usura distruttiva delle celle flash.
+* **Configurazione Obbligatoria:** Sia in `robopy_controller/config/rtabmap.yaml` che nei parametri di avvio in `restart_hailo.sh`, il parametro `database_path` deve essere esplicitamente e permanentemente impostato su `/mnt/ssd/rtabmap.db`.
+
 ---
 
 ## 🗺️ Indice Operativo dei Domini (Mappa Spoke)

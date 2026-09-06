@@ -185,6 +185,7 @@ install(PROGRAMS
   scripts/speaker_id_node
   scripts/localization_fuser_node
   scripts/robot_health_supervisor
+  scripts/sensor_standby_manager
   DESTINATION lib/${PROJECT_NAME}
 )
 

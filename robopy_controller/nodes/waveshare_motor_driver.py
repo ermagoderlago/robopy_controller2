@@ -122,8 +122,13 @@ class WaveshareMotorDriver(Node):
         self.diag_pub = self.create_publisher(DiagnosticArray, '/diagnostics', 10)
         self.tf_broadcaster = TransformBroadcaster(self)
         
+        # Motion Gating (Standby / Sensor spin-up lock)
+        self.motion_gate = True
+        self.cached_cmd_vel = None
+        
         # --- Subscribers ---
         self.create_subscription(Twist, '/cmd_vel', self.cmd_vel_callback, 10)
+        self.create_subscription(Bool, '/robot/motion_gate', self.motion_gate_callback, 10)
         self.create_subscription(Odometry, '/vo/odom', self.vo_odom_callback, 10)
         self.create_subscription(BatteryState, '/battery_state', self.battery_state_filtered_cb, 10)
         self.create_subscription(String, '/robot/system/shutdown', self.shutdown_callback, 10)
@@ -218,12 +223,40 @@ class WaveshareMotorDriver(Node):
                 self.serial_conn = None
                 return False
 
+    def motion_gate_callback(self, msg: Bool):
+        """Callback for hardware motion gating from sensor_standby_manager."""
+        old_gate = self.motion_gate
+        self.motion_gate = bool(msg.data)
+        if not self.motion_gate:
+            self.send_speeds(0.0, 0.0)
+            self.motors_stopped = True
+            self.is_commanded_stop = True
+            self.get_logger().info("🔒 Motion Gate LOCKED: Hardware wheel movement inhibited (Standby/Sensor spin-up).", throttle_duration_sec=2.0)
+        elif not old_gate and self.motion_gate:
+            self.get_logger().info("🔓 Motion Gate OPENED: Hardware wheel movement enabled.")
+            # If we had a cached cmd_vel within the last 500ms (watchdog window), apply it
+            if self.cached_cmd_vel is not None and (time.time() - self.last_cmd_vel_time) < 0.5:
+                cached = self.cached_cmd_vel
+                self.cached_cmd_vel = None
+                self.cmd_vel_callback(cached)
+
     def cmd_vel_callback(self, msg):
         """Processes geometry_msgs/Twist, computes differential drive differential kinematics, and sends JSON."""
+        now = time.time()
+
+        # Motion gating check: hold wheel motion if sensors are sleeping or spinning up
+        if not self.motion_gate:
+            self.cached_cmd_vel = msg
+            self.last_cmd_vel_time = now
+            self.send_speeds(0.0, 0.0)
+            self.is_commanded_stop = True
+            self.motors_stopped = True
+            self.get_logger().info("⛔ Motion Gate LOCKED: cmd_vel held pending sensor spin-up.", throttle_duration_sec=1.0)
+            return
+
         v = msg.linear.x
         w = msg.angular.z
         
-        now = time.time()
         is_zero = (abs(v) < 0.005 and abs(w) < 0.005)
         
         if not is_zero:

@@ -133,6 +133,26 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
     - Aggiornato parametro `serial_port` a `/dev/motor_driver`.
     - Verificata la stabilità della telemetria a 20 Hz (`odl`, `odr`, tensione batteria `v`) senza alcuna perdita di frame durante il funzionamento del LiDAR.
 
+---
+
+## 📈 ECO-2026-09-06-004: Smart Standby Power-Save Manager & Hardware Motion Gating (FM-PWR-001)
+* **Stato:** ✅ **Completato, Testato con Test Unitari e Attivo**
+* **Descrizione:** Implementazione del supervisore energetico `sensor_standby_manager.py` per prevenire l'usura a vuoto del rotore LiDAR RPLIDAR C1 e l'accumulo superfluo di nodi in RTAB-Map durante prolungata inattività (>2 minuti), con motion gating deterministico al risveglio.
+* **Modifiche apportate:**
+  * **[NUOVO NODO]** `robopy_controller/nodes/sensor_standby_manager.py`:
+    - Rilevamento inattività da `/odom_wheel`, `/cmd_vel` e immobilità inerziale tramite IMU OAK-D Lite (`/oak/imu/data`).
+    - Spegnimento motore LiDAR `/stop_motor` e congelamento SLAM `/rtabmap/pause` dopo 120s di inattività.
+    - Risveglio reattivo su urto/spinta/sollevamento via IMU ($|\Delta a| > 0.35\text{ m/s}^2$ o rotazione $> 8.6^\circ/\text{s}$) o comando di movimento `/cmd_vel`.
+    - Servizio `/robot/wake_sensors` per risveglio manuale o programmatico.
+  * **[MOTION GATING SU CHASSIS]** `robopy_controller/nodes/waveshare_motor_driver.py`:
+    - Aggiunta sottoscrizione a `/robot/motion_gate` (`std_msgs/msg/Bool`).
+    - Inibizione del movimento alle ruote durante lo spin-up del LiDAR C1 e caching del comando `/cmd_vel` fino alla ricezione di scansioni laser valide su `/scan`.
+  * **[BUILD & SCRIPT]** `CMakeLists.txt`, `scripts/sensor_standby_manager`, `restart_hailo.sh`:
+    - Registrazione del nuovo binario ed inclusione nel ciclo di riavvio controllato.
+  * **[TEST SUITE]** `test/unit/test_sensor_standby_manager.py`, `test/unit/test_motor_driver_motion_gate.py`:
+    - 12/12 test unitari superati con successo (transizioni FSM, timeout, risveglio IMU, motion gating e timeout di sicurezza).
+
+
 
 
 

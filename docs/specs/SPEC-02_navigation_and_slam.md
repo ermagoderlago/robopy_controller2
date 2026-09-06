@@ -9,10 +9,11 @@
   - `robopy_controller.nodes.extrinsic_camera_calibrator` (`extrinsic_camera_calibrator.py`)
   - `robopy_controller.nodes.nomad_navigator_node` (`nomad_navigator_node.py`)
   - `robopy_controller.nodes.fast_flow_vo_node` (`fast_flow_vo_node.cpp`)
+  - `robopy_controller.nodes.sensor_standby_manager` (`sensor_standby_manager.py`)
   - `rtabmap_slam`, `nav2_bt_navigator`, `nav2_controller`
 - **File di Configurazione Chiave:**
   - `config/nav2_params.yaml`, `config/nav2_survival_bt.xml`, `config/rtabmap.yaml`
-- **DFMEA Correlati:** `FM-NAV-001` (Overhead STVL 3D), `FM-NAV-005` (Eliminazione blind-spot 360° con LiDAR), `FM-NAV-009` (Ostacoli negativi e caduta scale), `FM-NAV-010` (NOMAD con LiDAR), `FM-NAV-016` (Aliasing percettivo RTAB-Map), `FM-NAV-017` (Deriva termica BMI270 ZUPT), `FM-NAV-019` (Recovery BT cieca), `FM-VIS-003` (Camera pitch sag).
+- **DFMEA Correlati:** `FM-NAV-001` (Overhead STVL 3D), `FM-NAV-005` (Eliminazione blind-spot 360° con LiDAR), `FM-NAV-009` (Ostacoli negativi e caduta scale), `FM-NAV-010` (NOMAD con LiDAR), `FM-NAV-016` (Aliasing percettivo RTAB-Map), `FM-NAV-017` (Deriva termica BMI270 ZUPT), `FM-NAV-019` (Recovery BT cieca), `FM-NAV-020` (Persistenza DB SLAM su SSD), `FM-PWR-001` (Smart Standby & Sensor Power-Save Manager), `FM-VIS-003` (Camera pitch sag).
 
 ---
 
@@ -52,6 +53,7 @@ Le seguenti prescrizioni sono categoriche. La loro violazione comporta il crash 
 | **Gerarchia Albero TF (REP-105)** | `odom ➔ base_link ➔ camera_link ➔ camera_optical_frame` | Cicli TF (`base_link ➔ base_link`) e disallineamento odometrico | FM-NAV-003 |
 | **Encoding Immagine di Profondità** | Forzare `"16UC1"` in C++ (non usare `"mono16"`) | Rifiuto dello stream da `depthimage_to_laserscan` | FM-VIS-002 |
 | **Percorso File Behavior Tree** | `nav2_survival_bt.xml` nel path installato | Fallimento attivazione `bt_navigator` all'avvio | FM-NAV-004 |
+| **Allocazione Database SLAM su SSD** | `database_path: "/mnt/ssd/rtabmap.db"` obbligatorio | Saturazione 100% MicroSD, runaway log e crash I/O irreversibile | FM-NAV-020 |
 
 ---
 
@@ -67,6 +69,8 @@ L'agente Antigravity può ottimizzare e ricalibrare autonomamente le seguenti co
 | **ZUPT IMU Dynamic Drift** | Soglia di velocità per auto-azzeramento bias giroscopio Z | Velocità $v \le 0.005\text{ m/s}$ e $\omega \le 0.008\text{ rad/s}$ per $>0.5\text{ s}$ |
 | **Pitch Sag Auto-Heal** | Regressione RANSAC del piano terra per correggere offset TF | Correzione pitch ammessa: $\Delta \theta \in [-5.0^\circ, +5.0^\circ]$ |
 | **Frequenza Aggiornamento /map** | Rate pubblicazione mappa RTAB-Map da Depth | Frequenza: $1.0\text{ Hz} \le f \le 2.0\text{ Hz}$ per proteggere la CPU |
+| **Scan Matching & ICP LiDAR 2D** | Allineamento geometrico 2D e parametri Proximity RPLIDAR C1 | `Reg/Strategy: 1` (ICP), `Icp/MaxCorrespondenceDistance` $\in [0.20, 0.40]\text{ m}$, `RGBD/ProximityAngle` $\in [180^\circ, 360^\circ]$ |
+| **Smart Standby & Sensor Sleep** | Spegnimento LiDAR C1 e freeze RTAB-Map su inattività | Timeout: $T_{idle} \in [60\text{ s}, 300\text{ s}]$ (default $120\text{ s}$); soglia IMU: $\Delta a > 0.35\text{ m/s}^2$ |
 
 ---
 

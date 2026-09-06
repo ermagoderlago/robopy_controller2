@@ -230,6 +230,20 @@ Con JGB37-520B a 7RPM (riduzione ~143:1), **girare la ruota manualmente è impos
   - Se il codice Python invia `json.dumps({"T": 1, ...})` con spaziatura standard, il comando viene scartato silenziosamente.
   - È **obbligatorio** formattare i payload seriali con `json.dumps(cmd, separators=(',', ':'))` o f-string compatti `f'{{"T":1,"L":{l:.3f},"R":{r:.3f}}}\n'`.
 
+---
+
+<a id="smart-standby-motion-gating"></a>
+### 23. Smart Standby, Salvaguardia Usura LiDAR e Hardware Motion Gating (`/robot/motion_gate`)
+* **Problema:** Quando il robot sosta a lungo (inattività > 2 minuti), mantenere il rotore ottico del LiDAR RPLIDAR C1 in rotazione continua a vuoto provoca usura precoce dei cuscinetti e del diodo laser, consumo parassita della batteria LiPo e accumulo ridondante di nodi nel database SLAM RTAB-Map.
+* **Architettura a Risparmio Energetico:**
+  - Il nodo `sensor_standby_manager.py` controlla l'immobilità fisica via IMU (`/oak/imu/data`), comandi `/cmd_vel` e odometria `/odom_wheel`.
+  - Dopo 120s di assenza di perturbazioni esterne (accelerazioni $\le g \pm 0.35\text{ m/s}^2$ e $\omega \le 0.15\text{ rad/s}$), arresta il motore del LiDAR (`/stop_motor`) e congela RTAB-Map (`/rtabmap/pause`).
+* **Motion Gating Deterministico al Risveglio:**
+  - Su risveglio (innescato da spinta/urto rilevato da IMU o da ricezione di `/cmd_vel`), il rotore del LiDAR C1 impiega circa 0.8–1.2s per raggiungere i 10 Hz di regime.
+  - Durante lo spin-up, `waveshare_motor_driver.py` sottoscrive `/robot/motion_gate` (`std_msgs/msg/Bool`): se `motion_gate == False`, memorizza il target `cmd_vel` ma inibisce fisicamente il moto delle ruote inviando $0.0\text{ m/s}, 0.0\text{ rad/s}$.
+  - Appena `sensor_standby_manager` valida l'arrivo dei primi 2 pacchetti `/scan`, il gate si apre (`motion_gate = True`) e il robot eroga fluidamente il movimento alle ruote senza rischio di collisioni a cieco.
+
+
 
 
 

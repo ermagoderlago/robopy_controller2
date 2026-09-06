@@ -3,6 +3,7 @@ rtabmap:
     frame_id: "base_link"
     odom_frame_id: "odom"
     map_frame_id: "map"
+    database_path: "/mnt/ssd/rtabmap.db"  # [FM-NAV-020 & Core Rule 5] Salvaguardia MicroSD su NVMe SSD
 
     # Sorgenti dati
     subscribe_rgb: true
@@ -30,10 +31,14 @@ rtabmap:
 
     # RGBD
     RGBD/ProximityBySpace: "true"
-    RGBD/AngularUpdate: "0.087"   # ~5° di rotazione minima per nuovo nodo
-    RGBD/LinearUpdate: "0.10"     # 10cm di traslazione minima
-    RGBD/OptimizeMaxError: "3.0"
-    RGBD/LoopClosureRejectionWithGraph: "true"
+    RGBD/ProximityAngle: "360"     # Abilita proximity loop a 360° con LiDAR indipendentemente dall'orientamento
+    RGBD/LocalRadius: "2.5"        # Raggio ricerca prossimità 2.5m per ambienti indoor
+    RGBD/ProximityPathMaxNeighbors: "5"
+    RGBD/ProximityMaxGraphDepth: "0"
+    RGBD/AngularUpdate: "0.15"     # ~8.6° di rotazione minima (ammorbidisce inserimento nodi e previene jitter TF)
+    RGBD/LinearUpdate: "0.15"      # 15cm di traslazione minima
+    RGBD/OptimizeMaxError: "0"     # Disabilita rigetto spurio del loop closure: ICP fa validazione metrica diretta
+    RGBD/LoopClosureRejectionWithGraph: "false" # Validazione geometrica affidata a corrispondenze ICP LiDAR
 
     # Ottimizzatore grafo
     Optimizer/Strategy: "1"       # GTSAM
@@ -68,8 +73,16 @@ rtabmap:
     Rtabmap/LoopThr: "0.20"       # Soglia di similarità innalzata a 0.20 (previene falsi loop in corridoi simmetrici)
     RGBD/LoopClosureReextractFeatures: "true"
 
-    # Registrazione e Allineamento Scan Matching (Visual + ICP)
-    Reg/Strategy: "2"            # 2 = Visual + ICP (massima robustezza: visual loop closure + ICP laser precision)
+    # Registrazione e Allineamento Scan Matching (LiDAR 2D ICP Loop Closure)
+    Reg/Strategy: "1"            # 1 = ICP (massima robustezza: loop closure geometrico diretto 360° da LiDAR ToF)
     Reg/Force3DoF: "true"
-    Icp/VoxelSize: "0.05"
-    Icp/MaxCorrespondenceDistance: "0.15"
+    Icp/Strategy: "0"            # 0 = Point-to-Point 2D standard veloce
+    Icp/PointToPlane: "false"    # Point-to-point per scan 2D planare senza normali
+    Icp/VoxelSize: "0.03"        # 3cm voxel filtering per match laser accurato
+    Icp/MaxCorrespondenceDistance: "0.30" # 30cm bacino di cattura ICP per correggere la deriva del VIO
+    Icp/CorrespondenceRatio: "0.25"       # Almeno il 25% di punti laser allineati per accettare la posa
+    Icp/MaxTranslation: "0.50"   # Tolleranza correzione traslazione fino a 50cm
+    Icp/MaxRotation: "0.78"      # Tolleranza correzione rotazione fino a 45° (~0.78 rad)
+    Icp/Iterations: "40"
+    Icp/OutlierRatio: "0.85"
+

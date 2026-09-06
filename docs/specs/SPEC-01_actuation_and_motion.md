@@ -9,7 +9,7 @@
   - `robopy_controller.nodes.servo_coda_node` (`servo_coda_node.py`)
 - **Hardware Diretto:** Scheda Waveshare General Driver (ESP32), 2x Motori DC con encoder magnetici a quadratura (1440 tick/giro), Batteria LiPo 3S, Servo bus PWM coda.
 - **Interfaccia Seriale:** `/dev/motor_driver` (symlink udev persistente a 115200 baud, 8N1 su chip CP2102N seriale `4c7fd634626cef11acaca4adc169b110`).
-- **DFMEA Correlati:** `FM-MOT-001` (Perdita comando di stop / Runaway), `FM-MOT-002` (Stallo meccanico motori), `FM-MOT-003` (Conflitto DTR/RTS e reset USB), `FM-MOT-004` (Collisione seriale con LiDAR C1 risolta con udev rules), `FM-NAV-015` (Slittamento ruote e corruzione calibrazione scala).
+- **DFMEA Correlati:** `FM-MOT-001` (Perdita comando di stop / Runaway), `FM-MOT-002` (Stallo meccanico motori), `FM-MOT-003` (Conflitto DTR/RTS e reset USB), `FM-MOT-004` (Collisione seriale con LiDAR C1 risolta con udev rules), `FM-NAV-015` (Slittamento ruote e corruzione calibrazione scala), `FM-PWR-001` (Motion Gating su spin-up sensori / Smart Standby).
 
 ---
 
@@ -18,6 +18,7 @@
 ```mermaid
 graph LR
     CMD["/cmd_vel / Mux"] --> DRV["waveshare_motor_driver.py"]
+    GATE["/robot/motion_gate"] --> DRV
     PID["MotionManager (PID Closed-Loop)"] --> CMD
     DRV -->|JSON via USB Serial 115200| ESP["Waveshare ESP32 Controller"]
     ESP -->|H-Bridge PWM| MOT["Motori DC (Sinistra / Destra)"]
@@ -58,6 +59,7 @@ L'agente Antigravity può ottimizzare e ricalibrare autonomamente le seguenti co
 | **Calibrazione Encoder (Slip Gating)**| Raffinamento $R_{wheel}$ e $W_{separation}$ via closed-loop VIO | Blocco calibrazione se accelerazione $\Delta a > 0.25\text{ m/s}^2$ |
 | **Espressività Servo Coda** | Profili PWM angolari, velocità sweep, scodinzolio | Angolo $\theta_{servo} \in [-45^\circ, +45^\circ]$; frequenza $\le 3\text{ Hz}$ |
 | **Filtraggio Outlier Encoder** | Scarto delta-tick anomali causati da wrap o noise | Scarto se $\Delta tick > 300$ in $50\text{ ms}$ ($\approx 1.2\text{ m/s}$) |
+| **Motion Gating su Standby** | Inibizione moto ruote con `/robot/motion_gate == False` | Caching $cmd\_vel$ e rilascio automatico entro $500\text{ ms}$ dall'apertura del gate |
 
 ---
 

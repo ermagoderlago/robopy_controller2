@@ -1,5 +1,5 @@
 # 📊 Report Esecutivo DFMEA - Marcus AI Robot Platform
-**Data Generazione:** 2026-09-06 08:31:24  
+**Data Generazione:** 2026-09-06 09:53:40  
 **Metodologia:** AIAG-VDA FMEA Standard con Regola Override Severità ($S \ge 9 \implies$ REVISION_MANDATORY)
 
 ---
@@ -8,8 +8,8 @@
 
 | Metrica | Valore | Note / Impatto |
 | :--- | :---: | :--- |
-| **Totale Modalità di Guasto (FM)** | **111** | Copertura integrata dei sottosistemi Marcus |
-| **🟢 Risk Level LOW** | **79** | $RPN_{res} \le 50$ (Sotto controllo) |
+| **Totale Modalità di Guasto (FM)** | **113** | Copertura integrata dei sottosistemi Marcus |
+| **🟢 Risk Level LOW** | **81** | $RPN_{res} \le 50$ (Sotto controllo) |
 | **🟡 Risk Level MEDIUM** | **7** | $51 \le RPN_{res} \le 199$ (Monitoraggio attivo) |
 | **🟠 Risk Level HIGH** | **2** | $200 \le RPN_{res} \le 349$ (Mitigazione obbligatoria) |
 | **🔴 Risk Level CRITICAL** | **0** | $RPN_{res} \ge 350$ (Blocco rilasci) |
@@ -45,10 +45,11 @@
 - **Memory/Resources:** 1 failure modes
 - **Cloud, Memory & Orchestration:** 1 failure modes
 - **Audio & VUI:** 2 failure modes
-- **Navigation & SLAM:** 2 failure modes
+- **Navigation & SLAM:** 3 failure modes
 - **System & Infra:** 1 failure modes
 - **Orchestration & RAG:** 2 failure modes
 - **Chassis & Motion:** 1 failure modes
+- **Hardware/Power & Sensors:** 1 failure modes
 
 ---
 
@@ -184,6 +185,7 @@
 | **FM-SYS-009** | System & Infra | `restart_hailo.sh` | Freeze dello script di avvio al punto stop watchdog dovuto a prompt password sudo | 8 | 1 | 1 | **8** | `LOW` | `CLOSED` | [`docs/lessons/dev_and_deployment.md#FM-SYS-009`](docs/lessons/dev_and_deployment.md#FM-SYS-009) |
 | **FM-MOT-004** | Chassis & Motion | `waveshare_motor_driver & sllidar_node` | Inversione dinamica o collisione delle porte seriali (/dev/ttyUSB0 vs /dev/ttyUSB1) al reboot, con conseguente blocco dei motori o del LiDAR | 8 | 1 | 1 | **8** | `REVISION_MANDATORY` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#FM-MOT-004`](docs/lessons/actuation_motor_driver.md#FM-MOT-004) |
 | **FM-SYS-010** | System/Support | `skill_sandbox / filesystem` | Saturazione progressiva dello storage flash SSD NVMe a causa dell'accumulo di script di prova e log di sandbox | 8 | 1 | 1 | **8** | `LOW` | `CLOSED` | [`marcus_core_rules.md`](marcus_core_rules.md) |
+| **FM-NAV-026** | Navigation & SLAM | `restart_hailo.sh / lifecycle_manager_navigation` | Abort del bringup Nav2 e stallo dei nodi in inactive per timeout Invalid frame ID map | 8 | 1 | 1 | **8** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#prevenzione-errore-invalid-frame-id-map`](docs/lessons/nav2_slam_tuning.md#prevenzione-errore-invalid-frame-id-map) |
 | **FM-COG-002** | AI/Cognitive | `conversation_manager / llm_service` | Perdita dell'acronimo di identità e mancata ricerca RAG in conversazione | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#identita-dellacronimo-e-ricerca-semantica-rag-attiva`](docs/lessons/orchestration_and_rag.md#identita-dellacronimo-e-ricerca-semantica-rag-attiva) |
 | **FM-CPU-001** | Vision/CPU | `hailo_bridge_node` | Saturazione CPU da pipeline annotazione video sincrona a 30 Hz in rgb_callback | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/vision_hailo_npu.md`](docs/lessons/vision_hailo_npu.md) |
 | **FM-TRI-005** | AI/Trinity | `metaprompt_fusion` | Saturazione del budget token con troncamento silenzioso da parte dell'LLM o errore di context length | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#trinity-architecture`](docs/lessons/orchestration_and_rag.md#trinity-architecture) |
@@ -191,6 +193,7 @@
 | **FM-NAV-011** | Navigation/Vision | `nomad_velocity_bridge` | Disallineamento topic velocità (/cmd_vel_mux vs /cmd_vel) ed incompatibilità QoS DDS (/rgb/image BEST_EFFORT vs RELIABLE) | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#integrazione-ai-orchestrator-e-tolleranza-fonetica-asr`](docs/lessons/nav2_slam_tuning.md#integrazione-ai-orchestrator-e-tolleranza-fonetica-asr) |
 | **FM-NAV-025** | Navigation & SLAM | `rtabmap_slam` | Crash irreversibile RTAB-Map per UException Memory.cpp:3473 addLink e conseguente collasso di Nav2 e blackout canali 3D Foxglove Studio | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#FM-NAV-025`](docs/lessons/nav2_slam_tuning.md#FM-NAV-025) |
 | **FM-LLM-007** | AI/Trinity | `dynamic_skill_creator / base_skill` | Deriva semantica o firma asincrona non valida in match/execute non rilevata dal compilatore AST di base | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md`](docs/lessons/orchestration_and_rag.md) |
+| **FM-PWR-001** | Hardware/Power & Sensors | `sensor_standby_manager.py / RPLIDAR C1 / RTAB-Map` | Usura meccanica continua a vuoto del rotore RPLIDAR C1, consumo energetico superfluo e sovraccarico computazionale di RTAB-Map quando il robot è stazionario per > 2 minuti | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#smart-standby-motion-gating`](docs/lessons/actuation_motor_driver.md#smart-standby-motion-gating) |
 | **FM-SYS-002** | System/DDS | `system_scripts` | Errore di esecuzione script: OSError [Errno 8] Exec format error | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`marcus_core_rules.md#1-memoria-ram-e-limite-host`](marcus_core_rules.md#1-memoria-ram-e-limite-host) |
 | **FM-TRI-003** | AI/Trinity | `cag_aggregator` | Latenza eccessiva nella raccolta del contesto CAG (> 500ms) che ritarda l'invio del prompt all'LLM | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#trinity-architecture`](docs/lessons/orchestration_and_rag.md#trinity-architecture) |
 | **FM-VUI-022** | Voice/Orchestration | `nomad_exploration_skill` | Mancato riconoscimento del termine 'NOMAD' da parte dell'ASR e mancata registrazione della skill nell'AI Orchestrator | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#gestione-acronimi-stranieri-e-tolleranza-fonetica-asr`](docs/lessons/audio_vui_pipeline.md#gestione-acronimi-stranieri-e-tolleranza-fonetica-asr) |

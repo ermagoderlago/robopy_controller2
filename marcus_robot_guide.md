@@ -107,6 +107,13 @@ Marcus si muove su una base mobile differenziale, gestendo il movimento e la map
   * *Filtro Anti-Sag & Persistenza (3s):* Media mobile circolare a 20 campioni (5Hz) con timer di persistenza a 3.0s per innescare solo allarmi reali di rientro cuccia (`/robot/docking/trigger` a 9.90V) ed arresto critico (`/robot/system/shutdown` a 9.00V).
   * *Compensazione Feed-Forward di Tensione:* Scaling continuo dei comandi di velocità ruote $PWM_{comp} = PWM \times (11.10\text{V} / V_{eff})$ per mantenere costante e lineare la dinamica motoria anche a batteria scarica, con limitatore dinamico al 50% in modalità ECO ($V \le 10.20\text{V}$).
   * *Demone OS Graceful Shutdown:* Protezione hardware attiva da battery cliff per salvare e sincronizzare in sicurezza i filesystem NVMe/SD prima dello stacco BMS.
+* **Smart Standby & Sensor Power-Save Manager (`sensor_standby_manager.py` - FM-PWR-001):**
+  Per evitare l'usura meccanica a vuoto del rotore ToF del LiDAR RPLIDAR C1 e l'accumulo ridondante di nodi nel database SLAM, Marcus entra in standby automatico se sosta immobile per oltre **2 minuti (120s)** senza perturbazioni inerziali (norma accelerazione limitata alla sola gravità $g \approx 9.81\text{ m/s}^2 \pm 0.35\text{ m/s}^2$):
+  * Arresta il motore del LiDAR (`/stop_motor`) e congela RTAB-Map (`/rtabmap/pause`).
+  * Si risveglia istantaneamente al rilevamento di una perturbazione esterna via IMU (urto, spinta, sollevamento) o ricezione di `/cmd_vel`.
+  * *Hardware Motion Gating:* Trattiene il moto delle ruote (`/robot/motion_gate == False`) durante lo spin-up del rotore LiDAR (~1.0s), consentendo il movimento solo quando la mappa e le scansioni a 360° sono pienamente operative.
+* **Allocazione Vincolante Database SLAM su SSD NVMe (FM-NAV-020):**
+  Il database RTAB-Map risiede tassativamente ed esclusivamente su `/mnt/ssd/rtabmap.db`. È severamente vietata qualsiasi scrittura di mappe sulla MicroSD interna per prevenire la saturazione del disco (`[Errno 28] No space left on device`) e runaway log.
 * **Sicurezza Attiva:** Il modulo `reactive_safety.py` gestisce l'arresto d'emergenza in caso di rilevamento ostacolo immediato tramite il sensore a ultrasuoni (`ultrasonic_sensor`) o disconnessioni della telecamera.
 
 ---

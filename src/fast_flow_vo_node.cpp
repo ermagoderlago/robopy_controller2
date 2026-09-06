@@ -645,7 +645,7 @@ void FastFlowVONode::processFrame(const cv::Mat& gray, const cv::Mat& depth,
                 double yaw_offset = wheel_yaw_offset_.load(std::memory_order_acquire);
                 
                 double calibrated_dx = wheel_delta_x_ * scale;
-                double calibrated_dyaw = wheel_delta_yaw_ + yaw_offset;
+                double calibrated_dyaw = (std::abs(wheel_delta_yaw_) > 1e-4) ? (wheel_delta_yaw_ + yaw_offset) : 0.0;
                 
                 // Non-holonomic differential drive: only forward x translation, y is 0
                 Eigen::Vector3d t_wheel(calibrated_dx, 0.0, 0.0);
@@ -1281,16 +1281,16 @@ void FastFlowVONode::publishOdometry(const rclcpp::Time& stamp) {
         odom_msg.pose.pose.orientation.w = orientation.w();
         
         // Dynamic Covariance Matrix based on visual tracking state
-        double pose_cov = 1e-5;
-        double twist_cov = 1e-4;
+        double pose_cov = 5e-4;
+        double twist_cov = 1e-3;
         
         int state = tracking_state_.load(std::memory_order_acquire);
         if (using_wheel_fallback_.load(std::memory_order_acquire)) {
             pose_cov = 1e-2;
             twist_cov = 1e-2;
         } else if (state == static_cast<int>(TrackingState::TRACKING_WEAK)) {
-            pose_cov = 1e-3;
-            twist_cov = 1e-3;
+            pose_cov = 2e-3;
+            twist_cov = 2e-3;
         } else if (state == static_cast<int>(TrackingState::TRACKING_LOST)) {
             pose_cov = 5e-2;
             twist_cov = 5e-2;

@@ -116,6 +116,13 @@ improvements:
     status: "COMPLETED"
     domain: "audio_vui"
 
+  FM-PWR-001:
+    title: "Miglioramento Alimentazione: Smart Standby & Sensor Power-Save Manager per LiDAR e SLAM"
+    file: "docs/improvements/IMP-PWR-001_sensor_standby_manager.md"
+    status: "COMPLETED"
+    domain: "hardware_power"
+
+
 
 
 
