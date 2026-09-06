@@ -389,7 +389,7 @@ void FastFlowVONode::processLoop() {
                     
                     double gx_ros = packet.gyroscope.z;
                     double gy_ros = -packet.gyroscope.x;
-                    double gz_ros = packet.gyroscope.y;
+                    double gz_ros = -packet.gyroscope.y; // DepthAI camera Y is DOWN; rotation around ROS Z (UP) is -gyroscope.y
                     
                     // Dynamic ZUPT Gyro Z Bias Estimation (FM-NAV-017)
                     // When robot is commanded stationary and angular motion is small, estimate gyro Z bias
@@ -1188,18 +1188,12 @@ void FastFlowVONode::updatePose(const TrackingResult& result) {
         return;
     }
     
-    // [CORREZIONE 3] Motion Gate: permetti aggiornamenti ad alta confidenza
-    // anche quando il robot è fermo (es. correzione di drift, forze esterne)
+    // Motion Gate: If robot is stationary, ZERO delta motion and do NOT update pose!
     if (config_.enable_motion_gate && !isRobotMoving()) {
-        if (result.inliers < config_.good_inlier_threshold) {
-            // Fermo + bassa confidenza = salta aggiornamento
-            RCLCPP_DEBUG_THROTTLE(get_logger(), *get_clock(), 2000,
-                "Motion Gate: Blocking VO update (inliers=%d < %d, motors=%d, imu=%d)",
-                result.inliers, config_.good_inlier_threshold,
-                motors_active_.load(), imu_motion_detected_.load());
-            return;
-        }
-        // Fermo + alta confidenza = permetti correzione
+        std::lock_guard<std::mutex> lock(state_mutex_);
+        last_delta_translation_ = Eigen::Vector3d::Zero();
+        last_delta_yaw_ = 0.0;
+        return;
     }
 
     // Save delta for velocity calculation
@@ -1263,7 +1257,11 @@ void FastFlowVONode::publishOdometry(const rclcpp::Time& stamp) {
     
     // Compute velocity from delta motion (velocity = delta / dt)
     double vx = 0.0, vy = 0.0, vyaw = 0.0;
-    if (dt > 0.001 && dt < 0.5) {  // Reasonable dt range
+    if (config_.enable_motion_gate && !isRobotMoving()) {
+        vx = 0.0;
+        vy = 0.0;
+        vyaw = 0.0;
+    } else if (dt > 0.001 && dt < 0.5) {  // Reasonable dt range
         vx = delta_t.x() / dt;
         vy = delta_t.y() / dt;
         vyaw = delta_yaw / dt;

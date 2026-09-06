@@ -34,9 +34,9 @@ class WaveshareMotorDriver(Node):
         
         self.declare_parameter('invert_left_motor', False)
         self.declare_parameter('invert_right_motor', False)
-        self.declare_parameter('invert_left_encoder', False)
-        self.declare_parameter('invert_right_encoder', False)
-        self.declare_parameter('encoder_dead_zone', 0)        # ticks: ignore deltas <= this when both wheels below threshold (0 to disable tick dropping)
+        self.declare_parameter('invert_left_encoder', True)
+        self.declare_parameter('invert_right_encoder', True)
+        self.declare_parameter('encoder_dead_zone', 2)        # ticks: ignore deltas <= this when both wheels below threshold (0 to disable tick dropping)
         self.declare_parameter('publish_tf', False)            # set False when another node (e.g. VIO) owns odom->base_link TF
         self.declare_parameter('odom_topic', '/odom_wheel')    # separate wheel odometry topic from VIO /odom
         self.declare_parameter('feedforward_nominal_voltage', 11.10) # Nominal voltage for PWM scaling (11.1V)
@@ -399,12 +399,12 @@ class WaveshareMotorDriver(Node):
         if self.invert_right_motor:
             duty_right = -duty_right
 
-        # Hardware mapping:
-        # Channel 'L' (Left Wheel): Positive duty moves Left wheel Forward.
-        # Channel 'R' (Right Wheel): Positive duty moves Right wheel Forward.
+        # Physical hardware mapping:
+        # Serial channel 'L' drives the Left wheel motor (mirrored mechanical mount, negative PWM = forward).
+        # Serial channel 'R' drives the Right wheel motor (positive PWM = forward).
         cmd = {
             "T": 1,
-            "L": round(duty_left, 4),
+            "L": round(-duty_left, 4),
             "R": round(duty_right, 4)
         }
         cmd_str = json.dumps(cmd, separators=(',', ':')) + "\n"
@@ -432,7 +432,7 @@ class WaveshareMotorDriver(Node):
                     self._last_stop_resend = time.time()
                 
         # Rilevamento Stallo / Slittamento / Assorbimento Eccessivo
-        cmd_active = (abs(self.cmd_linear_x) > 0.05 or abs(self.cmd_angular_z) > 0.1)
+        cmd_active = (abs(self.cmd_linear_x) > 0.05 or abs(self.cmd_angular_z) > 0.1) and not self.motors_stopped
         
         # 1. Stall Meccanico: Comandiamo ma le ruote non girano
         if cmd_active and abs(self.v_robot) < 0.005 and abs(self.w_robot) < 0.02:
@@ -558,13 +558,13 @@ class WaveshareMotorDriver(Node):
             return
             
         # Delta ticks:
-        # odl increases when Left wheel moves Forward -> positive.
-        # odr decreases when Right wheel moves Forward -> negate to get positive.
+        # odl is physical Left wheel encoder (counts negative when moving forward).
+        # odr is physical Right wheel encoder (counts positive when moving forward).
         delta_ticks_left = left_ticks - self.prev_left_ticks
-        delta_ticks_right = -(right_ticks - self.prev_right_ticks)
+        delta_ticks_right = right_ticks - self.prev_right_ticks
         
         if abs(delta_ticks_right) > 0 or abs(delta_ticks_left) > 0:
-            self.get_logger().info(f"[ENCODER_RAW] d_right={delta_ticks_right}, d_left={delta_ticks_left}", throttle_duration_sec=0.2)
+            self.get_logger().info(f"[ENCODER_RAW] d_left={delta_ticks_left}, d_right={delta_ticks_right}", throttle_duration_sec=0.2)
         
         # Gracefully handle wrap-around/reset: if single step change is absurdly large, ignore it.
         # Max reasonable ticks in 30Hz: ticks_per_rev * 10 max RPM / 60s * (1/30) = ticks_per_rev * 0.005.
@@ -574,14 +574,17 @@ class WaveshareMotorDriver(Node):
         if abs(delta_ticks_right) > self.ticks_per_rev * 5:
             delta_ticks_right = 0
         
-        # --- ZERO-VELOCITY LOCK ---
-        # When motors are stopped (no cmd_vel or v=0, w=0 commanded), force delta to zero.
-        # This is the primary defense against encoder noise drift at standstill.
-        if self.motors_stopped or self.is_commanded_stop:
+        # --- ZERO-VELOCITY LOCK & JITTER SUPPRESSION ---
+        # When motors have been stopped by watchdog, filter electrical jitter (<= 3 ticks).
+        # When moving or decelerating, apply encoder_dead_zone to ignore electrical noise without dropping motion.
+        if self.motors_stopped and abs(delta_ticks_left) <= 3 and abs(delta_ticks_right) <= 3:
+            delta_ticks_left = 0
+            delta_ticks_right = 0
+        elif self.encoder_dead_zone > 0 and abs(delta_ticks_left) <= self.encoder_dead_zone and abs(delta_ticks_right) <= self.encoder_dead_zone:
             delta_ticks_left = 0
             delta_ticks_right = 0
             
-        # Invert readings if specified
+        # Invert readings if specified (invert_left_encoder=True converts negative forward ticks to positive)
         if self.invert_left_encoder:
             delta_ticks_left = -delta_ticks_left
         if self.invert_right_encoder:
@@ -600,6 +603,9 @@ class WaveshareMotorDriver(Node):
         # Right wheel moves forward (+), Left wheel moves backward (-) during CCW turn -> delta_s_right - delta_s_left > 0
         delta_s = (delta_s_right + delta_s_left) / 2.0
         delta_theta = (delta_s_right - delta_s_left) / self.rotational_wheel_separation
+        
+        if abs(delta_s) > 1e-5 or abs(delta_theta) > 1e-5:
+            self.get_logger().info(f"[ODOM_CALC] d_s_R={delta_s_right:.4f}, d_s_L={delta_s_left:.4f}, d_th={math.degrees(delta_theta):+.2f}deg, th={math.degrees(self.theta):+.2f}deg", throttle_duration_sec=0.2)
         
         # Integrate pose
         self.x += delta_s * math.cos(self.theta + delta_theta / 2.0)
@@ -833,6 +839,12 @@ class WaveshareMotorDriver(Node):
             elif param.name == 'wheel_separation':
                 self.wheel_separation = float(param.value)
                 self.get_logger().info(f"Dynamic Parameter Updated: wheel_separation = {self.wheel_separation:.5f}m")
+            elif param.name == 'invert_left_encoder':
+                self.invert_left_encoder = bool(param.value)
+                self.get_logger().info(f"Dynamic Parameter Updated: invert_left_encoder = {self.invert_left_encoder}")
+            elif param.name == 'invert_right_encoder':
+                self.invert_right_encoder = bool(param.value)
+                self.get_logger().info(f"Dynamic Parameter Updated: invert_right_encoder = {self.invert_right_encoder}")
         return SetParametersResult(successful=True)
 
     def destroy_node(self):

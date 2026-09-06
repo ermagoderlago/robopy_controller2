@@ -261,6 +261,10 @@ class ReSpeakerInterfaceNode(Node):
     # ── Heartbeat monitor ──────────────────────────────────────
     def _check_heartbeat(self):
         """Monitora se il firmware sta ancora rispondendo."""
+        with self._serial_lock:
+            if self._serial is None or not self._serial.is_open:
+                return  # Seriale non aperta, inutile verificare heartbeat
+
         now = self.get_clock().now()
         elapsed = (now - self._last_heartbeat).nanoseconds / 1e9
 

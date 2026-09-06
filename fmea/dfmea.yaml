@@ -3428,10 +3428,10 @@
     coordinate globali in locali con theta_prev e vincolo y=0
   detection_controls: Echo live /odom su robot e monitoraggio visuale TF in Foxglove
   residual_scoring:
-    severity: 8
+    severity: 4
     occurrence: 1
     detection: 1
-    rpn: 8
+    rpn: 4
   risk_level: LOW
   mitigation_status: CLOSED
   recommended_action: Mantenere la convenzione destrorsa ROS 2 e la proiezione locale
@@ -3441,13 +3441,20 @@
   eco_ref: docs/ecos/odometry_ekf_fusion_eco.md#ECO-00023
   lesson_ref: docs/lessons/nav2_slam_tuning.md#stabilit-odometria--correzione-dinamica-di-rotazione
   date_identified: '2026-08-22'
-  last_updated: '2026-08-22'
+  last_updated: '2026-09-06'
   history:
   - date: '2026-08-22'
     change: Correzione formula yaw in waveshare_motor_driver e rotazione locale in
       fast_flow_vo_cpp
     rpn_old: 432
     rpn_new: 8
+  - date: '2026-09-06'
+    change: 'Risolta inversione sistematica heading: abilitato invert_right_encoder:=True
+      (entrambi gli encoder contano tick negativi in avanzamento) e corretta polarità
+      DepthAI BNO085 gyro Z in fast_flow_vo_node.cpp (gz_ros = -packet.gyroscope.y
+      per frame REP-103).'
+    rpn_old: 8
+    rpn_new: 4
 - id: FM-ACT-008
   subsystem: Actuation/Odometry
   component: waveshare_motor_driver

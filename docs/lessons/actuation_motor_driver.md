@@ -124,13 +124,13 @@ Con JGB37-520B a 7RPM (riduzione ~143:1), **girare la ruota manualmente è impos
 * **Causa:** Il cablaggio fisico speculare dei motori e degli encoder richiede direzioni e canali specifici:
   1. **Assegnazione Canali Seriale:** Il pin seriale `L` aziona la ruota sinistra fisica, mentre `R` aziona la ruota destra fisica.
   2. **Assegnazione Canali Encoder:** Il canale feedback `odl` appartiene all'encoder sinistro, mentre `odr` al destro.
-  3. **Segni di Attuazione:** Per avanzare, la ruota sinistra (serial `L`) richiede tensioni/velocità negative (`L < 0`), mentre la ruota destra (serial `R`) richiede tensioni positive (`R > 0`).
-  4. **Segni di Encoder:** Muovendosi in avanti, l'encoder destro (`odr`) conta in positivo. L'encoder sinistro (`odl`) conta in negativo a causa della rotazione opposta del motore, richiedendo l'inversione software del segno.
+  3. **Segni di Attuazione:** Per avanzare, la ruota sinistra (serial `L`) richiede tensioni/velocità negative (`L < 0` per montaggio speculare), mentre la ruota destra (serial `R`) richiede tensioni positive (`R > 0`).
+  4. **Segni di Encoder (Fisica Reale):** Entrambi gli encoder magnetici contano in decremento (valori negativi) durante l'avanzamento lineare (`odl` decresce, `odr` decresce). Muovendosi all'indietro, entrambi contano in incremento (valori positivi). Pertanto, **entrambi i canali richiedono l'inversione software del segno**.
 * **Risoluzione permanente:**
   1. **Cinematica nel nodo:** Calcolare la cinematica standard $v_L, v_R$ e applicare le polarità fisiche direttamente prima di inviare: `self.send_speeds(-v_L, v_R)`.
   2. **Parsing Encoder:** Mappare direttamente `left_ticks = data.get('odl')` e `right_ticks = data.get('odr')`.
-  3. **Parametri di Inversione:** Impostare `invert_left_encoder:=True` e `invert_right_encoder:=False` per far sì che entrambi i delta tick contribuiscano positivamente all'avanzamento lineare. Mantenere `invert_left_motor:=False` e `invert_right_motor:=False` poiché i segni sono già compensati dal driver.
-  4. **Geometria reale:** Utilizzare sempre `wheel_radius:=0.0325` (diametro 65mm) e `wheel_separation:=0.29` (carreggiata 290mm) per evitare errori di scala della velocità lineare e angolare.
+  3. **Parametri di Inversione:** Impostare **`invert_left_encoder:=True`** e **`invert_right_encoder:=True`** in modo che per entrambi i canali il moto in avanti generi $\Delta s > 0$. In rotazione sul posto (w > 0, CCW / SX): la ruota destra avanza ($\Delta s_R > 0$), la sinistra retrocede ($\Delta s_L < 0$), generando $\Delta \theta = (\Delta s_R - \Delta s_L) / W > 0$ concorde con REP-103. Mantenere `invert_left_motor:=False` e `invert_right_motor:=False` poiché le polarità sono gestite nativamente da `send_speeds`.
+  4. **Geometria reale:** Utilizzare `wheel_radius:=0.0335` (diametro 67mm calcolato) e `wheel_separation:=0.285` (carreggiata 285mm) per evitare errori di scala della velocità lineare e angolare.
 
 ### 12. Deadlock dei Client di Parametri ROS 2 su Event Loop di Asyncio
 * **Sintomo:** Chiamate bloccanti all'interfaccia dynamic parameters tramite `await client.call_async(req)` sollevano eccezioni o causano un blocco asincrono (deadlock) all'avvio della calibrazione.
@@ -243,12 +243,16 @@ Con JGB37-520B a 7RPM (riduzione ~143:1), **girare la ruota manualmente è impos
   - Durante lo spin-up, `waveshare_motor_driver.py` sottoscrive `/robot/motion_gate` (`std_msgs/msg/Bool`): se `motion_gate == False`, memorizza il target `cmd_vel` ma inibisce fisicamente il moto delle ruote inviando $0.0\text{ m/s}, 0.0\text{ rad/s}$.
   - Appena `sensor_standby_manager` valida l'arrivo dei primi 2 pacchetti `/scan`, il gate si apre (`motion_gate = True`) e il robot eroga fluidamente il movimento alle ruote senza rischio di collisioni a cieco.
 
-
-
-
-
-
-
-
-
-
+### 24. Correzione Assegnazione Hardware Canali Motore ESP32 (L/R) e Polarità Encoder (FM-MOT-005)
+* **Sintomo:** Quando l'operatore comanda una svolta a destra (`angular.z < 0`), il robot fisico sterza a sinistra, e viceversa. Inoltre, durante le svolte la mappa generata da RTAB-Map si deforma ad arco e l'odometria salta bruscamente.
+* **Causa Radice:**
+  1. **Inversione Cablaggio Seriale:** Sulla scheda Waveshare General Driver (ESP32), il canale PWM etichettato `L` pilota fisicamente il motore della ruota **DESTRA**, mentre il canale `R` pilota fisicamente il motore della ruota **SINISTRA**.
+  2. **Inversione Telemetria Encoder:** Il contatore `odl` corrisponde all'encoder della ruota **DESTRA**, mentre `odr` corrisponde all'encoder della ruota **SINISTRA**.
+  3. L'omissione dello swap canale nel driver faceva sì che la cinematica inviasse $v_L$ (ruota sinistra) al motore destro, e $v_R$ (ruota destra) al motore sinistro, invertendo fisicamente il verso di imbardata del robot rispetto ai comandi e alla convenzione ROS standard (REP-103).
+* **Risoluzione Permanente:**
+  1. In `send_speeds(left, right)`:
+     Mappare `"L": round(duty_right, 4)` e `"R": round(duty_left, 4)`.
+  2. In `process_encoder_feedback(left_ticks, right_ticks)`:
+     Calcolare `delta_ticks_right = left_ticks - prev_left_ticks` e `delta_ticks_left = right_ticks - prev_right_ticks`.
+  3. Mantenere `invert_left_encoder := False` e `invert_right_encoder := False`.
+  4. In `src/fast_flow_vo_node.cpp`: sigillare il Motion Gate azzerando esplicitamente $\Delta t$ e $\Delta \text{yaw}$ quando il robot è fermo (`!isRobotMoving()`), impedendo al rumore subpixel della camera di accumulare deriva a veicolo fermo.

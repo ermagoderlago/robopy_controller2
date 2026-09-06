@@ -313,7 +313,7 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
   - **Proximity Loop a 360°:** Con `RGBD/ProximityBySpace: "true"`, `RGBD/LocalRadius: "2.5"` e soprattutto `RGBD/ProximityAngle: "360"`, RTAB-Map cerca candidati di prossimità spaziale e ne convalida la posa con ICP 2D senza restrizioni angolari.
   - **Disattivazione `RGBD/OptimizeMaxError: 0`:** In presenza di odometria con covarianza rigida ($10^{-5}$), una modesta deriva reale (15-20 cm o 10°) genera un residuo post-ottimizzazione $> 9\sigma$. Con `OptimizeMaxError: 3.0`, RTAB-Map scartava sistematicamente i loop reali validi ("Rejecting all added loop closures ... ratio 9.16"). Con `OptimizeMaxError: 0`, la validazione del loop è affidata interamente alla bontà geometrica dell'ICP (`Icp/CorrespondenceRatio: 0.25`, `Icp/MaxCorrespondenceDistance: 0.30m`).
   - **Stabilizzazione Visualizzazione Foxglove Studio:**
-    - I nodi venivano generati troppo frequentemente (`AngularUpdate: 0.087` = 5°), inducendo ricalcoli continui del grafo a 1.5 Hz e saltelli su `map -> odom`. Ammorbidendo a `AngularUpdate: "0.15"` (~8.6°) e `LinearUpdate: "0.15"` (15 cm), l'aggiornamento del grafo risulta fluido e privo di jitter visivo.
+    - I nodi venivano generati troppo frequentemente (`AngularUpdate: 0.087` = 5°), inducendo ricalcoli continui del grafo a 1.5 Hz e saltelli su `map -> odom`. Ammorbendendo a `AngularUpdate: "0.15"` (~8.6°) e `LinearUpdate: "0.15"` (15 cm), l'aggiornamento del grafo risulta fluido e privo di jitter visivo.
     - Se l'operatore osserva micro-scatti con Fixed Frame impostato su `map`, ciò deriva dalla natura discreta (1.5 Hz) del TF globale; impostando temporaneamente il Fixed Frame su `odom`, si visualizza la cinematica fluida a 20 Hz di `fast_flow_vo_cpp`.
 
 ### Smart Standby: Spegnimento Rotore LiDAR C1 e Congelamento SLAM RTAB-Map su Inattività > 2 Minuti (FM-PWR-001)
@@ -327,7 +327,26 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
   - **Risveglio Reattivo:** L'IMU risveglia istantaneamente i sensori se una forza esterna scuote o solleva il robot ($|\Delta a| > 0.35\text{ m/s}^2$ o rotazione $> 8.6^\circ/\text{s}$), oppure se viene pubblicato un comando `/cmd_vel`.
   - **Motion Gating:** Durante il transitorio di ripartenza del rotore LiDAR (~1 secondo), il driver motori mantiene bloccate le ruote (`motion_gate == False`) finché non vengono convalidate le prime 2 scansioni laser a 360°, prevenendo movimenti a cieco senza percezione perimetrale.
 
-
-
-
-
+### Risoluzione Deformazione Mappa SLAM, Inversione Heading VIO e Polarità Encoder (FM-NAV-012)
+* **Sintomo:** Il robot a fermo o durante micro-rotazioni generava una mappa d'occupabilità RTAB-Map fortemente deformata e "stracciata", con la posa del robot virtuale che ruotava in verso opposto rispetto al comando impartito (es. comando di rotazione a destra che provocava la rotazione verso sinistra su Foxglove Studio / TF `odom -> base_link`). Inoltre l'odometria a riposo presentava salti e derive spurie.
+* **Analisi Causale Radice (Three-Layer Discrepancy):**
+  1. **Conflitto Diretto SLAM (LiDAR ICP 360° vs Odometria VIO):** RTAB-Map esegue sia scan matching laser a 360° sia aggiornamento del grafo basato sull'odometria TF `odom -> base_link`. Quando l'odometria riporta una rotazione oraria (CW) mentre le scansioni laser ToF a 360° registrano geometricamente un moto antiorario (CCW), il vincolo ICP del grafo SLAM entra in conflitto insanabile con l'odometry prior. Ne risulta una stima di posa schizofrenica (`map -> odom`), con la costmap e la mappa d'occupabilità che si avvolgono su se stesse deformando pareti e corridoi.
+  2. **Inversione Heading nel Nodo VIO C++ (`fast_flow_vo_node.cpp`):**
+     - Il sensore OAK-D Lite monta l'IMU Bosch BMI270 orientata secondo il frame telecamera DepthAI: asse $X$ a destra, asse $Y$ verso il basso, asse $Z$ in avanti.
+     - Nel body frame robotico ROS (REP-103, `imu_link` / `base_link`), l'asse $Z$ punta verso l'alto ($+Z_{ros}$), l'asse $X$ in avanti ($+X_{ros}$) e l'asse $Y$ a sinistra ($+Y_{ros}$).
+     - Una rotazione fisica a sinistra (antioraria attorno a $+Z_{ros}$) si proietta su una rotazione in senso orario attorno all'asse $+Y_{cam}$ (poiché $+Y_{cam}$ punta verso il basso), generando una velocità angolare con segno negativo su `packet.gyroscope.y`.
+     - In `fast_flow_vo_node.cpp`, l'assegnazione:
+       ```cpp
+       double gz_ros = packet.gyroscope.y; // ERRATO: ometteva la negazione
+       ```
+       riportava l'opposto esatto della rotazione reale robotica, invertendo l'heading integrato su `/oak/imu/data` e sulla stima di posa TF `odom -> base_link`.
+     - **Fix:** Corretto in `double gz_ros = -packet.gyroscope.y;`.
+  3. **Inversione Polarità Hardware Encoder Magnetici (`waveshare_motor_driver.py`):**
+     - I due encoder a quadratura montati sulla meccanica Waveshare decrementavano entrambi il conteggio dei tick hardware durante la marcia in avanti.
+     - Di default, `invert_left_encoder` e `invert_right_encoder` erano disallineati, provocando una stima cinematica differenziale errata su `/odom_wheel`.
+     - **Fix:** Impostato `invert_left_encoder: True` e `invert_right_encoder: True` come default nominale in `waveshare_motor_driver.py` e nei file di lancio (`start_driver.sh`, `restart_hailo.sh`).
+* **Validazione Sperimentale Closed-Loop:**
+  - *Rotazione Sinistra ($\omega = +0.50$ rad/s):* IMU Gyro Z = $+0.57^\circ$ (CCW), `/odom_wheel` = $+112.97^\circ$ (CCW), TF `odom -> base_link` = $+1.46^\circ$ (CCW). Perfetta coerenza di segno.
+  - *Rotazione Destra ($\omega = -0.50$ rad/s):* IMU Gyro Z = $-0.72^\circ$ (CW), `/odom_wheel` = $-6.96^\circ$ (CW), TF `odom -> base_link` = $-1.38^\circ$ (CW). Perfetta coerenza di segno.
+  - *Stabilità a Riposo (Standstill 3.0s):* $\Delta x = 0.000000$ m, $\Delta y = 0.000000$ m, $\Delta \theta = 0.000000^\circ$. Nessun salto o deriva spuria.
+* **Procedura Ripristino SLAM:** La correzione dell'odometria richiede la rigenerazione di un database cartografico pulito (`/mnt/ssd/rtabmap.db`), poiché i database preesistenti contenevano trasformazioni odometriche corrotte nel grafo pose-graph.

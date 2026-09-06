@@ -217,7 +217,31 @@ Questo documento descrive le lezioni apprese su OAK-D Lite, l'acceleratore NPU H
   - **CPU Core 1 Usage:** Da **100% Satura** a **0.0%** (-100% overhead CPU).
   - **Load Average:** Da **12.33** a **1.72** (-86% carico complessivo).
   - **RAM Libera:** Da **85 MB** a **2.42 GB** (+2.33 GB RAM libera).
-  - **Inizializzazione NPU:** Da 12.4s (GIL Python) a 0.18s (C++ Nativo).
+---
+
+## 🧭 Integrazione IMU OAK-D Lite (BNO085) & Correzione Polarità Assi Gyro Z (Settembre 2026)
+
+### Disallineamento Sistema di Riferimento Camera vs Robot (REP-103)
+* **Sintomo:** Durante le rotazioni fisiche sul posto (in-place turn), la mappa in Foxglove / RViz ruotava violentemente nel senso opposto, per poi riallinearsi bruscamente generando "strappi" e deformazioni delle pareti nella occupancy grid di RTAB-Map. Comandando una rotazione a sinistra, il robot virtuale virava a destra e viceversa.
+* **Causa Fondamentale:** Nel nodo C++ `fast_flow_vo_node.cpp`, i pacchetti inerziali DepthAI (`dai::IMUData`) venivano convertiti negli assi ROS `imu_link` tramite:
+  ```cpp
+  double gx_ros = packet.gyroscope.z;
+  double gy_ros = -packet.gyroscope.x;
+  double gz_ros = packet.gyroscope.y; // ❌ ERRORE: asse Y camera non invertito!
+  ```
+  Nel sistema di coordinate nativo della camera DepthAI (OAK-D Lite BNO085):
+  - L'asse $X$ punta verso **destra** $\implies$ ROS $Y$ (sinistra) = $-X_{cam}$.
+  - L'asse $Y$ punta verso il **basso** $\implies$ ROS $Z$ (in alto) = $-Y_{cam}$.
+  - L'asse $Z$ punta in **avanti** $\implies$ ROS $X$ (avanti) = $+Z_{cam}$.
+  Di conseguenza, ruotando il robot verso sinistra (rotazione antioraria/CCW attorno a ROS $+Z$ in alto), la velocità angolare attorno all'asse camera $+Y$ (rivolto verso il basso) risulta **negativa**.
+  Mappando `gz_ros = packet.gyroscope.y` senza negazione, l'IMU pubblicava `angular_velocity.z < 0` (rotazione oraria / a destra) quando il robot girava fisicamente a sinistra!
+* **Risoluzione Definitiva:**
+  Applicare la corretta proiezione euclidea speculare:
+  ```cpp
+  double gz_ros = -packet.gyroscope.y; // ✅ Corretto: rotazione antioraria attorno a ROS +Z (UP) è -gyroscope.y
+  ```
+  In questo modo, la velocità angolare `/oak/imu/data` e l'odometria differenziale `/odom_wheel` sono perfettamente concordi con le convenzioni ROS REP-103 (+Z = CCW). RTAB-Map e VIO mantengono l'allineamento geometrico continuo senza conflitti di scan matching.
+
 
 
 
