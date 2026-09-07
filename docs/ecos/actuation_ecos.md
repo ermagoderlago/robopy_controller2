@@ -152,6 +152,73 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
   * **[TEST SUITE]** `test/unit/test_sensor_standby_manager.py`, `test/unit/test_motor_driver_motion_gate.py`:
     - 12/12 test unitari superati con successo (transizioni FSM, timeout, risveglio IMU, motion gating e timeout di sicurezza).
 
+---
+
+## ECO-2026-09-07-001 — Correzione Swap Canali Seriali L/R e Swap Encoder odl/odr (FM-MOT-005)
+
+**Data:** 2026-09-07
+**Autore:** Antigravity AI
+**DFMEA:** FM-MOT-005 — Inversione completa assi cinematici (avanti→rotazione, rotazione→traslazione)
+**Priorità:** CRITICA — il robot era inutilizzabile per navigazione
+
+### Problema Rilevato
+Dopo il deploy del fix FM-NAV-012 (inversione encoder + negazione giroscopio VIO), il robot presentava un bug **ancora più grave**: gli assi del movimento erano completamente scambiati di 90°.
+
+| Comando Teleop | Comportamento fisico osservato |
+|---|---|
+| Avanti (linear.x=+0.3) | Girava a sinistra |
+| Indietro (linear.x=-0.3) | Girava a destra |
+| Sinistra (angular.z=+0.3) | Andava dritto in avanti |
+| Destra (angular.z=-0.3) | Andava indietro |
+
+### Root Cause Identificata
+**Scoperta via diagnostic script seriale raw** (`/tmp/diag.py` — duty 0.25, 400ms per canale):
+
+```
+TEST1 L=+0.25 R=0.00 -> delta_odl=+775  delta_odr=0     (L muove encoder odl)
+TEST2 L=-0.25 R=0.00 -> delta_odl=+1205 delta_odr=0     (L muove encoder odl, altro verso)
+TEST3 L=0.00  R=+0.25 -> delta_odl=0    delta_odr=-228  (R muove encoder odr)
+TEST5 L=+0.25 R=+0.25 -> delta_odl=+796 delta_odr=-324  (segni OPPOSTI = robot ruota!)
+```
+
+**Mappatura hardware confermata:**
+- Canale seriale `L` dell'ESP32 Waveshare → pilota fisicamente la ruota **DESTRA**
+- Canale seriale `R` dell'ESP32 Waveshare → pilota fisicamente la ruota **SINISTRA**
+- Encoder `odl` → ruota fisica **DESTRA**
+- Encoder `odr` → ruota fisica **SINISTRA**
+
+Il codice precedente inviava `"L": -duty_left` (calcolato come sinistra) al motore destro fisico, e con entrambi i canali positivi (`duty_right` e `duty_left` entrambi positivi per avanzare dritto) il motore sinistro fisico girava in avanti ma il motore destro fisico riceveva un segnale invertito → **rotazione invece di traslazione**.
+
+La lesson learned §24 in `actuation_motor_driver.md` aveva già documentato questo problema con la soluzione, ma la fix NON era mai stata applicata al codice.
+
+### Modifiche Applicate
+
+* **[DRIVER]** `robopy_controller/nodes/waveshare_motor_driver.py` — `send_speeds()`:
+  - **Prima:** `"L": round(-duty_left, 4), "R": round(duty_right, 4)`
+  - **Dopo:** `"L": round(duty_right, 4), "R": round(duty_left, 4)` ← SWAP canali
+
+* **[DRIVER]** `robopy_controller/nodes/waveshare_motor_driver.py` — `process_encoder_feedback()`:
+  - **Prima:** `delta_ticks_left = odl_delta; delta_ticks_right = odr_delta`
+  - **Dopo:** `delta_ticks_right = odl_delta; delta_ticks_left = odr_delta` ← SWAP encoder
+
+* **[DRIVER]** Default parametri: `invert_left_encoder=False`, `invert_right_encoder=False`
+  (lo swap canale gestisce la polarità, la doppia negazione precedente era errata)
+
+* **[SCRIPT]** `restart_hailo.sh`, `scripts/start_driver.sh`:
+  - `invert_left_encoder:=False`, `invert_right_encoder:=False`
+
+* **[TEST]** `test/unit/test_waveshare_kinematics.py`:
+  - Riscritti per validare nuova logica swap: **5/5 passati**
+
+### Cinematica Corretta Post-Fix
+
+| Comando | `duty_left` | `duty_right` | Seriale L (=duty_right) | Seriale R (=duty_left) | Effetto fisico |
+|---|---|---|---|---|---|
+| Avanti (v=+0.3, w=0) | +0.32 | +0.32 | +0.32 | +0.32 | Entrambe avanti ✓ |
+| Sinistra (v=0, w=+0.5) | -0.xx | +0.xx | +0.xx | -0.xx | Destra avanti, sinistra indietro ✓ |
+| Destra (v=0, w=-0.5) | +0.xx | -0.xx | -0.xx | +0.xx | Destra indietro, sinistra avanti ✓ |
+
+
 
 
 

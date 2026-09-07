@@ -1,5 +1,5 @@
 # 📊 Report Esecutivo DFMEA - Marcus AI Robot Platform
-**Data Generazione:** 2026-09-06 21:26:08  
+**Data Generazione:** 2026-09-07 11:50:02  
 **Metodologia:** AIAG-VDA FMEA Standard con Regola Override Severità ($S \ge 9 \implies$ REVISION_MANDATORY)
 
 ---
@@ -8,12 +8,12 @@
 
 | Metrica | Valore | Note / Impatto |
 | :--- | :---: | :--- |
-| **Totale Modalità di Guasto (FM)** | **113** | Copertura integrata dei sottosistemi Marcus |
+| **Totale Modalità di Guasto (FM)** | **114** | Copertura integrata dei sottosistemi Marcus |
 | **🟢 Risk Level LOW** | **81** | $RPN_{res} \le 50$ (Sotto controllo) |
 | **🟡 Risk Level MEDIUM** | **7** | $51 \le RPN_{res} \le 199$ (Monitoraggio attivo) |
 | **🟠 Risk Level HIGH** | **2** | $200 \le RPN_{res} \le 349$ (Mitigazione obbligatoria) |
 | **🔴 Risk Level CRITICAL** | **0** | $RPN_{res} \ge 350$ (Blocco rilasci) |
-| **🚨 REVISION_MANDATORY** | **23** | **Override Severità ($S \ge 9$)** - Massima Priorità Ingegneristica |
+| **🚨 REVISION_MANDATORY** | **24** | **Override Severità ($S \ge 9$)** - Massima Priorità Ingegneristica |
 
 ### Ripartizione per Sottosistema:
 - **System/DDS:** 5 failure modes
@@ -50,6 +50,7 @@
 - **Orchestration & RAG:** 2 failure modes
 - **Chassis & Motion:** 1 failure modes
 - **Hardware/Power & Sensors:** 1 failure modes
+- **Actuation/MotorDriver:** 1 failure modes
 
 ---
 
@@ -66,6 +67,7 @@
 | **FM-ACT-001** | Hardware/Power | `waveshare_motor_driver` | Immobilità del robot con ronzio prolungato dei motori in condizioni di stiction o batteria scarica | 9 ➔ 9 | 360 ➔ **36** | `REVISION_MANDATORY` | `CLOSED` | [`docs/ecos/actuation_ecos.md#ECO-2026-07-22-010`](docs/ecos/actuation_ecos.md#ECO-2026-07-22-010) |
 | **FM-NAV-006** | Nav2 | `waveshare_motor_driver / oak_superpoint_odometry` | Slittamento ruote (Wheel Slip) su piastrelle/tappeti con conseguente deriva odometrica accumulata e disallineamento della posa globale | 9 ➔ 9 | 315 ➔ **36** | `REVISION_MANDATORY` | `OPEN` | [`docs/ecos/actuation_ecos.md`](docs/ecos/actuation_ecos.md) |
 | **FM-NAV-016** | Nav2 | `rtabmap` | Falso aggancio del grafo SLAM (False Loop Closure) con rotazione/traslazione spuria della mappa globale | 9 ➔ 9 | 378 ➔ **36** | `REVISION_MANDATORY` | `CLOSED` | [`docs/ecos/nav2_slam_ecos.md#ECO-2026-08-28-NAV-DFMEA-FIXES`](docs/ecos/nav2_slam_ecos.md#ECO-2026-08-28-NAV-DFMEA-FIXES) |
+| **FM-MOT-005** | Actuation/MotorDriver | `waveshare_motor_driver.py` | Inversione completa degli assi cinematici - avanti provoca rotazione, rotazione provoca traslazione (axes scrambled 90 gradi) | 10 ➔ 10 | 240 ➔ **20** | `REVISION_MANDATORY` | `CLOSED` | [`docs/ecos/actuation_ecos.md#ECO-2026-09-07-001`](docs/ecos/actuation_ecos.md#ECO-2026-09-07-001) |
 | **FM-ACT-005** | Hardware/Power | `waveshare_motor_driver` | Reset improvviso della scheda ESP32 (Brownout Microcontrollore) per picco di assorbimento in accelerazione | 9 ➔ 9 | 162 ➔ **18** | `REVISION_MANDATORY` | `OPEN` | [`docs/ecos/actuation_ecos.md`](docs/ecos/actuation_ecos.md) |
 | **FM-SYS-009** | System/DDS | `antigravity_localharness & memory_sentinel` | Picco di consumo RAM durante il reasoning dell'Agente con conseguente OOM Kill di processi ROS 2 critici | 9 ➔ 9 | 108 ➔ **18** | `REVISION_MANDATORY` | `IN_PROGRESS` | [`docs/lessons/dev_and_deployment.md`](docs/lessons/dev_and_deployment.md) |
 | **FM-SYS-001** | System/DDS | `build_system` | Out-Of-Memory (OOM) Kill indotto dal compilatore C++ clang++ durante la build | 9 ➔ 9 | 162 ➔ **9** | `REVISION_MANDATORY` | `CLOSED` | [`docs/lessons/dev_and_deployment.md#compilazione`](docs/lessons/dev_and_deployment.md#compilazione) |
@@ -141,6 +143,7 @@
 | **FM-DDS-006** | ROS 2 DDS / Vision | `hailo_bridge_node / foxglove_bridge / respeaker_vui_node` | Incompatibilità QoS Mismatch (Best-Effort vs Reliable) causante perdita totale di streaming video o messaggi di stato | 6 | 2 | 2 | **24** | `LOW` | `CLOSED` | [`docs/lessons/dev_and_deployment.md`](docs/lessons/dev_and_deployment.md) |
 | **FM-SIM-001** | System/DDS | `wsl2_network` | Perdita di pacchetti UDP e desincronizzazione della TF tree durante la simulazione Gazebo | 6 | 2 | 2 | **24** | `LOW` | `IN_PROGRESS` | [`docs/ecos/sim_wsl2_ecos.md`](docs/ecos/sim_wsl2_ecos.md) |
 | **FM-VUI-002** | VUI Audio | `respeaker_vui_node` | Distorsione acustica da clipping digitale per saturazione dell'ampiezza dei campioni PCM 16-bit | 5 | 2 | 2 | **20** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#peak-limiter`](docs/lessons/audio_vui_pipeline.md#peak-limiter) |
+| **FM-MOT-005** | Actuation/MotorDriver | `waveshare_motor_driver.py` | Inversione completa degli assi cinematici - avanti provoca rotazione, rotazione provoca traslazione (axes scrambled 90 gradi) | 10 | 1 | 2 | **20** | `REVISION_MANDATORY` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#sec24`](docs/lessons/actuation_motor_driver.md#sec24) |
 | **FM-ACT-005** | Hardware/Power | `waveshare_motor_driver` | Reset improvviso della scheda ESP32 (Brownout Microcontrollore) per picco di assorbimento in accelerazione | 9 | 1 | 2 | **18** | `REVISION_MANDATORY` | `OPEN` | [`docs/lessons/actuation_motor_driver.md`](docs/lessons/actuation_motor_driver.md) |
 | **FM-SYS-009** | System/DDS | `antigravity_localharness & memory_sentinel` | Picco di consumo RAM durante il reasoning dell'Agente con conseguente OOM Kill di processi ROS 2 critici | 9 | 1 | 2 | **18** | `REVISION_MANDATORY` | `IN_PROGRESS` | [`marcus_core_rules.md#1-memoria-ram-e-limite-host`](marcus_core_rules.md#1-memoria-ram-e-limite-host) |
 | **FM-VIS-001** | Vision | `oak_superpoint_odometry_node` | Crash per lettura Heap Out-Of-Bounds durante il parsing dei tensor di output dell'NPU Hailo | 8 | 1 | 2 | **16** | `LOW` | `CLOSED` | [`docs/lessons/vision_hailo_npu.md#memory-safety`](docs/lessons/vision_hailo_npu.md#memory-safety) |

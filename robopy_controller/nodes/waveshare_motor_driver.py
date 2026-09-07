@@ -34,8 +34,8 @@ class WaveshareMotorDriver(Node):
         
         self.declare_parameter('invert_left_motor', False)
         self.declare_parameter('invert_right_motor', False)
-        self.declare_parameter('invert_left_encoder', True)
-        self.declare_parameter('invert_right_encoder', True)
+        self.declare_parameter('invert_left_encoder', False)
+        self.declare_parameter('invert_right_encoder', False)
         self.declare_parameter('encoder_dead_zone', 2)        # ticks: ignore deltas <= this when both wheels below threshold (0 to disable tick dropping)
         self.declare_parameter('publish_tf', False)            # set False when another node (e.g. VIO) owns odom->base_link TF
         self.declare_parameter('odom_topic', '/odom_wheel')    # separate wheel odometry topic from VIO /odom
@@ -399,13 +399,14 @@ class WaveshareMotorDriver(Node):
         if self.invert_right_motor:
             duty_right = -duty_right
 
-        # Physical hardware mapping:
-        # Serial channel 'L' drives the Left wheel motor (mirrored mechanical mount, negative PWM = forward).
-        # Serial channel 'R' drives the Right wheel motor (positive PWM = forward).
+        # Physical hardware mapping (verified §24 actuation_motor_driver.md):
+        # Serial channel 'L' on ESP32 drives the physical RIGHT wheel motor.
+        # Serial channel 'R' on ESP32 drives the physical LEFT wheel motor.
+        # Therefore we SWAP: send duty_right to "L", duty_left to "R".
         cmd = {
             "T": 1,
-            "L": round(-duty_left, 4),
-            "R": round(duty_right, 4)
+            "L": round(duty_right, 4),
+            "R": round(duty_left, 4)
         }
         cmd_str = json.dumps(cmd, separators=(',', ':')) + "\n"
         
@@ -545,8 +546,9 @@ class WaveshareMotorDriver(Node):
 
     def process_encoder_feedback(self, left_ticks, right_ticks):
         """Calculates and publishes robot odometry and tf from encoder ticks.
-        Note: On the Waveshare ESP32 board, channel 'L' (odl) drives the physical Right motor
-        and channel 'R' (odr) drives the physical Left motor. We swap them.
+        Note: On the Waveshare ESP32 board, channel 'L' (odl) drives the physical RIGHT motor
+        and channel 'R' (odr) drives the physical LEFT motor. We swap them here.
+        The parameters left_ticks/right_ticks arrive as odl/odr from serial JSON.
         """
         current_time = self.get_clock().now().nanoseconds / 1e9
         dt = current_time - self.last_odom_time
@@ -557,11 +559,11 @@ class WaveshareMotorDriver(Node):
             self.last_odom_time = current_time
             return
             
-        # Delta ticks:
-        # odl is physical Left wheel encoder (counts negative when moving forward).
-        # odr is physical Right wheel encoder (counts positive when moving forward).
-        delta_ticks_left = left_ticks - self.prev_left_ticks
-        delta_ticks_right = right_ticks - self.prev_right_ticks
+        # Delta ticks from raw serial (odl, odr):
+        # SWAP: odl (left_ticks param) is physical RIGHT wheel encoder.
+        #       odr (right_ticks param) is physical LEFT wheel encoder.
+        delta_ticks_right = left_ticks - self.prev_left_ticks   # odl -> physical right
+        delta_ticks_left = right_ticks - self.prev_right_ticks  # odr -> physical left
         
         if abs(delta_ticks_right) > 0 or abs(delta_ticks_left) > 0:
             self.get_logger().info(f"[ENCODER_RAW] d_left={delta_ticks_left}, d_right={delta_ticks_right}", throttle_duration_sec=0.2)

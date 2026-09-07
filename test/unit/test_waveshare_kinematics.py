@@ -2,21 +2,19 @@
 """
 Unit Test - Waveshare Differential Drive Kinematics & Encoder Odometry Verification
 ===================================================================================
-Validates:
-1. cmd_vel forward (v > 0, w = 0):
-   - Left wheel target > 0 -> serial channel L receives negative duty (hardware mirrored).
-   - Right wheel target > 0 -> serial channel R receives positive duty.
-2. cmd_vel turn left (w > 0, CCW):
-   - Right wheel forward (+), Left wheel backward (-).
-   - Encoder feedback: odl < 0 (left forward) -> inverted to +, odr > 0 -> right forward.
-   - delta_theta > 0 (strictly CCW, conforming to REP-103).
-3. cmd_vel turn right (w < 0, CW):
-   - Right wheel backward (-), Left wheel forward (+).
-   - delta_theta < 0 (strictly CW, conforming to REP-103).
-4. Standstill jitter suppression:
-   - Jitter <= encoder_dead_zone produces zero delta.
-5. Watchdog stall reset:
-   - Watchdog stop resets cmd_active and prevents latched stall state.
+Validates the CHANNEL SWAP architecture (§24 actuation_motor_driver.md):
+  - Serial channel 'L' on ESP32 drives the physical RIGHT wheel motor.
+  - Serial channel 'R' on ESP32 drives the physical LEFT wheel motor.
+  - odl encoder corresponds to physical RIGHT wheel.
+  - odr encoder corresponds to physical LEFT wheel.
+  - invert_left_encoder = False, invert_right_encoder = False.
+
+Tests:
+1. cmd_vel forward (v > 0, w = 0): L and R same sign (both positive = both forward).
+2. cmd_vel turn left (w > 0, CCW): delta_theta > 0 per REP-103.
+3. cmd_vel turn right (w < 0, CW): delta_theta < 0 per REP-103.
+4. Standstill jitter suppression.
+5. Watchdog stall reset.
 """
 
 import sys
@@ -47,8 +45,8 @@ class DummyNode:
             'ticks_per_rev': 657,
             'invert_left_motor': False,
             'invert_right_motor': False,
-            'invert_left_encoder': True,
-            'invert_right_encoder': True,
+            'invert_left_encoder': False,   # §24: no inversion, channel swap handles polarity
+            'invert_right_encoder': False,  # §24: no inversion, channel swap handles polarity
             'encoder_dead_zone': 2,
             'publish_tf': False,
             'odom_topic': '/odom_wheel',
@@ -113,7 +111,7 @@ class TestWaveshareKinematics(unittest.TestCase):
         self.driver.serial_conn = MagicMock()
         self.driver.serial_conn.is_open = True
         self.sent_commands = []
-        
+
         def mock_write(b):
             line = b.decode('utf-8').strip()
             for part in line.split('\n'):
@@ -124,7 +122,7 @@ class TestWaveshareKinematics(unittest.TestCase):
                     except Exception:
                         pass
         self.driver.serial_conn.write = mock_write
-        
+
         # Reset odometry state
         self.driver.x = 0.0
         self.driver.y = 0.0
@@ -133,79 +131,78 @@ class TestWaveshareKinematics(unittest.TestCase):
         self.driver.prev_right_ticks = None
 
     def test_01_straight_forward_command(self):
-        """Moving straight forward must drive Left wheel (negative L) and Right wheel (positive R)."""
+        """Moving straight forward: with channel swap L=duty_right, R=duty_left.
+        For v>0, w=0: duty_left = duty_right > 0 -> L > 0, R > 0 (same sign = both wheels forward)."""
         msg = MagicMock()
         msg.linear.x = 0.20
         msg.angular.z = 0.0
-        
+
         self.driver.cmd_vel_callback(msg)
         self.assertGreater(len(self.sent_commands), 0)
         last_cmd = self.sent_commands[-1]
-        
-        # Channel L = -duty_left < 0 (drives left motor forward)
-        # Channel R = +duty_right > 0 (drives right motor forward)
-        self.assertLess(last_cmd['L'], 0.0, "Channel L must be negative to drive left wheel forward")
-        self.assertGreater(last_cmd['R'], 0.0, "Channel R must be positive to drive right wheel forward")
+
+        # Both channels must be positive (same direction = straight forward)
+        self.assertGreater(last_cmd['L'], 0.0, "Channel L (phys RIGHT motor) must be positive for forward")
+        self.assertGreater(last_cmd['R'], 0.0, "Channel R (phys LEFT motor) must be positive for forward")
+        # Equal magnitude for straight motion (no angular component)
+        self.assertAlmostEqual(abs(last_cmd['L']), abs(last_cmd['R']), places=2,
+            msg="Both channels must be equal magnitude for straight forward motion")
 
     def test_02_turn_left_command_and_encoder_polarity(self):
-        """Turn left (CCW, w > 0) must command Right wheel forward and Left wheel backward, and delta_theta > 0."""
+        """Turn left (CCW, w > 0): delta_theta > 0 per REP-103.
+        Kinematics: v_L < 0 (left back), v_R > 0 (right fwd).
+        Channel swap: L = duty_right > 0, R = duty_left < 0."""
         msg = MagicMock()
         msg.linear.x = 0.0
-        msg.angular.z = 0.50 # CCW
-        
+        msg.angular.z = 0.50  # CCW
+
         self.driver.cmd_vel_callback(msg)
         self.assertGreater(len(self.sent_commands), 0)
         last_cmd = self.sent_commands[-1]
-        
-        # When turning left (CCW):
-        # Left wheel moves backward -> duty_left < 0 -> channel L = -duty_left > 0
-        # Right wheel moves forward -> duty_right > 0 -> channel R = +duty_right > 0
-        self.assertGreater(last_cmd['L'], 0.0, "Channel L must be positive to drive left wheel backward")
-        self.assertGreater(last_cmd['R'], 0.0, "Channel R must be positive to drive right wheel forward")
-        
-        # Now simulate encoder feedback for turn left:
-        # Physical encoders count negative when moving forward, positive when moving backward.
-        # Turn left: Left wheel backward (odl increases), Right wheel forward (odr decreases).
-        self.driver.process_encoder_feedback(1000, 1000) # Baseline
-        self.driver.process_encoder_feedback(1050, 950)  # odl: +50 (backward), odr: -50 (forward)
-        
-        # With invert_left_encoder=True: delta_ticks_left = -50 (backward)
-        # With invert_right_encoder=True: delta_ticks_right = +50 (forward)
-        # delta_theta = (delta_s_right - delta_s_left) / W = (+s - (-s)) / W > 0
+
+        # L = duty_right > 0 (right wheel forward), R = duty_left < 0 (left wheel backward)
+        self.assertGreater(last_cmd['L'], 0.0, "Channel L (phys right) must be positive to spin right wheel fwd (turn left)")
+        self.assertLess(last_cmd['R'], 0.0, "Channel R (phys left) must be negative to spin left wheel bkd (turn left)")
+
+        # Encoder simulation after swap:
+        # Turn left: right wheel fwd -> odl increases; left wheel back -> odr decreases
+        # In process_encoder_feedback: delta_ticks_right = odl_delta, delta_ticks_left = odr_delta
+        # delta_s_right > 0, delta_s_left < 0 -> delta_theta = (d_right - d_left)/W > 0
+        self.driver.process_encoder_feedback(1000, 1000)  # baseline
+        self.driver.process_encoder_feedback(1050, 950)   # odl+50 (right fwd), odr-50 (left back)
+
         self.assertGreater(self.driver.theta, 0.0, "Integrated yaw must be positive (CCW) for turn left")
 
     def test_03_turn_right_command_and_encoder_polarity(self):
-        """Turn right (CW, w < 0) must command Right wheel backward and Left wheel forward, and delta_theta < 0."""
+        """Turn right (CW, w < 0): delta_theta < 0 per REP-103.
+        Kinematics: v_L > 0 (left fwd), v_R < 0 (right back).
+        Channel swap: L = duty_right < 0, R = duty_left > 0."""
         msg = MagicMock()
         msg.linear.x = 0.0
-        msg.angular.z = -0.50 # CW
-        
+        msg.angular.z = -0.50  # CW
+
         self.driver.cmd_vel_callback(msg)
         self.assertGreater(len(self.sent_commands), 0)
         last_cmd = self.sent_commands[-1]
-        
-        # When turning right (CW):
-        # Left wheel moves forward -> duty_left > 0 -> channel L = -duty_left < 0
-        # Right wheel moves backward -> duty_right < 0 -> channel R = +duty_right < 0
-        self.assertLess(last_cmd['L'], 0.0, "Channel L must be negative to drive left wheel forward")
-        self.assertLess(last_cmd['R'], 0.0, "Channel R must be negative to drive right wheel backward")
-        
-        # Simulate encoder feedback for turn right:
-        # Physical encoders count negative when moving forward, positive when moving backward.
-        # Turn right: Left wheel forward (odl decreases), Right wheel backward (odr increases).
-        self.driver.process_encoder_feedback(1000, 1000) # Baseline
-        self.driver.process_encoder_feedback(950, 1050)  # odl: -50 (forward), odr: +50 (backward)
-        
-        # With invert_left_encoder=True: delta_ticks_left = +50 (forward)
-        # With invert_right_encoder=True: delta_ticks_right = -50 (backward)
-        # delta_theta = (delta_s_right - delta_s_left) / W = (-s - (+s)) / W < 0
+
+        # L = duty_right < 0 (right wheel backward), R = duty_left > 0 (left wheel forward)
+        self.assertLess(last_cmd['L'], 0.0, "Channel L (phys right) must be negative to spin right wheel bkd (turn right)")
+        self.assertGreater(last_cmd['R'], 0.0, "Channel R (phys left) must be positive to spin left wheel fwd (turn right)")
+
+        # Encoder simulation after swap:
+        # Turn right: right wheel back -> odl decreases; left wheel fwd -> odr increases
+        # delta_ticks_right = odl_delta < 0, delta_ticks_left = odr_delta > 0
+        # delta_theta = (d_right - d_left)/W = (neg - pos)/W < 0
+        self.driver.process_encoder_feedback(1000, 1000)  # baseline
+        self.driver.process_encoder_feedback(950, 1050)   # odl-50 (right back), odr+50 (left fwd)
+
         self.assertLess(self.driver.theta, 0.0, "Integrated yaw must be negative (CW) for turn right")
 
     def test_04_standstill_jitter_suppression(self):
         """Electrical jitter <= encoder_dead_zone must not drift pose at standstill."""
         self.driver.process_encoder_feedback(1000, 1000)
         self.driver.motors_stopped = True
-        
+
         # Jitter of 1-2 ticks
         self.driver.process_encoder_feedback(1002, 1001)
         self.assertEqual(self.driver.theta, 0.0, "Standstill jitter must not drift theta")
@@ -216,11 +213,12 @@ class TestWaveshareKinematics(unittest.TestCase):
         self.driver.cmd_linear_x = 0.20
         self.driver.v_robot = 0.0
         self.driver.motors_stopped = False
-        self.driver.last_cmd_vel_time = time.time() - 1.0 # Expired
-        
+        self.driver.last_cmd_vel_time = time.time() - 1.0  # Expired watchdog
+
         self.driver.watchdog_callback()
         self.assertTrue(self.driver.motors_stopped)
         self.assertFalse(self.driver.is_stalled, "is_stalled must be cleared when motors are stopped")
 
 if __name__ == '__main__':
     unittest.main()
+

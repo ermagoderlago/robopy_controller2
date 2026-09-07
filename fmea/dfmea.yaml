@@ -5154,3 +5154,63 @@
       e suite test unitari
     rpn_old: 112
     rpn_new: 7
+- id: FM-MOT-005
+  subsystem: Actuation/MotorDriver
+  component: waveshare_motor_driver.py
+  function: Trasmissione corretta dei comandi di velocita differenziale alle ruote
+    fisiche SX e DX del robot tramite canali seriali L/R dell'ESP32
+  failure_mode: Inversione completa degli assi cinematici - avanti provoca rotazione,
+    rotazione provoca traslazione (axes scrambled 90 gradi)
+  potential_cause: 'Il canale seriale L dell ESP32 Waveshare pilota fisicamente la
+    ruota DESTRA (non sinistra). Il canale R pilota la ruota SINISTRA. L encoder odl
+    corrisponde alla ruota DESTRA, odr alla SINISTRA. Il driver non eseguiva lo swap
+    e negava erroneamente duty_left per il canale L, producendo una mappatura completamente
+    sbagliata: linear.x veniva interpretato come angular.z e viceversa.'
+  potential_effect: Il robot va avanti quando riceve angular.z, ruota quando riceve
+    linear.x. SLAM RTAB-Map accumula pose completamente errate, la mappa si deforma.
+    Loop closure ICP non riesce a correggere perche il prior odometrico e corrotto
+    fin dall inizio.
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-NAV-012
+  - FM-NAV-015
+  initial_scoring:
+    severity: 10
+    occurrence: 8
+    detection: 3
+    rpn: 240
+  prevention_controls: Diagnostic script seriale raw (diagnose_channel_mapping.py)
+    che testa ogni canale L/R singolarmente e misura quale encoder odl/odr risponde.
+    Unit test test_waveshare_kinematics.py che verifica il segno dei comandi e la
+    polarita dell odometria.
+  detection_controls: Test fisici con duty basso (0.15-0.25) per ogni canale separato.
+    Confronto delta encoder con direzione di rotazione visiva.
+  current_controls:
+    severity: 10
+    occurrence: 1
+    detection: 2
+    rpn: 20
+  residual_scoring:
+    severity: 10
+    occurrence: 1
+    detection: 2
+    rpn: 20
+  risk_level: REVISION_MANDATORY
+  mitigation_status: CLOSED
+  recommended_action: 'Applicare swap canali in send_speeds: L=duty_right, R=duty_left.
+    Applicare swap encoder in process_encoder_feedback: delta_right=odl_delta, delta_left=odr_delta.
+    Impostare invert_left_encoder=False e invert_right_encoder=False.'
+  verification_method: 5/5 test unitari pytest test_waveshare_kinematics.py passati.
+    Verifica fisica con duty 0.25 su Marcus confermata via encoder delta.
+  eco_ref: docs/ecos/actuation_ecos.md#ECO-2026-09-07-001
+  lesson_ref: docs/lessons/actuation_motor_driver.md#sec24
+  date_identified: '2026-09-06'
+  last_updated: '2026-09-07'
+  history:
+  - date: '2026-09-07'
+    change: Root cause identificata via diagnostic script seriale. Swap canali L/R
+      e swap encoder odl/odr implementati in waveshare_motor_driver.py. Unit tests
+      aggiornati e passati 5/5.
+    rpn_old: 240
+    rpn_new: 20
