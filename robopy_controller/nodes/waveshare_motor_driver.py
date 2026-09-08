@@ -602,20 +602,61 @@ class WaveshareMotorDriver(Node):
         if abs(delta_ticks_right) > 0 or abs(delta_ticks_left) > 0:
             self.get_logger().info(f"[ENCODER_RAW] d_left={delta_ticks_left}, d_right={delta_ticks_right}", throttle_duration_sec=0.2)
         
-        # --- ZERO-VELOCITY LOCK & JITTER SUPPRESSION ---
-        # When motors are stopped (watchdog engaged or cmd_vel == 0), suppress Hall boundary bouncing jitter.
-        # Check each wheel independently so one fluttering channel cannot bypass the suppression!
-        deadband = getattr(self, 'standstill_encoder_deadband', 8)
+        meters_per_tick = (2.0 * math.pi * self.wheel_radius) / self.ticks_per_rev
+        safe_dt = max(dt, 0.02)
+
+        # --- MULTI-TIER HARDWARE RUNAWAY & JITTER SUPPRESSION (FM-MOT-006) ---
+        # TIER 1: ABSOLUTE STANDSTILL ZERO-VELOCITY LOCK
+        # When motors are stopped (watchdog active or cmd_vel == 0), the robot is parked and unpowered.
+        # Spurious Hall transition oscillations (up to 6000 pulses/sec on unstable magnetic edge)
+        # MUST NEVER generate linear odometry or displace x, y coordinates!
         if self.motors_stopped:
-            if abs(delta_ticks_left) <= deadband:
+            delta_ticks_left = 0
+            delta_ticks_right = 0
+        else:
+            # TIER 2: PHYSICAL VELOCITY OUTLIER REJECTION (SPEC-01 §4, vmax = 0.40 m/s)
+            # Max possible ticks in safe_dt at 0.45 m/s physical ceiling:
+            max_allowed_ticks = int(math.ceil((0.45 * safe_dt) / meters_per_tick))
+            if abs(delta_ticks_left) > max_allowed_ticks:
+                self.get_logger().warn(
+                    f"⚠️ [ENCODER_GLITCH] Left ticks={delta_ticks_left} exceeded physical limit ({max_allowed_ticks} in {safe_dt:.3f}s). Discarding spike.",
+                    throttle_duration_sec=1.0
+                )
                 delta_ticks_left = 0
-            if abs(delta_ticks_right) <= deadband:
+            if abs(delta_ticks_right) > max_allowed_ticks:
+                self.get_logger().warn(
+                    f"⚠️ [ENCODER_GLITCH] Right ticks={delta_ticks_right} exceeded physical limit ({max_allowed_ticks} in {safe_dt:.3f}s). Discarding spike.",
+                    throttle_duration_sec=1.0
+                )
                 delta_ticks_right = 0
-        elif self.encoder_dead_zone > 0:
-            if abs(delta_ticks_left) <= self.encoder_dead_zone:
-                delta_ticks_left = 0
-            if abs(delta_ticks_right) <= self.encoder_dead_zone:
-                delta_ticks_right = 0
+
+            # TIER 3: DIFFERENTIAL KINEMATIC ASYMMETRY vs 42Hz IMU GYROSCOPE
+            # If one wheel reports fast movement while the other is stopped, differential kinematics
+            # dictates angular yaw rate w = (vR - vL) / W. If the IMU gyro confirms near-zero rotation (|w| < 0.2 rad/s),
+            # the single active wheel is experiencing electrical chatter/runaway.
+            v_l_est = (delta_ticks_left * meters_per_tick) / safe_dt
+            v_r_est = (delta_ticks_right * meters_per_tick) / safe_dt
+            diff_w_est = (v_r_est - v_l_est) / self.wheel_separation
+            if abs(self.oak_yaw_rate) < 0.20 and abs(diff_w_est) > 1.0:
+                if abs(delta_ticks_left) == 0 and abs(delta_ticks_right) > 10:
+                    self.get_logger().warn(
+                        f"⚠️ [ENCODER_ASYMMETRY] Right runaway suppressed (d_r={delta_ticks_right}, d_l=0, imu_w={self.oak_yaw_rate:+.2f}).",
+                        throttle_duration_sec=1.0
+                    )
+                    delta_ticks_right = 0
+                elif abs(delta_ticks_right) == 0 and abs(delta_ticks_left) > 10:
+                    self.get_logger().warn(
+                        f"⚠️ [ENCODER_ASYMMETRY] Left runaway suppressed (d_l={delta_ticks_left}, d_r=0, imu_w={self.oak_yaw_rate:+.2f}).",
+                        throttle_duration_sec=1.0
+                    )
+                    delta_ticks_left = 0
+
+            # TIER 4: Low-speed deadband
+            if self.encoder_dead_zone > 0:
+                if abs(delta_ticks_left) <= self.encoder_dead_zone:
+                    delta_ticks_left = 0
+                if abs(delta_ticks_right) <= self.encoder_dead_zone:
+                    delta_ticks_right = 0
             
         self.prev_left_ticks = left_ticks
         self.prev_right_ticks = right_ticks
@@ -629,13 +670,12 @@ class WaveshareMotorDriver(Node):
             if self.invert_left_encoder: delta_ticks_left = -delta_ticks_left
             if self.invert_right_encoder: delta_ticks_right = -delta_ticks_right
             
-            meters_per_tick = (2.0 * math.pi * self.wheel_radius) / self.ticks_per_rev
             delta_s_left = delta_ticks_left * meters_per_tick
             delta_s_right = delta_ticks_right * meters_per_tick
             
             # Linear translation is the average of both wheels (immune to differential angular lever)
-            delta_s = (delta_s_right + delta_s_left) / 2.0
-            v_robot = (delta_s / dt) if dt > 0.001 else 0.0
+            delta_s = (delta_s_right + delta_s_left) / 2.0 if not self.motors_stopped else 0.0
+            v_robot = (delta_s / dt) if (dt > 0.001 and not self.motors_stopped) else 0.0
         else:
             # OPEN-LOOP LINEAR FALLBACK: Trust cmd_linear_x
             v_robot = 0.0 if self.motors_stopped else self.cmd_linear_x

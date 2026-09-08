@@ -5354,3 +5354,53 @@
     change: Implementato tracking delle collisioni basato su IMU nel data miner
     rpn_old: 240
     rpn_new: 32
+- id: FM-MOT-006
+  subsystem: Actuation & Motion
+  component: waveshare_motor_driver
+  function: Stima robusta dell'odometria lineare da encoder senza drift a veicolo
+    fermo
+  failure_mode: Runaway ad alta frequenza dell'encoder a veicolo fermo (bouncing su
+    transizione magnetica Hall)
+  potential_cause: Posizionamento dell'asse motore esattamente sulla soglia di transizione
+    del sensore Hall; mancanza di isteresi hardware/trigger di Schmitt sull'ingresso
+    ESP32 che scatena oscillazioni a 6kHz
+  potential_effect: Odometria lineare impazzita a fermo (fino a -3.5 m/s fittizi),
+    corruzione immediata della mappa SLAM e allontanamento fantasma del robot
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-MOT-001
+  - FM-NAV-015
+  initial_scoring:
+    severity: 8
+    occurrence: 8
+    detection: 2
+    rpn: 128
+  prevention_controls: Standstill Zero-Velocity Lock deterministico in waveshare_motor_driver
+    (se motors_stopped==True, delta_s=0 e v_robot=0); Clamping fisico dei delta-tick
+    a max 0.45 m/s (SPEC-01 Red Zone); Filtro di asimmetria cinematica cross-correlato
+    con giroscopio OAK-D Lite 42Hz
+  detection_controls: Telemetria Foxglove odom vx vs cmd vx; warn log [ENCODER_GLITCH]
+    e [ENCODER_ASYMMETRY] nel driver
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Attivare Standstill Lock e filtri plausibilità su delta_s in
+    waveshare_motor_driver.py; mantenere use_encoder_for_linear protetto o consentire
+    fallback cmd_vel
+  verification_method: Telemetria Foxglove 'Velocità comandata vs reale' a robot fermo
+    (flatline a 0.0 m/s) e test unitario pytest test_encoder_standstill_lock.py
+  eco_ref: docs/ecos/actuation_ecos.md#ECO-2026-09-08-001
+  lesson_ref: docs/lessons/actuation_motor_driver.md#hall-standstill-jitter
+  date_identified: '2026-09-08'
+  last_updated: '2026-09-08'
+  history:
+  - date: '2026-09-08'
+    change: Implementato Standstill Zero-Velocity Lock a 4 livelli e filtro asimmetria
+      cinematica contro il runaway dell'encoder ESP32
+    rpn_old: 128
+    rpn_new: 8

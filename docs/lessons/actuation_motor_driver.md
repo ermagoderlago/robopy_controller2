@@ -270,3 +270,20 @@ Con JGB37-520B a 7RPM (riduzione ~143:1), **girare la ruota manualmente è impos
   2. **Introduzione Parametro `standstill_encoder_deadband`:** Parametro configurabile impostato di default a **`8` tick** ($\approx 2.5\text{ mm}$). Qualsiasi oscillazione di bordo o rumore elettrico inferiore a 8 tick a motori fermi viene completamente azzerata.
   3. **Zero-Velocity Lock Lineare:** Se i tick filtrati sono nulli, l'odometria impone $\Delta s = 0.0$ e $v = 0.0$, garantendo la perfetta immobilità della posa e della mappa SLAM durante le soste.
 
+---
+
+<a id="hall-standstill-jitter"></a>
+### 26. Runaway ad Alta Frequenza dell'Encoder a Veicolo Fermo e Multi-Tier Standstill Lock (FM-MOT-006)
+* **Sintomo Empirico (Foxglove & Log):**
+  - Con robot fisicamente immobile sul pavimento e comandi `/cmd_vel` nulli (`v=0, w=0`), il grafico Foxglove "Velocità comandata vs reale" mostrava improvvisamente una raffica continua di picchi negativi su `odom vx` tra **-0.5 m/s e -3.5 m/s** (`media_1788897266317.png`).
+  - Nei log di `waveshare_motor_driver.log`, `odl` (ruota sinistra) rimaneva immobile a `13957`, mentre `odr` (ruota destra) correva oltre `410,254` accumulando **~308 tick ogni 50 ms** (~6,000 pulse/sec).
+  - L'odometria lineare integrava $\Delta s \approx -0.035\text{ m}$ per ciclo, teletrasportando virtualmente il robot all'indietro a velocità folle e distruggendo la mappa SLAM 2D.
+* **Causa Radice Fisica:**
+  - Se il motore si arresta con il magnete permanente esattamente allineato sulla soglia di commutazione del sensore di Hall, la tensione di uscita rimane nello stato indeterminato (1.65V) in assenza di sufficiente isteresi di Schmitt o pull-up hardware aggressivo sull'ingresso GPIO ESP32.
+  - L'ingresso digitale dell'ESP32 commuta ad alta frequenza per rumore termico/elettrico, scatenando una pioggia ininterrotta di interrupt/conteggi PCNT a circa 6 kHz su un solo canale.
+* **Architettura di Protezione Multi-Tier:**
+  1. **Tier 1 (Absolute Standstill Zero-Velocity Lock):** Quando `motors_stopped == True` (motori disalimentati da watchdog 500ms o assenza di comando `/cmd_vel`), i delta tick sono incondizionatamente forzati a `0` e `delta_s = 0.0`, `v_robot = 0.0`. Nessun runaway o jitter hardware a fermo può alterare le coordinate $X, Y$ o la velocità odometrica.
+  2. **Tier 2 (Red-Zone Velocity Outlier Clamp):** In conformità a `SPEC-01` ($v_{max} = 0.40\text{ m/s}$), qualsiasi delta tick per ciclo che superi il limite fisico massimo di 0.45 m/s (~80 tick in 50ms) viene classificato come spike anomalo e scartato (`[ENCODER_GLITCH]`).
+  3. **Tier 3 (Kinematic Asymmetry Filter vs IMU Gyro 42Hz):** Un robot differenziale rigido non può muovere una ruota a 0.5 m/s mantenendo l'altra ferma senza ruotare a $\omega = (v_R - v_L)/W \approx 1.8\text{ rad/s}$ ($100^\circ/\text{s}$). Se il giroscopio OAK-D Lite misura $|\omega_{IMU}| < 0.2\text{ rad/s}$, il burst asimmetrico a ruota singola viene identificato come glitch elettrico e neutralizzato (`[ENCODER_ASYMMETRY]`).
+
+
