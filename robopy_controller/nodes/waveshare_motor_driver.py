@@ -138,6 +138,7 @@ class WaveshareMotorDriver(Node):
         self.last_imu_time = None
         self.declare_parameter('use_imu_for_rotation', True)
         self.declare_parameter('invert_imu_yaw', True) # Inverts OAK-D Lite IMU Z gyro to match REP-103 (+Z = Left)
+        self.declare_parameter('use_encoder_for_linear', True) # Physical wheel encoders for forward/backward translation
         
         # --- Serial Connection & Threads ---
         self.serial_lock = threading.Lock()
@@ -612,30 +613,9 @@ class WaveshareMotorDriver(Node):
         self.prev_right_ticks = right_ticks
         self.last_odom_time = current_time
         
-        # Determine velocity: use cmd_vel ideal kinematics if configured, else use encoders
-        if getattr(self, 'use_cmd_vel_odometry', True):
-            # OPEN-LOOP ODOMETRY: Trust the commands for translation
-            if self.motors_stopped:
-                v_robot = 0.0
-            else:
-                v_robot = self.cmd_linear_x
-                
-            delta_s = v_robot * dt
-            
-            # Rotation handling
-            if getattr(self, 'use_imu_for_rotation', True):
-                # theta is continuously updated in real-time by oak_imu_callback at 42 Hz!
-                w_robot = self.oak_yaw_rate
-                delta_theta = 0.0
-            else:
-                if self.motors_stopped:
-                    w_robot = 0.0
-                else:
-                    w_robot = self.cmd_angular_z
-                delta_theta = w_robot * dt
-                self.theta += delta_theta
-        else:
-            # CLOSED-LOOP ODOMETRY: Use raw physical ticks (can cause SLAM destruction if hardware is noisy)
+        # 1. LINEAR TRANSLATION: Compute from physical wheel encoders or fallback to cmd_vel
+        if getattr(self, 'use_encoder_for_linear', True):
+            # CLOSED-LOOP LINEAR: Use physical wheel encoder ticks for real ground truth distance
             if abs(delta_ticks_left) > self.ticks_per_rev * 5: delta_ticks_left = 0
             if abs(delta_ticks_right) > self.ticks_per_rev * 5: delta_ticks_right = 0
             if self.invert_left_encoder: delta_ticks_left = -delta_ticks_left
@@ -645,21 +625,30 @@ class WaveshareMotorDriver(Node):
             delta_s_left = delta_ticks_left * meters_per_tick
             delta_s_right = delta_ticks_right * meters_per_tick
             
+            # Linear translation is the average of both wheels (immune to differential angular lever)
             delta_s = (delta_s_right + delta_s_left) / 2.0
+            v_robot = (delta_s / dt) if dt > 0.001 else 0.0
+        else:
+            # OPEN-LOOP LINEAR FALLBACK: Trust cmd_linear_x
+            v_robot = 0.0 if self.motors_stopped else self.cmd_linear_x
+            delta_s = v_robot * dt
+
+        # 2. ANGULAR ORIENTATION: Continuous 42 Hz IMU Giroscopio Z (OAK-D Lite)
+        if getattr(self, 'use_imu_for_rotation', True):
+            # theta is continuously updated in real-time by oak_imu_callback at 42 Hz!
+            w_robot = self.oak_yaw_rate
+        else:
+            # Fallback to wheel encoder differential
             delta_theta = (delta_s_right - delta_s_left) / self.rotational_wheel_separation
             self.theta += delta_theta
-            
-            v_robot = 0.0
-            w_robot = 0.0
-            if dt > 0.001:
-                v_robot = delta_s / dt
-                w_robot = delta_theta / dt
+            w_robot = (delta_theta / dt) if dt > 0.001 else 0.0
 
         if abs(delta_s) > 1e-5 or abs(w_robot) > 1e-3:
-            source = "CMD_VEL+IMU" if (getattr(self, 'use_cmd_vel_odometry', True) and getattr(self, 'use_imu_for_rotation', True)) else ("CMD_VEL" if getattr(self, 'use_cmd_vel_odometry', True) else "ENCODER")
-            self.get_logger().info(f"[ODOM_CALC] src={source}, d_s={delta_s:.4f}, th={math.degrees(self.theta):+.2f}deg, w={math.degrees(w_robot):+.2f}deg/s", throttle_duration_sec=0.2)
+            src_lin = "ENCODER" if getattr(self, 'use_encoder_for_linear', True) else "CMD_VEL"
+            src_rot = "IMU_42Hz" if getattr(self, 'use_imu_for_rotation', True) else "ENCODER"
+            self.get_logger().info(f"[ODOM_CALC] lin={src_lin}(d_s={delta_s:.4f}), rot={src_rot}(th={math.degrees(self.theta):+.2f}deg, w={math.degrees(w_robot):+.2f}deg/s)", throttle_duration_sec=0.2)
         
-        # Integrate linear translation using current heading
+        # Integrate linear translation using current IMU heading
         self.x += delta_s * math.cos(self.theta)
         self.y += delta_s * math.sin(self.theta)
         
