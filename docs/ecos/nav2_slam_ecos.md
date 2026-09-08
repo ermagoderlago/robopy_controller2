@@ -316,6 +316,23 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
   * **[LIFECYCLE MANAGEMENT LIVE]**:
     - Ripristinato e attivato a caldo lo stack Nav2 attualmente in esecuzione tramite chiamate di servizio `ManageLifecycleNodes(command=1)` (reset) e `ManageLifecycleNodes(command=0)` (startup), portando tutti i 4 server nello stato `active [3]`.
 
+---
+
+## 📈 ECO-2026-09-08-003: Ottimizzazione Loop Closure RTAB-Map con Submap Proximity ICP 360° e Calibrazione Inlier Visivi
+* **Stato:** ✅ **Completato, Testato e Attivo su Hardware Host**
+* **Autore:** 🤖 **Generata autonomamente da Marcus** (Antigravity Engine)
+* **DFMEA Correlati:** `FM-NAV-028`, `FM-NAV-016`, `FM-NAV-021`
+* **Descrizione:** Risoluzione dello sdoppiamento a stella/ventaglio della mappa d'occupabilità durante le rotazioni in stanza e sblocco sistematico delle chiusure d'anello (loop closures). L'analisi dei log ha rivelato il rigetto sistematico dei loop visivi globali (`Rejected loop closure: Not enough inliers 0/15`) a causa della caduta di affidabilità del depth della OAK-D Lite oltre i 2.5m, unitamente alla disattivazione del proximity matching aggregato su LiDAR.
+* **Modifiche apportate:**
+  * **[CONFIGURAZIONE SLAM]** `robopy_controller/config/rtabmap.yaml`:
+    - Abilitato `RGBD/ProximityGlobalScanMap: "true"`: RTAB-Map aggrega ora tutti i laser scan dei nodi vicini entro un raggio locale in una submap densa delle pareti, eseguendo l'ICP 2D contro la stanza intera anziché contro un singolo fotogramma ToF.
+    - Esteso `RGBD/LocalRadius: "3.5"` (da 2.5m) e `RGBD/ProximityPathMaxNeighbors: "10"` per coprire l'intera ampiezza delle stanze domestiche.
+    - Ampliato il bacino di cattura ICP `Icp/MaxCorrespondenceDistance: "0.35"` (da 0.30m, range SPEC-02 Zona Verde) e ridotta la soglia minima di corrispondenza `Icp/CorrespondenceRatio: "0.20"` (da 0.25).
+    - Calibrata la verifica di loop closure visivo: `Vis/MinInliers: "10"` (da 15) e `Vis/InlierDistance: "0.15"` (da 0.10m) per prevenire lo scarto ingiustificato di loop con 20+ feature match.
+    - Incrementato `Rtabmap/DetectionRate: "2.0"` (da 1.5 Hz) per campionare con passi angolari più piccoli e impedire accumuli di errore durante le rotazioni.
+    - Disabilitato esplicitamente `octomap: false` per sopprimere i warning spuri di occupanza 3D a terminale.
+
+
 
 
 

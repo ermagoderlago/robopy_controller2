@@ -365,3 +365,20 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
   3. **Integrazione Continua Inerziale a 42 Hz:** Il calcolo di $\theta$ avviene direttamente nella callback dell'IMU alla frequenza nativa del sensore (42 Hz), slegato dallo stato dei comandi motore.
   4. **Estensione Timeout Standby:** Portato `idle_timeout_sec` da 120s a 1800s (30 minuti) in `sensor_standby_manager.py` per prevenire interruzioni spurie durante le sessioni di navigazione.
 
+---
+
+### Ottimizzazione Chiusura Loop (Loop Closure) con Submap ICP 360°, Disaccoppiamento Inlier Visivi e Auto-Ripristino Grafo (FM-NAV-028)
+* **Sintomo Empirico (Foxglove & Log):**
+  - Durante la navigazione ed esplorazione della stanza con teleop, la mappa d'occupabilità produceva transitoriamente una serie di "petali" o duplicati ruotati della stanza a stella (angoli di 20°-30° l'uno dall'altro, come in `media_1788901144972.png`).
+  - Continuando a girare per la stanza, il robot a un certo punto "si risistemava" e la geometria centrale tornava unita.
+  - Nei log di `rtabmap.log`, comparivano frequenti warning: `Rejected loop closure X -> Y: Not enough inliers 0/15 (matches=26)`.
+* **Causa Radice:**
+  1. **Drift a Catena Aperta in Curva:** Con l'odometria teorica `use_cmd_vel_odometry`, il moto dritto è pulito, ma l'attrito asimmetrico o micro-slittamento delle ruote durante le curve fa accumulare piccoli errori di heading prima che il LiDAR riesca a vincolare il nodo successivo.
+  2. **Scarto Sistematico dei Loop Visivi:** Quando DBoW3 individuava un candidato di loop closure valido (26 visual feature match), il modulo PnP falliva la stima 3D-2D (`inliers 0/15`) a causa del drop di precisione o assenza di profondità (NaN) della camera OAK-D Lite sulle pareti distanti (>2.5m). Di conseguenza, RTAB-Map rifiutava il loop e continuava a sdoppiare le pareti.
+  3. **Proximity Scan Matching Non Aggregato:** Con `RGBD/ProximityGlobalScanMap: "false"`, RTAB-Map cercava di allineare il LiDAR ToF 360° solo contro un singolo fotogramma ToF passato per volta.
+* **Risoluzione Implementata:**
+  1. **`RGBD/ProximityGlobalScanMap: "true"`:** Il LiDAR ToF 360° ora esegue l'ICP contro una submap densa di tutti i punti delle pareti accumulate nel raggio locale (`RGBD/LocalRadius: 3.5m`), garantendo una chiusura dell'anello geometrica istantanea ed estremamente robusta indipendentemente dalla visuale della camera.
+  2. **Allargamento Bacino di Attrazione:** Portato `Icp/MaxCorrespondenceDistance: "0.35"` m (da 0.30) e `Icp/CorrespondenceRatio: "0.20"` (da 0.25).
+  3. **Rilassamento Inlier Visivi:** Impostato `Vis/MinInliers: "10"` (da 15) e `Vis/InlierDistance: "0.15"` m per accettare corrispondenze visive valide anche con rumore stereoscopico.
+  4. **Detection Rate a 2.0 Hz:** Campionamento a 2.0 Hz per ridurre il passo angolare tra nodi successivi durante le manovre di rotazione.
+

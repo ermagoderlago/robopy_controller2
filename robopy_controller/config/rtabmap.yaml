@@ -10,6 +10,7 @@ rtabmap:
     subscribe_depth: true
     subscribe_scan: true         # Abilitato RPLIDAR C1 360° (/scan)
     subscribe_odom_info: false   # VIO non espone odom_info
+    octomap: false               # Disabilita OctoMap 3D (No STVL / No 3D Octomap su Pi 5)
 
     # Sincronizzazione
     approx_sync: true
@@ -27,13 +28,14 @@ rtabmap:
     # Timing e performance (RPi5 4GB)
     Rtabmap/TimeThr: "0"
     Rtabmap/MemoryThr: "300"
-    Rtabmap/DetectionRate: "1.5"  # 1.5 Hz — bilanciamento qualità/CPU su Pi 5
+    Rtabmap/DetectionRate: "2.0"  # 2.0 Hz — campionamento più fitto per curve stabili
 
     # RGBD
     RGBD/ProximityBySpace: "true"
     RGBD/ProximityAngle: "360"     # Abilita proximity loop a 360° con LiDAR indipendentemente dall'orientamento
-    RGBD/LocalRadius: "2.5"        # Raggio ricerca prossimità 2.5m per ambienti indoor
-    RGBD/ProximityPathMaxNeighbors: "5"
+    RGBD/LocalRadius: "3.5"        # Raggio ricerca prossimità esteso a 3.5m per coprire l'intera stanza
+    RGBD/ProximityGlobalScanMap: "true" # Match ICP contro la submap locale aggregata (massima stabilità 2D LiDAR)
+    RGBD/ProximityPathMaxNeighbors: "10"
     RGBD/ProximityMaxGraphDepth: "0"
     RGBD/AngularUpdate: "0.15"     # ~8.6° di rotazione minima (ammorbidisce inserimento nodi e previene jitter TF)
     RGBD/LinearUpdate: "0.15"      # 15cm di traslazione minima
@@ -67,7 +69,8 @@ rtabmap:
     Kp/DetectorStrategy: "8"      # 8 = ORB / FAST (DBoW3 nativo C++)
     Kp/RoiRatios: "0.0 0.0 0.10 0.0" # Taglia il 10% inferiore dell'immagine (evita falsi match su riflessi/texture pavimento)
     Vis/FeatureType: "6"          # GFTT/BRIEF — veloce su RPi5
-    Vis/MinInliers: "15"          # Almeno 15 match 3D stabili per convalidare lo spostamento
+    Vis/MinInliers: "10"          # Calibrato per OAK-D Lite depth range (evita scarto spurio loop validi)
+    Vis/InlierDistance: "0.15"    # Tolleranza rumore stereoscopico depth
     Vis/PnPReprojError: "2.5"     # Tolleranza riproiezione PnP rigida contro aliasing percettivo
     Vis/CorType: "0"              # Features nativo C++
     Rtabmap/LoopThr: "0.20"       # Soglia di similarità innalzata a 0.20 (previene falsi loop in corridoi simmetrici)
@@ -80,8 +83,8 @@ rtabmap:
     Icp/Strategy: "0"            # 0 = Point-to-Point 2D standard veloce
     Icp/PointToPlane: "false"    # Point-to-point per scan 2D planare senza normali
     Icp/VoxelSize: "0.03"        # 3cm voxel filtering per match laser accurato
-    Icp/MaxCorrespondenceDistance: "0.30" # 30cm bacino di cattura ICP per correggere la deriva del VIO
-    Icp/CorrespondenceRatio: "0.25"       # Almeno il 25% di punti laser allineati per accettare la posa
+    Icp/MaxCorrespondenceDistance: "0.35" # 35cm bacino di cattura ICP per correggere l'accumulo in rotazione
+    Icp/CorrespondenceRatio: "0.20"       # Almeno il 20% di punti laser allineati per accettare la posa
     Icp/MaxTranslation: "0.50"   # Tolleranza correzione traslazione fino a 50cm
     Icp/MaxRotation: "0.78"      # Tolleranza correzione rotazione fino a 45° (~0.78 rad)
     Icp/Iterations: "40"

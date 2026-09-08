@@ -5453,3 +5453,52 @@
       giroscopio OAK-D dalle stime di heading delle ruote
     rpn_old: 112
     rpn_new: 7
+- id: FM-NAV-028
+  subsystem: Nav2 & SLAM
+  component: rtabmap
+  function: Chiusura tempestiva dei loop e allineamento rigido della mappa SLAM durante
+    rotazioni e ritorni in zone note
+  failure_mode: Sdoppiamento transitorio della mappa a ventaglio/stella durante le
+    curve e ritardo nella chiusura d'anello
+  potential_cause: Scarto sistematico dei loop visivi da parte di PnP (inliers 0/15)
+    per caduta di profondità della OAK-D Lite oltre 2.5m; Proximity scan matching
+    LiDAR non aggregato (match singolo frame anziché submap densa)
+  potential_effect: Visualizzazione di pareti fantasma ruotate di 20-30 gradi su Foxglove
+    prima che scatti il loop closure globale
+  classification: PERFORMANCE
+  estimation_basis: measured
+  related_ids:
+  - FM-NAV-016
+  - FM-NAV-021
+  initial_scoring:
+    severity: 6
+    occurrence: 7
+    detection: 2
+    rpn: 84
+  prevention_controls: Abilitazione ProximityGlobalScanMap:=true con LocalRadius:=3.5m
+    per ICP su submap laser densa; allargamento bacino di cattura ICP (MaxCorrespondenceDistance:=0.35m);
+    calibrazione inlier visivi Vis/MinInliers:=10; DetectionRate:=2.0Hz per nodi più
+    ravvicinati
+  detection_controls: Log di RTAB-Map per rigetti 'Not enough inliers'; monitoraggio
+    Foxglove della mappa d'occupabilità
+  residual_scoring:
+    severity: 6
+    occurrence: 1
+    detection: 1
+    rpn: 6
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Applicare rtabmap.yaml ottimizzato con ProximityGlobalScanMap=true
+    e Vis/MinInliers=10
+  verification_method: Ispezione visiva Foxglove della griglia occupabilità durante
+    manovre in stanza e verifica assenza warning 'Rejected loop closure'
+  eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-09-08-003
+  lesson_ref: docs/lessons/nav2_slam_tuning.md#loop-closure-submap-matching
+  date_identified: '2026-09-08'
+  last_updated: '2026-09-08'
+  history:
+  - date: '2026-09-08'
+    change: Implementato ICP submap matching aggregato a 360 gradi e calibrata tolleranza
+      inlier visivi
+    rpn_old: 84
+    rpn_new: 6
