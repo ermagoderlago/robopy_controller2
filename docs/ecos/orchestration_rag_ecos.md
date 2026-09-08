@@ -185,3 +185,25 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
   * Integrazione della memoria autobiografica in MAG (`mag_database.db`) e nel diario di bordo (`evolution_journal.md`).
 * **Esito Validazione:** 23/23 test superati con successo in `tests/test_robot_documentation_and_dialogue.py` e `tests/test_antigravity_evolution_suite.py`.
 
+---
+
+## 📈 ECO-2026-09-07-MARCUS-001: Project Autopoiesis - Data Mining con Idle Gating, Daily Focus Autonomo e Pipeline Multi-Modello (Pro Orchestrator + Flash Coder)
+* **Autore:** 🤖 **Generata autonomamente da Marcus** (Antigravity Autonomous Evolution Engine)
+* **Data Creazione:** 2026-09-07 16:00:00
+* **Sottosistema:** `AI/Cognitive & System/Evolution`
+* **Stato:** ✅ **Completato e Validato in Sandbox** (Nessuna forzatura: 100% verificato)
+* **Descrizione:** Implementazione del nucleo di auto-miglioramento continuo misurato (Project Autopoiesis):
+  1. `MarcusDataMiner` per raccolta dati telemetrici e diagnostici a 0.1 Hz con idle gating mandatorio (sospensione totale a navigazione spenta e robot fermo).
+  2. Persistenza su SSD in formato SQLite WAL con batch flushing ogni 10 minuti (60 campioni) per evitare usura flash e consumo di RAM.
+  3. Selezione autonoma quotidiana del "Tema del Giorno" in `CuriosityEvolutionEngine` e `NightlyDreamService` che incrocia colli di bottiglia telemetrici sul campo con i massimi RPN da `dfmea.yaml`.
+  4. Pipeline multi-modello: `Gemini 3.1 Pro` per l'orchestrazione architetturale e scomposizione in micro-task; `Gemini 3.8 Flash` per la scrittura e validazione veloce del codice.
+  5. Canale di notifica persistente su file `docs/evolution/daily_focus_notifications.md` e topic ROS 2 `/robot_ai/notifications` (disaccoppiato da Home Assistant).
+* **Modifiche apportate:**
+  * Creazione di `robopy_controller/robot_ai/services/marcus_data_miner.py` e relativo nodo ROS 2 `marcus_data_miner_node.py`.
+  * Aggiornamento di `curiosity_evolution_engine.py` con `select_daily_focus_theme()` e `notify_daily_focus()`.
+  * Aggiornamento di `nightly_dream_service.py` per invocare la selezione autonoma del tema notturno.
+  * Aggiornamento di `antigravity_agent_service.py` con ruoli differenziati (`ORCHESTRATOR_GEMINI_MODELS` = `gemini-3.1-pro`, `CODER_GEMINI_MODELS` = `gemini-3.8-flash`) e metodo `plan_evolution_task_autonomous()`.
+  * Registrazione di `FM-EVO-001` in `fmea/dfmea.yaml` e ricalcolo report FMEA.
+  * Creazione delle suite di test `tests/test_marcus_data_miner.py` e `tests/test_autonomous_evolution.py`.
+* **Esito Validazione:** 8/8 test unitari superati con successo in ambiente pytest. Consumo RAM rigorosamente delimitato e zero scritture a robot fermo.
+

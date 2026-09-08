@@ -109,10 +109,10 @@ nohup ros2 run robopy_controller waveshare_motor_driver --ros-args \
     -p invert_left_motor:=False \
     -p invert_right_motor:=False \
     -p invert_left_encoder:=False \
-    -p invert_right_encoder:=False \
+    -p invert_right_encoder:=True \
     -p encoder_dead_zone:=2 \
-    -p publish_tf:=False \
-    -p odom_topic:=/odom_wheel \
+    -p publish_tf:=True \
+    -p odom_topic:=/odom \
     > /home/robopy/robopy/logs/waveshare_motor_driver.log 2>&1 &
 
 
@@ -163,10 +163,11 @@ echo "👁️ Starting FastFlow C++ VIO Node..."
 > /home/robopy/robopy/logs/fast_flow_vo.log
 nohup taskset -c 2,3 ros2 run robopy_controller fast_flow_vo_cpp --ros-args \
     -p camera_fps:=12.0 \
-    -p publish_tf:=true \
+    -p publish_tf:=false \
     -p odom_frame:=odom \
     -p base_frame:=base_link \
     -p camera_frame:=camera_optical_frame \
+    --remap odom:=/odom_vio \
     > /home/robopy/robopy/logs/fast_flow_vo.log 2>&1 &
 sleep 3
 

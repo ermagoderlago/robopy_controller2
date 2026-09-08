@@ -211,5 +211,22 @@ L'architettura TRINITY integra i tre paradigmi di memoria e contesto operando a 
   5. **Memoria Autobiografica Persistente (MAG & Diario):**
      - Ogni skill creata o ciclo evolutivo viene automaticamente archiviato in `mag_database.db` (`episodes` e `semantic_facts`) e nel diario `docs/evolution/evolution_journal.md`, consentendo a Marcus di ricordare e raccontare con continuità identitaria la propria crescita nel tempo.
 
+---
 
+## 🧬 Project Autopoiesis: Data Mining Misurato con Idle Gating e Pipeline Multi-Modello (FM-EVO-001)
 
+* **Contesto:** Progettazione del sistema di auto-miglioramento continuo in piena autonomia per Marcus.
+* **Principio Ingegneristico Cardine:** *"Ciò che non si misura non si ha sotto controllo"*. Il miglioramento continuo non può basarsi su mere allucinazioni o ipotesi teoriche, ma deve fondarsi su evidenze telemetriche oggettive raccolte durante l'attività sul campo.
+* **Regola Inviolabile dell'Idle Gating (FM-EVO-001):**
+  - **Problema:** Campionare telemetria continuamente anche quando il robot è fermo al dock o con navigazione spenta produce runaway I/O, usura inutile dell'SSD NVMe e spreco di cicli CPU su Raspberry Pi 5.
+  - **Soluzione Implementata (`MarcusDataMiner`):**
+    - Il nodo controlla congiuntamente lo stato delle missioni Nav2 (`/navigate_to_pose/_action/status`) e la cinematica reale (`/cmd_vel`, `/odometry/filtered`).
+    - **A navigazione spenta e robot fermo, la raccolta dati è COMPLETAMENTE SOSPESA** (`is_idle() == True` -> skip cycle a 0 Hz).
+    - Quando il robot naviga o è in movimento, campiona a 0.1 Hz (ogni 10s) cross-track error, jitter angolare, recovery count e risorse RAM/CPU.
+    - Buffer limitato a 60 campioni (10 minuti di moto effettivo) e batch flush su SSD in un'unica transazione SQLite WAL (`PRAGMA synchronous = NORMAL`).
+* **Selezione Autonoma Quotidiana ("Tema del Giorno"):**
+  - Ogni notte alle 03:00 (durante `NightlyDreamService`), `CuriosityEvolutionEngine.select_daily_focus_theme()` incrocia i colli di bottiglia telemetrici reali rilevati sul campo con i massimi RPN aperti nel database FMEA (`dfmea.yaml`).
+  - La decisione viene notificata su `docs/evolution/daily_focus_notifications.md` e sul topic `/robot_ai/notifications`, senza dipendenze instabili verso Home Assistant.
+* **Specializzazione dei Ruoli Multi-Modello:**
+  - **Orchestratore (Gemini 3.1 Pro):** Si attiva di notte per sviscerare a fondo la causa radice, consultare le schede tecniche SPEC e scomporre il lavoro in micro-task (max 50-100 righe di codice).
+  - **Coder (Gemini 3.8 Flash):** Riceve i micro-task ed esegue la scrittura del codice, la compilazione e la validazione in Sandbox AST/Pytest ad altissima velocità e con consumo minimo di token.

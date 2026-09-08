@@ -31,6 +31,7 @@ rtabmap:
     subscribe_rgb: true
     subscribe_odom: true
     subscribe_features: true
+    subscribe_scan: true
     approx_sync: true
     approx_sync_max_interval: 0.20
     queue_size: 20
@@ -58,11 +59,16 @@ rtabmap:
     Vis/CorGuessWinSize: "40"        # Aumentato da 30
     Vis/Iterations: "800"            # Ridotto da 1000 (più veloce)
     
-    # ============ ICP (RILASSATO) ============
-    Icp/MaxTranslation: "0.4"        # Aumentato da 0.3
-    Icp/MaxRotation: "0.4"           # Aumentato da 0.3
-    
-    # ============ LOOP CLOSURE ============
+    # ============ ICP E LIDAR CONFIDENCE ============
+    Icp/MaxTranslation: "0.4"
+    Icp/MaxRotation: "0.4"
+    Icp/VoxelSize: "0.05"
+    Icp/MaxCorrespondenceDistance: "0.25"
+    Icp/PointToPlane: "true"
+    Icp/PointToPlaneK: "5"
+    RGBD/ProximityBySpace: "true"
+    RGBD/ProximityAngle: "360.0"
+    Reg/Strategy: "1"  # 1=ICP (USA IL LASER COME RIFERIMENTO PRIMARIO)
     RGBD/ProximityPathMaxNeighbors: "8"   # Aumentato da 5
     RGBD/LocalRadius: "0.8"               # Aumentato da 0.5
     
@@ -80,7 +86,4 @@ rtabmap:
     Grid/RangeMin: "0.1"
     Grid/CellSize: "0.02"            # Più piccolo per risoluzione maggiore
 
-
-    Reg/Strategy: "1"  # Viso + ICP per 3D
-    Icp/PointToPlane: "true"
     RGBD/OptimizeMaxError: "2.0"  # Più tollerante per 3D

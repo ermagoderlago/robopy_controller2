@@ -1,5 +1,5 @@
 # 📊 Report Esecutivo DFMEA - Marcus AI Robot Platform
-**Data Generazione:** 2026-09-07 11:50:02  
+**Data Generazione:** 2026-09-08 21:24:46  
 **Metodologia:** AIAG-VDA FMEA Standard con Regola Override Severità ($S \ge 9 \implies$ REVISION_MANDATORY)
 
 ---
@@ -8,8 +8,8 @@
 
 | Metrica | Valore | Note / Impatto |
 | :--- | :---: | :--- |
-| **Totale Modalità di Guasto (FM)** | **114** | Copertura integrata dei sottosistemi Marcus |
-| **🟢 Risk Level LOW** | **81** | $RPN_{res} \le 50$ (Sotto controllo) |
+| **Totale Modalità di Guasto (FM)** | **116** | Copertura integrata dei sottosistemi Marcus |
+| **🟢 Risk Level LOW** | **83** | $RPN_{res} \le 50$ (Sotto controllo) |
 | **🟡 Risk Level MEDIUM** | **7** | $51 \le RPN_{res} \le 199$ (Monitoraggio attivo) |
 | **🟠 Risk Level HIGH** | **2** | $200 \le RPN_{res} \le 349$ (Mitigazione obbligatoria) |
 | **🔴 Risk Level CRITICAL** | **0** | $RPN_{res} \ge 350$ (Blocco rilasci) |
@@ -20,7 +20,7 @@
 - **Nav2:** 12 failure modes
 - **VUI Audio:** 21 failure modes
 - **Vision:** 2 failure modes
-- **Hardware/Power:** 9 failure modes
+- **Hardware/Power:** 10 failure modes
 - **ESP32:** 1 failure modes
 - **AI/LangGraph:** 7 failure modes
 - **System/Compute:** 2 failure modes
@@ -51,6 +51,7 @@
 - **Chassis & Motion:** 1 failure modes
 - **Hardware/Power & Sensors:** 1 failure modes
 - **Actuation/MotorDriver:** 1 failure modes
+- **AI/Evolution:** 1 failure modes
 
 ---
 
@@ -121,6 +122,7 @@
 | **FM-NAV-010** | Navigation/Vision | `nomad_navigator` | Conflitto TF odom->base_link, saturazione CPU/DDS e stallo della traiettoria visiva | 8 | 2 | 2 | **32** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#nomad-visual-navigation`](docs/lessons/nav2_slam_tuning.md#nomad-visual-navigation) |
 | **FM-NAV-015** | Nav2 | `fast_flow_vo_cpp` | Avvelenamento permanente del fattore di scala wheel_scale_ indotto da wheel slip durante transizioni di superficie | 8 | 2 | 2 | **32** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#wheel-slip-gating`](docs/lessons/nav2_slam_tuning.md#wheel-slip-gating) |
 | **FM-NAV-019** | Nav2 | `nav2_bt_navigator` | Collisione contro ostacoli laterali o posteriori durante le manovre di recupero (Recovery Behaviors) | 8 | 2 | 2 | **32** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#safe-recovery`](docs/lessons/nav2_slam_tuning.md#safe-recovery) |
+| **FM-MOT-005** | Hardware/Power | `imu_bridge_node` | Collisione fisica del robot non rilevata dai sensori LiDAR/Visione | 8 | 2 | 2 | **32** | `LOW` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md`](docs/lessons/actuation_motor_driver.md) |
 | **FM-NAV-008** | Nav2 | `local_planner_mppi` | Urti sistematici o micro-oscillazioni della traiettoria per incompatibilità parametrica di lungo termine | 5 | 3 | 2 | **30** | `LOW` | `COMPLETED` | [`docs/lessons/telemetry_and_autotuning.md`](docs/lessons/telemetry_and_autotuning.md) |
 | **FM-NOM-003** | Navigation/NoMaD | `nomad_reactive_pipeline_node` | MLP single-step produce waypoint meno espressivi del DDIM 4-step con curvatura insufficiente in corridoi stretti | 5 | 3 | 2 | **30** | `LOW` | `PLANNED` | [`docs/lessons/nav2_slam_tuning.md`](docs/lessons/nav2_slam_tuning.md) |
 | **FM-LLM-003** | AI/LangGraph | `live_connection_manager` | Stallo conversazionale e congelamento dello stato VUI (robot bloccato in 'THINKING' senza risposta) | 7 | 2 | 2 | **28** | `LOW` | `OPEN` | [`docs/lessons/llm_live_api.md`](docs/lessons/llm_live_api.md) |
@@ -132,6 +134,7 @@
 | **FM-VPR-001** | Vision/VPR | `vpr_topological_graph_node` | Il context-switch A a B per CosPlace blocca il Network Group A (ViNT+YOLO) per > 40 ms causando un deadline miss nel loop NoMaD 4 Hz | 7 | 2 | 2 | **28** | `LOW` | `PLANNED` | [`docs/lessons/vision_hailo_npu.md`](docs/lessons/vision_hailo_npu.md) |
 | **FM-NAV-017** | Nav2 | `fast_flow_vo_cpp` | Drift angolare continuo dell'angolo di Yaw indotto dal riscaldamento di Raspberry Pi 5 e Hailo-10H | 7 | 2 | 2 | **28** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#imu-bias-zupt`](docs/lessons/nav2_slam_tuning.md#imu-bias-zupt) |
 | **FM-LLM-006** | AI/LangGraph | `dynamic_skill_creator / curiosity_evolution_engine` | Loop ricorsivo o continuo di auto-modifica (AI Recursion Trap) con saturazione token API e blocco CPU | 7 | 2 | 2 | **28** | `LOW` | `IN_PROGRESS` | [`docs/lessons/orchestration_and_rag.md`](docs/lessons/orchestration_and_rag.md) |
+| **FM-EVO-001** | AI/Evolution | `marcus_data_miner` | Runaway I/O o saturazione RAM per raccolta dati indiscriminata a navigazione inattiva e robot fermo | 7 | 2 | 2 | **28** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#auto-miglioramento-e-data-mining`](docs/lessons/orchestration_and_rag.md#auto-miglioramento-e-data-mining) |
 | **FM-VUI-003** | VUI Audio | `respeaker_vui_node` | Falsi rilevamenti di presenza vocale (VAD) ed invio continuo di rumore di fondo a Gemini Live | 6 | 2 | 2 | **24** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#hpf-filter`](docs/lessons/audio_vui_pipeline.md#hpf-filter) |
 | **FM-VUI-004** | VUI Audio | `respeaker_vui_node` | Acoustic Echo Leakage ed auto-interruzione continua della sintesi vocale del robot | 6 | 2 | 2 | **24** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#barge-in`](docs/lessons/audio_vui_pipeline.md#barge-in) |
 | **FM-VUI-005** | VUI Audio | `respeaker_vui_node` | Trascrizione ASR incomprensibile o allucinata ('Voce Distorta / Sorgente Lontana') | 6 | 2 | 2 | **24** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#dynamic-agc`](docs/lessons/audio_vui_pipeline.md#dynamic-agc) |

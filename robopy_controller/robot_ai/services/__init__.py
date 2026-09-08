@@ -63,6 +63,7 @@ except ImportError:
 from robopy_controller.robot_ai.services.audio_buffer_manager import AudioBufferManager
 from robopy_controller.robot_ai.services.curiosity_evolution_engine import CuriosityEvolutionEngine
 from robopy_controller.robot_ai.services.robot_documentation_service import RobotDocumentationService
+from robopy_controller.robot_ai.services.marcus_data_miner import MarcusDataMiner
 
 __all__ = [
     "LLMService",
@@ -82,4 +83,5 @@ __all__ = [
     "LiveConnectionBridgeNode",
     "CuriosityEvolutionEngine",
     "RobotDocumentationService",
+    "MarcusDataMiner",
 ]

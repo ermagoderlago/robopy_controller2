@@ -33,7 +33,7 @@ class SensorStandbyManager(Node):
         super().__init__('sensor_standby_manager')
         
         # --- Parameter Declarations ---
-        self.declare_parameter('idle_timeout_sec', 120.0)          # Inactivity period to trigger standby (2 mins)
+        self.declare_parameter('idle_timeout_sec', 1800.0)         # Inactivity period to trigger standby (30 mins for testing)
         self.declare_parameter('imu_accel_threshold', 0.35)        # m/s^2 deviation from gravity (|norm(a) - g|)
         self.declare_parameter('imu_gyro_threshold', 0.15)         # rad/s angular velocity norm (~8.6 deg/s)
         self.declare_parameter('nominal_gravity', 9.81)            # Nominal gravity m/s^2

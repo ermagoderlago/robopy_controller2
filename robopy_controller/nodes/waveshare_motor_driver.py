@@ -132,6 +132,12 @@ class WaveshareMotorDriver(Node):
         self.create_subscription(Odometry, '/vo/odom', self.vo_odom_callback, 10)
         self.create_subscription(BatteryState, '/battery_state', self.battery_state_filtered_cb, 10)
         self.create_subscription(String, '/robot/system/shutdown', self.shutdown_callback, 10)
+        self.create_subscription(Imu, '/oak/imu/data', self.oak_imu_callback, 10)
+        
+        self.oak_yaw_rate = 0.0
+        self.last_imu_time = None
+        self.declare_parameter('use_imu_for_rotation', True)
+        self.declare_parameter('invert_imu_yaw', True) # Inverts OAK-D Lite IMU Z gyro to match REP-103 (+Z = Left)
         
         # --- Serial Connection & Threads ---
         self.serial_lock = threading.Lock()
@@ -234,6 +240,13 @@ class WaveshareMotorDriver(Node):
             self.get_logger().info("🔒 Motion Gate LOCKED: Hardware wheel movement inhibited (Standby/Sensor spin-up).", throttle_duration_sec=2.0)
         elif not old_gate and self.motion_gate:
             self.get_logger().info("🔓 Motion Gate OPENED: Hardware wheel movement enabled.")
+            # CRITICAL: Reset encoder baseline to None so the first reading after wake-up
+            # establishes a clean reference point. During standby, the ESP32 keeps counting
+            # ticks (jitter, small movements). Without this reset, the first odometry cycle
+            # would compute a massive burst delta causing a phantom rotation in the map.
+            self.prev_left_ticks = None
+            self.prev_right_ticks = None
+            self.get_logger().info("🔄 Encoder baseline reset after wake-up (prevents tick burst artifact).")
             # If we had a cached cmd_vel within the last 500ms (watchdog window), apply it
             if self.cached_cmd_vel is not None and (time.time() - self.last_cmd_vel_time) < 0.5:
                 cached = self.cached_cmd_vel
@@ -330,6 +343,28 @@ class WaveshareMotorDriver(Node):
         self.is_system_shutdown = True
         self.send_speeds(0.0, 0.0)
 
+    def oak_imu_callback(self, msg: Imu):
+        """Continuously integrates physical heading from the high-precision OAK-D Lite IMU at 42 Hz."""
+        now = self.get_clock().now().nanoseconds / 1e9
+        raw_w = msg.angular_velocity.z
+        
+        # Invert sign if configured (OAK-D Lite IMU Z gyro has opposite polarity to ROS REP-103)
+        w = -raw_w if getattr(self, 'invert_imu_yaw', True) else raw_w
+        
+        # Deadband ~0.8 deg/s (0.015 rad/s) to prevent drift at standstill
+        if abs(w) < 0.015:
+            w = 0.0
+            
+        self.oak_yaw_rate = w
+        
+        if self.last_imu_time is not None:
+            dt_imu = now - self.last_imu_time
+            if 0.001 < dt_imu < 0.2 and getattr(self, 'use_imu_for_rotation', True):
+                self.theta += w * dt_imu
+                # Normalize to [-pi, pi]
+                self.theta = math.atan2(math.sin(self.theta), math.cos(self.theta))
+        self.last_imu_time = now
+
     def speed_to_duty(self, speed_mps):
         """Converts speed in m/s to normalized motor duty [-1.0, 1.0] with deadband compensation."""
         if abs(speed_mps) < 0.003:
@@ -399,14 +434,13 @@ class WaveshareMotorDriver(Node):
         if self.invert_right_motor:
             duty_right = -duty_right
 
-        # Physical hardware mapping (verified §24 actuation_motor_driver.md):
-        # Serial channel 'L' on ESP32 drives the physical RIGHT wheel motor.
-        # Serial channel 'R' on ESP32 drives the physical LEFT wheel motor.
-        # Therefore we SWAP: send duty_right to "L", duty_left to "R".
+        # Physical hardware mapping:
+        # Serial channel 'L' on ESP32 drives the physical LEFT wheel motor.
+        # Serial channel 'R' on ESP32 drives the physical RIGHT wheel motor.
         cmd = {
             "T": 1,
-            "L": round(duty_right, 4),
-            "R": round(duty_left, 4)
+            "L": round(duty_left, 4),
+            "R": round(duty_right, 4)
         }
         cmd_str = json.dumps(cmd, separators=(',', ':')) + "\n"
         
@@ -545,10 +579,10 @@ class WaveshareMotorDriver(Node):
                 time.sleep(1.0)
 
     def process_encoder_feedback(self, left_ticks, right_ticks):
-        """Calculates and publishes robot odometry and tf from encoder ticks.
-        Note: On the Waveshare ESP32 board, channel 'L' (odl) drives the physical RIGHT motor
-        and channel 'R' (odr) drives the physical LEFT motor. We swap them here.
+        """Calculates and publishes robot odometry and tf from encoder ticks or cmd_vel.
         The parameters left_ticks/right_ticks arrive as odl/odr from serial JSON.
+        - odl (left_ticks param) is physical LEFT wheel encoder.
+        - odr (right_ticks param) is physical RIGHT wheel encoder.
         """
         current_time = self.get_clock().now().nanoseconds / 1e9
         dt = current_time - self.last_odom_time
@@ -560,25 +594,13 @@ class WaveshareMotorDriver(Node):
             return
             
         # Delta ticks from raw serial (odl, odr):
-        # SWAP: odl (left_ticks param) is physical RIGHT wheel encoder.
-        #       odr (right_ticks param) is physical LEFT wheel encoder.
-        delta_ticks_right = left_ticks - self.prev_left_ticks   # odl -> physical right
-        delta_ticks_left = right_ticks - self.prev_right_ticks  # odr -> physical left
+        delta_ticks_left = left_ticks - self.prev_left_ticks    # odl -> physical left
+        delta_ticks_right = right_ticks - self.prev_right_ticks # odr -> physical right
         
         if abs(delta_ticks_right) > 0 or abs(delta_ticks_left) > 0:
             self.get_logger().info(f"[ENCODER_RAW] d_left={delta_ticks_left}, d_right={delta_ticks_right}", throttle_duration_sec=0.2)
         
-        # Gracefully handle wrap-around/reset: if single step change is absurdly large, ignore it.
-        # Max reasonable ticks in 30Hz: ticks_per_rev * 10 max RPM / 60s * (1/30) = ticks_per_rev * 0.005.
-        # If the delta is larger than 5 * ticks_per_rev, it's likely a wrap-around or a reset.
-        if abs(delta_ticks_left) > self.ticks_per_rev * 5:
-            delta_ticks_left = 0
-        if abs(delta_ticks_right) > self.ticks_per_rev * 5:
-            delta_ticks_right = 0
-        
         # --- ZERO-VELOCITY LOCK & JITTER SUPPRESSION ---
-        # When motors have been stopped by watchdog, filter electrical jitter (<= 3 ticks).
-        # When moving or decelerating, apply encoder_dead_zone to ignore electrical noise without dropping motion.
         if self.motors_stopped and abs(delta_ticks_left) <= 3 and abs(delta_ticks_right) <= 3:
             delta_ticks_left = 0
             delta_ticks_right = 0
@@ -586,45 +608,65 @@ class WaveshareMotorDriver(Node):
             delta_ticks_left = 0
             delta_ticks_right = 0
             
-        # Invert readings if specified (invert_left_encoder=True converts negative forward ticks to positive)
-        if self.invert_left_encoder:
-            delta_ticks_left = -delta_ticks_left
-        if self.invert_right_encoder:
-            delta_ticks_right = -delta_ticks_right
-            
         self.prev_left_ticks = left_ticks
         self.prev_right_ticks = right_ticks
         self.last_odom_time = current_time
         
-        # Convert ticks to distance
-        meters_per_tick = (2.0 * math.pi * self.wheel_radius) / self.ticks_per_rev
-        delta_s_left = delta_ticks_left * meters_per_tick
-        delta_s_right = delta_ticks_right * meters_per_tick
+        # Determine velocity: use cmd_vel ideal kinematics if configured, else use encoders
+        if getattr(self, 'use_cmd_vel_odometry', True):
+            # OPEN-LOOP ODOMETRY: Trust the commands for translation
+            if self.motors_stopped:
+                v_robot = 0.0
+            else:
+                v_robot = self.cmd_linear_x
+                
+            delta_s = v_robot * dt
+            
+            # Rotation handling
+            if getattr(self, 'use_imu_for_rotation', True):
+                # theta is continuously updated in real-time by oak_imu_callback at 42 Hz!
+                w_robot = self.oak_yaw_rate
+                delta_theta = 0.0
+            else:
+                if self.motors_stopped:
+                    w_robot = 0.0
+                else:
+                    w_robot = self.cmd_angular_z
+                delta_theta = w_robot * dt
+                self.theta += delta_theta
+        else:
+            # CLOSED-LOOP ODOMETRY: Use raw physical ticks (can cause SLAM destruction if hardware is noisy)
+            if abs(delta_ticks_left) > self.ticks_per_rev * 5: delta_ticks_left = 0
+            if abs(delta_ticks_right) > self.ticks_per_rev * 5: delta_ticks_right = 0
+            if self.invert_left_encoder: delta_ticks_left = -delta_ticks_left
+            if self.invert_right_encoder: delta_ticks_right = -delta_ticks_right
+            
+            meters_per_tick = (2.0 * math.pi * self.wheel_radius) / self.ticks_per_rev
+            delta_s_left = delta_ticks_left * meters_per_tick
+            delta_s_right = delta_ticks_right * meters_per_tick
+            
+            delta_s = (delta_s_right + delta_s_left) / 2.0
+            delta_theta = (delta_s_right - delta_s_left) / self.rotational_wheel_separation
+            self.theta += delta_theta
+            
+            v_robot = 0.0
+            w_robot = 0.0
+            if dt > 0.001:
+                v_robot = delta_s / dt
+                w_robot = delta_theta / dt
+
+        if abs(delta_s) > 1e-5 or abs(w_robot) > 1e-3:
+            source = "CMD_VEL+IMU" if (getattr(self, 'use_cmd_vel_odometry', True) and getattr(self, 'use_imu_for_rotation', True)) else ("CMD_VEL" if getattr(self, 'use_cmd_vel_odometry', True) else "ENCODER")
+            self.get_logger().info(f"[ODOM_CALC] src={source}, d_s={delta_s:.4f}, th={math.degrees(self.theta):+.2f}deg, w={math.degrees(w_robot):+.2f}deg/s", throttle_duration_sec=0.2)
         
-        # Standard ROS 2 Right-Hand Coordinate System (+Z = CCW / Antiorario):
-        # Right wheel moves forward (+), Left wheel moves backward (-) during CCW turn -> delta_s_right - delta_s_left > 0
-        delta_s = (delta_s_right + delta_s_left) / 2.0
-        delta_theta = (delta_s_right - delta_s_left) / self.rotational_wheel_separation
+        # Integrate linear translation using current heading
+        self.x += delta_s * math.cos(self.theta)
+        self.y += delta_s * math.sin(self.theta)
         
-        if abs(delta_s) > 1e-5 or abs(delta_theta) > 1e-5:
-            self.get_logger().info(f"[ODOM_CALC] d_s_R={delta_s_right:.4f}, d_s_L={delta_s_left:.4f}, d_th={math.degrees(delta_theta):+.2f}deg, th={math.degrees(self.theta):+.2f}deg", throttle_duration_sec=0.2)
-        
-        # Integrate pose
-        self.x += delta_s * math.cos(self.theta + delta_theta / 2.0)
-        self.y += delta_s * math.sin(self.theta + delta_theta / 2.0)
-        self.theta += delta_theta
-        
-        # Calculate velocity
-        v_robot = 0.0
-        w_robot = 0.0
-        if dt > 0.001:
-            v_robot = delta_s / dt
-            w_robot = delta_theta / dt
         self.v_robot = v_robot
         self.w_robot = w_robot
         
         # --- DYNAMIC COVARIANCES ---
-        # Low covariance when moving (trustworthy), high when stopped (uncertain).
         if self.motors_stopped:
             pose_cov = 1e-3
             twist_cov = 1e-3

@@ -350,3 +350,18 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
   - *Rotazione Destra ($\omega = -0.50$ rad/s):* IMU Gyro Z = $-0.72^\circ$ (CW), `/odom_wheel` = $-6.96^\circ$ (CW), TF `odom -> base_link` = $-1.38^\circ$ (CW). Perfetta coerenza di segno.
   - *Stabilità a Riposo (Standstill 3.0s):* $\Delta x = 0.000000$ m, $\Delta y = 0.000000$ m, $\Delta \theta = 0.000000^\circ$. Nessun salto o deriva spuria.
 * **Procedura Ripristino SLAM:** La correzione dell'odometria richiede la rigenerazione di un database cartografico pulito (`/mnt/ssd/rtabmap.db`), poiché i database preesistenti contenevano trasformazioni odometriche corrotte nel grafo pose-graph.
+
+---
+
+### Risoluzione Disallineamento Scan Matching Laser e Odometria Ibrida Comando-Inerziale (FM-NAV-021)
+* **Sintomo:** Durante la rotazione e il moto in teleop, il robot fisico eseguiva correttamente il moto impartito, ma il robot virtuale su Foxglove Studio ruotava in verso opposto o perdeva l'angolo, causando la duplicazione a stella dei muri della stanza sulla mappa RTAB-Map.
+* **Analisi Causale Radice:**
+  1. **Assenza di ICP Scan Matching Continuo (`RGBD/NeighborLinkRefining`):** Di default RTAB-Map assume l'odometria esterna come verità assoluta tra frame consecutivi e usa il laser solo per il loop closure. Senza `RGBD/NeighborLinkRefining: "true"`, RTAB-Map non eseguiva ICP tra scansioni ToF consecutive, incollando i punti laser con l'errore d'orientamento dell'odometria.
+  2. **Inversione Segno Giroscopio Z OAK-D Lite (`invert_imu_yaw`):** Nel driver motore `waveshare_motor_driver.py`, l'asse Z dell'IMU leggeva una velocità angolare negativa durante le rotazioni fisiche a sinistra (CCW), in violazione di ROS REP-103 (+Z = CCW). Di conseguenza l'odometria comunicava una rotazione oraria (destra) mentre il laser ToF registrava una rotazione antioraria (sinistra).
+  3. **Troncamento Transitorio dell'Integrazione Angolare (`motors_stopped`):** L'integrazione di $\theta$ veniva azzerata non appena scadeva il comando teleop (watchdog), perdendo i gradi percorsi durante l'arresto per inerzia.
+* **Soluzione Implementata:**
+  1. **Abilitato `RGBD/NeighborLinkRefining: "true"`** in `config/rtabmap.yaml` con `Reg/Strategy: "1"` (ICP Point-to-Point): RTAB-Map corregge in tempo reale la posa di ogni scansione laser ToF a 360° agganciandola geometricamente alle pareti del frame precedente.
+  2. **Inversione Segno `invert_imu_yaw: True`** in `waveshare_motor_driver.py` (`w = -raw_w`): garantita perfetta coerenza con REP-103 (+Z = Sinistra).
+  3. **Integrazione Continua Inerziale a 42 Hz:** Il calcolo di $\theta$ avviene direttamente nella callback dell'IMU alla frequenza nativa del sensore (42 Hz), slegato dallo stato dei comandi motore.
+  4. **Estensione Timeout Standby:** Portato `idle_timeout_sec` da 120s a 1800s (30 minuti) in `sensor_standby_manager.py` per prevenire interruzioni spurie durante le sessioni di navigazione.
+

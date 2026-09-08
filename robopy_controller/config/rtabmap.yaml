@@ -73,9 +73,10 @@ rtabmap:
     Rtabmap/LoopThr: "0.20"       # Soglia di similarità innalzata a 0.20 (previene falsi loop in corridoi simmetrici)
     RGBD/LoopClosureReextractFeatures: "true"
 
-    # Registrazione e Allineamento Scan Matching (LiDAR 2D ICP Loop Closure)
+    # Registrazione e Allineamento Scan Matching (LiDAR 2D ICP Loop Closure & Continuous Tracking)
     Reg/Strategy: "1"            # 1 = ICP (massima robustezza: loop closure geometrico diretto 360° da LiDAR ToF)
     Reg/Force3DoF: "true"
+    RGBD/NeighborLinkRefining: "true" # CRITICO: Corregge continuamente l'odometria ad ogni scansione laser con ICP
     Icp/Strategy: "0"            # 0 = Point-to-Point 2D standard veloce
     Icp/PointToPlane: "false"    # Point-to-point per scan 2D planare senza normali
     Icp/VoxelSize: "0.03"        # 3cm voxel filtering per match laser accurato

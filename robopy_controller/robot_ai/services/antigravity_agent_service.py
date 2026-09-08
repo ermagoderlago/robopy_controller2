@@ -48,13 +48,19 @@ QUOTA_WINDOW_SECONDS = 4 * 3600
 DEFAULT_MAX_4H_TOKENS = int(os.environ.get("ANTIGRAVITY_4H_TOKEN_BUDGET", "1000000"))
 QUOTA_THROTTLE_THRESHOLD = 0.90
 
-# Modelli Gemini candidati in ordine di preferenza (Generazione 3.8 primaria)
-PREFERRED_GEMINI_MODELS = [
-    "gemini-3.8-flash",  # 1° Scelta Primaria: Generazione 3.8 (Default nativo Antigravity, reasoning avanzato con thinking)
-    "gemini-3.8-pro",    # 2° Scelta: Gemini 3.8 Pro per compiti ad altissima complessità
-    "gemini-2.5-pro",    # 3° Scelta: Fallback serie 2.5
-    "gemini-2.5-flash",  # 4° Scelta: Fallback rapido
+# Modelli Gemini candidati suddivisi per ruolo operativo (Project Autopoiesis)
+ORCHESTRATOR_GEMINI_MODELS = [
+    "gemini-3.1-pro",    # 1° Scelta Primaria Orchestratore: Reasoning profondo, scomposizione task e analisi FMEA
+    "gemini-3.8-pro",    # 2° Scelta: Gemini 3.8 Pro
+    "gemini-2.5-pro",    # 3° Scelta: Fallback serie 2.5 Pro
 ]
+
+CODER_GEMINI_MODELS = [
+    "gemini-3.8-flash",  # 1° Scelta Primaria Coder: Altissima velocità, thinking compatto, quota token ottimizzata
+    "gemini-2.5-flash",  # 2° Scelta: Fallback serie 2.5 Flash
+]
+
+PREFERRED_GEMINI_MODELS = CODER_GEMINI_MODELS + ORCHESTRATOR_GEMINI_MODELS
 
 
 def _resolve_workspace_root() -> Path:
@@ -263,7 +269,17 @@ class AntigravityAgentService:
         self.checkpoint_mgr = EvolutionCheckpointManager(self.workspace_root)
 
         env_model = os.environ.get("ANTIGRAVITY_MODEL", "").strip()
-        self.target_model = env_model if env_model else PREFERRED_GEMINI_MODELS[0]
+        self.target_model = env_model if env_model else CODER_GEMINI_MODELS[0]
+
+    def get_model_for_role(self, role: str = "coder") -> str:
+        """Restituisce il modello ottimale in base al ruolo operativo."""
+        role_lower = role.lower()
+        if role_lower in ["orchestrator", "architect", "pro"]:
+            env_orch = os.environ.get("ANTIGRAVITY_ORCHESTRATOR_MODEL", "").strip()
+            return env_orch if env_orch else ORCHESTRATOR_GEMINI_MODELS[0]
+        else:
+            env_coder = os.environ.get("ANTIGRAVITY_CODER_MODEL", "").strip()
+            return env_coder if env_coder else CODER_GEMINI_MODELS[0]
 
     @property
     def is_available(self) -> bool:
@@ -278,7 +294,9 @@ class AntigravityAgentService:
             "usage_percentage": round(ratio * 100, 2),
             "is_throttled": ratio >= self.quota_tracker.throttle_threshold,
             "cooldown_seconds": round(self.quota_tracker.get_time_until_cooldown(), 1),
-            "target_model": self.target_model
+            "target_model": self.target_model,
+            "orchestrator_model": self.get_model_for_role("orchestrator"),
+            "coder_model": self.get_model_for_role("coder")
         }
 
     async def generate_code_autonomous(
@@ -288,12 +306,16 @@ class AntigravityAgentService:
         timeout_seconds: float = 60.0,
         conversation_id: Optional[str] = None,
         resume_existing: bool = False,
-        task_metadata: Optional[Dict[str, Any]] = None
+        task_metadata: Optional[Dict[str, Any]] = None,
+        role: str = "coder",
+        override_model: Optional[str] = None
     ) -> str:
         if not self.is_available:
             raise RuntimeError(
                 f"Antigravity SDK non disponibile o API Key mancante (SDK: {self._is_available}, Key: {bool(self.api_key)})"
             )
+
+        active_model = override_model or self.get_model_for_role(role)
 
         # 1. Verifica quota a 4 ore (soglia 90%)
         can_proceed, used_tokens, ratio = self.quota_tracker.check_quota_available(estimated_tokens=8000)
@@ -306,11 +328,11 @@ class AntigravityAgentService:
                 self.checkpoint_mgr.save_suspended_checkpoint(
                     task_id=task_metadata.get("task_id", f"task_{int(time.time())}"),
                     conversation_id=conversation_id or "default_session",
-                    model=self.target_model,
+                    model=active_model,
                     task_type=task_metadata.get("task_type", "skill_generation"),
                     completed_steps=task_metadata.get("completed_steps", []),
                     pending_steps=task_metadata.get("pending_steps", ["COMPLETE_CODE_GENERATION"]),
-                    state_data={"prompt": prompt, "metadata": task_metadata}
+                    state_data={"prompt": prompt, "metadata": task_metadata, "role": role}
                 )
             raise RuntimeError(
                 f"QUOTA_90_PERCENT_REACHED: Utilizzo token a 4 ore al {ratio*100:.1f}%. Attività sospesa per le sedute successive."
@@ -329,7 +351,7 @@ class AntigravityAgentService:
 
         config_kwargs: Dict[str, Any] = {
             "api_key": self.api_key,
-            "model": self.target_model,
+            "model": active_model,
             "workspaces": [str(self.workspace_root), "/home/robopy"],
             "system_instructions": sys_inst,
             "capabilities": CapabilitiesConfig(
@@ -408,6 +430,81 @@ class AntigravityAgentService:
                 return parts[1].split("```")[0].strip()
 
         return full_response.strip()
+
+    async def plan_evolution_task_autonomous(
+        self,
+        theme: Dict[str, Any],
+        context_docs: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Fase di Orchestrazione Architetturale (Project Autopoiesis):
+        Utilizza il modello Orchestratore (Gemini 3.1 Pro) per sviscerare il 'Tema del Giorno'
+        selezionato autonomamente da Marcus, definire la strategia di mitigazione
+        e scomporre il lavoro in micro-task sequenziali pronti per il Coder (Gemini Flash).
+        """
+        orchestrator_model = self.get_model_for_role("orchestrator")
+        prompt = f"""
+Sei l'Architetto e Orchestratore Evolutivo di Marcus AI (Project Autopoiesis).
+Modello attivo: {orchestrator_model}.
+
+Il tema selezionato per l'evoluzione autonoma di oggi è:
+- Titolo: {theme.get('title')}
+- Sottosistema: {theme.get('subsystem')}
+- Motivazione: {theme.get('motivation')}
+- Azione Raccomandata: {theme.get('recommended_action')}
+- Failure Mode Riferito: {theme.get('failure_mode_id') or 'N/A'}
+
+Documentazione e Vincoli Hardware/Governance:
+- marcus_core_rules.md (RAM host max 4GB, build sequenziale -j1, NO STVL, 16kHz audio, CPU core pinning)
+- SPEC-00 (Zero-Forcing su Pi 5, branch isolati agent/*, divieto bypass schede)
+- SPEC-05 (TRINITY, budget token max 2200-2500, WAL mode)
+{context_docs or ''}
+
+Il tuo compito di Orchestratore:
+1. Sviscerare la causa radice del problema e formulare l'ipotesi ingegneristica.
+2. Identificare la Zona di Rischio (Verde vs Gialla vs Rossa). Se tocca la Zona Rossa, impostare risk_zone: RED.
+3. Scomporre la soluzione in micro-task atomici (max 50-100 righe di codice ciascuno).
+4. Restituire ESCLUSIVAMENTE un blocco JSON racchiuso tra <PLAN_JSON> e </PLAN_JSON> con questa struttura esatta:
+{{
+  "theme_id": "{theme.get('date', 'today')}_{theme.get('subsystem', 'core')}",
+  "root_cause_hypothesis": "...",
+  "risk_zone": "GREEN",
+  "micro_tasks": [
+    {{
+      "task_index": 1,
+      "name": "...",
+      "target_file": "...",
+      "description": "...",
+      "acceptance_criteria": "..."
+    }}
+  ],
+  "sandbox_test_plan": "pytest tests/test_...",
+  "eco_required": true
+}}
+"""
+        response_text = await self.generate_code_autonomous(
+            prompt=prompt,
+            system_instructions="Sei l'Orchestratore Architetturale di Marcus AI. Analizza il tema e restituisci il piano in JSON.",
+            role="orchestrator",
+            override_model=orchestrator_model
+        )
+
+        plan = {}
+        match = re.search(r"<PLAN_JSON>(.*?)</PLAN_JSON>", response_text, re.DOTALL)
+        if match:
+            try:
+                plan = json.loads(match.group(1).strip())
+            except Exception as e:
+                logger.warning(f"Errore parsing JSON piano orchestrazione: {e}")
+        else:
+            try:
+                plan = json.loads(response_text)
+            except Exception:
+                plan = {
+                    "raw_response": response_text,
+                    "theme": theme
+                }
+        return plan
 
     async def consult_antigravity_dialogue(
         self,

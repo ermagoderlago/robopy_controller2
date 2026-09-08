@@ -168,3 +168,13 @@ Questo file costituisce il registro permanente della curiosità, delle indagini 
 - **Esito del Ciclo:** `SUCCESS_AUTONOMOUS_SKILL`
 
 ---
+
+### [DAILY_FOCUS_2026-09-08] Hardware/Power - 2026-09-08 03:00:07
+- **Failure Mode Riferito:** FM-NAV-018
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema Hardware/Power.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema giornaliero: Mitigazione FMEA [FM-NAV-018]: Cecità geometrica totale al di fuori del campo visivo primario (FOV 72.9 H) con rischio di collisione laterale o posteriore. Pipeline multi-modello allocata (gemini-3.1-pro + gemini-3.8-flash).
+- **Esito del Ciclo:** `THEME_SELECTED`
+
+---

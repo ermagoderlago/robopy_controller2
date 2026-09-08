@@ -314,3 +314,151 @@ class CuriosityEvolutionEngine:
             logger.error(f"Errore registrazione ECO {final_eco_id}: {e}")
             return False
 
+    def select_daily_focus_theme(self, data_miner=None) -> Dict[str, Any]:
+        """
+        Seleziona in modo totalmente autonomo il 'Tema del Giorno' da sviscerare.
+        Incrocia:
+        1. Colli di bottiglia telemetrici rilevati da MarcusDataMiner durante il moto reale.
+        2. Failure Mode aperti a più alto RPN da dfmea.yaml.
+        3. Priorità di sicurezza e usura.
+        
+        Assegna:
+        - Orchestratore primario: Gemini 3.1 Pro (per reasoning profondo e micro-tasking)
+        - Coder: Gemini 3.8 Flash (per generazione e validazione sandbox rapida)
+        """
+        now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        today_date = datetime.datetime.now().strftime("%Y-%m-%d")
+
+        # 1. Interroga i colli di bottiglia da DataMiner se disponibile
+        bottlenecks = []
+        if data_miner:
+            try:
+                bottlenecks = data_miner.get_unmitigated_bottlenecks(days=3)
+            except Exception as e:
+                logger.warning(f"Impossibile leggere colli di bottiglia da DataMiner: {e}")
+        else:
+            try:
+                from .marcus_data_miner import MarcusDataMiner
+                miner = MarcusDataMiner()
+                bottlenecks = miner.get_unmitigated_bottlenecks(days=3)
+            except Exception:
+                pass
+
+        # 2. Interroga la FMEA per i top open failure modes
+        top_fmea = self.get_top_priority_failure_modes(limit=5)
+
+        chosen_theme = {}
+
+        # Priorità 1: Se c'è un collo di bottiglia telemetrico attivo riscontrato sul campo
+        if bottlenecks:
+            top_bn = sorted(bottlenecks, key=lambda b: b.get("severity_score", 0), reverse=True)[0]
+            chosen_theme = {
+                "date": today_date,
+                "title": f"Ottimizzazione {top_bn['subsystem']}: {top_bn['recommended_focus']}",
+                "subsystem": top_bn["subsystem"],
+                "source": "TELEMETRY_BOTTLENECK",
+                "motivation": top_bn["description"],
+                "recommended_action": top_bn["recommended_focus"],
+                "failure_mode_id": None,
+                "orchestrator_model": "gemini-3.1-pro",
+                "coder_model": "gemini-3.8-flash",
+                "selected_at": now_str
+            }
+            # Associazione facoltativa a FM esistente
+            for fm in top_fmea:
+                if fm.get("subsystem", "").lower() in top_bn["subsystem"].lower():
+                    chosen_theme["failure_mode_id"] = fm.get("id")
+                    break
+
+        # Priorità 2: Se nessun bottleneck telemetrico rilevato, prendi il failure mode a RPN più alto
+        elif top_fmea:
+            top_fm = top_fmea[0]
+            fm_id = top_fm.get("id", "FM-UNK")
+            fm_name = top_fm.get("failure_mode", "")
+            rec = top_fm.get("recommended_action", "Analisi e hardening deterministico")
+            chosen_theme = {
+                "date": today_date,
+                "title": f"Mitigazione FMEA [{fm_id}]: {fm_name}",
+                "subsystem": top_fm.get("subsystem", "System"),
+                "source": "FMEA_RPN",
+                "motivation": f"Failure Mode aperto a massimo RPN nel sottosistema {top_fm.get('subsystem')}.",
+                "recommended_action": rec,
+                "failure_mode_id": fm_id,
+                "orchestrator_model": "gemini-3.1-pro",
+                "coder_model": "gemini-3.8-flash",
+                "selected_at": now_str
+            }
+
+        # Priorità 3: Esplorazione curiosità sui sottosistemi a rotazione
+        else:
+            subsystem = self.subsystems[int(time.time()) % len(self.subsystems)]
+            inquiry = self.generate_curiosity_inquiry(subsystem)
+            chosen_theme = {
+                "date": today_date,
+                "title": f"Esplorazione Curiosità Architetturale: {subsystem}",
+                "subsystem": subsystem,
+                "source": "SUBSYSTEM_EXPLORATION",
+                "motivation": inquiry["question"],
+                "recommended_action": "Indagine documentale e benchmark di efficienza",
+                "failure_mode_id": None,
+                "orchestrator_model": "gemini-3.1-pro",
+                "coder_model": "gemini-3.8-flash",
+                "selected_at": now_str
+            }
+
+        # Notifica e registra la scelta (NO Home Assistant)
+        self.notify_daily_focus(chosen_theme)
+        return chosen_theme
+
+    def notify_daily_focus(self, theme: Dict[str, Any], ros_publisher=None) -> bool:
+        """
+        Notifica la decisione del Daily Focus su canali sicuri e persistenti (NO Home Assistant).
+        1. File dedicato docs/evolution/daily_focus_notifications.md
+        2. Diario evolutivo docs/evolution/evolution_journal.md
+        3. Topic ROS 2 /robot_ai/notifications se disponibile
+        """
+        focus_file = self.workspace_root / "docs" / "evolution" / "daily_focus_notifications.md"
+        focus_file.parent.mkdir(parents=True, exist_ok=True)
+
+        entry = f"""
+### 🎯 Daily Focus ({theme.get('date')} - {theme.get('selected_at')})
+* **Tema:** {theme.get('title')}
+* **Sottosistema:** `{theme.get('subsystem')}`
+* **Sorgente Decisionale:** `{theme.get('source')}`
+* **Failure Mode Riferimento:** `{theme.get('failure_mode_id') or 'N/A'}`
+* **Motivazione:** {theme.get('motivation')}
+* **Azione Raccomandata:** {theme.get('recommended_action')}
+* **Modello Orchestratore:** `{theme.get('orchestrator_model')}`
+* **Modello Coder:** `{theme.get('coder_model')}`
+* **Stato Esecuzione:** `SCHEDULED_FOR_PRO_ANALYSIS`
+
+---
+"""
+        try:
+            with open(focus_file, "a", encoding="utf-8") as f:
+                f.write(entry)
+            logger.info(f"Notifica Daily Focus salvata in {focus_file}")
+        except Exception as e:
+            logger.error(f"Errore scrittura daily focus notification: {e}")
+
+        # Registrazione anche su evolution_journal.md
+        self.log_evolution_experience(
+            cycle_name=f"DAILY_FOCUS_{theme.get('date')}",
+            subsystem=theme.get("subsystem", "System"),
+            failure_mode_id=theme.get("failure_mode_id"),
+            inquiry=theme.get("motivation", ""),
+            action_taken=f"Selezionato tema giornaliero: {theme.get('title')}. Pipeline multi-modello allocata ({theme.get('orchestrator_model')} + {theme.get('coder_model')}).",
+            outcome="THEME_SELECTED"
+        )
+
+        if ros_publisher:
+            try:
+                from std_msgs.msg import String
+                msg = String()
+                msg.data = json.dumps(theme)
+                ros_publisher.publish(msg)
+            except Exception as e:
+                logger.debug(f"ROS 2 publication skipped: {e}")
+
+        return True
+

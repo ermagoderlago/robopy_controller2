@@ -180,12 +180,22 @@ Versione: {robot.version}.
         except Exception as e:
             self.logger.warning(f"Could not save summary to memory: {e}")
 
+        # 5. Project Autopoiesis: Selezione e Notifica Autonoma del Daily Focus
+        daily_theme = None
+        try:
+            self.logger.info("Project Autopoiesis: selezione autonoma del Daily Focus per auto-miglioramento...")
+            daily_theme = self.curiosity_engine.select_daily_focus_theme()
+            self.logger.info(f"Daily Focus selezionato: {daily_theme.get('title')} ({daily_theme.get('source')})")
+        except Exception as e:
+            self.logger.warning(f"Errore durante la selezione del Daily Focus: {e}")
+
         self.logger.info("Nightly Dream Analysis completed successfully.")
         return {
             "status": "success",
             "memories_analyzed": len(day_memories),
             "report_length": len(report_content),
             "collaborative": use_collaboration,
+            "daily_focus": daily_theme,
         }
 
     async def _run_single_analysis(self, context_text: str, system_manifest: str) -> str:

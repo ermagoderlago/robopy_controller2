@@ -5214,3 +5214,96 @@
       aggiornati e passati 5/5.
     rpn_old: 240
     rpn_new: 20
+- id: FM-EVO-001
+  subsystem: AI/Evolution
+  component: marcus_data_miner
+  function: Raccolta dati telemetrici e diagnostici a 0.1 Hz per auto-miglioramento
+    continuo senza overhead di sistema
+  failure_mode: Runaway I/O o saturazione RAM per raccolta dati indiscriminata a navigazione
+    inattiva e robot fermo
+  potential_cause: Loop di logging attivo indefinitamente durante le ore di stasi;
+    mancato batch flushing su SQLite
+  potential_effect: Usura ingiustificata delle celle SSD NVMe, allocazione di memoria
+    a lungo termine e rumore telemetrico
+  classification: PERFORMANCE
+  estimation_basis: measured
+  related_ids:
+  - FM-SYS-004
+  - FM-SYS-008
+  initial_scoring:
+    severity: 7
+    occurrence: 7
+    detection: 3
+    rpn: 147
+  prevention_controls: 'Idle gating obbligatorio in MarcusDataMiner: stop campionamento
+    se navigazione Nav2 spenta e robot fermo. Batching in RAM max 60 campioni e scrittura
+    transazionale SQLite WAL su SSD.'
+  detection_controls: Telemetria buffer size e flag idle_gated esposti nei log e diagnostica.
+  current_controls:
+    severity: 7
+    occurrence: 2
+    detection: 2
+    rpn: 28
+  residual_scoring:
+    severity: 7
+    occurrence: 2
+    detection: 2
+    rpn: 28
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Implementare marcus_data_miner.py con controllo congiunto /navigate_to_pose
+    e /cmd_vel + /odom. Disattivare flush in idle.
+  verification_method: Pytest unitari con mock di navigazione/moto ed emissione transazioni
+    su SQLite di test.
+  eco_ref: docs/ecos/orchestration_rag_ecos.md#ECO-2026-09-07-002
+  lesson_ref: docs/lessons/orchestration_and_rag.md#auto-miglioramento-e-data-mining
+  date_identified: '2026-09-07'
+  last_updated: '2026-09-07'
+  history:
+  - date: '2026-09-07'
+    change: Introdotto Failure Mode per architettura autopoietica e implementato idle-gated
+      data miner.
+    rpn_old: 147
+    rpn_new: 28
+- id: FM-MOT-005
+  subsystem: Hardware/Power
+  component: imu_bridge_node
+  function: Rilevamento in tempo reale di accelerazioni anomale (urti) durante il
+    moto
+  failure_mode: Collisione fisica del robot non rilevata dai sensori LiDAR/Visione
+  potential_cause: Ostacoli bassi o trasparenti, slittamento delle ruote che elude
+    Nav2
+  potential_effect: Danno meccanico allo chassis, blocco permanente del robot o usura
+    dei motori
+  classification: HW_DAMAGE
+  estimation_basis: inferred
+  related_ids:
+  - FM-NAV-005
+  - FM-MOT-002
+  initial_scoring:
+    severity: 8
+    occurrence: 5
+    detection: 6
+    rpn: 240
+  prevention_controls: Monitoraggio passivo tramite marcus_data_miner dei picchi di
+    accelerazione lineare > 1.5G per scatenare event_tag COLLISION_EVENT
+  detection_controls: Aggregato giornaliero total_collision_events e segnalazione
+    all'Orchestratore (Project Autopoiesis)
+  residual_scoring:
+    severity: 8
+    occurrence: 2
+    detection: 2
+    rpn: 32
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Tuning dinamico della soglia di 1.5G basato sul fondo stradale
+  verification_method: Simulazione di picchi acc. > 14.7 m/s^2 nei test unitari
+  eco_ref: docs/ecos/actuation_ecos.md
+  lesson_ref: docs/lessons/actuation_motor_driver.md
+  date_identified: '2026-09-07'
+  last_updated: '2026-09-07'
+  history:
+  - date: '2026-09-07'
+    change: Implementato tracking delle collisioni basato su IMU nel data miner
+    rpn_old: 240
+    rpn_new: 32
