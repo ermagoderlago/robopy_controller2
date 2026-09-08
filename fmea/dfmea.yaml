@@ -3500,6 +3500,53 @@
       pitch
     rpn_old: 256
     rpn_new: 8
+- id: FM-ACT-009
+  subsystem: Actuation/Odometry
+  component: waveshare_motor_driver
+  function: Filtraggio deterministico del jitter da fermo e soppressione oscillazioni
+    di stato Hall (Zero-Velocity Independent Lock)
+  failure_mode: Deriva/micro-avanzamento odometrico spurio a robot fermo per commutazione
+    instabile dei sensori Hall su fronte magnetico
+  potential_cause: Arresto della ruota esattamente sulla soglia di transizione del
+    sensore Hall associato a vibrazioni residue e accoppiamento logico errato (AND)
+    nel filtro di standstill
+  potential_effect: Spostamento fantasma del robot virtuale a fermo, micro-distorsioni
+    locali nella mappa SLAM di RTAB-Map
+  classification: FUNCTIONAL
+  estimation_basis: measured
+  related_ids:
+  - FM-ACT-008
+  - FM-NAV-012
+  initial_scoring:
+    severity: 6
+    occurrence: 7
+    detection: 4
+    rpn: 168
+  prevention_controls: Deadband di standstill disaccoppiato per singola ruota (deadband
+    8 ticks ~2.5mm) attivo su motors_stopped
+  detection_controls: Telemetria ENCODER_RAW su seriale con tracciamento differenziale
+    odl/odr a riposo
+  residual_scoring:
+    severity: 6
+    occurrence: 1
+    detection: 1
+    rpn: 6
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Applicare standstill_encoder_deadband indipendente per ruota
+    sinistra e destra in waveshare_motor_driver.py
+  verification_method: Test di sosta a terra senza comandi teleop (standstill 60s)
+    con monitoraggio d_left=0 e d_right=0
+  eco_ref: docs/lessons/actuation_motor_driver.md
+  lesson_ref: docs/lessons/actuation_motor_driver.md#filtraggio-jitter-hall-a-fermo
+  date_identified: '2026-09-08'
+  last_updated: '2026-09-08'
+  history:
+  - date: '2026-09-08'
+    change: Implementato filtro standstill indipendente per ruota con deadband a 8
+      ticks (~2.5mm)
+    rpn_old: 168
+    rpn_new: 6
 - id: FM-NOM-001
   subsystem: Navigation/NoMaD
   component: nomad_reactive_pipeline_node

@@ -139,6 +139,7 @@ class WaveshareMotorDriver(Node):
         self.declare_parameter('use_imu_for_rotation', True)
         self.declare_parameter('invert_imu_yaw', True) # Inverts OAK-D Lite IMU Z gyro to match REP-103 (+Z = Left)
         self.declare_parameter('use_encoder_for_linear', True) # Physical wheel encoders for forward/backward translation
+        self.declare_parameter('standstill_encoder_deadband', 8) # Reject tick flutter <= 8 ticks (~2.5mm) when stopped
         
         # --- Serial Connection & Threads ---
         self.serial_lock = threading.Lock()
@@ -602,12 +603,19 @@ class WaveshareMotorDriver(Node):
             self.get_logger().info(f"[ENCODER_RAW] d_left={delta_ticks_left}, d_right={delta_ticks_right}", throttle_duration_sec=0.2)
         
         # --- ZERO-VELOCITY LOCK & JITTER SUPPRESSION ---
-        if self.motors_stopped and abs(delta_ticks_left) <= 3 and abs(delta_ticks_right) <= 3:
-            delta_ticks_left = 0
-            delta_ticks_right = 0
-        elif self.encoder_dead_zone > 0 and abs(delta_ticks_left) <= self.encoder_dead_zone and abs(delta_ticks_right) <= self.encoder_dead_zone:
-            delta_ticks_left = 0
-            delta_ticks_right = 0
+        # When motors are stopped (watchdog engaged or cmd_vel == 0), suppress Hall boundary bouncing jitter.
+        # Check each wheel independently so one fluttering channel cannot bypass the suppression!
+        deadband = getattr(self, 'standstill_encoder_deadband', 8)
+        if self.motors_stopped:
+            if abs(delta_ticks_left) <= deadband:
+                delta_ticks_left = 0
+            if abs(delta_ticks_right) <= deadband:
+                delta_ticks_right = 0
+        elif self.encoder_dead_zone > 0:
+            if abs(delta_ticks_left) <= self.encoder_dead_zone:
+                delta_ticks_left = 0
+            if abs(delta_ticks_right) <= self.encoder_dead_zone:
+                delta_ticks_right = 0
             
         self.prev_left_ticks = left_ticks
         self.prev_right_ticks = right_ticks

@@ -256,3 +256,17 @@ Con JGB37-520B a 7RPM (riduzione ~143:1), **girare la ruota manualmente è impos
      Calcolare `delta_ticks_right = left_ticks - prev_left_ticks` e `delta_ticks_left = right_ticks - prev_right_ticks`.
   3. Mantenere `invert_left_encoder := False` e `invert_right_encoder := False`.
   4. In `src/fast_flow_vo_node.cpp`: sigillare il Motion Gate azzerando esplicitamente $\Delta t$ e $\Delta \text{yaw}$ quando il robot è fermo (`!isRobotMoving()`), impedendo al rumore subpixel della camera di accumulare deriva a veicolo fermo.
+
+---
+
+<a id="filtraggio-jitter-hall-a-fermo"></a>
+### 25. Filtraggio Jitter di Bordo dei Sensori Hall a Veicolo Fermo (FM-ACT-009)
+* **Sintomo:** A robot fermo sul pavimento senza comandi `/cmd_vel` attivi, si verificava occasionalmente una micro-deriva o un conteggio spurio di pochi tick (es. 4-5 tick su una ruota) che provocava un impercettibile avanzamento virtuale del robot sulla mappa. Muovendo leggermente la ruota a mano o azionando il motore per un istante, il fenomeno spariva.
+* **Analisi Causale Radice:**
+  1. **Oscillazione sul Fronte di Transizione Magnetica:** Quando la ruota si arresta esattamente in corrispondenza del fronte di commutazione tra un polo magnetico Nord e Sud della ruota fonica, il sensore di Hall open-collector può oscillare avanti e indietro attorno alla soglia logica a causa di vibrazioni ambientali minime o rumore sui GPIO dell'ESP32.
+  2. **Accoppiamento Logico Errato (AND) nel Filtro di Standstill:** Il driver precedente valutava la soppressione del rumore con la condizione congiunta `if abs(delta_ticks_left) <= 3 and abs(delta_ticks_right) <= 3:`. Se una sola ruota generava 4 tick mentre l'altra era perfettamente a 0, la condizione `AND` falliva per entrambi i canali, lasciando trafilare i 4 tick e integrando uno spostamento lineare fittizio.
+* **Risoluzione Implementata:**
+  1. **Disaccoppiamento per Singola Ruota:** Il filtraggio a veicolo fermo (`motors_stopped == True`) è ora applicato in modo strettamente indipendente a ciascuna ruota (`if abs(delta_ticks_left) <= deadband: delta_ticks_left = 0`, e analogamente per la ruota destra).
+  2. **Introduzione Parametro `standstill_encoder_deadband`:** Parametro configurabile impostato di default a **`8` tick** ($\approx 2.5\text{ mm}$). Qualsiasi oscillazione di bordo o rumore elettrico inferiore a 8 tick a motori fermi viene completamente azzerata.
+  3. **Zero-Velocity Lock Lineare:** Se i tick filtrati sono nulli, l'odometria impone $\Delta s = 0.0$ e $v = 0.0$, garantendo la perfetta immobilità della posa e della mappa SLAM durante le soste.
+

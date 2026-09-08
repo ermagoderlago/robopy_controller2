@@ -1,5 +1,5 @@
 # 📊 Report Esecutivo DFMEA - Marcus AI Robot Platform
-**Data Generazione:** 2026-09-08 21:24:46  
+**Data Generazione:** 2026-09-08 21:44:29  
 **Metodologia:** AIAG-VDA FMEA Standard con Regola Override Severità ($S \ge 9 \implies$ REVISION_MANDATORY)
 
 ---
@@ -8,8 +8,8 @@
 
 | Metrica | Valore | Note / Impatto |
 | :--- | :---: | :--- |
-| **Totale Modalità di Guasto (FM)** | **116** | Copertura integrata dei sottosistemi Marcus |
-| **🟢 Risk Level LOW** | **83** | $RPN_{res} \le 50$ (Sotto controllo) |
+| **Totale Modalità di Guasto (FM)** | **117** | Copertura integrata dei sottosistemi Marcus |
+| **🟢 Risk Level LOW** | **84** | $RPN_{res} \le 50$ (Sotto controllo) |
 | **🟡 Risk Level MEDIUM** | **7** | $51 \le RPN_{res} \le 199$ (Monitoraggio attivo) |
 | **🟠 Risk Level HIGH** | **2** | $200 \le RPN_{res} \le 349$ (Mitigazione obbligatoria) |
 | **🔴 Risk Level CRITICAL** | **0** | $RPN_{res} \ge 350$ (Blocco rilasci) |
@@ -35,7 +35,7 @@
 - **Navigation/Vision:** 4 failure modes
 - **Voice/Orchestration:** 1 failure modes
 - **Navigation/Odometry:** 1 failure modes
-- **Actuation/Odometry:** 1 failure modes
+- **Actuation/Odometry:** 2 failure modes
 - **Navigation/NoMaD:** 5 failure modes
 - **Vision/VPR:** 2 failure modes
 - **AI/Memory:** 2 failure modes
@@ -202,6 +202,7 @@
 | **FM-SYS-002** | System/DDS | `system_scripts` | Errore di esecuzione script: OSError [Errno 8] Exec format error | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`marcus_core_rules.md#1-memoria-ram-e-limite-host`](marcus_core_rules.md#1-memoria-ram-e-limite-host) |
 | **FM-TRI-003** | AI/Trinity | `cag_aggregator` | Latenza eccessiva nella raccolta del contesto CAG (> 500ms) che ritarda l'invio del prompt all'LLM | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#trinity-architecture`](docs/lessons/orchestration_and_rag.md#trinity-architecture) |
 | **FM-VUI-022** | Voice/Orchestration | `nomad_exploration_skill` | Mancato riconoscimento del termine 'NOMAD' da parte dell'ASR e mancata registrazione della skill nell'AI Orchestrator | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#gestione-acronimi-stranieri-e-tolleranza-fonetica-asr`](docs/lessons/audio_vui_pipeline.md#gestione-acronimi-stranieri-e-tolleranza-fonetica-asr) |
+| **FM-ACT-009** | Actuation/Odometry | `waveshare_motor_driver` | Deriva/micro-avanzamento odometrico spurio a robot fermo per commutazione instabile dei sensori Hall su fronte magnetico | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#filtraggio-jitter-hall-a-fermo`](docs/lessons/actuation_motor_driver.md#filtraggio-jitter-hall-a-fermo) |
 | **FM-LLM-001** | AI/LangGraph | `respeaker_vui_node` | Effetto 'Darth Vader' / 'Chipmunk' (audio accelerato o gravemente alterato) in riproduzione | 4 | 1 | 1 | **4** | `LOW` | `CLOSED` | [`marcus_core_rules.md#3-pipeline-vui-e-audio-pcm-streaming`](marcus_core_rules.md#3-pipeline-vui-e-audio-pcm-streaming) |
 | **FM-NAV-012** | Navigation/Odometry | `waveshare_and_fast_flow_vo` | Movimento convulso e saltellante della camera in Foxglove durante le rotazioni e incoerenza mappe RTAB-Map | 4 | 1 | 1 | **4** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#stabilit-odometria--correzione-dinamica-di-rotazione`](docs/lessons/nav2_slam_tuning.md#stabilit-odometria--correzione-dinamica-di-rotazione) |
 | **FM-SEM-001** | Vision/Hailo | `semantic_costmap_injector` | Ostacoli semantici non visibili nella costmap o scartati per filtro classi restrittivo o centroid_3d mancante | 2 | 1 | 2 | **4** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#semantic-costmap-injection`](docs/lessons/nav2_slam_tuning.md#semantic-costmap-injection) |
