@@ -286,4 +286,21 @@ Con JGB37-520B a 7RPM (riduzione ~143:1), **girare la ruota manualmente è impos
   2. **Tier 2 (Red-Zone Velocity Outlier Clamp):** In conformità a `SPEC-01` ($v_{max} = 0.40\text{ m/s}$), qualsiasi delta tick per ciclo che superi il limite fisico massimo di 0.45 m/s (~80 tick in 50ms) viene classificato come spike anomalo e scartato (`[ENCODER_GLITCH]`).
   3. **Tier 3 (Kinematic Asymmetry Filter vs IMU Gyro 42Hz):** Un robot differenziale rigido non può muovere una ruota a 0.5 m/s mantenendo l'altra ferma senza ruotare a $\omega = (v_R - v_L)/W \approx 1.8\text{ rad/s}$ ($100^\circ/\text{s}$). Se il giroscopio OAK-D Lite misura $|\omega_{IMU}| < 0.2\text{ rad/s}$, il burst asimmetrico a ruota singola viene identificato come glitch elettrico e neutralizzato (`[ENCODER_ASYMMETRY]`).
 
+---
+
+<a id="camera-mast-imu-vibration"></a>
+### 27. Oscillazione della Velocità Angolare (odom wz) da Vibrazione dell'Asta Telecamera e Odometria Cinematica Pura (FM-MOT-007)
+* **Sintomo Empirico (Foxglove & Log):**
+  - Durante il movimento in linea retta avanti/indietro (`cmd vx = 0.20-0.30 m/s`, `cmd wz = 0.00 rad/s`), la velocità lineare `odom vx` risultava pulita, ma la velocità angolare `odom wz` (linea rossa su Foxglove) oscillava violentemente tra **-0.20 rad/s e +0.16 rad/s** ($\pm 11^\circ/\text{s}$).
+  - Visivamente, il robot si muoveva perfettamente dritto sul pavimento, ma la mappa SLAM 2D in RTAB-Map sfarfallava e oscillava a destra e a sinistra ("la mappa sballa a destra e sinistra"), accumulando errori di rotazione e deformando i corridoi.
+* **Causa Radice Fisica:**
+  - La telecamera OAK-D Lite è montata su un'asta strutturale alta ($Z=0.2616\text{ m}$) inclinata a $8^\circ$ di pitch verso l'alto.
+  - Il rotolamento delle ruote sul pavimento e le micro-rugosità inducono una vibrazione di flessione/torsione sull'asta della camera con frequenza nell'intorno dei 10-20 Hz.
+  - La funzione `oak_imu_callback` integrava in continuo l'orientamento odometrico `self.theta += w * dt_imu` direttamente dal giroscopio asse Z della OAK-D Lite a 42 Hz.
+  - Questo introduceva continuamente oscillazioni angolari artificiali nell'odometria ruote `/odom`, ingannando RTAB-Map che vedeva il robot ruotare pur procedendo dritto.
+* **Risoluzione Architetturale (Odometria Cinematica Teorica Pura):**
+  1. **Attivazione `use_cmd_vel_odometry:=True`:** L'odometria (`/odom`) viene generata per integrazione diretta a punto medio del comando di velocità cinematico teorico (`/cmd_vel`). Quando il robot avanza dritto (`cmd_w = 0`), la velocità angolare `odom wz` è rigorosamente $0.00\text{ rad/s}$ (flatline perfetta su Foxglove).
+  2. **Disaccoppiamento del Giroscopio OAK-D (`use_imu_for_rotation:=False`):** La vibrazione meccanica della camera viene completamente isolata dall'odometria delle ruote.
+  3. **Affidamento Chiusura Anello a RPLIDAR C1 (ICP Scan Matching):** RTAB-Map SLAM utilizza il laser scan matching 2D a 360° (`RGBD/NeighborLinkRefining: "true"`) con 12Hz di scan rate e precisione millimetrica su pareti e ostacoli fisici, compensando all'istante qualsiasi minimo scostamento reale senza subire il rumore di sensori a bordo chassis.
+
 

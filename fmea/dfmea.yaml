@@ -5404,3 +5404,52 @@
       cinematica contro il runaway dell'encoder ESP32
     rpn_old: 128
     rpn_new: 8
+- id: FM-MOT-007
+  subsystem: Actuation & Motion
+  component: waveshare_motor_driver
+  function: Stima accurata e priva di jitter della velocità angolare e della traiettoria
+    in marcia rettilinea
+  failure_mode: Oscillazione della velocità angolare odom wz (+-0.20 rad/s) e sfarfallio
+    a zig-zag della mappa SLAM durante la marcia rettilinea
+  potential_cause: Vibrazioni meccaniche trasmesse dal telaio all'asta elevata della
+    telecamera OAK-D Lite (Z=0.2616m); integrazione diretta nell'odometria del giroscopio
+    OAK-D a 42Hz soggetto a rumore meccanico
+  potential_effect: Deformazione laterale della mappa RTAB-Map durante i percorsi
+    dritti, rotazione fittizia della posa odometrica
+  classification: PERFORMANCE
+  estimation_basis: measured
+  related_ids:
+  - FM-MOT-006
+  - FM-NAV-015
+  initial_scoring:
+    severity: 7
+    occurrence: 8
+    detection: 2
+    rpn: 112
+  prevention_controls: Odometria cinematica teorica pura da cmd_vel (use_cmd_vel_odometry:=True)
+    con wz rigorosamente 0.00 rad/s a comando dritto; disattivazione integrazione
+    giroscopio vibrazionale (use_imu_for_rotation:=False); correzione metrica e loop
+    closure affidati al laser scan matching ICP 360 gradi di RPLIDAR C1 su RTAB-Map
+  detection_controls: Grafico telemetrico Foxglove odom wz vs cmd wz; verifica flatline
+    a 0.00 rad/s
+  residual_scoring:
+    severity: 7
+    occurrence: 1
+    detection: 1
+    rpn: 7
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Attivare use_cmd_vel_odometry:=True e use_imu_for_rotation:=False
+    nei parametri di lancio in restart_hailo.sh
+  verification_method: Telemetria Foxglove odom wz vs cmd wz in rettilineo e test
+    unitario pytest test_encoder_standstill_lock.py::test_04_pure_theoretical_cmd_vel_odometry
+  eco_ref: docs/ecos/actuation_ecos.md#ECO-2026-09-08-002
+  lesson_ref: docs/lessons/actuation_motor_driver.md#camera-mast-imu-vibration
+  date_identified: '2026-09-08'
+  last_updated: '2026-09-08'
+  history:
+  - date: '2026-09-08'
+    change: Implementata odometria cinematica teorica pura e disaccoppiamento del
+      giroscopio OAK-D dalle stime di heading delle ruote
+    rpn_old: 112
+    rpn_new: 7

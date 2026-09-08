@@ -136,11 +136,13 @@ class WaveshareMotorDriver(Node):
         
         self.oak_yaw_rate = 0.0
         self.last_imu_time = None
-        self.declare_parameter('use_imu_for_rotation', True)
+        self.declare_parameter('use_cmd_vel_odometry', True) # Pure theoretical kinematic odometry from cmd_vel (immune to vibration & encoder noise)
+        self.declare_parameter('use_imu_for_rotation', False)
         self.declare_parameter('invert_imu_yaw', True) # Inverts OAK-D Lite IMU Z gyro to match REP-103 (+Z = Left)
         self.declare_parameter('use_encoder_for_linear', False) # Default False: cmd_vel + IMU + ICP (immune to broken ESP32 encoders)
         self.declare_parameter('standstill_encoder_deadband', 8) # Reject tick flutter <= 8 ticks (~2.5mm) when stopped
         
+        self.use_cmd_vel_odometry = bool(self.get_parameter('use_cmd_vel_odometry').value)
         self.use_imu_for_rotation = bool(self.get_parameter('use_imu_for_rotation').value)
         self.invert_imu_yaw = bool(self.get_parameter('invert_imu_yaw').value)
         self.use_encoder_for_linear = bool(self.get_parameter('use_encoder_for_linear').value)
@@ -366,7 +368,7 @@ class WaveshareMotorDriver(Node):
         
         if self.last_imu_time is not None:
             dt_imu = now - self.last_imu_time
-            if 0.001 < dt_imu < 0.2 and getattr(self, 'use_imu_for_rotation', True):
+            if 0.001 < dt_imu < 0.2 and getattr(self, 'use_imu_for_rotation', False) and not getattr(self, 'use_cmd_vel_odometry', False):
                 self.theta += w * dt_imu
                 # Normalize to [-pi, pi]
                 self.theta = math.atan2(math.sin(self.theta), math.cos(self.theta))
@@ -667,44 +669,69 @@ class WaveshareMotorDriver(Node):
         self.prev_right_ticks = right_ticks
         self.last_odom_time = current_time
         
-        # 1. LINEAR TRANSLATION: Compute from physical wheel encoders or fallback to cmd_vel
-        if self.use_encoder_for_linear:
-            # CLOSED-LOOP LINEAR: Use physical wheel encoder ticks for real ground truth distance
-            if abs(delta_ticks_left) > self.ticks_per_rev * 5: delta_ticks_left = 0
-            if abs(delta_ticks_right) > self.ticks_per_rev * 5: delta_ticks_right = 0
-            if self.invert_left_encoder: delta_ticks_left = -delta_ticks_left
-            if self.invert_right_encoder: delta_ticks_right = -delta_ticks_right
-            
-            delta_s_left = delta_ticks_left * meters_per_tick
-            delta_s_right = delta_ticks_right * meters_per_tick
-            
-            # Linear translation is the average of both wheels (immune to differential angular lever)
-            delta_s = (delta_s_right + delta_s_left) / 2.0 if not self.motors_stopped else 0.0
-            v_robot = (delta_s / dt) if (dt > 0.001 and not self.motors_stopped) else 0.0
-        else:
-            # OPEN-LOOP LINEAR FALLBACK: Trust cmd_linear_x (immune to broken ESP32 encoders and Hall runaway)
+        if getattr(self, 'use_cmd_vel_odometry', False):
+            # PURE THEORETICAL KINEMATIC ODOMETRY (from /cmd_vel)
+            # Immune to broken ESP32 encoder hardware and camera mast IMU vibration
             v_robot = 0.0 if self.motors_stopped else self.cmd_linear_x
+            w_robot = 0.0 if self.motors_stopped else self.cmd_angular_z
+            
             delta_s = v_robot * dt
-
-        # 2. ANGULAR ORIENTATION: Continuous 42 Hz IMU Giroscopio Z (OAK-D Lite)
-        if self.use_imu_for_rotation:
-            # theta is continuously updated in real-time by oak_imu_callback at 42 Hz!
-            w_robot = self.oak_yaw_rate
-        else:
-            # Fallback to wheel encoder differential
-            delta_theta = (delta_s_right - delta_s_left) / self.rotational_wheel_separation
+            delta_theta = w_robot * dt
+            
+            # Mid-point integration for exact differential drive trajectory
+            mid_theta = self.theta + (delta_theta / 2.0)
+            self.x += delta_s * math.cos(mid_theta)
+            self.y += delta_s * math.sin(mid_theta)
             self.theta += delta_theta
-            w_robot = (delta_theta / dt) if dt > 0.001 else 0.0
+            self.theta = math.atan2(math.sin(self.theta), math.cos(self.theta))
+            
+            if abs(delta_s) > 1e-5 or abs(w_robot) > 1e-3:
+                self.get_logger().info(
+                    f"[ODOM_THEO] v={v_robot:.3f}m/s, w={w_robot:.3f}rad/s, th={math.degrees(self.theta):+.1f}deg, pos=({self.x:.3f}, {self.y:.3f})",
+                    throttle_duration_sec=0.5
+                )
+        else:
+            # 1. LINEAR TRANSLATION: Compute from physical wheel encoders or fallback to cmd_vel
+            if self.use_encoder_for_linear:
+                # CLOSED-LOOP LINEAR: Use physical wheel encoder ticks for real ground truth distance
+                if abs(delta_ticks_left) > self.ticks_per_rev * 5: delta_ticks_left = 0
+                if abs(delta_ticks_right) > self.ticks_per_rev * 5: delta_ticks_right = 0
+                if self.invert_left_encoder: delta_ticks_left = -delta_ticks_left
+                if self.invert_right_encoder: delta_ticks_right = -delta_ticks_right
+                
+                delta_s_left = delta_ticks_left * meters_per_tick
+                delta_s_right = delta_ticks_right * meters_per_tick
+                
+                # Linear translation is the average of both wheels (immune to differential angular lever)
+                delta_s = (delta_s_right + delta_s_left) / 2.0 if not self.motors_stopped else 0.0
+                v_robot = (delta_s / dt) if (dt > 0.001 and not self.motors_stopped) else 0.0
+            else:
+                # OPEN-LOOP LINEAR FALLBACK: Trust cmd_linear_x (immune to broken ESP32 encoders and Hall runaway)
+                delta_s_left = 0.0
+                delta_s_right = 0.0
+                v_robot = 0.0 if self.motors_stopped else self.cmd_linear_x
+                delta_s = v_robot * dt
 
-        if abs(delta_s) > 1e-5 or abs(w_robot) > 1e-3:
-            src_lin = "ENCODER" if self.use_encoder_for_linear else "CMD_VEL"
-            src_rot = "IMU_42Hz" if self.use_imu_for_rotation else "ENCODER"
-            self.get_logger().info(f"[ODOM_CALC] lin={src_lin}(d_s={delta_s:.4f}), rot={src_rot}(th={math.degrees(self.theta):+.2f}deg, w={math.degrees(w_robot):+.2f}deg/s)", throttle_duration_sec=0.2)
-        
-        # Integrate linear translation using current IMU heading
-        self.x += delta_s * math.cos(self.theta)
-        self.y += delta_s * math.sin(self.theta)
-        
+            # 2. ANGULAR ORIENTATION: Continuous 42 Hz IMU Giroscopio Z (OAK-D Lite)
+            if self.use_imu_for_rotation:
+                # theta is continuously updated in real-time by oak_imu_callback at 42 Hz!
+                w_robot = self.oak_yaw_rate
+            else:
+                # Fallback to wheel encoder differential
+                delta_theta = (delta_s_right - delta_s_left) / self.rotational_wheel_separation
+                self.theta += delta_theta
+                self.theta = math.atan2(math.sin(self.theta), math.cos(self.theta))
+                w_robot = (delta_theta / dt) if dt > 0.001 else 0.0
+
+            if abs(delta_s) > 1e-5 or abs(w_robot) > 1e-3:
+                src_lin = "ENCODER" if self.use_encoder_for_linear else "CMD_VEL"
+                src_rot = "IMU_42Hz" if self.use_imu_for_rotation else "ENCODER"
+                self.get_logger().info(f"[ODOM_CALC] lin={src_lin}(d_s={delta_s:.4f}), rot={src_rot}(th={math.degrees(self.theta):+.2f}deg, w={math.degrees(w_robot):+.2f}deg/s)", throttle_duration_sec=0.2)
+            
+            # Integrate linear translation using current heading
+            self.x += delta_s * math.cos(self.theta)
+            self.y += delta_s * math.sin(self.theta)
+            
         self.v_robot = v_robot
         self.w_robot = w_robot
         
@@ -931,6 +958,15 @@ class WaveshareMotorDriver(Node):
             elif param.name == 'invert_right_encoder':
                 self.invert_right_encoder = bool(param.value)
                 self.get_logger().info(f"Dynamic Parameter Updated: invert_right_encoder = {self.invert_right_encoder}")
+            elif param.name == 'use_cmd_vel_odometry':
+                self.use_cmd_vel_odometry = bool(param.value)
+                self.get_logger().info(f"Dynamic Parameter Updated: use_cmd_vel_odometry = {self.use_cmd_vel_odometry}")
+            elif param.name == 'use_imu_for_rotation':
+                self.use_imu_for_rotation = bool(param.value)
+                self.get_logger().info(f"Dynamic Parameter Updated: use_imu_for_rotation = {self.use_imu_for_rotation}")
+            elif param.name == 'use_encoder_for_linear':
+                self.use_encoder_for_linear = bool(param.value)
+                self.get_logger().info(f"Dynamic Parameter Updated: use_encoder_for_linear = {self.use_encoder_for_linear}")
         return SetParametersResult(successful=True)
 
     def destroy_node(self):

@@ -1,5 +1,5 @@
 # 📊 Report Esecutivo DFMEA - Marcus AI Robot Platform
-**Data Generazione:** 2026-09-08 21:58:03  
+**Data Generazione:** 2026-09-08 22:48:27  
 **Metodologia:** AIAG-VDA FMEA Standard con Regola Override Severità ($S \ge 9 \implies$ REVISION_MANDATORY)
 
 ---
@@ -8,8 +8,8 @@
 
 | Metrica | Valore | Note / Impatto |
 | :--- | :---: | :--- |
-| **Totale Modalità di Guasto (FM)** | **118** | Copertura integrata dei sottosistemi Marcus |
-| **🟢 Risk Level LOW** | **85** | $RPN_{res} \le 50$ (Sotto controllo) |
+| **Totale Modalità di Guasto (FM)** | **119** | Copertura integrata dei sottosistemi Marcus |
+| **🟢 Risk Level LOW** | **86** | $RPN_{res} \le 50$ (Sotto controllo) |
 | **🟡 Risk Level MEDIUM** | **7** | $51 \le RPN_{res} \le 199$ (Monitoraggio attivo) |
 | **🟠 Risk Level HIGH** | **2** | $200 \le RPN_{res} \le 349$ (Mitigazione obbligatoria) |
 | **🔴 Risk Level CRITICAL** | **0** | $RPN_{res} \ge 350$ (Blocco rilasci) |
@@ -52,7 +52,7 @@
 - **Hardware/Power & Sensors:** 1 failure modes
 - **Actuation/MotorDriver:** 1 failure modes
 - **AI/Evolution:** 1 failure modes
-- **Actuation & Motion:** 1 failure modes
+- **Actuation & Motion:** 2 failure modes
 
 ---
 
@@ -201,6 +201,7 @@
 | **FM-NAV-025** | Navigation & SLAM | `rtabmap_slam` | Crash irreversibile RTAB-Map per UException Memory.cpp:3473 addLink e conseguente collasso di Nav2 e blackout canali 3D Foxglove Studio | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#FM-NAV-025`](docs/lessons/nav2_slam_tuning.md#FM-NAV-025) |
 | **FM-LLM-007** | AI/Trinity | `dynamic_skill_creator / base_skill` | Deriva semantica o firma asincrona non valida in match/execute non rilevata dal compilatore AST di base | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md`](docs/lessons/orchestration_and_rag.md) |
 | **FM-PWR-001** | Hardware/Power & Sensors | `sensor_standby_manager.py / RPLIDAR C1 / RTAB-Map` | Usura meccanica continua a vuoto del rotore RPLIDAR C1, consumo energetico superfluo e sovraccarico computazionale di RTAB-Map quando il robot è stazionario per > 2 minuti | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#smart-standby-motion-gating`](docs/lessons/actuation_motor_driver.md#smart-standby-motion-gating) |
+| **FM-MOT-007** | Actuation & Motion | `waveshare_motor_driver` | Oscillazione della velocità angolare odom wz (+-0.20 rad/s) e sfarfallio a zig-zag della mappa SLAM durante la marcia rettilinea | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#camera-mast-imu-vibration`](docs/lessons/actuation_motor_driver.md#camera-mast-imu-vibration) |
 | **FM-SYS-002** | System/DDS | `system_scripts` | Errore di esecuzione script: OSError [Errno 8] Exec format error | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`marcus_core_rules.md#1-memoria-ram-e-limite-host`](marcus_core_rules.md#1-memoria-ram-e-limite-host) |
 | **FM-TRI-003** | AI/Trinity | `cag_aggregator` | Latenza eccessiva nella raccolta del contesto CAG (> 500ms) che ritarda l'invio del prompt all'LLM | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#trinity-architecture`](docs/lessons/orchestration_and_rag.md#trinity-architecture) |
 | **FM-VUI-022** | Voice/Orchestration | `nomad_exploration_skill` | Mancato riconoscimento del termine 'NOMAD' da parte dell'ASR e mancata registrazione della skill nell'AI Orchestrator | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#gestione-acronimi-stranieri-e-tolleranza-fonetica-asr`](docs/lessons/audio_vui_pipeline.md#gestione-acronimi-stranieri-e-tolleranza-fonetica-asr) |

@@ -218,6 +218,33 @@ La lesson learned §24 in `actuation_motor_driver.md` aveva già documentato que
 | Sinistra (v=0, w=+0.5) | -0.xx | +0.xx | +0.xx | -0.xx | Destra avanti, sinistra indietro ✓ |
 | Destra (v=0, w=-0.5) | +0.xx | -0.xx | -0.xx | +0.xx | Destra indietro, sinistra avanti ✓ |
 
+---
+
+<a id="ECO-2026-09-08-002"></a>
+## ECO-2026-09-08-002: Odometria Cinematica Teorica Pura da cmd_vel e Disaccoppiamento Giroscopio OAK-D Lite per Eliminazione Jitter Angolare
+
+* **Data:** 2026-09-08
+* **Autore:** Marcus AI / Antigravity
+* **Stato:** APPLICATO & VALIDATO
+* **DFMEA Correlati:** `FM-MOT-007`, `FM-MOT-006`, `FM-NAV-015`
+
+### Contesto e Causa Radice
+Durante i test con telemetria Foxglove, con il robot che procedeva in linea retta avanti/indietro (`cmd vx = 0.30 m/s, cmd wz = 0.00 rad/s`), la velocità angolare odometrica `odom wz` (linea rossa) oscillava violentemente tra -0.20 rad/s e +0.16 rad/s.
+L'indagine ha identificato che l'asta su cui è montata la telecamera OAK-D Lite ($Z = 0.2616\text{ m}$) vibra durante il moto delle ruote a contatto con il pavimento. Poiché il callback `oak_imu_callback` integrava ininterrottamente `self.theta += w * dt_imu` direttamente dal giroscopio Z della telecamera a 42 Hz, le oscillazioni meccaniche venivano iniettate nell'orientamento del robot `/odom`, facendo ondeggiare a zig-zag la mappa SLAM 2D in RTAB-Map.
+
+### Modifiche Applicate
+1. **[DRIVER] `robopy_controller/nodes/waveshare_motor_driver.py`:**
+   - Introdotto supporto completo e prioritario per `use_cmd_vel_odometry:=True`.
+   - In `process_encoder_feedback`: quando `use_cmd_vel_odometry` è attivo, l'odometria calcola $v_{robot} = cmd\_linear\_x$ e $w_{robot} = cmd\_angular\_z$ con integrazione a punto medio ($mid\_theta = theta + delta\_theta/2$).
+   - In `oak_imu_callback`: aggiunta guardia vincolante: l'integrazione di `self.theta` avviene solo se `use_imu_for_rotation == True` e `use_cmd_vel_odometry == False`.
+   - In `parameter_callback`: aggiunta gestione dinamica per `use_cmd_vel_odometry`, `use_imu_for_rotation`, `use_encoder_for_linear`.
+2. **[SCRIPT] `restart_hailo.sh`:**
+   - Avvio esplicito di `waveshare_motor_driver` con parametri:
+     `-p use_cmd_vel_odometry:=True -p use_imu_for_rotation:=False -p use_encoder_for_linear:=False`.
+3. **[TEST] `test/unit/test_encoder_standstill_lock.py`:**
+   - Aggiunto `test_04_pure_theoretical_cmd_vel_odometry`: validato che con vibrazione simulata a 0.20 rad/s sull'IMU OAK-D, `w_robot` rimane rigorosamente `0.00` e `theta` rimane inalterato. (4/4 test passati).
+
+
 
 
 

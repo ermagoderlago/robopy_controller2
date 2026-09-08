@@ -42,6 +42,7 @@ class DummyNode:
             'encoder_dead_zone': 2,
             'publish_tf': False,
             'odom_topic': '/odom',
+            'use_cmd_vel_odometry': False,
             'use_encoder_for_linear': True,
             'use_imu_for_rotation': True,
             'invert_imu_yaw': True,
@@ -155,6 +156,29 @@ class TestEncoderStandstillLock(unittest.TestCase):
         self.driver.process_encoder_feedback(5000, 5050)
         
         self.driver.logger.warn.assert_called()
+
+    def test_04_pure_theoretical_cmd_vel_odometry(self):
+        """When use_cmd_vel_odometry is True, odometry strictly follows cmd_vel, immune to camera vibration."""
+        self.driver.use_cmd_vel_odometry = True
+        self.driver.use_imu_for_rotation = False
+        self.driver.motors_stopped = False
+        self.driver.cmd_linear_x = 0.25
+        self.driver.cmd_angular_z = 0.00
+        
+        # Simulate severe camera mast vibration on OAK-D Lite gyro (e.g. 0.20 rad/s)
+        self.driver.oak_yaw_rate = 0.20
+        
+        # Initial baseline
+        self.driver.process_encoder_feedback(100, 100)
+        initial_theta = self.driver.theta
+        
+        # Simulate ticks and multiple feedback cycles
+        self.driver.process_encoder_feedback(150, 150)
+        
+        # In theoretical odometry, w_robot must strictly follow cmd_angular_z (0.00)
+        self.assertEqual(self.driver.w_robot, 0.00, "w_robot must strictly be 0.00 when driving straight")
+        self.assertEqual(self.driver.v_robot, 0.25, "v_robot must strictly match commanded linear speed")
+        self.assertEqual(self.driver.theta, initial_theta, "theta must not be corrupted by camera mast vibration")
 
 if __name__ == '__main__':
     unittest.main()
