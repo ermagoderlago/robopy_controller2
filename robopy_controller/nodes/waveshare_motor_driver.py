@@ -138,8 +138,13 @@ class WaveshareMotorDriver(Node):
         self.last_imu_time = None
         self.declare_parameter('use_imu_for_rotation', True)
         self.declare_parameter('invert_imu_yaw', True) # Inverts OAK-D Lite IMU Z gyro to match REP-103 (+Z = Left)
-        self.declare_parameter('use_encoder_for_linear', True) # Physical wheel encoders for forward/backward translation
+        self.declare_parameter('use_encoder_for_linear', False) # Default False: cmd_vel + IMU + ICP (immune to broken ESP32 encoders)
         self.declare_parameter('standstill_encoder_deadband', 8) # Reject tick flutter <= 8 ticks (~2.5mm) when stopped
+        
+        self.use_imu_for_rotation = bool(self.get_parameter('use_imu_for_rotation').value)
+        self.invert_imu_yaw = bool(self.get_parameter('invert_imu_yaw').value)
+        self.use_encoder_for_linear = bool(self.get_parameter('use_encoder_for_linear').value)
+        self.standstill_encoder_deadband = int(self.get_parameter('standstill_encoder_deadband').value)
         
         # --- Serial Connection & Threads ---
         self.serial_lock = threading.Lock()
@@ -663,7 +668,7 @@ class WaveshareMotorDriver(Node):
         self.last_odom_time = current_time
         
         # 1. LINEAR TRANSLATION: Compute from physical wheel encoders or fallback to cmd_vel
-        if getattr(self, 'use_encoder_for_linear', True):
+        if self.use_encoder_for_linear:
             # CLOSED-LOOP LINEAR: Use physical wheel encoder ticks for real ground truth distance
             if abs(delta_ticks_left) > self.ticks_per_rev * 5: delta_ticks_left = 0
             if abs(delta_ticks_right) > self.ticks_per_rev * 5: delta_ticks_right = 0
@@ -677,12 +682,12 @@ class WaveshareMotorDriver(Node):
             delta_s = (delta_s_right + delta_s_left) / 2.0 if not self.motors_stopped else 0.0
             v_robot = (delta_s / dt) if (dt > 0.001 and not self.motors_stopped) else 0.0
         else:
-            # OPEN-LOOP LINEAR FALLBACK: Trust cmd_linear_x
+            # OPEN-LOOP LINEAR FALLBACK: Trust cmd_linear_x (immune to broken ESP32 encoders and Hall runaway)
             v_robot = 0.0 if self.motors_stopped else self.cmd_linear_x
             delta_s = v_robot * dt
 
         # 2. ANGULAR ORIENTATION: Continuous 42 Hz IMU Giroscopio Z (OAK-D Lite)
-        if getattr(self, 'use_imu_for_rotation', True):
+        if self.use_imu_for_rotation:
             # theta is continuously updated in real-time by oak_imu_callback at 42 Hz!
             w_robot = self.oak_yaw_rate
         else:
@@ -692,8 +697,8 @@ class WaveshareMotorDriver(Node):
             w_robot = (delta_theta / dt) if dt > 0.001 else 0.0
 
         if abs(delta_s) > 1e-5 or abs(w_robot) > 1e-3:
-            src_lin = "ENCODER" if getattr(self, 'use_encoder_for_linear', True) else "CMD_VEL"
-            src_rot = "IMU_42Hz" if getattr(self, 'use_imu_for_rotation', True) else "ENCODER"
+            src_lin = "ENCODER" if self.use_encoder_for_linear else "CMD_VEL"
+            src_rot = "IMU_42Hz" if self.use_imu_for_rotation else "ENCODER"
             self.get_logger().info(f"[ODOM_CALC] lin={src_lin}(d_s={delta_s:.4f}), rot={src_rot}(th={math.degrees(self.theta):+.2f}deg, w={math.degrees(w_robot):+.2f}deg/s)", throttle_duration_sec=0.2)
         
         # Integrate linear translation using current IMU heading

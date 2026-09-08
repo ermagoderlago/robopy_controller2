@@ -112,6 +112,7 @@ nohup ros2 run robopy_controller waveshare_motor_driver --ros-args \
     -p invert_right_encoder:=True \
     -p encoder_dead_zone:=2 \
     -p publish_tf:=True \
+    -p use_encoder_for_linear:=False \
     -p odom_topic:=/odom \
     > /home/robopy/robopy/logs/waveshare_motor_driver.log 2>&1 &
 
@@ -279,7 +280,7 @@ nohup ros2 run robopy_controller battery_manager_node --ros-args \
 echo "💤 Starting sensor_standby_manager (Smart Standby & Sensor Power-Save)..."
 > /home/robopy/robopy/logs/sensor_standby_manager.log
 nohup ros2 run robopy_controller sensor_standby_manager --ros-args \
-    -p idle_timeout_sec:=120.0 \
+    -p idle_timeout_sec:=1800.0 \
     -p imu_accel_threshold:=0.35 \
     -p imu_gyro_threshold:=0.15 \
     </dev/null > /home/robopy/robopy/logs/sensor_standby_manager.log 2>&1 &
