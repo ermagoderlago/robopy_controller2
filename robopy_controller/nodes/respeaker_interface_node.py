@@ -24,6 +24,8 @@ Protocollo firmware (respeaker_lite_firmware.yaml v11.0):
     LED:OK\n, SPEAKER:CHUNK_DONE\n
 """
 
+import os
+import glob
 import serial
 import threading
 import queue
@@ -31,7 +33,7 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Bool, String, Int32
 
-UART_PORT_DEFAULT = '/dev/ttyACM0'
+UART_PORT_DEFAULT = '/dev/respeaker'
 UART_BAUD_DEFAULT = 115200
 RECONNECT_DELAY_S = 3.0
 HEARTBEAT_TIMEOUT_S = 15.0
@@ -98,14 +100,40 @@ class ReSpeakerInterfaceNode(Node):
         self.get_logger().info(
             f"🎤 ReSpeaker Interface attivo — porta: {self._port} @ {self._baud} baud")
 
+    def _resolve_port(self) -> str:
+        """
+        Risolve la porta seriale con fallback deterministico:
+        1. Porta configurata (se esistente)
+        2. Symlink persistente udev /dev/respeaker
+        3. Dispositivi USB by-id associati a Espressif o Seeed
+        4. Porte dinamiche /dev/ttyACM*
+        """
+        if os.path.exists(self._port):
+            return self._port
+
+        if os.path.exists('/dev/respeaker'):
+            return '/dev/respeaker'
+
+        by_id_candidates = glob.glob('/dev/serial/by-id/*Espressif*') + glob.glob('/dev/serial/by-id/*Seeed*')
+        for dev in by_id_candidates:
+            if os.path.exists(dev):
+                return dev
+
+        acm_candidates = sorted(glob.glob('/dev/ttyACM*'))
+        if acm_candidates:
+            return acm_candidates[0]
+
+        return self._port
+
     # ── Connessione seriale ─────────────────────────────────────
     def _connect(self) -> bool:
         with self._serial_lock:
+            target_port = self._resolve_port()
             try:
                 if self._serial and self._serial.is_open:
                     self._serial.close()
                 self._serial = serial.Serial(
-                    port=self._port,
+                    port=target_port,
                     baudrate=self._baud,
                     timeout=1.0,
                     write_timeout=2.0
@@ -113,10 +141,14 @@ class ReSpeakerInterfaceNode(Node):
                 self._serial.reset_input_buffer()
                 self._serial.reset_output_buffer()
                 self._firmware_ready = False
-                self.get_logger().info(f"✅ Porta seriale aperta: {self._port}")
+                if target_port != self._port:
+                    self.get_logger().info(
+                        f"🔄 Porta '{self._port}' non trovata: fallback automatico su '{target_port}'"
+                    )
+                self.get_logger().info(f"✅ Porta seriale aperta: {target_port}")
                 return True
             except serial.SerialException as e:
-                self.get_logger().warning(f"⚠️ Impossibile aprire {self._port}: {e}")
+                self.get_logger().warning(f"⚠️ Impossibile aprire {target_port} (target: {self._port}): {e}")
                 self._serial = None
                 return False
 

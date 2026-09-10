@@ -168,7 +168,7 @@ def generate_launch_description():
         name='respeaker_interface_node',
         output='screen',
         parameters=[{
-            'uart_port': '/dev/ttyACM0',
+            'uart_port': '/dev/respeaker',
             'uart_baud': 921600,
             'enabled': True,
             'default_volume': 5,    # Volume al 5% (v6.6)

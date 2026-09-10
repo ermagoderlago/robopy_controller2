@@ -14,6 +14,12 @@ Questo documento raccoglie le lezioni apprese, i bug riscontrati e le soluzioni 
   CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG: y
   ```
 
+### ReSpeaker Lite: Persistenza Seriale Udev `/dev/respeaker` e Coesistenza LiDAR (FM-VUI-024)
+* **Problema:** L'inserimento del LiDAR USB (RPLIDAR C1) o il riavvio del bus USB altera l'indice delle porte seriali, causando la scomparsa di `/dev/ttyACM0` o il suo slittamento a `/dev/ttyACM1`. Di conseguenza `respeaker_interface_node` fallisce con `[Errno 2] No such file or directory: '/dev/ttyACM0'`.
+* **Soluzione Architetturale:**
+  1. **Regola Udev Persistente:** Mappare deterministica Seeed XIAO ESP32-S3 in `/etc/udev/rules.d/99-marcus-serial.rules` creando il symlink fisso `/dev/respeaker` (matching su `ATTRS{idVendor}=="303a"`, `ATTRS{idProduct}=="1001"` o `ATTRS{idVendor}=="2886"`).
+  2. **Auto-Discovery in `respeaker_interface_node.py`:** Implementato il metodo `_resolve_port()` che prova in sequenza la porta configurata, `/dev/respeaker`, `/dev/serial/by-id/*Espressif*` / `*Seeed*` e infine qualsiasi porta dinamica `/dev/ttyACM*`, rendendo il nodo immune a future riconfigurazioni fisiche delle porte USB.
+
 ### ReSpeaker Lite: Integrazione Hardware ESPHome
 * **Componente Esterno:** L'uso del componente `respeaker_lite` (repository `formatBCE`) è **obbligatorio** per stabilizzare i clock I2S del chip XMOS XU316. La configurazione manuale pura causa il blocco del DMA (dati piatti a 32743).
 * **Pinout Corretto (XIAO S3 + Lite):**

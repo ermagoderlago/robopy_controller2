@@ -124,3 +124,17 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
   * Modificato `semantic_costmap_injector.py`: Aggiunta la sottoscrizione a `/semantic_costmap/clear` per eseguire il flush istantaneo degli ostacoli spuri nella costmap al momento della ricalibrazione.
   * Creato il progetto di miglioramento isolato `docs/improvements/IMP-VIS-003_extrinsic_camera_calibration.md` ed aggiornato il database DFMEA (`fmea/dfmea.yaml`, RPN ridotto da 336 a 96).
 
+---
+
+## 📈 ECO-2026-09-10-001: Native C++ HailoRT InferModel Bridge & Multi-Stream Input Binding (FM-CPU-001)
+* **Stato:** ✅ **Completato, Compilato con Successo e Distribuito sul Robot**
+* **Descrizione:** Riscrittura completa del driver NPU Hailo-10H da Python a C++ nativo (`hailo_bridge_node_cpp`) per eliminare la contesa del GIL Python e ridurre l'overhead computazionale su Raspberry Pi 5. Risolto l'errore di binding su HEF congiunto multi-rete (`marcus_unified.hef`) e implementata la decodifica DFL multi-scala YOLOv8 nativa.
+* **Modifiche apportate:**
+  * **`src/hailo_bridge_node.cpp`**:
+    - Integrata l'API C++ `hailort::VDevice` e `hailort::InferModel` con pre-allocazione e binding dinamico di tutti gli stream di input (`yolo/input_layer1`, `netvlad/input_layer1`, `superpoint/input_layer1`).
+    - Configurato il formato di dequantizzazione hardware `HAILO_FORMAT_TYPE_FLOAT32`.
+    - Implementata la decodifica multi-scala YOLOv8 DFL (strides 8, 16, 32 su `conv44/45`, `conv60/61`, `conv73/74`) con softmax vettorizzato sui 16 bin per lato.
+    - Implementata la Non-Maximum Suppression (NMS) veloce con soglia IoU 0.45 e traduzione delle classi in italiano per la pubblicazione su `/hailo/detections` e `/hailo/semantic_objects`.
+    - Applicato il core pinning forzato sui core CPU 2 e 3 (`pthread_setaffinity_np`) e Lazy Publishing per l'immagine compressa annotata.
+  * **Compilazione**: Compilato in Release con `-O3 -mcpu=cortex-a76+crypto` e `MAKEFLAGS="-j1"` su Raspberry Pi 5.
+  * **Script di avvio**: Aggiornato `restart_hailo.sh` per avviare `hailo_bridge_node_cpp` nativo.

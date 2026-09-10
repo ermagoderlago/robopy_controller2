@@ -122,6 +122,12 @@ improvements:
     status: "COMPLETED"
     domain: "hardware_power"
 
+  FM-VUI-024:
+    title: "Miglioramento VUI: Persistenza Seriale Udev /dev/respeaker e Auto-Discovery Dinamico"
+    file: "docs/improvements/IMP-VUI-024_respeaker_serial_persistence.md"
+    status: "COMPLETED"
+    domain: "audio_vui"
+
 
 
 

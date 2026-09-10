@@ -222,7 +222,7 @@ nohup taskset -c 2,3 ros2 run rtabmap_slam rtabmap $DELETE_DB_FLAG --ros-args \
 echo "🔌 Starting respeaker_interface_node..."
 > /home/robopy/robopy/logs/respeaker_interface_node.log
 nohup ros2 run robopy_controller respeaker_interface_node --ros-args \
-    -p uart_port:=/dev/ttyACM0 \
+    -p uart_port:=/dev/respeaker \
     -p uart_baud:=921600 \
     -p enabled:=True \
     -p default_volume:=5 \

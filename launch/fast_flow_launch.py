@@ -403,7 +403,7 @@ echo "[NAV2-ENSURE] Done."
     )
 
     # ── ReSpeaker Lite — Hardware Wake Word + LED + Speaker ────────────
-    # Bridge UART bidirezionale con XIAO ESP32S3 su /dev/ttyACM0.
+    # Bridge UART bidirezionale con XIAO ESP32S3 su /dev/respeaker.
     # Gestisce: TRIGGER_JARVIS → /ai/input/mic_mute, LED feedback,
     #            heartbeat watchdog. Speaker USB gestito da TTS service.
     respeaker_node = Node(
@@ -412,7 +412,7 @@ echo "[NAV2-ENSURE] Done."
         name='respeaker_interface_node',
         output='screen',
         parameters=[{
-            'uart_port': '/dev/ttyACM0',
+            'uart_port': '/dev/respeaker',
             'uart_baud': 115200,
             'enabled': True,
         }]

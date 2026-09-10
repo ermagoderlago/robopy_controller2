@@ -240,8 +240,32 @@ Questo documento descrive le lezioni apprese su OAK-D Lite, l'acceleratore NPU H
   ```cpp
   double gz_ros = -packet.gyroscope.y; // ✅ Corretto: rotazione antioraria attorno a ROS +Z (UP) è -gyroscope.y
   ```
-  In questo modo, la velocità angolare `/oak/imu/data` e l'odometria differenziale `/odom_wheel` sono perfettamente concordi con le convenzioni ROS REP-103 (+Z = CCW). RTAB-Map e VIO mantengono l'allineamento geometrico continuo senza conflitti di scan matching.
+---
 
+## 🚀 InferModel C++ API su HEF Unificato Multi-Rete (Settembre 2026)
 
+### Binding Obbligatorio di Tutti gli Input in Joined HEF
+* **Problema:** Quando si carica un file HEF con reti congiunte (`marcus_unified.hef` contenente `joined_yolo_superpoint_netvlad`), HailoRT C++ restituisce l'errore:
+  `CHECK failed - Couldnt find input buffer for 'netvlad/input_layer1'` se viene associato solo l'input dello stream YOLO (`yolo/input_layer1`).
+* **Causa:** Nelle pipeline di esecuzione di `ConfiguredInferModel`, se un modello HEF contiene più reti raggruppate in un singolo context group, tutti gli stream di input definiti in `infer_model->inputs()` devono avere un buffer di memoria valido associato in `bindings` prima di invocare `configured_infer_model->run()`, anche se l'inferenza mirata riguarda solo una delle teste (YOLOv8).
+* **Risoluzione:**
+  Iterare su tutti gli stream di input esposti da `infer_model_->inputs()` e pre-allocare vettori dedicati `input_buffers_[name]` collegandoli ai rispettivi binding:
+  ```cpp
+  for (const auto &inp : infer_model_->inputs()) {
+      std::string name = inp.name();
+      input_buffers_[name].resize(inp.get_frame_size(), 0);
+      auto in_stream = bindings_->input(name);
+      if (in_stream) {
+          in_stream->set_buffer(hailort::MemoryView(
+              input_buffers_[name].data(), input_buffers_[name].size()
+          ));
+      }
+  }
+  ```
 
-
+### Decodifica Multi-Scala YOLOv8 DFL Nativa C++
+* **Implementazione:** In `hailo_bridge_node_cpp`, la decodifica dell'architettura anchor-free YOLOv8 avviene direttamente in memoria float32 a 3 scale (stride 8: 80x80, stride 16: 40x40, stride 32: 20x20):
+  - Calcolo Softmax su 16 bin per ciascuno dei 4 lati (distribuzione DFL: left, top, right, bottom).
+  - Proiezione sulle coordinate immagine 640x640 e scaling alla risoluzione RGB nativa della camera.
+  - Applicazione di Non-Maximum Suppression (NMS) veloce con soglia IoU 0.45.
+  - Pubblicazione sincrona dei topic `/hailo/detections` e `/hailo/semantic_objects` (etichette COCO tradotte in italiano: persona, sedia, tavolo, ecc.).

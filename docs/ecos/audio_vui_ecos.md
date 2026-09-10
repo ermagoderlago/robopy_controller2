@@ -135,3 +135,20 @@ Questo documento traccia la cronologia delle modifiche ingegneristiche (ECO) app
     - Rimosso l'entry point `wake_word_node` da `console_scripts`.
     - Rimosso il nodo `wake_word_node` dalla `LaunchDescription`.
   * **[FMEA]** Failure mode `FM-VUI-004` validato e chiuso (`CLOSED`).
+
+---
+
+## 📈 ECO-2026-09-10-001: Persistenza Seriale Udev `/dev/respeaker` e Auto-Discovery Dinamico (FM-VUI-024)
+* **Stato:** ✅ **Completato, Testato Unitariamente e Attivo**
+* **Descrizione:** Risoluzione del fallimento di connessione seriale in `respeaker_interface_node` (`[Errno 2] No such file or directory: '/dev/ttyACM0'`) causato dall'inserimento di nuove periferiche USB (LiDAR ToF C1) o ri-enumerazione del bus.
+* **Modifiche apportate:**
+  * **[REGOLA UDEV PERSISTENTE]** `/etc/udev/rules.d/99-marcus-serial.rules`:
+    - Aggiunte regole deterministiche per il microcontrollore Seeed XIAO ESP32-S3 (USB VID `303a`, PID `1001`/`0002` e VID `2886`) che assegnano stabilmente il symlink persistente `/dev/respeaker`.
+  * **[AUTO-DISCOVERY & RESILIENZA RUNTIME]** `robopy_controller/nodes/respeaker_interface_node.py`:
+    - Aggiornata porta di default da `/dev/ttyACM0` a `/dev/respeaker`.
+    - Implementato metodo `_resolve_port()` con fallback a cascata su: 1) porta configurata, 2) `/dev/respeaker`, 3) `/dev/serial/by-id/*Espressif*` / `*Seeed*`, 4) `/dev/ttyACM*`.
+    - Se l'inserimento del LiDAR fa slittare l'ESP32 su `ttyACM1`, il nodo si riaggancia autonomamente senza andare in eccezione bloccante.
+  * **[LAUNCH & RUNTIME CONFIG]** `restart_hailo.sh`, `launch/fast_flow_launch.py`, `launch/robot_ia_launch.py`:
+    - Aggiornato parametro `uart_port` a `/dev/respeaker`.
+  * **[TEST UNITARI]** `test/unit/test_respeaker_interface_port_resolver.py`:
+    - Creato test unitario a copertura completa (5 scenari) eseguito con successo al 100%.

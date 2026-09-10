@@ -2393,12 +2393,17 @@
       CPU 1, ridotto consumo visivo del 50%, eliminati i disconnessioni di rete su
       Foxglove.
     rpn_old: 7
-    rpn_new: 2
   - date: '2026-08-08'
     change: Riscrittura nativa in C++ (hailo_bridge_node_cpp) completata. Eliminati
       GIL Python e serializzazione OpenCV. CPU usage azzerato su Core 1, Load Average
       sceso da 12.33 a 1.72, RAM usata ridotta dell'86%.
     rpn_old: 7
+    rpn_new: 2
+  - date: '2026-09-10'
+    change: Risolto bug inferenza stub vuoto in C++. Implementate API HailoRT InferModel
+      con binding multi-stream HEF unificato, decodifica YOLOv8 DFL multi-scala e
+      NMS. Validata esecuzione a 15% CPU su Core 2-3.
+    rpn_old: 2
     rpn_new: 2
 - id: FM-CPU-002
   subsystem: System/Compute
@@ -5502,3 +5507,98 @@
       inlier visivi
     rpn_old: 84
     rpn_new: 6
+- id: FM-VUI-024
+  subsystem: Voice User Interface (VUI)
+  component: respeaker_interface_node
+  function: Connessione seriale persistente verso Seeed XIAO ESP32-S3 per controllo
+    LED e heartbeat
+  failure_mode: Mancata apertura o slittamento della porta USB CDC (/dev/ttyACM0 vs
+    /dev/ttyACM1) all'inserimento di nuove periferiche USB (LiDAR), con caduta del
+    controllo LED
+  potential_cause: Inserimento di nuove periferiche USB (es. LiDAR C1) o ri-enumerazione
+    del bus USB che altera l'indice ACM da ttyACM0 a ttyACM1 o causa assenza di ttyACM0
+  potential_effect: Fallimento continuo di respeaker_interface_node ([Errno 2] No
+    such file or directory), perdita del feedback visivo LED e warning ciclico nei
+    log
+  classification: FUNCTIONAL
+  estimation_basis: measured
+  related_ids:
+  - FM-MOT-004
+  initial_scoring:
+    severity: 5
+    occurrence: 8
+    detection: 2
+    rpn: 80
+  prevention_controls: Regola udev persistente in /etc/udev/rules.d/99-marcus-serial.rules
+    che assegna il symlink deterministico /dev/respeaker; metodo _resolve_port con
+    fallback automatico su /dev/respeaker, /dev/serial/by-id/* e /dev/ttyACM*
+  detection_controls: Log di avviso e connessione automatica in respeaker_interface_node
+    con notifica cambio porta
+  residual_scoring:
+    severity: 3
+    occurrence: 1
+    detection: 1
+    rpn: 3
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Applicare la regola udev persistente /dev/respeaker ed eseguire
+    il reload di udevadm
+  verification_method: Esecuzione di test/unit/test_respeaker_interface_port_resolver.py
+    con passaggio di tutti i 5 casi di test
+  eco_ref: docs/ecos/audio_vui_ecos.md#ECO-2026-09-10-001
+  lesson_ref: docs/lessons/audio_vui_pipeline.md#respeaker-udev-symlink
+  date_identified: '2026-09-10'
+  last_updated: '2026-09-10'
+  history:
+  - date: '2026-09-10'
+    change: Creata regola udev /dev/respeaker, implementato fallback deterministico
+      in respeaker_interface_node e aggiornati parametri launch/restart
+    rpn_old: 80
+    rpn_new: 3
+- id: FM-PWR-002
+  subsystem: Hardware/Power & Compute
+  component: step_down_pi5 / PMIC DA9091
+  function: Erogazione stabile della tensione 5.1V a 5A per Raspberry Pi 5 e carichi
+    AI simultanei (Hailo-10H NPU, OAK-D Lite, SSD NVMe)
+  failure_mode: Undervoltage (<4.63V) e brownout emergency power-off (<4.50V) del
+    PMIC durante picchi di inferenza NPU e streaming sensori
+  potential_cause: Caduta di tensione resistiva (Delta V = I * R) causata da cavo
+    USB 2.0 sottile (28 AWG) e/o step-down sottodimensionato con carico di 4-5A
+  potential_effect: Spegnimento brutale istantaneo del robot (crash Linux), disconnessione
+    SSH, potenziale rischio di corruzione filesystem NVMe
+  classification: HW_DAMAGE
+  estimation_basis: measured
+  related_ids:
+  - FM-SYS-004
+  - FM-VIS-004
+  initial_scoring:
+    severity: 9
+    occurrence: 8
+    detection: 2
+    rpn: 144
+  prevention_controls: Taratura step-down a 5.20V-5.25V (massimo 5.30V), alimentazione
+    diretta su pin GPIO 2/4 (5V) e 6/9 (GND) con conduttori 18-20 AWG
+  detection_controls: Registrazione allarme kernel hwmon3 raspberrypi-hwmon Undervoltage
+    detected e log dmesg
+  residual_scoring:
+    severity: 9
+    occurrence: 1
+    detection: 1
+    rpn: 9
+  risk_level: REVISION_MANDATORY
+  mitigation_status: CLOSED
+  recommended_action: Regolare il trimmer dello step-down a 5.20V-5.25V e collegare
+    l'uscita ai pin GPIO 2 e 4 eliminando il cavetto USB 2.0 sottile
+  verification_method: Stress test simultaneo di inferenza Hailo YOLOv8 + OAK-D Lite
+    streaming + Nav2 con monitoraggio dmesg per assenza di allarmi hwmon3
+  eco_ref: docs/specs/SPEC-06_power_bms_thermal_safety.md
+  lesson_ref: docs/lessons/vision_hailo_npu.md#caduta-di-tensione-e-reset-dellssd
+  date_identified: '2026-09-10'
+  last_updated: '2026-09-10'
+  history:
+  - date: '2026-09-10'
+    change: Identificato spegnimento indotto da caduta di tensione sul cavo USB 2.0
+      durante avvio Hailo NPU. Definita prescrizione 5.20V-5.25V e alimentazione diretta
+      GPIO 2/4 in SPEC-06.
+    rpn_old: 144
+    rpn_new: 9

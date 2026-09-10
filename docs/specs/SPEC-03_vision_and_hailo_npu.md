@@ -55,6 +55,8 @@ Le seguenti prescrizioni sono necessarie per prevenire crash del bus PCIe, disco
 | **CPU Core Pinning C++** | Vincolo categorico ai **Core CPU 2 e 3** su Pi 5 | Trashing della CPU; blocco thread real-time I/O (Core 0-1) | FM-VIS-006 |
 | **Zero Allocazioni in Callback** | Strutture dati e buffer Eigen rigorosamente pre-allocati | Garbage collection pauses e latenze oltre i 100 ms | FM-SYS-001 |
 | **Hailo-10H API Standard** | Solo `InferModel` via `VDevice.create_infer_model` | `HAILO_NOT_IMPLEMENTED` immediato su chiamate legacy | FM-VIS-005 |
+| **Joined HEF Multi-Stream**| Binding obbligatorio per tutti gli input (`infer_model->inputs()`) | `CHECK failed - Couldnt find input buffer` e crash del nodo C++ | FM-VIS-005 |
+| **Dequantizzazione Float32**| `set_format_type(HAILO_FORMAT_TYPE_FLOAT32)` prima di configure | Corruzione tensori di output e bounding box invalidi | FM-VIS-005 |
 | **Normalizzazione L2 Biometria**| Divisione obbligatoria per norma euclidea di ArcFace | Distorsione coseno: falsi riconoscimenti biometrici | FM-VIS-007 |
 
 ---

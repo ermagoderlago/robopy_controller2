@@ -49,6 +49,7 @@ Le seguenti soglie di tensione e temperatura sono limiti fisici di sopravvivenza
 | **Temperatura Massima CPU** | $T_{CPU} \ge \mathbf{80^\circ\text{C}}$ innesca arresto moto | Degradazione silicio e thermal throttling incontrollato | FM-SYS-005 |
 | **Temperatura Massima NPU** | $T_{NPU} \ge \mathbf{85^\circ\text{C}}$ innesca stop inferenza | Protezione termica dell'acceleratore Hailo-10H | FM-SYS-005 |
 | **Chiusura Filesystem OS** | `sync; sudo shutdown -h now` entro 3s | Corruzione irreversibile delle tabelle di allocazione NVMe | FM-SYS-004 |
+| **Tensione Rail 5V Pi 5** | $V_{in} \ge \mathbf{4.75\text{V}}$; taratura step-down $\mathbf{5.20V - 5.25V}$ (max $\mathbf{5.30V}$) | Undervoltage PMIC (<4.63V), brownout reset (<4.50V) sotto carico AI | FM-PWR-002 |
 
 ---
 
