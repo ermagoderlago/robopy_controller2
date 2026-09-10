@@ -661,6 +661,10 @@ class NomadReactivePipelineNode(Node):
 
     def _image_callback(self, msg: Image) -> None:
         """Non-blocking drop-oldest image queue insertion."""
+        # [CPU-OPT] Skip all processing and OpenCV allocations if NoMaD is disarmed
+        if not self.is_active:
+            return
+
         try:
             # Check frame staleness against wall clock (discard if older than 200ms)
             msg_stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9

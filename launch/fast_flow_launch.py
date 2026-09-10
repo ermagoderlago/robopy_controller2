@@ -30,9 +30,20 @@ def generate_launch_description():
         f.write('''<?xml version="1.0" encoding="UTF-8" ?>
 <CycloneDDS xmlns="https://cdds.io/config" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://cdds.io/config https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
     <Domain id="any">
+        <General>
+            <NetworkInterfaceAddress>auto</NetworkInterfaceAddress>
+            <AllowMulticast>true</AllowMulticast>
+        </General>
         <Discovery>
             <MaxAutoParticipantIndex>200</MaxAutoParticipantIndex>
         </Discovery>
+        <SharedMemory>
+            <Enable>true</Enable>
+            <LogLevel>info</LogLevel>
+        </SharedMemory>
+        <Internal>
+            <SocketReceiveBufferSize min="10MB"/>
+        </Internal>
     </Domain>
 </CycloneDDS>''')
     os.environ["CYCLONEDDS_URI"] = f"file://{dds_config}"
@@ -135,17 +146,17 @@ def generate_launch_description():
             
             # FAST Detection
             'fast_threshold': 10, # Abbassato da 15 a 10 per estrarre più corner su pavimenti piatti
-            'max_features': 800,
+            'max_features': 150,  # [CPU-OPT] Ottimizzato a 150 punti (sufficienti per SolvePnP su moto planare)
             
             # KLT Tracking
-            'klt_win_size': 31,
+            'klt_win_size': 15,   # [CPU-OPT] Finestra 15x15 riduce del 50% il tempo di tracking
             'enable_floor_filter': True,  # ECO00013: filtro pavimento attivo
             'camera_height': 0.08,
             'camera_pitch': 0.0,
             # floor_z_threshold: usa il default del codice (0.03m) — non override
-            'klt_max_level': 4,
-            'klt_max_error': 15.0,
-            'fb_threshold': 1.5,
+            'klt_max_level': 2,   # [CPU-OPT] 2 livelli piramidali per abbattere carico CPU
+            'klt_max_error': 12.0,
+            'fb_threshold': 1.0,
             
             # Depth
             # ECO00014: rimossi override 'enable_depth_filter: False' e 'enable_floor_filter: False'

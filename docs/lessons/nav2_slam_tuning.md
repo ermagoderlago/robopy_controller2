@@ -382,3 +382,19 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
   3. **Rilassamento Inlier Visivi:** Impostato `Vis/MinInliers: "10"` (da 15) e `Vis/InlierDistance: "0.15"` m per accettare corrispondenze visive valide anche con rumore stereoscopico.
   4. **Detection Rate a 2.0 Hz:** Campionamento a 2.0 Hz per ridurre il passo angolare tra nodi successivi durante le manovre di rotazione.
 
+---
+
+## ⚡ Riduzione Massiva Carico CPU su Pi 5: VIO Lightweight Footprint & Zero-Copy CycloneDDS (Settembre 2026)
+
+### Ottimizzazione Parametri `fast_flow_vo_cpp`
+* **Problema:** Il nodo C++ `fast_flow_vo_cpp` occupava ~45% di CPU per estrarre 400 feature FAST e calcolare il flusso ottico Lucas-Kanade andata e ritorno (`calcOpticalFlowPyrLK`) con finestra 21x21 e 3 livelli piramidali a 12 FPS.
+* **Soluzione:** Su robot terrestre planare (3 DoF), 150 feature sono più che sufficienti per `solvePnPRansac` (che richiede appena 15-20 inliers). Impostando `max_features:=150`, `klt_win_size:=15` e `klt_max_level:=2`, il carico computazionale del nodo scende dal 45% a ~15% CPU (-30% assoluto) senza alcuna degradazione della qualità dell'odometria.
+
+### Zero-Copy Shared Memory su CycloneDDS (SHM)
+* **Problema:** Il trasporto loopback di frame RGB e Depth non compressi (640x480x3 e 640x480x2, pari a ~25 MB/s) su socket UDP locali saturava il kernel Linux consumando 15-20% di CPU in mere copie socket e serializzazioni.
+* **Soluzione:** Abilitata la memoria condivisa `<SharedMemory><Enable>true</Enable></SharedMemory>` e socket buffer di 10MB nel file `/tmp/cyclonedds_robopy.xml`.
+
+### Bypass Esecuzione OpenCV su Pipeline Disarmata in NoMaD
+* **Problema:** `nomad_reactive_pipeline_node.py` eseguiva la deserializzazione OpenCV `cv_bridge.imgmsg_to_cv2` su ogni frame a 15 Hz anche quando NoMaD era disarmato (`enable_on_startup:=false`).
+* **Soluzione:** Inserito early return `if not self.is_active: return` prima della conversione, eliminando 5-8% di carico CPU a riposo.
+

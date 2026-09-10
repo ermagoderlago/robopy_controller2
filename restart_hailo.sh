@@ -24,9 +24,20 @@ if [ ! -f /tmp/cyclonedds_robopy.xml ]; then
 <?xml version="1.0" encoding="UTF-8" ?>
 <CycloneDDS xmlns="https://cdds.io/config" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://cdds.io/config https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
     <Domain id="any">
+        <General>
+            <NetworkInterfaceAddress>auto</NetworkInterfaceAddress>
+            <AllowMulticast>true</AllowMulticast>
+        </General>
         <Discovery>
             <MaxAutoParticipantIndex>200</MaxAutoParticipantIndex>
         </Discovery>
+        <SharedMemory>
+            <Enable>true</Enable>
+            <LogLevel>info</LogLevel>
+        </SharedMemory>
+        <Internal>
+            <SocketReceiveBufferSize min="10MB"/>
+        </Internal>
     </Domain>
 </CycloneDDS>
 EOF
@@ -166,6 +177,9 @@ echo "👁️ Starting FastFlow C++ VIO Node..."
 > /home/robopy/robopy/logs/fast_flow_vo.log
 nohup taskset -c 2,3 ros2 run robopy_controller fast_flow_vo_cpp --ros-args \
     -p camera_fps:=12.0 \
+    -p max_features:=150 \
+    -p klt_win_size:=15 \
+    -p klt_max_level:=2 \
     -p publish_tf:=false \
     -p odom_frame:=odom \
     -p base_frame:=base_link \
@@ -307,13 +321,6 @@ echo "🧭 Starting nomad_reactive_pipeline_node (NoMaD v2 Reactive Pipeline - S
 nohup python3 -u /mnt/ssd/robopy_controller_host/install/robopy_controller/lib/python3.11/site-packages/robopy_controller/nodes/nomad_reactive_pipeline_node.py \
     --ros-args -p cmd_vel_topic:=/cmd_vel_nomad -p image_topic:=/rgb/image -p enable_on_startup:=false \
     </dev/null > /home/robopy/robopy/logs/nomad_reactive_pipeline_node.log 2>&1 &
-
-echo "📍 Starting vpr_topological_graph_node (VPR CosPlace & Graph)..."
-> /home/robopy/robopy/logs/vpr_topological_graph_node.log
-nohup python3 -u /mnt/ssd/robopy_controller_host/install/robopy_controller/lib/python3.11/site-packages/robopy_controller/nodes/vpr_topological_graph_node.py \
-    --ros-args -p image_topic:=/rgb/image \
-    </dev/null > /home/robopy/robopy/logs/vpr_topological_graph_node.log 2>&1 &
-
 
 echo "👥 Starting engagement_monitor (HRI Gaze/Prossemic)..."
 > /home/robopy/robopy/logs/engagement_monitor.log

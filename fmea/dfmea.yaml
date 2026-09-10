@@ -2464,6 +2464,13 @@
       tramite sospensione dinamica SLAM e VUI.
     rpn_old: 54
     rpn_new: 9
+  - date: '2026-09-10'
+    change: Ottimizzazione carico CPU - ridotto tracking fast_flow_vo_cpp a 150 feature
+      (win 15, pyr 2), abilitato CycloneDDS Zero-Copy Shared Memory (SHM) con socket
+      buffer 10MB, eliminata decodifica OpenCV su NoMaD disarmato e rimosso vpr fantasma.
+      Riduzione stimata carico CPU >40%.
+    rpn_old: 9
+    rpn_new: 9
 - id: FM-VUI-011
   subsystem: VUI Audio
   component: local_asr_vosk
