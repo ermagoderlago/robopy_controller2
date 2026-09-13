@@ -2,11 +2,11 @@
 
 ## 1. Identificazione e Scopo
 - **ID Specifica:** `SPEC-06`
-- **Ambito:** Monitoraggio stato di carica della batteria LiPo 3S, filtraggio anti-sag durante gli spunti motori, compensazione feed-forward di tensione, protezione da scarica profonda (battery cliff), gestione termica SoC/NPU e interlock di sicurezza attiva.
+- **Ambito:** Monitoraggio stato di carica del pacco batteria LiPo 3S2P (6 celle totali: 2 pacchi 3S in parallelo), filtraggio anti-sag durante gli spunti motori, compensazione feed-forward di tensione, protezione da scarica profonda (battery cliff), gestione termica SoC/NPU e interlock di sicurezza attiva.
 - **Nodi & Moduli ROS 2:**
   - `robopy_controller.nodes.battery_manager_node` (`battery_manager_node.py`)
   - `robopy_controller.nodes.robot_health_supervisor` (`robot_health_supervisor.py`)
-- **Hardware Diretto:** Pacco batteria 3S LiPo/Li-ion (nominale 11.1V, max 12.6V), Power Path OR-ing (diodi ideali), ADC partitore ESP32 Waveshare, PMIC Raspberry Pi 5, Sensori termici SoC e Hailo-10H, Ventola tachimetrica PWM.
+- **Hardware Diretto:** Pacco batterie LiPo/Li-ion in configurazione **3S2P (6 celle totali: 2 pacchi 3S collegati in parallelo)** con tensione nominale 11.1V (3 x 3.7V) e max 12.6V (3 x 4.2V). Il parallelo 2P garantisce il raddoppio della capacità in Ah e il dimezzamento della resistenza interna equivalente ($R_{ESR}/2$), riducendo drasticamente il sag di tensione durante gli spunti motori; Power Path OR-ing (diodi ideali), ADC partitore ESP32 Waveshare, PMIC Raspberry Pi 5, Sensori termici SoC e Hailo-10H, Ventola tachimetrica PWM.
 - **DFMEA Correlati:** `FM-SYS-003` (Scarica profonda e distruzione LiPo), `FM-SYS-004` (Battery cliff e crash istantaneo Pi 5), `FM-SYS-005` (Thermal throttling CPU/NPU), `FM-SYS-006` (Voltage sag su spunti motori).
 
 ---
@@ -15,7 +15,7 @@
 
 ```mermaid
 graph TD
-    BATT["Batteria LiPo 3S / Alimentatore Rete"] --> ORING["Power Path OR-ing (Diodi Ideali)"]
+    BATT["Batteria LiPo 3S2P (6 celle: 2x 3S in parallelo) / Rete"] --> ORING["Power Path OR-ing (Diodi Ideali)"]
     ORING --> ADC["Partitore Resistivo ADC (ESP32)"]
     ADC -->|Telemetria 'v' (mV) via Seriale| BM["battery_manager_node.py"]
     

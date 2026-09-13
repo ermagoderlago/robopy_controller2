@@ -18,6 +18,36 @@ source /mnt/ssd/robopy_controller_host/setup_keys.sh
 export LD_LIBRARY_PATH=/mnt/ssd/robopy_controller_host/install/robopy_controller/lib:/mnt/ssd/robopy_controller_host/build/robopy_controller:$LD_LIBRARY_PATH
 export ROS_DOMAIN_ID=42
 
+# --- Configurazione Hardware & Power-Saving ---
+# Se ENABLE_HAILO=false, la NPU Hailo-10H non viene avviata per azzerare il carico di corrente PCIe (previene brownout)
+ENABLE_HAILO="${ENABLE_HAILO:-false}"
+DELETE_DB_FLAG=""
+
+for arg in "$@"; do
+    case "$arg" in
+        --enable-hailo|--hailo)
+            ENABLE_HAILO="true"
+            ;;
+        --no-hailo|--disable-hailo)
+            ENABLE_HAILO="false"
+            ;;
+        --delete-db)
+            DELETE_DB_FLAG="--delete_db_on_start"
+            ;;
+    esac
+done
+
+if [ "$RESET_DB" = "1" ]; then
+    DELETE_DB_FLAG="--delete_db_on_start"
+fi
+
+if [ "$ENABLE_HAILO" != "true" ]; then
+    echo "🛑 [POWER-SAVE] Hailo-10H NPU disattivata (ENABLE_HAILO=false) per azzerare il picco di corrente PCIe."
+    sudo systemctl stop hailo-ollama 2>/dev/null || true
+else
+    echo "⚡ [POWER-NORMAL] Hailo-10H NPU abilitata (ENABLE_HAILO=true)."
+fi
+
 sudo sysctl -w net.core.rmem_max=16777216 2>/dev/null || true
 sudo sysctl -w net.core.rmem_default=16777216 2>/dev/null || true
 
@@ -259,14 +289,18 @@ nohup ros2 run robopy_controller respeaker_vui_node --ros-args \
     -p diag_mode:=true \
     > /home/robopy/robopy/logs/respeaker_vui_node.log 2>&1 &
 
-echo "🧠 Starting hailo_bridge_node_cpp (NPU C++ Driver)..."
-> /home/robopy/robopy/logs/hailo_bridge_node.log
-nohup taskset -c 2,3 /mnt/ssd/robopy_controller_host/install/robopy_controller/lib/robopy_controller/hailo_bridge_node_cpp --ros-args \
-    -p hef_path:=/mnt/ssd/models/marcus_unified.hef \
-    -p sim_mode:=False \
-    -p rgb_topic:=/rgb/image \
-    -p vlm_rate_hz:=5.0 \
-    > /home/robopy/robopy/logs/hailo_bridge_node.log 2>&1 &
+if [ "$ENABLE_HAILO" = "true" ]; then
+    echo "🧠 Starting hailo_bridge_node_cpp (NPU C++ Driver)..."
+    > /home/robopy/robopy/logs/hailo_bridge_node.log
+    nohup taskset -c 2,3 /mnt/ssd/robopy_controller_host/install/robopy_controller/lib/robopy_controller/hailo_bridge_node_cpp --ros-args \
+        -p hef_path:=/mnt/ssd/models/marcus_unified.hef \
+        -p sim_mode:=False \
+        -p rgb_topic:=/rgb/image \
+        -p vlm_rate_hz:=5.0 \
+        > /home/robopy/robopy/logs/hailo_bridge_node.log 2>&1 &
+else
+    echo "💤 [POWER-SAFE] Salto avvio hailo_bridge_node_cpp (ENABLE_HAILO=false)."
+fi
 
 echo "🛡️ Starting localization_fuser_node (Dedicated EKF/VIO Fuser)..."
 > /home/robopy/robopy/logs/localization_fuser_node.log
@@ -299,11 +333,15 @@ echo "⚠️ Starting attention_supervisor_node (Context/CPU Switching)..."
 > /home/robopy/robopy/logs/attention_supervisor_node.log
 nohup ros2 run robopy_controller attention_supervisor_node \
     > /home/robopy/robopy/logs/attention_supervisor_node.log 2>&1 &
-echo "🗣️ Starting speaker_id_node (Biometric Verifier)..."
-> /home/robopy/robopy/logs/speaker_id_node.log
-nohup ros2 run robopy_controller speaker_id_node --ros-args \
-    -p speaker_hef_path:=/mnt/ssd/models/ecapa_tdnn.hef \
-    > /home/robopy/robopy/logs/speaker_id_node.log 2>&1 &
+if [ "$ENABLE_HAILO" = "true" ]; then
+    echo "🗣️ Starting speaker_id_node (Biometric Verifier)..."
+    > /home/robopy/robopy/logs/speaker_id_node.log
+    nohup ros2 run robopy_controller speaker_id_node --ros-args \
+        -p speaker_hef_path:=/mnt/ssd/models/ecapa_tdnn.hef \
+        > /home/robopy/robopy/logs/speaker_id_node.log 2>&1 &
+else
+    echo "💤 [POWER-SAFE] Salto avvio speaker_id_node (ENABLE_HAILO=false)."
+fi
 
 echo "🧱 Starting semantic_costmap_injector (Hailo 3D Obstacle & Costmap Fusion)..."
 > /home/robopy/robopy/logs/semantic_costmap_injector.log

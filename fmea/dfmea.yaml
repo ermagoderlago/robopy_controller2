@@ -5616,3 +5616,11 @@
       GPIO 2/4 in SPEC-06.
     rpn_old: 144
     rpn_new: 9
+  - date: '2026-09-13'
+    change: Chiarita configurazione hardware batteria 3S2P (6 celle totali, 2 pacchi
+      3S in parallelo), con ESR dimezzata e capacità raddoppiata (SPEC-06). Aggiunto
+      flag booleano ENABLE_HAILO=false in restart_hailo.sh e marcus_bringup per consentire
+      test e validazione completi di LiDAR C1 e navigazione Nav2 con carico energetico
+      ridotto.
+    rpn_old: 9
+    rpn_new: 9

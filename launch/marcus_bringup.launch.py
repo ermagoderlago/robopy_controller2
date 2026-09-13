@@ -14,6 +14,7 @@ def generate_launch_description():
     # Launch Arguments
     use_sim_time = LaunchConfiguration('use_sim_time', default='false')
     enable_roudi = LaunchConfiguration('enable_roudi', default='true')
+    enable_hailo = LaunchConfiguration('enable_hailo', default='false')
 
     declare_use_sim_time = DeclareLaunchArgument(
         'use_sim_time',
@@ -25,6 +26,12 @@ def generate_launch_description():
         'enable_roudi',
         default_value='true',
         description='Verify and enable RouDi Zero-Copy shared memory daemon'
+    )
+
+    declare_enable_hailo = DeclareLaunchArgument(
+        'enable_hailo',
+        default_value='false',
+        description='Enable Hailo-10H NPU vision bridge'
     )
 
     # 1. RouDi Daemon Verification / Launch Action
@@ -103,7 +110,8 @@ def generate_launch_description():
             'hef_path': os.path.join(pkg_dir, 'weights', 'joined_yolo_superpoint_netvlad.hef'),
             'publish_sim_sedia': False,
             'face_identity_threshold': 0.45
-        }]
+        }],
+        condition=IfCondition(enable_hailo)
     )
 
     # 5. Localization Fuser Node (Dedicated EKF / VIO Quality Monitor)
@@ -152,6 +160,7 @@ def generate_launch_description():
     return LaunchDescription([
         declare_use_sim_time,
         declare_enable_roudi,
+        declare_enable_hailo,
         roudi_process,
         motor_driver_node,
         laser_tf_node,

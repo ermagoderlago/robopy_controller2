@@ -7,7 +7,7 @@
   - `robopy_controller.nodes.waveshare_motor_driver` (`waveshare_motor_driver.py`)
   - `robopy_controller.robot_ai.motion` (`motion_manager.py`, `motion_primitive.py`, `motion_sequence.py`)
   - `robopy_controller.nodes.servo_coda_node` (`servo_coda_node.py`)
-- **Hardware Diretto:** Scheda Waveshare General Driver (ESP32), 2x Motori DC con encoder magnetici a quadratura (1440 tick/giro), Batteria LiPo 3S, Servo bus PWM coda.
+- **Hardware Diretto:** Scheda Waveshare General Driver (ESP32), 2x Motori DC con encoder magnetici a quadratura (1440 tick/giro), Batteria LiPo 3S2P (6 celle totali: 2x 3S in parallelo), Servo bus PWM coda.
 - **Interfaccia Seriale:** `/dev/motor_driver` (symlink udev persistente a 115200 baud, 8N1 su chip CP2102N seriale `4c7fd634626cef11acaca4adc169b110`).
 - **DFMEA Correlati:** `FM-MOT-001` (Perdita comando di stop / Runaway), `FM-MOT-002` (Stallo meccanico motori), `FM-MOT-003` (Conflitto DTR/RTS e reset USB), `FM-MOT-004` (Collisione seriale con LiDAR C1 risolta con udev rules), `FM-NAV-015` (Slittamento ruote e corruzione calibrazione scala), `FM-PWR-001` (Motion Gating su spin-up sensori / Smart Standby).
 
