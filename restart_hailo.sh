@@ -18,30 +18,23 @@ source /mnt/ssd/robopy_controller_host/setup_keys.sh
 export LD_LIBRARY_PATH=/mnt/ssd/robopy_controller_host/install/robopy_controller/lib:/mnt/ssd/robopy_controller_host/build/robopy_controller:$LD_LIBRARY_PATH
 export ROS_DOMAIN_ID=42
 
-if [ ! -f /tmp/cyclonedds_robopy.xml ]; then
-    echo "📄 Generating /tmp/cyclonedds_robopy.xml..."
-    cat << 'EOF' > /tmp/cyclonedds_robopy.xml
+sudo sysctl -w net.core.rmem_max=16777216 2>/dev/null || true
+sudo sysctl -w net.core.rmem_default=16777216 2>/dev/null || true
+
+echo "📄 Generating /tmp/cyclonedds_robopy.xml..."
+cat << 'EOF' > /tmp/cyclonedds_robopy.xml
 <?xml version="1.0" encoding="UTF-8" ?>
 <CycloneDDS xmlns="https://cdds.io/config" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://cdds.io/config https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
     <Domain id="any">
-        <General>
-            <NetworkInterfaceAddress>auto</NetworkInterfaceAddress>
-            <AllowMulticast>true</AllowMulticast>
-        </General>
         <Discovery>
             <MaxAutoParticipantIndex>200</MaxAutoParticipantIndex>
         </Discovery>
-        <SharedMemory>
-            <Enable>true</Enable>
-            <LogLevel>info</LogLevel>
-        </SharedMemory>
         <Internal>
             <SocketReceiveBufferSize min="10MB"/>
         </Internal>
     </Domain>
 </CycloneDDS>
 EOF
-fi
 export CYCLONEDDS_URI=/tmp/cyclonedds_robopy.xml
 export PYTHONUNBUFFERED=1
 
@@ -177,6 +170,7 @@ echo "👁️ Starting FastFlow C++ VIO Node..."
 > /home/robopy/robopy/logs/fast_flow_vo.log
 nohup taskset -c 2,3 ros2 run robopy_controller fast_flow_vo_cpp --ros-args \
     -p camera_fps:=12.0 \
+    -p enable_vo:=false \
     -p max_features:=150 \
     -p klt_win_size:=15 \
     -p klt_max_level:=2 \

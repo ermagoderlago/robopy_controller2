@@ -24,6 +24,7 @@ FastFlowVONode::FastFlowVONode(const rclcpp::NodeOptions& options)
     config_.base_frame = declare_parameter<std::string>("base_frame", "base_link");
     config_.camera_frame = declare_parameter<std::string>("camera_frame", "camera_optical_frame");
     config_.publish_tf = declare_parameter<bool>("publish_tf", false);
+    config_.enable_vo = declare_parameter<bool>("enable_vo", false);
     
     // Initialize TF broadcaster if enabled
     if (config_.publish_tf) {
@@ -150,7 +151,7 @@ FastFlowVONode::FastFlowVONode(const rclcpp::NodeOptions& options)
     guess_pub_ = create_publisher<geometry_msgs::msg::TransformStamped>("/vo/guess", 10);
     
     // Motion Gate: Subscribe to cmd_vel to detect motor commands
-    if (config_.enable_motion_gate) {
+    if (config_.enable_vo && config_.enable_motion_gate) {
         cmd_vel_sub_ = create_subscription<geometry_msgs::msg::Twist>(
             "/cmd_vel", 10,
             std::bind(&FastFlowVONode::cmdVelCallback, this, std::placeholders::_1));
@@ -158,18 +159,24 @@ FastFlowVONode::FastFlowVONode(const rclcpp::NodeOptions& options)
     }
     
     // Wheel Odometry Fallback: Subscribe to /odom_wheel
-    wheel_odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
-        "/odom_wheel", 10,
-        std::bind(&FastFlowVONode::wheelOdomCallback, this, std::placeholders::_1));
-    RCLCPP_INFO(get_logger(), "Wheel Odometry Fallback ENABLED: Subscribed to /odom_wheel");
+    if (config_.enable_vo) {
+        wheel_odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
+            "/odom_wheel", 10,
+            std::bind(&FastFlowVONode::wheelOdomCallback, this, std::placeholders::_1));
+        RCLCPP_INFO(get_logger(), "Wheel Odometry Fallback ENABLED: Subscribed to /odom_wheel");
+    }
     
     // Start processing thread
     running_ = true;
     processing_thread_ = std::thread(&FastFlowVONode::processLoop, this);
     
-    RCLCPP_INFO(get_logger(), "FAST + Optical Flow VO Node started");
-    RCLCPP_INFO(get_logger(), "Config: FAST=%d, MaxFeatures=%d, MinInliers=%d",
-                config_.fast_threshold, config_.max_features, config_.min_inliers);
+    if (config_.enable_vo) {
+        RCLCPP_INFO(get_logger(), "FAST + Optical Flow VO Node started (FULL VIO MODE)");
+        RCLCPP_INFO(get_logger(), "Config: FAST=%d, MaxFeatures=%d, MinInliers=%d",
+                    config_.fast_threshold, config_.max_features, config_.min_inliers);
+    } else {
+        RCLCPP_INFO(get_logger(), "🚀 FAST + Optical Flow Node started in PURE CAMERA & IMU DRIVER MODE (enable_vo=false, CPU load ~2%%)");
+    }
 }
 
 FastFlowVONode::~FastFlowVONode() {
@@ -508,7 +515,9 @@ void FastFlowVONode::processLoop() {
                 }
                 
                 publishImages(gray, depth, stamp);
-                processFrame(gray, depth, stamp);
+                if (config_.enable_vo) {
+                    processFrame(gray, depth, stamp);
+                }
             }
             
             // Minimal sleep to avoid absolute core hogging

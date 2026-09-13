@@ -139,6 +139,7 @@ def generate_launch_description():
             
             # Odom TF is explicitly broadcasted internally by FastFlowVO
             'publish_tf': False,
+            'enable_vo': False,  # [CPU-OPT] Disabilita tracking KLT/SolvePnP: LiDAR 360 C1 gestisce l'allineamento metrico
             
             # Camera settings
             'camera_fps': 15.0, # Alzato a 15Hz (fondamentale per inseguire i punti in ottico KLT senza perderli nei movimenti)

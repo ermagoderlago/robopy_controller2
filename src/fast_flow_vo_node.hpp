@@ -83,6 +83,7 @@ private:
         std::string base_frame = "base_link";
         std::string camera_frame = "camera_optical_frame";
         bool publish_tf = false;  // TF publishing (usually RTAB-Map handles this)
+        bool enable_vo = false;   // If false, node operates purely as high-performance OAK-D Lite camera/depth/IMU streamer (saves 20-30% CPU)
         
         // FAST Detection
         int fast_threshold = 15;

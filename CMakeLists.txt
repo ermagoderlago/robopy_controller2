@@ -68,6 +68,10 @@ target_link_libraries(fast_flow_vo_cpp
   ${OpenCV_LIBRARIES}
   Eigen3::Eigen
 )
+find_library(RCL_LOGGING_SPDLOG_LIB rcl_logging_spdlog PATHS /home/robopy/ros2_jazzy/install/rcl_logging_spdlog/lib)
+if(RCL_LOGGING_SPDLOG_LIB)
+  target_link_libraries(fast_flow_vo_cpp ${RCL_LOGGING_SPDLOG_LIB})
+endif()
 install(TARGETS fast_flow_vo_cpp
   DESTINATION lib/${PROJECT_NAME}
 )

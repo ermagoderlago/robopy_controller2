@@ -117,6 +117,18 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
 * **Autorità TF `odom -> base_link`:** Assegnata a `fast_flow_vo_cpp` a **30 Hz**.
 * **Topic output:** `/odom` (nav_msgs/Odometry), `/rgb/image`, `/camera/depth/image_raw`, `/camera/camera_info`.
 
+### Modalità Pure Camera & IMU Driver (`enable_vo: false`) con LiDAR 360° RPLIDAR C1
+* **Problema:** Con l'integrazione a bordo del LiDAR ToF 360° (Slamtec RPLIDAR C1) e dell'algoritmo ICP continuo di RTAB-Map (`Reg/Strategy: 1`, `RGBD/NeighborLinkRefining: true`), l'odometria visiva (VIO) calcolata via FAST+KLT+SolvePnP è diventata ridondante. In `restart_hailo.sh` il topic `/odom` di FastFlow era rimappato a `/odom_vio` (nessun nodo lo consumava), sprecando oltre il 20-30% di CPU su Pi 5.
+* **Soluzione (Opzione A):**
+  1. Aggiunto parametro booleano `enable_vo` (default `false`) a `fast_flow_vo_cpp` e `fast_flow_launch.py`.
+  2. Quando `enable_vo=false`, la funzione `processFrame()` (piramidi KLT, LK tracker, solvePnP) viene saltata al 100%.
+  3. Il nodo opera come driver hardware C++ ultra-efficiente per OAK-D Lite:
+     - Pubblica `/rgb/image` (640x400 BGR8 per RTAB-Map DBoW3 e Hailo YOLOv8)
+     - Pubblica `/camera/depth/image_raw` (16UC1 per rilevamento buchi/scale dislivelli `FM-NAV-009` e ostacoli 3D)
+     - Pubblica `/camera/camera_info`
+     - Pubblica `/oak/imu/data` con calibrazione dinamica del bias giroscopio Z (ZUPT) e pitch estimation.
+  4. **Risultato prestazionale:** Consumo CPU del nodo OAK abbattuto dal 25-35% a **~2%**, liberando un intero core per lo stack di navigazione e IA.
+
 ---
 
 ## 🛡️ Dedicated Localization Fuser & Health Supervisor (Luglio 2026)

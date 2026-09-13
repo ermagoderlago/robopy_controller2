@@ -2471,6 +2471,13 @@
       Riduzione stimata carico CPU >40%.
     rpn_old: 9
     rpn_new: 9
+  - date: '2026-09-13'
+    change: Implementata modalità Pure Camera/IMU Driver su fast_flow_vo_cpp tramite
+      parametro enable_vo:=false. Con l'adozione di RPLIDAR C1 e ICP 2D continuo su
+      RTAB-Map, il tracking KLT e solvePnP visivo è bypassato, riducendo il consumo
+      del nodo da ~30% a ~2% CPU.
+    rpn_old: 9
+    rpn_new: 9
 - id: FM-VUI-011
   subsystem: VUI Audio
   component: local_asr_vosk
