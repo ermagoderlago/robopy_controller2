@@ -253,6 +253,12 @@ class SemanticCostmapInjector(Node):
     def depth_callback(self, msg):
         """Callback per la matrice di profondità (Depth Image): aggiorna cache e raycasting ostacoli negativi."""
         try:
+            # [CPU-OPT Pi 5 / FM-CPU-001] Gate di ingresso: processa a ~3.3 Hz max per evitare conversioni NumPy continue
+            now_sec = time.time()
+            if now_sec - getattr(self, '_last_depth_process_time', 0.0) < 0.30:
+                return
+            self._last_depth_process_time = now_sec
+
             height, width = msg.height, msg.width
             if msg.encoding in ['16UC1', 'mono16']:
                 depth_map = np.frombuffer(msg.data, dtype=np.uint16).reshape((height, width)).astype(np.float32) / 1000.0
@@ -269,11 +275,6 @@ class SemanticCostmapInjector(Node):
                 self.latest_depth_frame_id = frame_id
 
             if not self.enable_negative_obstacles:
-                return
-
-            # [CPU-OPT] Throttle raycasting ostacoli negativi a ~5 Hz (1 su 6 frame @ 30 Hz depth).
-            self._depth_frame_counter = getattr(self, '_depth_frame_counter', 0) + 1
-            if self._depth_frame_counter % 6 != 0:
                 return
 
             if not self.tf_buffer.can_transform(self.costmap_frame, frame_id, rclpy.time.Time()):

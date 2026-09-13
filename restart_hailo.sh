@@ -274,8 +274,8 @@ echo "🎤 Starting respeaker_vui_node (v12.0 adaptive)..."
 nohup ros2 run robopy_controller respeaker_vui_node --ros-args \
     -r __node:=respeaker_vui_node \
     -p use_sim_time:=False \
-    -p stt_gain:=2.5 \
-    -p noise_gate_threshold:=85.0 \
+    -p stt_gain:=1.8 \
+    -p noise_gate_threshold:=120.0 \
     -p listen_timeout_sec:=180.0 \
     -p wakeword_sensitivity:=0.95 \
     -p enable_barge_in:=true \
@@ -302,13 +302,10 @@ else
     echo "💤 [POWER-SAFE] Salto avvio hailo_bridge_node_cpp (ENABLE_HAILO=false)."
 fi
 
-echo "🛡️ Starting localization_fuser_node (Dedicated EKF/VIO Fuser)..."
-> /home/robopy/robopy/logs/localization_fuser_node.log
-nohup ros2 run robopy_controller localization_fuser_node --ros-args \
-    -p publish_tf:=False \
-    -p wheel_odom_topic:=/odom_wheel \
-    -p vio_odom_topic:=/odom \
-    > /home/robopy/robopy/logs/localization_fuser_node.log 2>&1 &
+# [CPU-OPT Pi 5] localization_fuser_node disabilitato: l'odometria primaria è già pubblicata con TF odom->base_link
+# da waveshare_motor_driver ed è consumata direttamente da RTAB-Map e Nav2. Risparmio: ~20% CPU.
+# echo "🛡️ Starting localization_fuser_node (Dedicated EKF/VIO Fuser)..."
+# nohup ros2 run robopy_controller localization_fuser_node --ros-args -p publish_tf:=False > /home/robopy/robopy/logs/localization_fuser_node.log 2>&1 &
 
 echo "🚑 Starting robot_health_supervisor (System Health & Safety)..."
 > /home/robopy/robopy/logs/robot_health_supervisor.log
@@ -348,11 +345,9 @@ echo "🧱 Starting semantic_costmap_injector (Hailo 3D Obstacle & Costmap Fusio
 nohup ros2 run robopy_controller semantic_costmap_injector \
     > /home/robopy/robopy/logs/semantic_costmap_injector.log 2>&1 &
 
-echo "🧭 Starting nomad_reactive_pipeline_node (NoMaD v2 Reactive Pipeline - Safety Disarmed on boot)..."
-> /home/robopy/robopy/logs/nomad_reactive_pipeline_node.log
-nohup python3 -u /mnt/ssd/robopy_controller_host/install/robopy_controller/lib/python3.11/site-packages/robopy_controller/nodes/nomad_reactive_pipeline_node.py \
-    --ros-args -p cmd_vel_topic:=/cmd_vel_nomad -p image_topic:=/rgb/image -p enable_on_startup:=false \
-    </dev/null > /home/robopy/robopy/logs/nomad_reactive_pipeline_node.log 2>&1 &
+# [CPU-OPT Pi 5] nomad_reactive_pipeline_node disabilitato in modalità pura Nav2:
+# risparmia ~20% CPU per timer watchdog e fast loop inattivi.
+# echo "🧭 Starting nomad_reactive_pipeline_node..."
 
 echo "👥 Starting engagement_monitor (HRI Gaze/Prossemic)..."
 > /home/robopy/robopy/logs/engagement_monitor.log

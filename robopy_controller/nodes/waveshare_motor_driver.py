@@ -288,7 +288,7 @@ class WaveshareMotorDriver(Node):
             # while an active command is being published
             return
 
-        self.get_logger().info(f"📥 Received cmd_vel: v={v:.4f}, w={w:.4f}")
+        self.get_logger().info(f"📥 Received cmd_vel: v={v:.4f}, w={w:.4f}", throttle_duration_sec=2.0)
         
         self.cmd_linear_x = v
         self.cmd_angular_z = w
@@ -533,7 +533,7 @@ class WaveshareMotorDriver(Node):
                 try:
                     line_str = line.decode('utf-8', errors='ignore').strip()
                     if line_str:
-                        self.get_logger().info(f"🔌 Serial RX: {line_str}")
+                        self.get_logger().debug(f"🔌 Serial RX: {line_str}")
                 except Exception as de:
                     self.get_logger().error(f"Decode error: {de}")
                     continue

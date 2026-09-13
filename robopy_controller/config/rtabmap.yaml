@@ -28,7 +28,7 @@ rtabmap:
     # Timing e performance (RPi5 4GB)
     Rtabmap/TimeThr: "0"
     Rtabmap/MemoryThr: "300"
-    Rtabmap/DetectionRate: "2.0"  # 2.0 Hz — campionamento più fitto per curve stabili
+    Rtabmap/DetectionRate: "1.0"  # 1.0 Hz — conforme a SPEC-02 Zona Verde (protezione CPU Pi 5)
 
     # RGBD
     RGBD/ProximityBySpace: "true"
@@ -37,8 +37,8 @@ rtabmap:
     RGBD/ProximityGlobalScanMap: "true" # Match ICP contro la submap locale aggregata (massima stabilità 2D LiDAR)
     RGBD/ProximityPathMaxNeighbors: "10"
     RGBD/ProximityMaxGraphDepth: "0"
-    RGBD/AngularUpdate: "0.15"     # ~8.6° di rotazione minima (ammorbidisce inserimento nodi e previene jitter TF)
-    RGBD/LinearUpdate: "0.15"      # 15cm di traslazione minima
+    RGBD/AngularUpdate: "0.20"     # ~11.5° di rotazione minima (riduce inserimenti ridondanti)
+    RGBD/LinearUpdate: "0.20"      # 20cm di traslazione minima (ottimizza carico GTSAM e DBoW3)
     RGBD/OptimizeMaxError: "0"     # Disabilita rigetto spurio del loop closure: ICP fa validazione metrica diretta
     RGBD/LoopClosureRejectionWithGraph: "false" # Validazione geometrica affidata a corrispondenze ICP LiDAR
 
