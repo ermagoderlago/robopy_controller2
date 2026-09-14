@@ -13,7 +13,7 @@
   - `rtabmap_slam`, `nav2_bt_navigator`, `nav2_controller`
 - **File di Configurazione Chiave:**
   - `config/nav2_params.yaml`, `config/nav2_survival_bt.xml`, `config/rtabmap.yaml`
-- **DFMEA Correlati:** `FM-NAV-001` (Overhead STVL 3D), `FM-NAV-005` (Eliminazione blind-spot 360° con LiDAR), `FM-NAV-009` (Ostacoli negativi e caduta scale), `FM-NAV-010` (NOMAD con LiDAR), `FM-NAV-016` (Aliasing percettivo RTAB-Map), `FM-NAV-017` (Deriva termica BMI270 ZUPT), `FM-NAV-019` (Recovery BT cieca), `FM-NAV-020` (Persistenza DB SLAM su SSD), `FM-PWR-001` (Smart Standby & Sensor Power-Save Manager), `FM-VIS-003` (Camera pitch sag).
+- **DFMEA Correlati:** `FM-NAV-001` (Overhead STVL 3D), `FM-NAV-005` (Eliminazione blind-spot 360° con LiDAR), `FM-NAV-009` (Ostacoli negativi e caduta scale), `FM-NAV-010` (NOMAD con LiDAR), `FM-NAV-016` (Aliasing percettivo RTAB-Map), `FM-NAV-017` (Deriva termica BMI270 ZUPT), `FM-NAV-019` (Recovery BT cieca), `FM-NAV-020` (Persistenza DB SLAM su SSD), `FM-PWR-001` (Smart Standby & Sensor Power-Save Manager), `FM-VIS-003` (Camera pitch sag), `FM-MOT-007` (Odometria reale metrica da encoder PCNT ruote per contrastare drift di heading e scala prima dei vincoli ICP RTAB-Map).
 
 ---
 

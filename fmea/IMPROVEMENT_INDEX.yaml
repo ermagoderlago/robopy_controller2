@@ -134,6 +134,12 @@ improvements:
     status: "COMPLETED"
     domain: "actuation_motion"
 
+  FM-MOT-007:
+    title: "Miglioramento Attuazione: Odometria Metrica Reale da Encoder PCNT con Integrazione Runge-Kutta a Punto Medio"
+    file: "docs/improvements/IMP-MOT-007_pcnt_real_encoder_odometry.md"
+    status: "COMPLETED"
+    domain: "actuation_motion"
+
 
 
 

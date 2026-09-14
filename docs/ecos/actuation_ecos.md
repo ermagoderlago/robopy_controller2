@@ -268,6 +268,36 @@ L'utente ha riscontrato due anomalie fisiche sul comportamento di marcia del rob
 3. **[TEST UNITARI] `test/unit/test_esp32_pid_control.py`:**
    - Creati 5 test unitari per validare inizializzazione parametri, formattazione comando seriale `T:133`, aggiornamenti dinamici parametri, parsing telemetria e diagnostica ROS 2. Tutti passati con successo (17/17 test passati nell'intero sottosistema attuazione).
 
+---
+
+<a id="ECO-2026-09-14-002"></a>
+## ECO-2026-09-14-002: Transizione da Odometria Teorica ad Odometria Fisica Reale da Spostamento Encoder PCNT (FM-MOT-007, FM-NAV-015)
+
+* **Data:** 2026-09-14
+* **Autore:** Marcus AI / Antigravity
+* **Stato:** ✅ **APPLICATO, COMPILATO SU PI 5 E VALIDATO CON 22/22 TEST UNITARI**
+* **DFMEA Correlati:** `FM-MOT-007`, `FM-NAV-015`, `FM-MOT-008`
+
+### Contesto e Causa Radice
+A causa di storici problemi di rumorosità e interruzione hardware su una linea encoder (canale M1 GPIO 35), il driver utilizzava l'integrazione del comando teorico `/cmd_vel` (`use_cmd_vel_odometry := True`). Questo isolava il robot dal rumore, ma causava drift a catena aperta durante manovre curvilinee e impediva di misurare reali slittamenti e spostamenti fisici su terreno.
+
+### Modifiche Applicate
+1. **[FIRMWARE ESP32] Hardware Glitch Filtering & PCNT Direction Gating:**
+   - Configurato PCNT Unit 1 per contare entrambi i fronti di GPIO 34 gated dal livello di direzione GPIO 21, bypassando in silicio la linea morta GPIO 35.
+   - Scalato il conteggio di un fattore 2 per allineare entrambe le ruote a 657 CPR/giro.
+2. **[DRIVER ROS 2] `robopy_controller/nodes/waveshare_motor_driver.py`:**
+   - `use_cmd_vel_odometry` impostato di default su `False`.
+   - `use_encoder_for_linear` impostato di default su `True`.
+   - `invert_left_encoder := False`, `invert_right_encoder := False`.
+   - Integrazione Runge-Kutta a punto medio 2° ordine di $\Delta s$ e $\Delta \theta$ per cinematica differenziale rigorosa.
+   - Mantenuto Tier 1 Zero-Velocity Standstill Lock (zero deriva a riposo).
+   - Reso selettivo il Tier 3 (asymmetry filter) per non interferire con le rotazioni intenzionali sul posto.
+3. **[SCRIPT] `restart_hailo.sh`:**
+   - Aggiornati parametri di lancio: `-p use_cmd_vel_odometry:=False -p use_encoder_for_linear:=True -p invert_right_encoder:=False`.
+4. **[TEST UNITARI] Sottosistema Attuazione:**
+   - Allineato `test/unit/test_waveshare_kinematics.py` con la corretta mappatura fisica L=sinistra, R=destra.
+   - 22/22 test unitari superati con successo sia in locale che su Pi 5.
+
 
 
 

@@ -9,7 +9,7 @@
   - `robopy_controller.nodes.servo_coda_node` (`servo_coda_node.py`)
 - **Hardware Diretto:** Scheda Waveshare General Driver (ESP32), 2x Motori DC con encoder magnetici a quadratura (1440 tick/giro), Batteria LiPo 3S2P (6 celle totali: 2x 3S in parallelo), Servo bus PWM coda.
 - **Interfaccia Seriale:** `/dev/motor_driver` (symlink udev persistente a 115200 baud, 8N1 su chip CP2102N seriale `4c7fd634626cef11acaca4adc169b110`).
-- **DFMEA Correlati:** `FM-MOT-001` (Perdita comando di stop / Runaway), `FM-MOT-002` (Stallo meccanico motori), `FM-MOT-003` (Conflitto DTR/RTS e reset USB), `FM-MOT-004` (Collisione seriale con LiDAR C1 risolta con udev rules), `FM-NAV-015` (Slittamento ruote e corruzione calibrazione scala), `FM-PWR-001` (Motion Gating su spin-up sensori / Smart Standby), `FM-MOT-008` (Asimmetria di trazione e scivolamento inerziale TB6612FNG risolto con anello chiuso 50Hz e Short Brake).
+- **DFMEA Correlati:** `FM-MOT-001` (Perdita comando di stop / Runaway), `FM-MOT-002` (Stallo meccanico motori), `FM-MOT-003` (Conflitto DTR/RTS e reset USB), `FM-MOT-004` (Collisione seriale con LiDAR C1 risolta con udev rules), `FM-NAV-015` (Slittamento ruote e corruzione calibrazione scala), `FM-PWR-001` (Motion Gating su spin-up sensori / Smart Standby), `FM-MOT-008` (Asimmetria di trazione e scivolamento inerziale TB6612FNG risolto con anello chiuso 50Hz e Short Brake), `FM-MOT-007` (Odometria reale metrica da encoder PCNT con Runge-Kutta 2° ordine).
 
 ---
 
@@ -60,6 +60,7 @@ L'agente Antigravity può ottimizzare e ricalibrare autonomamente le seguenti co
 | **Calibrazione Encoder (Slip Gating)**| Raffinamento $R_{wheel}$ e $W_{separation}$ via closed-loop VIO | Blocco calibrazione se accelerazione $\Delta a > 0.25\text{ m/s}^2$ |
 | **Espressività Servo Coda** | Profili PWM angolari, velocità sweep, scodinzolio | Angolo $\theta_{servo} \in [-45^\circ, +45^\circ]$; frequenza $\le 3\text{ Hz}$ |
 | **Filtraggio Outlier Encoder** | Scarto delta-tick anomali causati da wrap o noise | Scarto se $\Delta tick > 300$ in $50\text{ ms}$ ($\approx 1.2\text{ m/s}$) |
+| **Odometria Reale Encoder PCNT** | Integrazione a punto medio Runge-Kutta 2° ordine di $\Delta s$ e $\Delta \theta$ | `use_cmd_vel_odometry:=False`, `use_encoder_for_linear:=True`, `invert_right_encoder:=False` |
 | **Motion Gating su Standby** | Inibizione moto ruote con `/robot/motion_gate == False` | Caching $cmd\_vel$ e rilascio automatico entro $500\text{ ms}$ dall'apertura del gate |
 
 ---
@@ -80,16 +81,22 @@ Le seguenti modifiche richiedono proposta formale e validazione dell'operatore u
 Prima di confermare modifiche alla cinematica o all'attuazione, l'agente DEVE eseguire con successo:
 
 ```bash
-# 1. Test unitario della cinematica differenziale e watchdog
-pytest tests/test_waveshare_motor_driver.py -v
+# 1. Test unitario della cinematica differenziale, polarità e watchdog
+pytest test/unit/test_waveshare_kinematics.py -v
 
-# 2. Test simulato dell'anello chiuso MotionManager
-pytest tests/test_motion_manager.py -v
+# 2. Test del blocco Standstill Zero-Velocity Lock
+pytest test/unit/test_encoder_standstill_lock.py -v
 
-# 3. Test della robustezza allo stallo e al wheel-slip gating
-pytest tests/test_wheel_slip_gating.py -v
+# 3. Test dell'anello chiuso PID 50Hz su ESP32
+pytest test/unit/test_esp32_pid_control.py -v
+
+# 4. Test della sicurezza da stallo motori, memoria protetta e Amigdala
+pytest test/unit/test_motor_stall_safety_and_memory.py -v
+
+# 5. Test del Motion Gating su sensor standby
+pytest test/unit/test_motor_driver_motion_gate.py -v
 ```
 I test devono confermare:
 - Interruzione dell'invio velocità entro 500ms al mancare del heartbeat.
 - Nessun superamento del tetto $0.40\text{ m/s}$ indipendentemente dal valore su `/cmd_vel`.
-- Corretta pubblicazione del diagnostico `ERROR` su stallo o sovraccarico.
+- Corretta pubblicazione del diagnostico `ERROR` su stallo o sovraccarico e disimpegno Nav2.
