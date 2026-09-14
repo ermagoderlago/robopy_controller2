@@ -203,9 +203,9 @@ class CognitiveAmygdalaNode(Node):
 
     def _diagnostics_callback(self, msg: DiagnosticArray):
         """
-        Monitora la temperatura della CPU dell'host.
+        Monitora anomalie hardware, stallo motori e parametri vitali della piattaforma.
         """
-        # Regola 5: Anomalie hardware (CPU > 78°C)
+        # Regola 5: Anomalie hardware (CPU > 78°C, Stallo Motori)
         for status in msg.status:
             if "system_monitor" in status.name:
                 for val in status.values:
@@ -217,6 +217,16 @@ class CognitiveAmygdalaNode(Node):
                                 self._trigger_hijack("SELF_PROTECT", f"Temperatura CPU critica: {temp}°C")
                         except ValueError:
                             pass
+            elif status.name == "motor_stall":
+                if status.level >= 2:  # DiagnosticStatus.ERROR
+                    self.get_logger().error(f"🚨 Low Road: Stallo o sovraccarico telaio/motori rilevato: {status.message}")
+                    self._trigger_hijack("MOTOR_STALL", f"Stallo o sovraccarico telaio/motori: {status.message}")
+                elif status.level == 0 and self.amygdala_state == "HIJACK":  # DiagnosticStatus.OK
+                    with self._lock:
+                        if getattr(self, '_last_hijack_event', '') == "MOTOR_STALL":
+                            self.get_logger().info("✅ Motori tornati nominali: riarmo Amigdala da HIJACK a CALM.")
+                            self.trigger_amigdala = False
+                            self.amygdala_state = "CALM"
 
     def _battery_callback(self, msg: BatteryState):
         """
@@ -238,6 +248,7 @@ class CognitiveAmygdalaNode(Node):
                 
             self.trigger_amigdala = True
             self.amygdala_state = "HIJACK"
+            self._last_hijack_event = event_type
             
         self.get_logger().error(f"🚨 HIJACK AMIGDALA ATTIVATO! Evento: {event_type} - Motivo: {reason}")
         
@@ -283,17 +294,25 @@ class CognitiveAmygdalaNode(Node):
 
     def _cancel_nav2_goals(self):
         """
-        Invia la richiesta di cancellazione del goal a Nav2.
+        Invia la richiesta di cancellazione del goal a Nav2 e forza lo stop immediato.
         """
-        if not self.nav_action_client.server_is_ready():
-            self.get_logger().warning("Impossibile cancellare Nav2: Action Server non pronto.")
-            return
-            
-        self.get_logger().info("Invio cancellazione goal a Nav2 in corso...")
-        # Nota: L'ActionClient cancella tutti i goal attivi asincronamente
-        # tramite il metodo cancel_all_goals se supportato o tenendo traccia degli ultimi goal.
-        # In ROS 2 Jazzy, è preferibile cancellare i goal tenendo traccia del goal_handle,
-        # in assenza, pubblichiamo un Twist zero a ripetizione per tagliare l'output del controller.
+        self.get_logger().info("Invio arresto di emergenza e richiesta cancellazione goal a Nav2 in corso...")
+        # 1. Stop immediato ad alta priorità su /cmd_vel per tagliare l'output del controller
+        stop_cmd = Twist()
+        for _ in range(3):
+            self.cmd_vel_pub.publish(stop_cmd)
+
+        # 2. Richiesta formale di cancellazione globale sull'Action Server Nav2 se pronto
+        try:
+            if hasattr(self, 'nav_action_client') and self.nav_action_client:
+                if hasattr(self.nav_action_client, '_cancel_goal_service_client') and self.nav_action_client._cancel_goal_service_client:
+                    if self.nav_action_client._cancel_goal_service_client.service_is_ready():
+                        from action_msgs.srv import CancelGoal
+                        req = CancelGoal.Request()
+                        self.nav_action_client._cancel_goal_service_client.call_async(req)
+                        self.get_logger().info("Richiesta di cancellazione globale inviata all'action server Nav2.")
+        except Exception as e:
+            self.get_logger().warning(f"Errore durante invio cancellazione ad action server Nav2: {e}")
 
     def _fear_conditioning_loop(self):
         """

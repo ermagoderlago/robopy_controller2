@@ -1,5 +1,5 @@
 # 📊 Report Esecutivo DFMEA - Marcus AI Robot Platform
-**Data Generazione:** 2026-09-13 21:20:15  
+**Data Generazione:** 2026-09-14 23:13:24  
 **Metodologia:** AIAG-VDA FMEA Standard con Regola Override Severità ($S \ge 9 \implies$ REVISION_MANDATORY)
 
 ---
@@ -8,8 +8,8 @@
 
 | Metrica | Valore | Note / Impatto |
 | :--- | :---: | :--- |
-| **Totale Modalità di Guasto (FM)** | **122** | Copertura integrata dei sottosistemi Marcus |
-| **🟢 Risk Level LOW** | **88** | $RPN_{res} \le 50$ (Sotto controllo) |
+| **Totale Modalità di Guasto (FM)** | **123** | Copertura integrata dei sottosistemi Marcus |
+| **🟢 Risk Level LOW** | **89** | $RPN_{res} \le 50$ (Sotto controllo) |
 | **🟡 Risk Level MEDIUM** | **7** | $51 \le RPN_{res} \le 199$ (Monitoraggio attivo) |
 | **🟠 Risk Level HIGH** | **2** | $200 \le RPN_{res} \le 349$ (Mitigazione obbligatoria) |
 | **🔴 Risk Level CRITICAL** | **0** | $RPN_{res} \ge 350$ (Blocco rilasci) |
@@ -52,7 +52,7 @@
 - **Hardware/Power & Sensors:** 1 failure modes
 - **Actuation/MotorDriver:** 1 failure modes
 - **AI/Evolution:** 1 failure modes
-- **Actuation & Motion:** 2 failure modes
+- **Actuation & Motion:** 3 failure modes
 - **Nav2 & SLAM:** 1 failure modes
 - **Voice User Interface (VUI):** 1 failure modes
 - **Hardware/Power & Compute:** 1 failure modes
@@ -166,7 +166,6 @@
 | **FM-VUI-021** | VUI Audio | `respeaker_vui_node / live_connection_manager` | Chiusura prematura della sessione conversazionale dopo pochi secondi o intromissione del robot in dialoghi e conversazioni tra terzi in sottofondo | 7 | 2 | 1 | **14** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#gestione-sessione-conversazionale-a-3-minuti`](docs/lessons/audio_vui_pipeline.md#gestione-sessione-conversazionale-a-3-minuti) |
 | **FM-TRI-002** | AI/Trinity | `rag_document_indexer` | Freeze temporaneo o blocco dell'Event Loop asyncio durante il chunking e embedding di file voluminosi | 7 | 1 | 2 | **14** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#trinity-architecture`](docs/lessons/orchestration_and_rag.md#trinity-architecture) |
 | **FM-VUI-023** | Audio & VUI | `live_connection_bridge_node` | Latenza audio elevata, audio glitches e mancata cancellazione di skill dovuta a monolite llm_service.py (>46KB) | 7 | 2 | 1 | **14** | `LOW` | `CLOSED` | [`docs/lessons/llm_live_api.md#cognitive-pipeline-modularization`](docs/lessons/llm_live_api.md#cognitive-pipeline-modularization) |
-| **FM-MOT-004** | Actuation/Hardware | `waveshare_motor_driver` | Stallo meccanico delle ruote su ostacoli rigidi con assorbimento eccessivo di corrente e surriscaldamento dei driver | 3 | 2 | 2 | **12** | `LOW` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#motor-stall-protection`](docs/lessons/actuation_motor_driver.md#motor-stall-protection) |
 | **FM-NOM-007** | Navigation/Vision | `nomad_reactive_pipeline_node` | Cecità ottica su pareti bianche o porte monocromatiche con proiezione di waypoints dritti e slittamento ruote su ostacolo | 3 | 2 | 2 | **12** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#white-wall-protection`](docs/lessons/nav2_slam_tuning.md#white-wall-protection) |
 | **FM-COG-003** | Orchestration & RAG | `orchestrator & conversation` | Triplice ricezione ed elaborazione dei messaggi inviati su /robopy/conversation_rx, con conseguente scatto del prompt di insistenza ripetuta dell'LLM (repeat_count >= 2) | 6 | 2 | 1 | **12** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#FM-COG-003`](docs/lessons/orchestration_and_rag.md#FM-COG-003) |
 | **FM-COG-004** | Orchestration & RAG | `conversation, metaprompt_fusion, memory_manager & memory_info_skill` | Mancato recupero fatti appresi (echo loop su 'non ho visto nulla di nuovo'), allucinazione etimologica latina/dio Marte sul nome MARCUS, crash MemoryInfoSkill (AttributeError get_stats) e muting vocale su chat | 6 | 2 | 1 | **12** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#FM-COG-004`](docs/lessons/orchestration_and_rag.md#FM-COG-004) |
@@ -207,10 +206,12 @@
 | **FM-LLM-007** | AI/Trinity | `dynamic_skill_creator / base_skill` | Deriva semantica o firma asincrona non valida in match/execute non rilevata dal compilatore AST di base | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md`](docs/lessons/orchestration_and_rag.md) |
 | **FM-PWR-001** | Hardware/Power & Sensors | `sensor_standby_manager.py / RPLIDAR C1 / RTAB-Map` | Usura meccanica continua a vuoto del rotore RPLIDAR C1, consumo energetico superfluo e sovraccarico computazionale di RTAB-Map quando il robot è stazionario per > 2 minuti | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#smart-standby-motion-gating`](docs/lessons/actuation_motor_driver.md#smart-standby-motion-gating) |
 | **FM-MOT-007** | Actuation & Motion | `waveshare_motor_driver` | Oscillazione della velocità angolare odom wz (+-0.20 rad/s) e sfarfallio a zig-zag della mappa SLAM durante la marcia rettilinea | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#camera-mast-imu-vibration`](docs/lessons/actuation_motor_driver.md#camera-mast-imu-vibration) |
+| **FM-MOT-008** | Actuation & Motion | `waveshare_bridge (ESP32) / waveshare_motor_driver` | Asimmetria di velocità ruote in rettilineo e scivolamento inerziale differenziato all'arresto (TB6612FNG Coast Mode) | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#esp32-pid-short-brake`](docs/lessons/actuation_motor_driver.md#esp32-pid-short-brake) |
 | **FM-SYS-002** | System/DDS | `system_scripts` | Errore di esecuzione script: OSError [Errno 8] Exec format error | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`marcus_core_rules.md#1-memoria-ram-e-limite-host`](marcus_core_rules.md#1-memoria-ram-e-limite-host) |
 | **FM-TRI-003** | AI/Trinity | `cag_aggregator` | Latenza eccessiva nella raccolta del contesto CAG (> 500ms) che ritarda l'invio del prompt all'LLM | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#trinity-architecture`](docs/lessons/orchestration_and_rag.md#trinity-architecture) |
 | **FM-VUI-022** | Voice/Orchestration | `nomad_exploration_skill` | Mancato riconoscimento del termine 'NOMAD' da parte dell'ASR e mancata registrazione della skill nell'AI Orchestrator | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#gestione-acronimi-stranieri-e-tolleranza-fonetica-asr`](docs/lessons/audio_vui_pipeline.md#gestione-acronimi-stranieri-e-tolleranza-fonetica-asr) |
 | **FM-ACT-009** | Actuation/Odometry | `waveshare_motor_driver` | Deriva/micro-avanzamento odometrico spurio a robot fermo per commutazione instabile dei sensori Hall su fronte magnetico | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#filtraggio-jitter-hall-a-fermo`](docs/lessons/actuation_motor_driver.md#filtraggio-jitter-hall-a-fermo) |
+| **FM-MOT-004** | Actuation/Hardware | `waveshare_motor_driver` | Stallo meccanico delle ruote su ostacoli rigidi con assorbimento eccessivo di corrente e surriscaldamento dei driver | 3 | 2 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#motor-stall-protection`](docs/lessons/actuation_motor_driver.md#motor-stall-protection) |
 | **FM-NAV-028** | Nav2 & SLAM | `rtabmap` | Sdoppiamento transitorio della mappa a ventaglio/stella durante le curve e ritardo nella chiusura d'anello | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#loop-closure-submap-matching`](docs/lessons/nav2_slam_tuning.md#loop-closure-submap-matching) |
 | **FM-LLM-001** | AI/LangGraph | `respeaker_vui_node` | Effetto 'Darth Vader' / 'Chipmunk' (audio accelerato o gravemente alterato) in riproduzione | 4 | 1 | 1 | **4** | `LOW` | `CLOSED` | [`marcus_core_rules.md#3-pipeline-vui-e-audio-pcm-streaming`](marcus_core_rules.md#3-pipeline-vui-e-audio-pcm-streaming) |
 | **FM-NAV-012** | Navigation/Odometry | `waveshare_and_fast_flow_vo` | Movimento convulso e saltellante della camera in Foxglove durante le rotazioni e incoerenza mappe RTAB-Map | 4 | 1 | 1 | **4** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#stabilit-odometria--correzione-dinamica-di-rotazione`](docs/lessons/nav2_slam_tuning.md#stabilit-odometria--correzione-dinamica-di-rotazione) |

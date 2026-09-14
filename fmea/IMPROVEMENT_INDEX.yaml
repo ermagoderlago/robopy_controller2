@@ -128,6 +128,13 @@ improvements:
     status: "COMPLETED"
     domain: "audio_vui"
 
+  FM-MOT-008:
+    title: "Miglioramento Attuazione: Anello Chiuso Velocità 50Hz su ESP32 e Dynamic Short-Braking su TB6612FNG"
+    file: "docs/improvements/IMP-MOT-008_esp32_closed_loop_braking.md"
+    status: "COMPLETED"
+    domain: "actuation_motion"
+
+
 
 
 

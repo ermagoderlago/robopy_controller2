@@ -47,6 +47,10 @@ class WaveshareMotorDriver(Node):
         self.declare_parameter('motor_min_duty_cycle', 0.18)       # Minimum starting PWM duty cycle to overcome gearbox stiction
         self.declare_parameter('raw_battery_topic', '/battery/raw') # Topic for raw ADC battery voltage
         self.declare_parameter('esp32_adc_scale_factor', 2880.95)   # 3S divider factor (36300 -> 12.60V)
+        self.declare_parameter('enable_esp32_pid', True)           # Enable closed-loop velocity PID on ESP32
+        self.declare_parameter('esp32_pid_kp', 3.20)               # ESP32 velocity PID Kp
+        self.declare_parameter('esp32_pid_ki', 0.22)               # ESP32 velocity PID Ki
+        self.declare_parameter('esp32_pid_kd', 0.04)               # ESP32 velocity PID Kd
         
         # --- Retrieve Parameters ---
         self.serial_port = self.get_parameter('serial_port').value
@@ -71,6 +75,11 @@ class WaveshareMotorDriver(Node):
         self.motor_min_duty_cycle = float(self.get_parameter('motor_min_duty_cycle').value)
         self.raw_battery_topic = self.get_parameter('raw_battery_topic').value
         self.esp32_adc_scale_factor = float(self.get_parameter('esp32_adc_scale_factor').value)
+        self.enable_esp32_pid = bool(self.get_parameter('enable_esp32_pid').value)
+        self.esp32_pid_kp = float(self.get_parameter('esp32_pid_kp').value)
+        self.esp32_pid_ki = float(self.get_parameter('esp32_pid_ki').value)
+        self.esp32_pid_kd = float(self.get_parameter('esp32_pid_kd').value)
+        self.esp32_pid_active = False
         
         # Register dynamic parameter callback
         self.add_on_set_parameters_callback(self.parameter_callback)
@@ -227,6 +236,7 @@ class WaveshareMotorDriver(Node):
                 if telemetry_ok:
                     self.get_logger().info(f"✅ Serial handshake successful on {self.serial_port}")
                     self.serial_conn.timeout = 0.1
+                    self.send_esp32_pid_config()
                     return True
                 else:
                     self.get_logger().error(f"❌ Failed to receive telemetry JSON from {self.serial_port}")
@@ -237,6 +247,24 @@ class WaveshareMotorDriver(Node):
                 self.get_logger().error(f"❌ Failed to connect to serial port {self.serial_port}: {e}")
                 self.serial_conn = None
                 return False
+
+    def send_esp32_pid_config(self):
+        """Sends closed-loop velocity PID configuration command to ESP32 firmware."""
+        cmd = {
+            "T": 133,
+            "pid": 1 if self.enable_esp32_pid else 0,
+            "kp": round(self.esp32_pid_kp, 4),
+            "ki": round(self.esp32_pid_ki, 4),
+            "kd": round(self.esp32_pid_kd, 4)
+        }
+        cmd_str = json.dumps(cmd, separators=(',', ':')) + "\n"
+        with self.serial_lock:
+            if self.serial_conn and self.serial_conn.is_open:
+                try:
+                    self.serial_conn.write(cmd_str.encode('utf-8'))
+                    self.get_logger().info(f"⚙️ Sent ESP32 PID config: enable={self.enable_esp32_pid}, Kp={self.esp32_pid_kp}, Ki={self.esp32_pid_ki}, Kd={self.esp32_pid_kd}")
+                except Exception as e:
+                    self.get_logger().error(f"Failed to send ESP32 PID config: {e}")
 
     def motion_gate_callback(self, msg: Bool):
         """Callback for hardware motion gating from sensor_standby_manager."""
@@ -549,6 +577,8 @@ class WaveshareMotorDriver(Node):
                 
                 t_val = data.get('T')
                 if t_val in [1001, 1002, 1003, 1004] or 'ax' in data or 'r' in data or 'roll' in data or 'gx' in data:
+                    if 'pid' in data:
+                        self.esp32_pid_active = bool(data.get('pid') == 1)
                     left_ticks = data.get('odl')
                     right_ticks = data.get('odr')
                     
@@ -890,7 +920,8 @@ class WaveshareMotorDriver(Node):
             KeyValue(key="stalled", value=str(self.is_stalled)),
             KeyValue(key="slipping", value=str(self.is_slipping)),
             KeyValue(key="voltage_overload", value=str(self.is_voltage_overload)),
-            KeyValue(key="voltage_drop", value=f"{v_drop:.2f}V")
+            KeyValue(key="voltage_drop", value=f"{v_drop:.2f}V"),
+            KeyValue(key="esp32_pid_active", value=str(self.esp32_pid_active))
         ]
         diag_msg.status.append(stall_status)
         self.diag_pub.publish(diag_msg)
@@ -967,6 +998,22 @@ class WaveshareMotorDriver(Node):
             elif param.name == 'use_encoder_for_linear':
                 self.use_encoder_for_linear = bool(param.value)
                 self.get_logger().info(f"Dynamic Parameter Updated: use_encoder_for_linear = {self.use_encoder_for_linear}")
+            elif param.name == 'enable_esp32_pid':
+                self.enable_esp32_pid = bool(param.value)
+                self.get_logger().info(f"Dynamic Parameter Updated: enable_esp32_pid = {self.enable_esp32_pid}")
+                self.send_esp32_pid_config()
+            elif param.name == 'esp32_pid_kp':
+                self.esp32_pid_kp = float(param.value)
+                self.get_logger().info(f"Dynamic Parameter Updated: esp32_pid_kp = {self.esp32_pid_kp}")
+                self.send_esp32_pid_config()
+            elif param.name == 'esp32_pid_ki':
+                self.esp32_pid_ki = float(param.value)
+                self.get_logger().info(f"Dynamic Parameter Updated: esp32_pid_ki = {self.esp32_pid_ki}")
+                self.send_esp32_pid_config()
+            elif param.name == 'esp32_pid_kd':
+                self.esp32_pid_kd = float(param.value)
+                self.get_logger().info(f"Dynamic Parameter Updated: esp32_pid_kd = {self.esp32_pid_kd}")
+                self.send_esp32_pid_config()
         return SetParametersResult(successful=True)
 
     def destroy_node(self):

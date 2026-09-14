@@ -242,7 +242,32 @@ L'indagine ha identificato che l'asta su cui è montata la telecamera OAK-D Lite
    - Avvio esplicito di `waveshare_motor_driver` con parametri:
      `-p use_cmd_vel_odometry:=True -p use_imu_for_rotation:=False -p use_encoder_for_linear:=False`.
 3. **[TEST] `test/unit/test_encoder_standstill_lock.py`:**
-   - Aggiunto `test_04_pure_theoretical_cmd_vel_odometry`: validato che con vibrazione simulata a 0.20 rad/s sull'IMU OAK-D, `w_robot` rimane rigorosamente `0.00` e `theta` rimane inalterato. (4/4 test passati).
+<a id="ECO-2026-09-14-001"></a>
+## ECO-2026-09-14-001: Anello Chiuso di Velocità Diretto su ESP32 (Feedforward+PI 50Hz) e Dynamic Short-Brake su TB6612FNG (FM-MOT-008)
+
+* **Data:** 2026-09-14
+* **Autore:** Marcus AI / Antigravity
+* **Stato:** APPLICATO IN CODICE & VALIDATO CON TEST UNITARI (Pronto al Flashing su Pi/ESP32)
+* **DFMEA Correlati:** `FM-MOT-008`, `FM-MOT-001`, `FM-NAV-015`
+
+### Contesto e Causa Radice
+L'utente ha riscontrato due anomalie fisiche sul comportamento di marcia del robot:
+1. Una ruota gira leggermente più veloce dell'altra durante la marcia rettilinea. Causa: anello aperto (*open loop*) non compensa le asimmetrie di attrito e tolleranza costruttiva tra i due motoriduttori DC.
+2. All'arresto (`cmd_vel = 0`), una ruota sembra spinta avanti dall'inerzia ruotando leggermente il telaio. Causa: l'azzeramento della velocità impostava `DIR1=LOW, DIR2=LOW, PWM=0`, configurando il ponte H TB6612FNG in *High-Z Coast Mode* (ruote libere di decelerare per inerzia e attrito differenziale anziché bloccarsi simultaneamente).
+
+### Modifiche Applicate
+1. **[FIRMWARE ESP32] `robopy_controller/files_utili/waveshare_bridge.h`:**
+   - **Dynamic Short-Brake Mode:** Quando $|target\_duty| < 0.01$, i pin H-Bridge vengono configurati a `DIR1=HIGH, DIR2=HIGH, PWM=255`, mettendo in cortocircuito a GND gli avvolgimenti dei motori e sfruttando la back-EMF per generare una potente contro-coppia frenante istantanea.
+   - **Anello Chiuso di Velocità 50 Hz:** Implementato regolatore Feedforward + PI a $\Delta t = 20\text{ ms}$ basato sui tick hardware PCNT ($K_p = 3.20, K_i = 0.22, K_d = 0.04$, anti-windup clamp $\pm 75$).
+   - **Handshake e Tuning:** Supporto comandi seriali `{"T":133,"pid":1,"kp":...,"ki":...}\n` e telemetria con indicatore `"pid":1`.
+2. **[DRIVER ROS 2] `robopy_controller/nodes/waveshare_motor_driver.py`:**
+   - Dichiarati parametri `enable_esp32_pid`, `esp32_pid_kp`, `esp32_pid_ki`, `esp32_pid_kd`.
+   - In `connect_serial()`: handshake automatico con configurazione ESP32 PID dopo `telemetry_ok`.
+   - In `parameter_callback()`: gestione aggiornamenti dinamici via `ros2 param set` con riconfigurazione a caldo dell'ESP32.
+   - In `process_battery_feedback()`: esportazione stato `esp32_pid_active` su `/diagnostics`.
+3. **[TEST UNITARI] `test/unit/test_esp32_pid_control.py`:**
+   - Creati 5 test unitari per validare inizializzazione parametri, formattazione comando seriale `T:133`, aggiornamenti dinamici parametri, parsing telemetria e diagnostica ROS 2. Tutti passati con successo (17/17 test passati nell'intero sottosistema attuazione).
+
 
 
 

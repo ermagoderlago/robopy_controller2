@@ -303,4 +303,68 @@ Con JGB37-520B a 7RPM (riduzione ~143:1), **girare la ruota manualmente è impos
   2. **Disaccoppiamento del Giroscopio OAK-D (`use_imu_for_rotation:=False`):** La vibrazione meccanica della camera viene completamente isolata dall'odometria delle ruote.
   3. **Affidamento Chiusura Anello a RPLIDAR C1 (ICP Scan Matching):** RTAB-Map SLAM utilizza il laser scan matching 2D a 360° (`RGBD/NeighborLinkRefining: "true"`) con 12Hz di scan rate e precisione millimetrica su pareti e ostacoli fisici, compensando all'istante qualsiasi minimo scostamento reale senza subire il rumore di sensori a bordo chassis.
 
+---
 
+<a id="migrazione-pcnt-hardware"></a>
+### 28. Migrazione al Modulo Hardware PCNT (Pulse Counter) ESP32 e Soppressione Definitiva del Jitter Hall (FM-ACT-009)
+* **Problema Storico:** Il firmware ESP32 precedente utilizzava banali interrupt software (`attachInterrupt(..., CHANGE)`) su singolo pin. Quando una ruota sostava su una transizione magnetica o in presenza di rumore PWM del ponte H, il pin oscillava ad alta frequenza generando migliaia di interrupt/sec nella stessa direzione (~6.000 impulsi/s a veicolo fermo), provocando falsi movimenti e balzi odometrici.
+* **Risoluzione Radice Hardware (ESP-IDF v5 Pulse Counter API):**
+  1. **Decodifica Quadratura Hardware 4X:** Implementata la decodifica a quadratura a 4 fronti (rising/falling edge di entrambi i canali A e B) interamente gestita nel silicio periferico dell'ESP32 tramite unità PCNT (`pcnt_unit_m1`, `pcnt_unit_m2`) e canali incrociati (`chan_a`, `chan_b`).
+  2. **Digital Glitch Filter Integrato (2000 ns):** Attivato il filtro hardware sul silicio (`pcnt_unit_set_glitch_filter` con `max_glitch_ns = 2000`). Qualsiasi spike capacitivo indotto dal PWM a 5 kHz o micro-rimbalzo inferiore a 2.0 microsecondi viene scartato a livello gate fisico.
+  3. **Zero Carico CPU ESP32:** Nessuna interruzione software durante il conteggio degli encoder; la telemetria si limita a interrogare i registri accumulati a 20 Hz (`pcnt_unit_get_count`).
+  4. **Watchdog Hardware:** Integrato timeout 500ms lato ESP32 per arrestare autonomamente i motori se la comunicazione seriale si interrompe.
+* **Risultati Sperimentali Validati:**
+  - A robot fermo: **zero assoluto di drift odometrico (0 tick)** per qualsiasi durata di sosta.
+  - In rotazione ruota comandata (+30%, +50%, -50% duty): conteggio perfettamente simmetrico e fluido, privo di perdite di passo o balzi.
+
+---
+
+<a id="motor-stall-safety-memory"></a>
+### 29. Rilevamento Stallo Meccanico (`motor_stall`), Annullamento Istantaneo Nav2 e Protezione Cognitiva nell'Amigdala (FM-MOT-004)
+* **Contesto e Problema:**
+  - Se il robot incontra un ostacolo insormontabile o incastra le ruote contro uno stipite, i motori tentano di erogare la coppia richiesta assorbendo corrente di stallo con rischio di surriscaldamento dei driver TB6612FNG o caduta distruttiva di tensione LiPo.
+  - In precedenza, `orchestrator.py` eseguiva solo `emergency_stop()` e TTS, ma non inviava l'annullamento a Nav2 (costringendo ad attendere 5 secondi di timeout dal `progress_checker`), e l'anomalia non veniva memorizzata nella memoria a lungo termine del robot.
+* **Architettura a Triplo Anello Implementata:**
+  1. **Anello Sensoriale (`waveshare_motor_driver.py`):**
+     - Watchdog a 10 Hz analizza costantemente la cinematica:
+       * *Stallo Meccanico:* $|v_{cmd}| > 0.05\text{ m/s}$ ma $|v_{robot}| < 0.005\text{ m/s}$ per $t > 1.0\text{ s}$.
+       * *Slittamento Ruote:* $|v_{robot}| > 0.03\text{ m/s}$ ma $|v_{VO}| < 0.008\text{ m/s}$ per $t > 1.0\text{ s}$.
+       * *Sovraccarico Elettrico:* Caduta di tensione della LiPo $\Delta V > 2.0\text{ V}$ per $t > 1.0\text{ s}$.
+     - Pubblica su `/diagnostics` con `name: "motor_stall"` e `level: DiagnosticStatus.ERROR (2)`.
+  2. **Anello Esecutivo & Nav2 (`orchestrator.py`):**
+     - Al ricevimento di `motor_stall` a livello `ERROR`:
+       * Esegue `reactive_safety.emergency_stop()`.
+       * Se Nav2 è in navigazione attiva (`nav_client.is_navigating`), schedula immediatamente `nav_client.cancel_navigation()` per interrompere l'action goal senza attendere il timeout passivo.
+       * Emette avviso vocale TTS: *"Attenzione. Rilevato blocco o ostacolo nei motori. Fermo il movimento per sicurezza."*
+       * Invia evento `DIAGNOSTIC_UPDATE` sull'`EventBus` e salva l'anomalia via `memory_manager.store_background(..., "system_event")`.
+  3. **Anello Cognitivo & Memoria Indelebile (`cognitive_amygdala.py` & `memory_manager.py`):**
+     - L'Amigdala (`cognitive_amygdala.py`) intercetta `motor_stall` a livello `ERROR` ed innesca l'**Amygdala Hijack** (`_trigger_hijack`):
+       * Taglia l'output `/cmd_vel` a ripetizione e invia richiesta di cancellazione globale a Nav2.
+       * Salva istantaneamente in **ChromaDB** un ricordo protetto permanente da trauma (`"amygdala_protected": "true"`, `"synaptic_strength": 100.0`, `"lambda_decay": 0.0`).
+       * `MemoryManager` include ora `MemoryType.SYSTEM_EVENT` nella classe di protezione assoluta (nessun decadimento durante il Sogno Notturno).
+     - Riarmo automatico: Quando il telaio si libera e il driver pubblica `DiagnosticStatus.OK`, l'Amigdala riarma lo stato da `HIJACK` a `CALM`.
+
+---
+
+<a id="esp32-pid-short-brake"></a>
+### 30. Anello Chiuso di Velocità Diretto su ESP32 (50Hz Feedforward+PI) e Dynamic Short-Brake su TB6612FNG (FM-MOT-008)
+* **Sintomi Osservati:**
+  1. *Asimmetria in Moto:* In rettilineo una ruota gira leggermente più veloce dell'altra, provocando una deriva angolare e costringendo il robot a curvare se non continuamente compensato.
+  2. *Torsione all'Arresto:* Al comando di sosta (`cmd_vel = 0`), una ruota sembra spinta dall'inerzia più avanti dell'altra, producendo un colpo di frusta o leggera rotazione parassita del robot.
+* **Analisi della Causa Radice Fisica:**
+  - *Sintomo 1 (Asimmetria):* In anello aperto (duty cycle PWM inviato grezzamente), due motori DC anche dello stesso lotto presentano minime differenze di attrito nei cuscinetti, usura delle spazzole, resistenza ohmica degli avvolgimenti e tolleranze meccaniche degli ingranaggi. Senza feedback in tempo reale, velocità uguali in $m/s$ non corrispondono mai a duty PWM identici.
+  - *Sintomo 2 (Torsione da Inerzia):* Nel driver precedente, lo stop veniva attuato con `DIR1=LOW, DIR2=LOW, PWM=0`. Nel ponte ad H TB6612FNG, questa combinazione disattiva tutti i MOSFET del ponte, ponendo le uscite motore in **alta impedenza (High-Z Coast Mode)**. I motori girano a vuoto per inerzia: il motore con minore attrito residuo prosegue per qualche millisecondo in più, causando la torsione asimmetrica del robot a veicolo fermo.
+* **Risoluzione Implementata:**
+  1. **Dynamic Short-Brake Mode sul Ponte TB6612FNG:**
+     - Quando il target di velocità è zero ($|duty| < 0.01$), il firmware porta entrambi i pin di direzione a `DIR1=HIGH, DIR2=HIGH` con `PWM=255`.
+     - Questo attiva contemporaneamente entrambi i MOSFET low-side verso GND, mettendo in **cortocircuito controllato le bobine del motore**.
+     - La forza contro-elettromotrice generata dalla rotazione inerziale (Back-EMF) produce un'immediata coppia frenante proporzionale alla velocità angolare, bloccando rigidamente e istantaneamente entrambe le ruote senza alcun tempo di scivolamento.
+  2. **Anello Chiuso di Velocità a 50 Hz a Bordo Microcontrollore ESP32:**
+     - Esecuzione di un regolatore Feedforward + PI ogni 20 ms basato sui tick hardware PCNT:
+       $$\text{PWM} = \text{target} \times 255.0 + K_p \cdot e + K_i \cdot \int e\,dt + K_d \cdot \frac{de}{dt}$$
+     - Parametri tarati: $K_p = 3.20, K_i = 0.22, K_d = 0.04$, anti-windup clamp $\pm 75$.
+     - Il feedforward garantisce la tensione di base immediata (zero ritardo); la componente PI corregge in soli 20 ms qualsiasi minima discrepanza di carico o attrito tra le ruote, garantendo una perfetta marcia in linea retta.
+  3. **Integrazione Bidirezionale ROS 2 (`waveshare_motor_driver.py`):**
+     - Parametri dinamici: `enable_esp32_pid` (default: `True`), `esp32_pid_kp`, `esp32_pid_ki`, `esp32_pid_kd`.
+     - Handshake e tuning a caldo via seriale JSON con protocollo `{"T":133,"pid":1,"kp":3.2,"ki":0.22,"kd":0.04}\n`.
+     - Stato dell'anello chiuso integrato nel messaggio diagnostico `/diagnostics` (`esp32_pid_active`).

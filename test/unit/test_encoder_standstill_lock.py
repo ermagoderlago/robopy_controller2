@@ -55,6 +55,10 @@ class DummyNode:
             'motor_min_duty_cycle': 0.18,
             'raw_battery_topic': '/battery/raw',
             'esp32_adc_scale_factor': 2880.95,
+            'enable_esp32_pid': True,
+            'esp32_pid_kp': 3.20,
+            'esp32_pid_ki': 0.22,
+            'esp32_pid_kd': 0.04,
         }
         m.value = defaults.get(name, 0.0)
         return m

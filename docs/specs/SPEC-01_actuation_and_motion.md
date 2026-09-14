@@ -9,7 +9,7 @@
   - `robopy_controller.nodes.servo_coda_node` (`servo_coda_node.py`)
 - **Hardware Diretto:** Scheda Waveshare General Driver (ESP32), 2x Motori DC con encoder magnetici a quadratura (1440 tick/giro), Batteria LiPo 3S2P (6 celle totali: 2x 3S in parallelo), Servo bus PWM coda.
 - **Interfaccia Seriale:** `/dev/motor_driver` (symlink udev persistente a 115200 baud, 8N1 su chip CP2102N seriale `4c7fd634626cef11acaca4adc169b110`).
-- **DFMEA Correlati:** `FM-MOT-001` (Perdita comando di stop / Runaway), `FM-MOT-002` (Stallo meccanico motori), `FM-MOT-003` (Conflitto DTR/RTS e reset USB), `FM-MOT-004` (Collisione seriale con LiDAR C1 risolta con udev rules), `FM-NAV-015` (Slittamento ruote e corruzione calibrazione scala), `FM-PWR-001` (Motion Gating su spin-up sensori / Smart Standby).
+- **DFMEA Correlati:** `FM-MOT-001` (Perdita comando di stop / Runaway), `FM-MOT-002` (Stallo meccanico motori), `FM-MOT-003` (Conflitto DTR/RTS e reset USB), `FM-MOT-004` (Collisione seriale con LiDAR C1 risolta con udev rules), `FM-NAV-015` (Slittamento ruote e corruzione calibrazione scala), `FM-PWR-001` (Motion Gating su spin-up sensori / Smart Standby), `FM-MOT-008` (Asimmetria di trazione e scivolamento inerziale TB6612FNG risolto con anello chiuso 50Hz e Short Brake).
 
 ---
 
@@ -54,6 +54,7 @@ L'agente Antigravity può ottimizzare e ricalibrare autonomamente le seguenti co
 | Area di Ottimizzazione | Metodo & Logica Ammessa | Range & Vincoli di Accettazione |
 | :--- | :--- | :--- |
 | **Guadagni PID MotionManager** | Tuning anello closed-loop per spostamenti relativi a target | $K_p \in [0.8, 2.5]$, $K_i \in [0.0, 0.2]$, $K_d \in [0.01, 0.15]$ |
+| **Anello Chiuso Velocità ESP32** | Regolazione Feedforward + PI a 50Hz e Dynamic Short-Brake | $K_p \in [1.0, 5.0]$, $K_i \in [0.05, 0.50]$, $K_d \in [0.0, 0.10]$; Short-Brake su $\|duty\| < 0.01$ |
 | **Compensazione Tensione** | Scaling $PWM_{comp} = PWM \times (11.10\text{V} / V_{eff})$ | $V_{eff} \in [9.9\text{V}, 12.6\text{V}]$; Limitatore 50% sotto 10.2V |
 | **Slew Rate / Jerk Limiter** | Rampa morbida per accelerazioni lineari/angolari | Rampa min: $0.15\text{ s}$, max: $0.50\text{ s}$ per evitare impuntamenti |
 | **Calibrazione Encoder (Slip Gating)**| Raffinamento $R_{wheel}$ e $W_{separation}$ via closed-loop VIO | Blocco calibrazione se accelerazione $\Delta a > 0.25\text{ m/s}^2$ |

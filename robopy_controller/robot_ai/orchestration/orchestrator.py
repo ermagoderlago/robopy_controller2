@@ -484,11 +484,39 @@ class AIOrchestrator(Node):
                 if status.level == 2:  # DiagnosticStatus.ERROR
                     self.get_logger().error(f"🚨 ALLARME CHASSIS: {status.message}")
                     self.reactive_safety.emergency_stop()
-                    if self.tts_service:
+                    
+                    # 1. Annullamento immediato della navigazione autonoma Nav2
+                    if hasattr(self, 'nav_client') and self.nav_client and getattr(self.nav_client, 'is_navigating', False):
+                        self.get_logger().warn("🛑 Annullamento immediato della navigazione Nav2 per stallo motori...")
+                        if self._loop:
+                            asyncio.run_coroutine_threadsafe(
+                                self.nav_client.cancel_navigation(),
+                                self._loop
+                            )
+                            
+                    # 2. Notifica vocale TTS immediata
+                    if self.tts_service and self._loop:
                          asyncio.run_coroutine_threadsafe(
                               self.tts_service.speak("Attenzione. Rilevato blocco o ostacolo nei motori. Fermo il movimento per sicurezza."),
                               self._loop
                          )
+                         
+                    # 3. Propagazione su EventBus
+                    self.event_bus.publish(EventType.DIAGNOSTIC_UPDATE, {
+                        "motor_stall": True,
+                        "error_message": status.message
+                    })
+                    
+                    # 4. Salvataggio permanente nella memoria autobiografica/episodica (RAG / SQLite / ChromaDB)
+                    if hasattr(self, 'memory_manager') and self.memory_manager and self._loop:
+                        asyncio.run_coroutine_threadsafe(
+                            self.memory_manager.store_background(
+                                f"Anomalia stallo o sovraccarico motori rilevata: {status.message}",
+                                "Arresto di emergenza attivato e navigazione Nav2 interrotta a salvaguardia del telaio.",
+                                "system_event"
+                            ),
+                            self._loop
+                        )
 
     def _run_nightly_dream(self):
         if self._loop.is_running() and not self._shutdown_flag:

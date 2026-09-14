@@ -388,27 +388,9 @@ echo "🔵 Starting bluedot_node..."
 nohup ros2 run robopy_controller bluedot_node \
     > /home/robopy/robopy/logs/bluedot_node.log 2>&1 &
 
-# Attendiamo in modo dinamico e deterministico che RTAB-Map pubblichi la mappa e il frame 'map'
-echo "⏳ [NAV2-PREFLIGHT] Attesa pubblicazione mappa e frame 'map' da RTAB-Map (fino a 60s)..."
-MAP_TIMEOUT=60
-MAP_ELAPSED=0
-MAP_READY=false
-while [ $MAP_ELAPSED -lt $MAP_TIMEOUT ]; do
-    if timeout 3 ros2 topic echo /map --once --field header > /dev/null 2>&1; then
-        echo "✅ [NAV2-PREFLIGHT] Mappa e frame 'map' rilevati con successo dopo ${MAP_ELAPSED}s!"
-        MAP_READY=true
-        break
-    fi
-    sleep 2
-    MAP_ELAPSED=$((MAP_ELAPSED + 2))
-    echo "   ... in attesa di /map (${MAP_ELAPSED}s/${MAP_TIMEOUT}s)..."
-done
-
-if [ "$MAP_READY" = false ]; then
-    echo "⚠️ [NAV2-PREFLIGHT] Timeout attesa mappa (${MAP_TIMEOUT}s), avvio Nav2 comunque in fallback..."
-else
-    sleep 2
-fi
+# [CPU-OPT Pi 5] Attesa stabilizzazione RTAB-Map SLAM prima del lancio di Nav2
+echo "⏳ [NAV2-PREFLIGHT] Attesa stabilizzazione RTAB-Map SLAM (10 secondi)..."
+sleep 10
 
 # =============================================================================
 # STEP 3: AVVIO NAV2 STACK (Solo dopo che i sensori e TF odom/map sono stabili)

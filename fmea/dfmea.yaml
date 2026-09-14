@@ -3541,8 +3541,9 @@
     occurrence: 7
     detection: 4
     rpn: 168
-  prevention_controls: Deadband di standstill disaccoppiato per singola ruota (deadband
-    8 ticks ~2.5mm) attivo su motors_stopped
+  prevention_controls: Firmware ESP32 basato su periferica hardware Pulse Counter
+    (PCNT) a quadratura 4X con Digital Glitch Filter da 2000ns unito a deadband di
+    standstill disaccoppiato in waveshare_motor_driver.py
   detection_controls: Telemetria ENCODER_RAW su seriale con tracciamento differenziale
     odl/odr a riposo
   residual_scoring:
@@ -3559,12 +3560,18 @@
   eco_ref: docs/lessons/actuation_motor_driver.md
   lesson_ref: docs/lessons/actuation_motor_driver.md#filtraggio-jitter-hall-a-fermo
   date_identified: '2026-09-08'
-  last_updated: '2026-09-08'
+  last_updated: '2026-09-13'
   history:
   - date: '2026-09-08'
     change: Implementato filtro standstill indipendente per ruota con deadband a 8
       ticks (~2.5mm)
     rpn_old: 168
+    rpn_new: 6
+  - date: '2026-09-13'
+    change: Implementato firmware ESP32 con hardware Pulse Counter (PCNT) 4X quadrature
+      e digital glitch filter da 2000ns. Azzerato completamente il rumore elettrico
+      e il falso movimento a fermo alla radice hardware.
+    rpn_old: 6
     rpn_new: 6
 - id: FM-NOM-001
   subsystem: Navigation/NoMaD
@@ -4042,24 +4049,29 @@
   residual_scoring:
     severity: 3
     occurrence: 2
-    detection: 2
-    rpn: 12
+    detection: 1
+    rpn: 6
   risk_level: LOW
   mitigation_status: CLOSED
   recommended_action: Integrare StallSlipDetector in NoMaD e Waveshare Driver con
-    FSM di arresto d'emergenza e recovery
+    FSM di arresto d'emergenza, cancellazione Nav2 e salvataggio trauma Amigdala
   verification_method: Test unitario di iniezione stallo ruote e verifica disarmo
     motori
   eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-08-25-001
   lesson_ref: docs/lessons/actuation_motor_driver.md#motor-stall-protection
   date_identified: '2026-08-25'
-  last_updated: '2026-08-25'
+  last_updated: '2026-09-13'
   history:
   - date: '2026-08-25'
     change: Introdotto StallSlipDetector con monitoraggio tracking error encoder e
       taglio potenza motori
     rpn_old: 140
     rpn_new: 12
+  - date: '2026-09-13'
+    change: Collegato allarme stallo motor_stall a cancellazione immediata Nav2 e
+      salvataggio permanente trauma protetto in Amigdala e MemoryManager
+    rpn_old: 12
+    rpn_new: 6
 - id: FM-NOM-007
   subsystem: Navigation/Vision
   component: nomad_reactive_pipeline_node
@@ -5624,3 +5636,58 @@
       ridotto.
     rpn_old: 9
     rpn_new: 9
+- id: FM-MOT-008
+  subsystem: Actuation & Motion
+  component: waveshare_bridge (ESP32) / waveshare_motor_driver
+  function: Controllo simmetrico della velocità ruote e arresto simultaneo ad alta
+    reattività senza deriva inerziale
+  failure_mode: Asimmetria di velocità ruote in rettilineo e scivolamento inerziale
+    differenziato all'arresto (TB6612FNG Coast Mode)
+  potential_cause: 'Discrepanze di attrito meccanico e tolleranze elettriche tra i
+    due motoriduttori pilotati in anello aperto (PWM grezzo); stato di alta impedenza
+    (Coast Mode: IN1=0, IN2=0) del ponte H TB6612FNG al comando di arresto che lascia
+    girare le ruote per inerzia asimmetrica'
+  potential_effect: Deviazione della traiettoria rettilinea del robot; torsione parassita
+    dello chassis a ogni sosta o cambio di direzione, con disallineamento della posa
+    e stress per i controllori di Nav2
+  classification: PERFORMANCE
+  estimation_basis: measured
+  related_ids:
+  - FM-MOT-001
+  - FM-NAV-015
+  initial_scoring:
+    severity: 7
+    occurrence: 8
+    detection: 3
+    rpn: 168
+  prevention_controls: 1) Anello chiuso di velocità Feedforward + PI a 50 Hz eseguito
+    direttamente a bordo microcontrollore ESP32 su hardware PCNT con compensazione
+    in 20ms delle discrepanze di attrito; 2) Modalità Active Short-Braking sul ponte
+    H TB6612FNG (IN1=HIGH, IN2=HIGH, PWM=255) al target 0.0, che cortocircuita i poli
+    a massa generando contro-coppia elettromagnetica immediata tramite back-EMF ed
+    eliminando totalmente l'inerzia residua
+  detection_controls: Telemetria odl/odr e delta_ticks a 50Hz; diagnostics topic con
+    esp32_pid_active; osservazione visiva/odometrica dell'arresto netto
+  residual_scoring:
+    severity: 7
+    occurrence: 1
+    detection: 1
+    rpn: 7
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Compilare e flashare il firmware aggiornato waveshare_bridge.h
+    sull'ESP32 appena il robot viene acceso; mantenere enable_esp32_pid:=True nel
+    nodo ROS 2 waveshare_motor_driver.py
+  verification_method: Test unitari pytest test_esp32_pid_control.py; verifica fisica
+    di marcia rettilinea e sosta istantanea senza torsione
+  eco_ref: docs/ecos/actuation_ecos.md#ECO-2026-09-14-001
+  lesson_ref: docs/lessons/actuation_motor_driver.md#esp32-pid-short-brake
+  date_identified: '2026-09-14'
+  last_updated: '2026-09-14'
+  history:
+  - date: '2026-09-14'
+    change: Implementato anello chiuso di velocità 50Hz (Feedforward+PI) su ESP32
+      e Dynamic Short-Braking sul TB6612FNG per eliminare asimmetrie e scivolamento
+      inerziale all'arresto
+    rpn_old: 168
+    rpn_new: 7

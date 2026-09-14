@@ -79,10 +79,11 @@ class MemoryManager:
 
                 metadata = {"timestamp": time.time()}
                 importance = 0.5
-                if mem_type in (MemoryType.LEARNED_FACT, MemoryType.USER_PREFERENCE):
+                if mem_type in (MemoryType.LEARNED_FACT, MemoryType.USER_PREFERENCE, MemoryType.SYSTEM_EVENT):
                     importance = 1.0
                     metadata["amygdala_protected"] = "true"
                     metadata["synaptic_strength"] = 100.0
+                    metadata["lambda_decay"] = 0.0
 
                 memory = Memory(
                     id="", content=content,
