@@ -368,3 +368,26 @@ Con JGB37-520B a 7RPM (riduzione ~143:1), **girare la ruota manualmente è impos
      - Parametri dinamici: `enable_esp32_pid` (default: `True`), `esp32_pid_kp`, `esp32_pid_ki`, `esp32_pid_kd`.
      - Handshake e tuning a caldo via seriale JSON con protocollo `{"T":133,"pid":1,"kp":3.2,"ki":0.22,"kd":0.04}\n`.
      - Stato dell'anello chiuso integrato nel messaggio diagnostico `/diagnostics` (`esp32_pid_active`).
+
+---
+
+<a id="real-encoder-odometry-switch"></a>
+### 31. Passaggio all'Odometria Reale su Spostamenti da Encoder PCNT (FM-NAV-015, FM-MOT-008)
+* **Contesto Storico:**
+  - In precedenza, a causa del segnale encoder interrotto/flottante sul canale C2 (GPIO 35) e dei burst di falso movimento/rumore Hall da fermo, il robot utilizzava l'odometria teorica da `/cmd_vel` (`use_cmd_vel_odometry := True`).
+  - L'odometria teorica era immune al rumore degli encoder, ma presentava un limite fisico insito: non misurava l'effettivo spostamento reale delle ruote su terreno reale, non rilevava micro-slittamenti su moquette/pavimento, e soffriva di drift in curva a catena aperta prima dei vincoli ICP/LiDAR.
+* **Risoluzione con Hardware PCNT + Anello Chiuso:**
+  1. **Attivazione Odometria Reale:**
+     - Impostato `use_cmd_vel_odometry := False` e `use_encoder_for_linear := True` come configurazione nominale sia in `waveshare_motor_driver.py` che in `restart_hailo.sh`.
+     - Impostato `invert_left_encoder := False` e `invert_right_encoder := False`: con il nuovo firmware PCNT, entrambi i canali incrementano regolarmente per moto in avanti ($dl > 0, dr > 0$) e decrementano in retromarcia ($dl < 0, dr < 0$).
+  2. **Integrazione a Punto Medio Runge-Kutta 2° Ordine:**
+     - Calcolo metrico rigoroso per cinematica differenziale su ogni ciclo:
+       $$\Delta s_L = \Delta T_L \times \frac{2 \pi R_{wheel}}{CPR}, \quad \Delta s_R = \Delta T_R \times \frac{2 \pi R_{wheel}}{CPR}$$
+       $$\Delta s = \frac{\Delta s_R + \Delta s_L}{2}, \quad \Delta \theta = \frac{\Delta s_R - \Delta s_L}{W_{separation}}$$
+       $$\theta_{mid} = \theta + \frac{\Delta \theta}{2}$$
+       $$x \leftarrow x + \Delta s \cos(\theta_{mid}), \quad y \leftarrow y + \Delta s \sin(\theta_{mid}), \quad \theta \leftarrow \text{atan2}(\sin(\theta + \Delta \theta), \cos(\theta + \Delta \theta))$$
+       $$v_{robot} = \frac{\Delta s}{\Delta t}, \quad w_{robot} = \frac{\Delta \theta}{\Delta t}$$
+  3. **Zero Phantom Drift a Fermo:**
+     - Il Tier 1 Zero-Velocity Standstill Lock blocca $\Delta T_L = 0, \Delta T_R = 0$ quando `motors_stopped` è attivo, azzerando qualsiasi jitter magnetico residuo.
+  4. **Guardia Anti-Asimmetria Selettiva:**
+     - Il filtro di asimmetria tra ruote (Tier 3) opera ora esclusivamente in marcia rettilinea comandata ($|\omega_{cmd}| < 0.10\text{ rad/s}$) con IMU attiva, senza interferire con le rotazioni intenzionali sul posto comandate da Nav2.

@@ -58,6 +58,15 @@ class DummyNode:
             'motor_min_duty_cycle': 0.18,
             'raw_battery_topic': '/battery/raw',
             'esp32_adc_scale_factor': 2880.95,
+            'use_cmd_vel_odometry': False,
+            'use_encoder_for_linear': True,
+            'use_imu_for_rotation': False,
+            'enable_esp32_pid': True,
+            'esp32_pid_kp': 3.20,
+            'esp32_pid_ki': 0.22,
+            'esp32_pid_kd': 0.04,
+            'standstill_encoder_deadband': 8,
+            'invert_imu_yaw': True,
         }
         m.value = defaults.get(name, 0.0)
         return m
@@ -95,9 +104,34 @@ if 'sensor_msgs' not in sys.modules:
 if 'std_msgs' not in sys.modules:
     sys.modules['std_msgs'] = MagicMock()
     sys.modules['std_msgs.msg'] = MagicMock()
+class DummyKeyValue:
+    def __init__(self, key="", value=""):
+        self.key = key
+        self.value = value
+
+class DummyDiagnosticStatus:
+    OK = 0
+    WARN = 1
+    ERROR = 2
+    def __init__(self, name="", level=0, message="", hardware_id=""):
+        self.name = name
+        self.level = level
+        self.message = message
+        self.hardware_id = hardware_id
+        self.values = []
+
+class DummyDiagnosticArray:
+    def __init__(self):
+        self.header = MagicMock()
+        self.status = []
+
 if 'diagnostic_msgs' not in sys.modules:
     sys.modules['diagnostic_msgs'] = MagicMock()
-    sys.modules['diagnostic_msgs.msg'] = MagicMock()
+diag_msg_mock = MagicMock()
+diag_msg_mock.KeyValue = DummyKeyValue
+diag_msg_mock.DiagnosticStatus = DummyDiagnosticStatus
+diag_msg_mock.DiagnosticArray = DummyDiagnosticArray
+sys.modules['diagnostic_msgs.msg'] = diag_msg_mock
 if 'serial' not in sys.modules:
     sys.modules['serial'] = MagicMock()
 
@@ -151,7 +185,7 @@ class TestWaveshareKinematics(unittest.TestCase):
     def test_02_turn_left_command_and_encoder_polarity(self):
         """Turn left (CCW, w > 0): delta_theta > 0 per REP-103.
         Kinematics: v_L < 0 (left back), v_R > 0 (right fwd).
-        Channel swap: L = duty_right > 0, R = duty_left < 0."""
+        Physical mapping: L = duty_left < 0, R = duty_right > 0."""
         msg = MagicMock()
         msg.linear.x = 0.0
         msg.angular.z = 0.50  # CCW
@@ -160,23 +194,24 @@ class TestWaveshareKinematics(unittest.TestCase):
         self.assertGreater(len(self.sent_commands), 0)
         last_cmd = self.sent_commands[-1]
 
-        # L = duty_right > 0 (right wheel forward), R = duty_left < 0 (left wheel backward)
-        self.assertGreater(last_cmd['L'], 0.0, "Channel L (phys right) must be positive to spin right wheel fwd (turn left)")
-        self.assertLess(last_cmd['R'], 0.0, "Channel R (phys left) must be negative to spin left wheel bkd (turn left)")
+        # L = duty_left < 0 (left wheel backward), R = duty_right > 0 (right wheel forward)
+        self.assertLess(last_cmd['L'], 0.0, "Channel L (phys left) must be negative to spin left wheel bkd (turn left)")
+        self.assertGreater(last_cmd['R'], 0.0, "Channel R (phys right) must be positive to spin right wheel fwd (turn left)")
 
-        # Encoder simulation after swap:
-        # Turn left: right wheel fwd -> odl increases; left wheel back -> odr decreases
-        # In process_encoder_feedback: delta_ticks_right = odl_delta, delta_ticks_left = odr_delta
+        # Encoder physical mapping:
+        # Turn left: right wheel fwd -> odr increases; left wheel back -> odl decreases
+        # delta_ticks_right = odr_delta > 0, delta_ticks_left = odl_delta < 0
         # delta_s_right > 0, delta_s_left < 0 -> delta_theta = (d_right - d_left)/W > 0
+        self.driver.motors_stopped = False
         self.driver.process_encoder_feedback(1000, 1000)  # baseline
-        self.driver.process_encoder_feedback(1050, 950)   # odl+50 (right fwd), odr-50 (left back)
+        self.driver.process_encoder_feedback(980, 1020)   # odl-20 (left back), odr+20 (right fwd, <= 28 max_allowed_ticks)
 
         self.assertGreater(self.driver.theta, 0.0, "Integrated yaw must be positive (CCW) for turn left")
 
     def test_03_turn_right_command_and_encoder_polarity(self):
         """Turn right (CW, w < 0): delta_theta < 0 per REP-103.
         Kinematics: v_L > 0 (left fwd), v_R < 0 (right back).
-        Channel swap: L = duty_right < 0, R = duty_left > 0."""
+        Physical mapping: L = duty_left > 0, R = duty_right < 0."""
         msg = MagicMock()
         msg.linear.x = 0.0
         msg.angular.z = -0.50  # CW
@@ -185,16 +220,17 @@ class TestWaveshareKinematics(unittest.TestCase):
         self.assertGreater(len(self.sent_commands), 0)
         last_cmd = self.sent_commands[-1]
 
-        # L = duty_right < 0 (right wheel backward), R = duty_left > 0 (left wheel forward)
-        self.assertLess(last_cmd['L'], 0.0, "Channel L (phys right) must be negative to spin right wheel bkd (turn right)")
-        self.assertGreater(last_cmd['R'], 0.0, "Channel R (phys left) must be positive to spin left wheel fwd (turn right)")
+        # L = duty_left > 0 (left wheel forward), R = duty_right < 0 (right wheel backward)
+        self.assertGreater(last_cmd['L'], 0.0, "Channel L (phys left) must be positive to spin left wheel fwd (turn right)")
+        self.assertLess(last_cmd['R'], 0.0, "Channel R (phys right) must be negative to spin right wheel bkd (turn right)")
 
-        # Encoder simulation after swap:
-        # Turn right: right wheel back -> odl decreases; left wheel fwd -> odr increases
-        # delta_ticks_right = odl_delta < 0, delta_ticks_left = odr_delta > 0
+        # Encoder physical mapping:
+        # Turn right: right wheel back -> odr decreases; left wheel fwd -> odl increases
+        # delta_ticks_right = odr_delta < 0, delta_ticks_left = odl_delta > 0
         # delta_theta = (d_right - d_left)/W = (neg - pos)/W < 0
+        self.driver.motors_stopped = False
         self.driver.process_encoder_feedback(1000, 1000)  # baseline
-        self.driver.process_encoder_feedback(950, 1050)   # odl-50 (right back), odr+50 (left fwd)
+        self.driver.process_encoder_feedback(1020, 980)   # odl+20 (left fwd), odr-20 (right back, <= 28 max_allowed_ticks)
 
         self.assertLess(self.driver.theta, 0.0, "Integrated yaw must be negative (CW) for turn right")
 

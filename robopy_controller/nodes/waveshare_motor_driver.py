@@ -145,10 +145,10 @@ class WaveshareMotorDriver(Node):
         
         self.oak_yaw_rate = 0.0
         self.last_imu_time = None
-        self.declare_parameter('use_cmd_vel_odometry', True) # Pure theoretical kinematic odometry from cmd_vel (immune to vibration & encoder noise)
+        self.declare_parameter('use_cmd_vel_odometry', False) # Default False: use real physical wheel encoder odometry
         self.declare_parameter('use_imu_for_rotation', False)
         self.declare_parameter('invert_imu_yaw', True) # Inverts OAK-D Lite IMU Z gyro to match REP-103 (+Z = Left)
-        self.declare_parameter('use_encoder_for_linear', False) # Default False: cmd_vel + IMU + ICP (immune to broken ESP32 encoders)
+        self.declare_parameter('use_encoder_for_linear', True) # Default True: physical wheel displacement odometry (PCNT hardware)
         self.declare_parameter('standstill_encoder_deadband', 8) # Reject tick flutter <= 8 ticks (~2.5mm) when stopped
         
         self.use_cmd_vel_odometry = bool(self.get_parameter('use_cmd_vel_odometry').value)
@@ -671,10 +671,12 @@ class WaveshareMotorDriver(Node):
             # If one wheel reports fast movement while the other is stopped, differential kinematics
             # dictates angular yaw rate w = (vR - vL) / W. If the IMU gyro confirms near-zero rotation (|w| < 0.2 rad/s),
             # the single active wheel is experiencing electrical chatter/runaway.
+            # Active only when not commanding a turn (|cmd_angular_z| < 0.10) and IMU telemetry is fresh.
+            imu_is_live = (self.last_imu_time is not None and (current_time - self.last_imu_time) < 0.5)
             v_l_est = (delta_ticks_left * meters_per_tick) / safe_dt
             v_r_est = (delta_ticks_right * meters_per_tick) / safe_dt
             diff_w_est = (v_r_est - v_l_est) / self.wheel_separation
-            if abs(self.oak_yaw_rate) < 0.20 and abs(diff_w_est) > 1.0:
+            if imu_is_live and abs(self.cmd_angular_z) < 0.10 and abs(self.oak_yaw_rate) < 0.20 and abs(diff_w_est) > 1.0:
                 if abs(delta_ticks_left) == 0 and abs(delta_ticks_right) > 10:
                     self.get_logger().warn(
                         f"⚠️ [ENCODER_ASYMMETRY] Right runaway suppressed (d_r={delta_ticks_right}, d_l=0, imu_w={self.oak_yaw_rate:+.2f}).",
@@ -721,13 +723,13 @@ class WaveshareMotorDriver(Node):
                     throttle_duration_sec=0.5
                 )
         else:
-            # 1. LINEAR TRANSLATION: Compute from physical wheel encoders or fallback to cmd_vel
+            # REAL PHYSICAL WHEEL ENCODER DISPLACEMENT ODOMETRY
             if self.use_encoder_for_linear:
                 # CLOSED-LOOP LINEAR: Use physical wheel encoder ticks for real ground truth distance
-                if abs(delta_ticks_left) > self.ticks_per_rev * 5: delta_ticks_left = 0
-                if abs(delta_ticks_right) > self.ticks_per_rev * 5: delta_ticks_right = 0
                 if self.invert_left_encoder: delta_ticks_left = -delta_ticks_left
                 if self.invert_right_encoder: delta_ticks_right = -delta_ticks_right
+                if abs(delta_ticks_left) > self.ticks_per_rev * 5: delta_ticks_left = 0
+                if abs(delta_ticks_right) > self.ticks_per_rev * 5: delta_ticks_right = 0
                 
                 delta_s_left = delta_ticks_left * meters_per_tick
                 delta_s_right = delta_ticks_right * meters_per_tick
@@ -742,25 +744,32 @@ class WaveshareMotorDriver(Node):
                 v_robot = 0.0 if self.motors_stopped else self.cmd_linear_x
                 delta_s = v_robot * dt
 
-            # 2. ANGULAR ORIENTATION: Continuous 42 Hz IMU Giroscopio Z (OAK-D Lite)
+            # 2. ANGULAR ORIENTATION: Continuous 42 Hz IMU Giroscopio Z or Wheel Odometry Differential
             if self.use_imu_for_rotation:
                 # theta is continuously updated in real-time by oak_imu_callback at 42 Hz!
                 w_robot = self.oak_yaw_rate
+                delta_theta = w_robot * dt
+                mid_theta = self.theta
+                self.x += delta_s * math.cos(mid_theta)
+                self.y += delta_s * math.sin(mid_theta)
             else:
-                # Fallback to wheel encoder differential
-                delta_theta = (delta_s_right - delta_s_left) / self.rotational_wheel_separation
+                # Fallback to wheel encoder differential: delta_theta = (delta_s_right - delta_s_left) / W
+                delta_theta = (delta_s_right - delta_s_left) / self.rotational_wheel_separation if not self.motors_stopped else 0.0
+                w_robot = (delta_theta / dt) if dt > 0.001 else 0.0
+                # Mid-point 2nd order Runge-Kutta integration for position
+                mid_theta = self.theta + (delta_theta / 2.0)
+                self.x += delta_s * math.cos(mid_theta)
+                self.y += delta_s * math.sin(mid_theta)
                 self.theta += delta_theta
                 self.theta = math.atan2(math.sin(self.theta), math.cos(self.theta))
-                w_robot = (delta_theta / dt) if dt > 0.001 else 0.0
 
             if abs(delta_s) > 1e-5 or abs(w_robot) > 1e-3:
                 src_lin = "ENCODER" if self.use_encoder_for_linear else "CMD_VEL"
                 src_rot = "IMU_42Hz" if self.use_imu_for_rotation else "ENCODER"
-                self.get_logger().info(f"[ODOM_CALC] lin={src_lin}(d_s={delta_s:.4f}), rot={src_rot}(th={math.degrees(self.theta):+.2f}deg, w={math.degrees(w_robot):+.2f}deg/s)", throttle_duration_sec=0.2)
-            
-            # Integrate linear translation using current heading
-            self.x += delta_s * math.cos(self.theta)
-            self.y += delta_s * math.sin(self.theta)
+                self.get_logger().info(
+                    f"[ODOM_REAL] lin={src_lin}(ds={delta_s:.4f}m, v={v_robot:.3f}m/s), rot={src_rot}(th={math.degrees(self.theta):+.2f}deg, w={w_robot:.3f}rad/s), pos=({self.x:.3f}, {self.y:.3f})",
+                    throttle_duration_sec=0.5
+                )
             
         self.v_robot = v_robot
         self.w_robot = w_robot

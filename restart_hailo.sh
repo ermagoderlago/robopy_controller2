@@ -143,12 +143,12 @@ nohup ros2 run robopy_controller waveshare_motor_driver --ros-args \
     -p invert_left_motor:=False \
     -p invert_right_motor:=False \
     -p invert_left_encoder:=False \
-    -p invert_right_encoder:=True \
+    -p invert_right_encoder:=False \
     -p encoder_dead_zone:=2 \
     -p publish_tf:=True \
-    -p use_cmd_vel_odometry:=True \
+    -p use_cmd_vel_odometry:=False \
     -p use_imu_for_rotation:=False \
-    -p use_encoder_for_linear:=False \
+    -p use_encoder_for_linear:=True \
     -p odom_topic:=/odom \
     > /home/robopy/robopy/logs/waveshare_motor_driver.log 2>&1 &
 

@@ -1,5 +1,5 @@
 # 📊 Report Esecutivo DFMEA - Marcus AI Robot Platform
-**Data Generazione:** 2026-09-14 23:13:24  
+**Data Generazione:** 2026-09-14 23:27:52  
 **Metodologia:** AIAG-VDA FMEA Standard con Regola Override Severità ($S \ge 9 \implies$ REVISION_MANDATORY)
 
 ---
@@ -205,7 +205,7 @@
 | **FM-NAV-025** | Navigation & SLAM | `rtabmap_slam` | Crash irreversibile RTAB-Map per UException Memory.cpp:3473 addLink e conseguente collasso di Nav2 e blackout canali 3D Foxglove Studio | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#FM-NAV-025`](docs/lessons/nav2_slam_tuning.md#FM-NAV-025) |
 | **FM-LLM-007** | AI/Trinity | `dynamic_skill_creator / base_skill` | Deriva semantica o firma asincrona non valida in match/execute non rilevata dal compilatore AST di base | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md`](docs/lessons/orchestration_and_rag.md) |
 | **FM-PWR-001** | Hardware/Power & Sensors | `sensor_standby_manager.py / RPLIDAR C1 / RTAB-Map` | Usura meccanica continua a vuoto del rotore RPLIDAR C1, consumo energetico superfluo e sovraccarico computazionale di RTAB-Map quando il robot è stazionario per > 2 minuti | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#smart-standby-motion-gating`](docs/lessons/actuation_motor_driver.md#smart-standby-motion-gating) |
-| **FM-MOT-007** | Actuation & Motion | `waveshare_motor_driver` | Oscillazione della velocità angolare odom wz (+-0.20 rad/s) e sfarfallio a zig-zag della mappa SLAM durante la marcia rettilinea | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#camera-mast-imu-vibration`](docs/lessons/actuation_motor_driver.md#camera-mast-imu-vibration) |
+| **FM-MOT-007** | Actuation & Motion | `waveshare_motor_driver` | Oscillazione della velocità angolare odom wz (+-0.20 rad/s) e sfarfallio a zig-zag della mappa SLAM durante la marcia rettilinea | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#real-encoder-odometry-switch`](docs/lessons/actuation_motor_driver.md#real-encoder-odometry-switch) |
 | **FM-MOT-008** | Actuation & Motion | `waveshare_bridge (ESP32) / waveshare_motor_driver` | Asimmetria di velocità ruote in rettilineo e scivolamento inerziale differenziato all'arresto (TB6612FNG Coast Mode) | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#esp32-pid-short-brake`](docs/lessons/actuation_motor_driver.md#esp32-pid-short-brake) |
 | **FM-SYS-002** | System/DDS | `system_scripts` | Errore di esecuzione script: OSError [Errno 8] Exec format error | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`marcus_core_rules.md#1-memoria-ram-e-limite-host`](marcus_core_rules.md#1-memoria-ram-e-limite-host) |
 | **FM-TRI-003** | AI/Trinity | `cag_aggregator` | Latenza eccessiva nella raccolta del contesto CAG (> 500ms) che ritarda l'invio del prompt all'LLM | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#trinity-architecture`](docs/lessons/orchestration_and_rag.md#trinity-architecture) |
