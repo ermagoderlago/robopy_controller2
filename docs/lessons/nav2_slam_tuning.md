@@ -426,4 +426,14 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
   3. **Covarianza Dinamica Ruote:** Corretta la matrice in `waveshare_motor_driver.py` con incertezza di imbardata a $0.02\,\text{rad}^2$ ($\sim 8^\circ$) per consentire ad AMCL e all'ottimizzatore di agganciare il laser senza resistenze artificiali.
   4. **Tooling Esportazione Mappa:** Fornito lo script `scripts/save_map.sh` per congelare ed esportare al volo la mappa generata da RTAB-Map in formato standard Nav2 YAML+PGM.
 
+### Risoluzione Degenerazione ICP su Muri Lisci e Miglioramento Chiusura Loop (FM-NAV-028, FM-NAV-016)
+* **Sintomo:** Durante la mappatura in modalità SLAM, anche su avanzamenti lenti e rettilinei la mappa si deformava o si sdoppiava a stella (rotazioni fantasma di 35-45°), e i loop closure non chiudevano al rientro al punto di partenza.
+* **Cause Radice:**
+  1. *Degenerazione di Scorrimento con `RGBD/NeighborLinkRefining: true`:* Su scan laser 2D point-to-point, in presenza di pareti lisce o corridoi, l'ICP non possiede vincoli geometrici lungo l'asse della parete. Attivando il raffinamento continuo dei link consecutivi, l'ICP "scivolava" sulle pareti sovrascrivendo l'odometria precisa degli encoder e introducendo derive angolari parassite nel pose-graph.
+  2. *Esclusione delle Feature Visive (`Reg/Strategy: 1`):* Usando solo ICP, RTAB-Map non sfruttava la ricchezza 3D dei descrittori visivi DBoW3 della OAK-D Lite per trovare l'ipotesi iniziale di trasformazione, rigettando qualsiasi loop in cui l'errore cumulato superasse il bacino laser ristretto.
+* **Soluzioni Implementate in `rtabmap.yaml`:**
+  1. **Disattivazione del Raffinamento Consecutivo:** `RGBD/NeighborLinkRefining: "false"`. L'odometria fusa tra encoder ruote e giroscopio OAK 42Hz è ora considerata attendibile per la cinematica locale ($t \to t+1$), eliminando le rotazioni spurie su muri lisci.
+  2. **Strategia Ibrida Visual + ICP:** `Reg/Strategy: "2"`. La camera OAK-D Lite identifica il loop closure geometrico a 6-DoF senza ambiguità di scorrimento, e l'ICP ToF del LiDAR RPLIDAR C1 rifinisce la posa con accuratezza sub-centimetrica.
+  3. **Ampliamento Bacino ICP:** `Icp/MaxCorrespondenceDistance: "0.40"`, `Icp/CorrespondenceRatio: "0.15"`, `Icp/MaxTranslation: "0.60"`, `Icp/MaxRotation: "0.90"` per garantire l'aggancio solido anche al termine di lunghi circuiti.
+
 

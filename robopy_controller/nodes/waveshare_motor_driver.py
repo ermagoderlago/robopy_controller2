@@ -62,6 +62,7 @@ class WaveshareMotorDriver(Node):
         self.declare_parameter('heading_stabilizer_kp', 0.12)       # Proportional gyro gain for heading correction
         self.declare_parameter('heading_stabilizer_ki', 0.04)       # Integral gyro gain for persistent lateral drift elimination
         self.declare_parameter('open_loop_min_duty', 0.095)        # Minimum duty to break static stiction on Right motor
+        self.declare_parameter('open_loop_spin_min_duty', 0.18)   # Minimum duty for in-place rotation to overcome tire scrub
         self.declare_parameter('open_loop_max_duty', 0.28)         # Calibrated duty corresponding to nominal max speed 0.40 m/s
         
         # --- Retrieve Parameters ---
@@ -102,6 +103,7 @@ class WaveshareMotorDriver(Node):
         self.heading_stabilizer_kp = float(self.get_parameter('heading_stabilizer_kp').value)
         self.heading_stabilizer_ki = float(self.get_parameter('heading_stabilizer_ki').value)
         self.open_loop_min_duty = float(self.get_parameter('open_loop_min_duty').value)
+        self.open_loop_spin_min_duty = float(self.get_parameter('open_loop_spin_min_duty').value)
         self.open_loop_max_duty = float(self.get_parameter('open_loop_max_duty').value)
         self.heading_err_integral = 0.0
         self.last_heading_stabilizer_time = None
@@ -494,8 +496,20 @@ class WaveshareMotorDriver(Node):
             return
 
         # Convert m/s to duty cycle [-1.0, 1.0] with starting torque boost
-        target_duty_left = self.speed_to_duty(left)
-        target_duty_right = self.speed_to_duty(right)
+        is_in_place_spin = (abs(self.cmd_linear_x) < 0.02 and abs(self.cmd_angular_z) >= 0.05)
+        if is_in_place_spin and not getattr(self, 'enable_esp32_pid', False):
+            # Dedicated torque boost for in-place turning to overcome tire scrub stiction
+            spin_min = getattr(self, 'open_loop_spin_min_duty', 0.18)
+            spin_max = getattr(self, 'open_loop_max_duty', 0.28)
+            w_ratio = min(abs(self.cmd_angular_z) / 1.0, 1.0)
+            spin_duty = spin_min + (spin_max - spin_min) * w_ratio
+            sign_l = 1.0 if left > 0 else -1.0
+            sign_r = 1.0 if right > 0 else -1.0
+            target_duty_left = sign_l * spin_duty
+            target_duty_right = sign_r * spin_duty
+        else:
+            target_duty_left = self.speed_to_duty(left)
+            target_duty_right = self.speed_to_duty(right)
 
         # 1. Hardware Motor Trims (eliminates directional friction discrepancies between wheels)
         if target_duty_left > 0:
@@ -505,6 +519,13 @@ class WaveshareMotorDriver(Node):
 
         if target_duty_right < 0:
             target_duty_right *= getattr(self, 'right_motor_trim_rev', 1.25)
+
+        if is_in_place_spin and not getattr(self, 'enable_esp32_pid', False):
+            # Clamp minimum absolute floor after trims to prevent motor stall
+            if abs(target_duty_left) < 0.13:
+                target_duty_left = math.copysign(0.13, target_duty_left)
+            if abs(target_duty_right) < 0.15:
+                target_duty_right = math.copysign(0.15, target_duty_right)
 
         # 2. Active Gyro Heading & Turn Stabilization
         now_sec = time.time()

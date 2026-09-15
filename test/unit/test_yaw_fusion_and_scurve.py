@@ -442,5 +442,26 @@ class TestYawFusionAndSCurve(unittest.TestCase):
         # After fusion with OAK IMU gyro rate (0.10 rad/s), theta must have advanced positively
         self.assertGreater(self.driver.theta, 0.0, "OAK IMU fallback must advance theta when chassis IMU is unavailable")
 
+    def test_12_in_place_spin_torque_boost(self):
+        """Verify dedicated in-place spin torque boost when commanded v=0, |w| >= 0.05."""
+        self.driver.enable_esp32_pid = False
+        self.driver.enable_heading_stabilizer = False
+        self.driver.enable_voltage_feedforward = False
+        self.driver.open_loop_spin_min_duty = 0.18
+        self.driver.cmd_linear_x = 0.0
+        self.driver.cmd_angular_z = 0.30
+
+        # When spinning in place, duty must be >= open_loop_spin_min_duty (0.18) before trims
+        # and clamped to absolute floor (0.13 for L, 0.15 for R)
+        self.driver.current_duty_left = 0.0
+        self.driver.current_duty_right = 0.0
+        for _ in range(5):
+            self.driver.last_duty_update_time = time.time() - 0.10
+            # v=0, w=0.30 -> left=-0.0427, right=+0.0427
+            self.driver.send_speeds(-0.0427, 0.0427)
+
+        self.assertGreaterEqual(abs(self.driver.current_duty_left), 0.13, "Left spin duty must meet scrub floor")
+        self.assertGreaterEqual(abs(self.driver.current_duty_right), 0.15, "Right spin duty must meet scrub floor")
+
 if __name__ == '__main__':
     unittest.main()

@@ -5897,3 +5897,9 @@
       stabilizer
     rpn_old: 168
     rpn_new: 7
+  - date: '2026-09-16'
+    change: Implementato boost di coppia minima per rotazione sul posto (open_loop_spin_min_duty=0.18,
+      floor=0.13/0.15) per vincere l attrito radente (tire scrub stiction) ed evitare
+      stalli.
+    rpn_old: 7
+    rpn_new: 7

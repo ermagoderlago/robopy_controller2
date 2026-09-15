@@ -484,3 +484,11 @@ Con JGB37-520B a 7RPM (riduzione ~143:1), **girare la ruota manualmente è impos
     * Delta di asimmetria ridotto da oltre **$15.14^\circ$** a soli **$3.37^\circ$**!
     * Traslazione laterale spuria in svolta a destra azzerata ($dx = +1.20\text{ cm}, dy = +0.29\text{ cm}$).
 
+### 35. Boost di Coppia Minima per Rotazione sul Posto (Anti Tire-Scrub Stiction - FM-MOT-008)
+* **Sintomo:** Nelle rotazioni pure sul posto a bassa velocità ($v \approx 0, \omega \in [0.2, 0.4]\text{ rad/s}$), il robot sembrava privo di potenza o "bloccato", faticando a girare e stallando.
+* **Causa Meccanica:** A differenza della marcia avanti dove le ruote rotolano, la rotazione sul posto impone alle gomme uno sfregamento laterale (*tire scrub*) contro il pavimento con un coefficiente di attrito statico $\mu_s$ molto superiore. A $\omega = 0.30\text{ rad/s}$, la velocità tangenziale ruote era di appena $0.042\text{ m/s}$, che mappava a un duty PWM open-loop di solo $0.09\text{-}0.11$. Dopo i trim hardware (0.65 su sinistra), il duty crollava a $0.074$, al di sotto della soglia di breakout.
+* **Soluzione Implementata:**
+  - Introdotto parametro `open_loop_spin_min_duty:=0.18` (range $[0.16, 0.22]$).
+  - Quando $|v| < 0.02\text{ m/s}$ e $|\omega| \ge 0.05\text{ rad/s}$, il calcolo della tensione viene promosso direttamente al range di spin $[0.18, 0.28]$.
+  - Applicato un pavimento assoluto post-trim: $\|duty_{left}\| \ge 0.13$ e $\|duty_{right}\| \ge 0.15$, garantendo coppia abbondante per vincere il tire scrub su qualsiasi pavimento/tappeto senza stalli.
+

@@ -77,16 +77,16 @@ rtabmap:
     RGBD/LoopClosureReextractFeatures: "true"
 
     # Registrazione e Allineamento Scan Matching (LiDAR 2D ICP Loop Closure & Continuous Tracking)
-    Reg/Strategy: "1"            # 1 = ICP (massima robustezza: loop closure geometrico diretto 360° da LiDAR ToF)
+    Reg/Strategy: "2"            # 2 = Visual + ICP (Visual DBoW3 per vincolo 3D globale senza scivolamento lungo pareti, ICP per snapping millimetrico LiDAR ToF)
     Reg/Force3DoF: "true"
-    RGBD/NeighborLinkRefining: "true" # CRITICO: Corregge continuamente l'odometria ad ogni scansione laser con ICP
+    RGBD/NeighborLinkRefining: "false" # Disabilitato per link consecutivi: l'odometria fusa da encoder + gyro 42Hz è esatta. Evita scivolamento ICP su muri lisci.
     Icp/Strategy: "0"            # 0 = Point-to-Point 2D standard veloce
     Icp/PointToPlane: "false"    # Point-to-point per scan 2D planare senza normali
     Icp/VoxelSize: "0.03"        # 3cm voxel filtering per match laser accurato
-    Icp/MaxCorrespondenceDistance: "0.35" # 35cm bacino di cattura ICP per correggere l'accumulo in rotazione
-    Icp/CorrespondenceRatio: "0.20"       # Almeno il 20% di punti laser allineati per accettare la posa
-    Icp/MaxTranslation: "0.50"   # Tolleranza correzione traslazione fino a 50cm
-    Icp/MaxRotation: "0.78"      # Tolleranza correzione rotazione fino a 45° (~0.78 rad)
+    Icp/MaxCorrespondenceDistance: "0.40" # 40cm bacino di cattura ICP per garantire chiusure loop fluide
+    Icp/CorrespondenceRatio: "0.15"       # 15% corrispondenze minime (favorisce chiusure d'anello rapide al rientro)
+    Icp/MaxTranslation: "0.60"   # Tolleranza correzione traslazione fino a 60cm
+    Icp/MaxRotation: "0.90"      # Tolleranza correzione rotazione fino a ~51° (0.90 rad)
     Icp/Iterations: "40"
     Icp/OutlierRatio: "0.85"
 
