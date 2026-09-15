@@ -391,3 +391,33 @@ Con JGB37-520B a 7RPM (riduzione ~143:1), **girare la ruota manualmente è impos
      - Il Tier 1 Zero-Velocity Standstill Lock blocca $\Delta T_L = 0, \Delta T_R = 0$ quando `motors_stopped` è attivo, azzerando qualsiasi jitter magnetico residuo.
   4. **Guardia Anti-Asimmetria Selettiva:**
      - Il filtro di asimmetria tra ruote (Tier 3) opera ora esclusivamente in marcia rettilinea comandata ($|\omega_{cmd}| < 0.10\text{ rad/s}$) con IMU attiva, senza interferire con le rotazioni intenzionali sul posto comandate da Nav2.
+
+---
+
+<a id="scurve-jerk-and-yaw-fusion"></a>
+### 32. Profiler S-Curve Jerk Limiter di 2° Ordine e Fusione Complementare Yaw Chassis (FM-MOT-009, FM-NAV-016)
+* **Contesto e Problemi Meccanici / Odometrici:**
+  - *Jerk e Vibrazione Albero Sensori (FM-MOT-009):* Le transizioni di velocità con slew-rate del primo ordine (accelerazione costante a gradino) generavano un jerk teoricamente infinito ad ogni variazione di comando. Questo produceva un colpo di frusta meccanico sul telaio, facendo oscillare l'albero su cui sono montati LiDAR C1 e camera OAK-D Lite. L'oscillazione beccheggio/rollio perturbava l'odometria visiva (VO) e causava falsi ostacoli nella costmap locale 2.5D.
+  - *Deriva Differenziale su Curvature e Pavimenti Lisci (FM-NAV-016):* L'odometria differenziale da ruote presuppone rotolamento perfetto senza strisciamento. Su pavimenti lisci o giunti, le ruote soffrono di micro-slittamenti angolari che deviano lo yaw del veicolo, portando a errori cumulativi nella posa cartografica prima della chiusura loop SLAM.
+* **Soluzione Implementata nel Driver ROS 2 (`waveshare_motor_driver.py`):**
+  1. **S-Curve Jerk Limiter Continuo di 2° Ordine ($C^1$ Continuity):**
+     - Sostituito il vecchio limitatore a gradino con integrazione continua di accelerazione e jerk:
+       $$\text{err} = \text{target\_duty} - \text{current\_duty}$$
+       $$a_{des} = \text{clamp}\left(\frac{\text{err}}{\tau_{accel}}, -a_{max}, +a_{max}\right), \quad \tau_{accel} = 0.15\text{ s}, \quad a_{max} = 5.0\text{ duty/s}$$
+       $$\Delta a = \text{clamp}(a_{des} - a_{curr}, -j_{max} \cdot \Delta t, +j_{max} \cdot \Delta t), \quad j_{max} = 25.0\text{ duty/s}^2$$
+       $$a_{curr} \leftarrow a_{curr} + \Delta a, \quad \text{duty}_{curr} \leftarrow \text{duty}_{curr} + a_{curr} \cdot \Delta t$$
+     - *Proprietà fisiche:* L'accelerazione non salta mai istantaneamente; la curva di accelerazione cresce e decresce ad $S$, eliminando le vibrazioni strutturali dell'albero sensori.
+     - *Safety Stop Immediato:* Quando il comando è fermo ($v=0, \omega=0$), il ciclo azzera immediatamente $duty$ ed $accel$ per garantire il tempo di arresto hardware di emergenza senza code di rampa.
+  2. **Fusione Complementare Yaw ($\Delta \theta_{fused}$):**
+     - L'ESP32 include un'IMU montata rigidamente sullo chassis (giroscopio asse Z, registrato come `gy` nel frame REP-103).
+     - Integrazione complementare pesata:
+       $$\Delta \theta_{fused} = \alpha \cdot (\omega_{chassis} \cdot \Delta t) + (1 - \alpha) \cdot \Delta \theta_{wheel}, \quad \alpha = 0.88$$
+     - Il giroscopio chassis risponde istantaneamente alle perturbazioni dinamiche ad alta frequenza senza risentire dello slittamento ruote; l'odometria differenziale garantisce la stabilità a lungo termine a bassa frequenza.
+  3. **Auto-Bias Tracking Stazionario:**
+     - Quando `motors_stopped = True`, le letture del giroscopio vengono filtrate con un esponenziale a media mobile (EMA $\alpha = 0.05$):
+       $$\text{bias}_{gyro} \leftarrow 0.95 \cdot \text{bias}_{gyro} + 0.05 \cdot \omega_{raw}$$
+     - Durante la marcia (`motors_stopped = False`), il bias stimato viene sottratto dalla velocità angolare, azzerando la deriva di zero dell'IMU.
+  4. **Degrado Trasparente su Telemetria Stale:**
+     - Se i pacchetti IMU chassis non arrivano per oltre $250\text{ ms}$, il driver esclude automaticamente il termine giroscopico, passando al 100% differenziale ruote senza interruzioni del servizio né deadlock.
+  5. **Risoluzione Deadlock Lock Seriale:**
+     - `self.serial_lock` convertito da `threading.Lock()` a `threading.RLock()`, risolvendo il freeze all'avvio in cui `connect_serial()` acquisiva il lock ed invocava `send_esp32_pid_config()` che richiedeva lo stesso lock.

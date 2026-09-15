@@ -152,6 +152,7 @@ class TestEncoderStandstillLock(unittest.TestCase):
         self.driver.motors_stopped = False
         self.driver.cmd_linear_x = 0.0
         self.driver.oak_yaw_rate = 0.0  # IMU reports 0 rotation
+        self.driver.last_imu_time = time.time()
         
         # Initial baseline
         self.driver.process_encoder_feedback(5000, 5000)

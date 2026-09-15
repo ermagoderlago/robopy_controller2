@@ -56,7 +56,8 @@ L'agente Antigravity può ottimizzare e ricalibrare autonomamente le seguenti co
 | **Guadagni PID MotionManager** | Tuning anello closed-loop per spostamenti relativi a target | $K_p \in [0.8, 2.5]$, $K_i \in [0.0, 0.2]$, $K_d \in [0.01, 0.15]$ |
 | **Anello Chiuso Velocità ESP32** | Regolazione Feedforward + PI a 50Hz e Dynamic Short-Brake | $K_p \in [1.0, 5.0]$, $K_i \in [0.05, 0.50]$, $K_d \in [0.0, 0.10]$; Short-Brake su $\|duty\| < 0.01$ |
 | **Compensazione Tensione** | Scaling $PWM_{comp} = PWM \times (11.10\text{V} / V_{eff})$ | $V_{eff} \in [9.9\text{V}, 12.6\text{V}]$; Limitatore 50% sotto 10.2V |
-| **Slew Rate / Jerk Limiter** | Rampa morbida per accelerazioni lineari/angolari | Rampa min: $0.15\text{ s}$, max: $0.50\text{ s}$ per evitare impuntamenti |
+| **Slew Rate / S-Curve Jerk Limiter** | Rampa $C^1$ continua con jerk limitato ($j_{max}=25\text{ duty/s}^2, a_{max}=5\text{ duty/s}$) | $a_{max} \in [2.0, 6.0]\text{ duty/s}$, $j_{max} \in [10.0, 35.0]\text{ duty/s}^2$; arresto istantaneo su stop |
+| **Fusione Yaw Complementare** | Blending gyro chassis ESP32 + odometria differenziale ruote con auto-bias tracking | $\alpha \in [0.70, 0.95]$ (default 0.88); fallback 100% ruote su timeout $>250\text{ ms}$ |
 | **Calibrazione Encoder (Slip Gating)**| Raffinamento $R_{wheel}$ e $W_{separation}$ via closed-loop VIO | Blocco calibrazione se accelerazione $\Delta a > 0.25\text{ m/s}^2$ |
 | **Espressività Servo Coda** | Profili PWM angolari, velocità sweep, scodinzolio | Angolo $\theta_{servo} \in [-45^\circ, +45^\circ]$; frequenza $\le 3\text{ Hz}$ |
 | **Filtraggio Outlier Encoder** | Scarto delta-tick anomali causati da wrap o noise | Scarto se $\Delta tick > 300$ in $50\text{ ms}$ ($\approx 1.2\text{ m/s}$) |
@@ -95,6 +96,9 @@ pytest test/unit/test_motor_stall_safety_and_memory.py -v
 
 # 5. Test del Motion Gating su sensor standby
 pytest test/unit/test_motor_driver_motion_gate.py -v
+
+# 6. Test della fusione complementare yaw e S-Curve jerk limiter
+pytest test/unit/test_yaw_fusion_and_scurve.py -v
 ```
 I test devono confermare:
 - Interruzione dell'invio velocità entro 500ms al mancare del heartbeat.

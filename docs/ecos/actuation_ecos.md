@@ -298,13 +298,28 @@ A causa di storici problemi di rumorosità e interruzione hardware su una linea 
    - Allineato `test/unit/test_waveshare_kinematics.py` con la corretta mappatura fisica L=sinistra, R=destra.
    - 22/22 test unitari superati con successo sia in locale che su Pi 5.
 
+---
 
+<a id="ECO-2026-09-15-001"></a>
+## ECO-2026-09-15-001: Fusione Yaw Odometria + Giroscopio Chassis ESP32 ed S-Curve Jerk Limiter (FM-MOT-009, FM-NAV-016)
 
+* **Data:** 2026-09-15
+* **Autore:** Marcus AI / Antigravity
+* **Stato:** ✅ **APPLICATO IN CODICE & VALIDATO CON 28/28 TEST UNITARI (In attesa di deploy su Pi 5)**
+* **DFMEA Correlati:** `FM-MOT-009`, `FM-NAV-016`, `FM-MOT-007`, `FM-NAV-015`
 
+### Contesto e Causa Radice
+1. **Scatti e Beccheggio (Jerk) all'Avvio/Arresto:** Il limitatore di accelerazione del primo ordine applicava salti a gradino sull'accelerazione (jerk infinito), inducendo oscillazioni elastiche del telaio e beccheggio dell'albero sensori (OAK-D Lite, LiDAR C1), con perturbazione della costmap e della feature odometry visuale.
+2. **Deriva Angolare su Terreni a Bassa Aderenza:** L'odometria differenziale pura calcolava $\Delta \theta_{wheel} = (\Delta s_R - \Delta s_L) / W$. In presenza di micro-slittamenti differenziali delle ruote o asperità del pavimento, l'errore angolare si accumulava quadraticamente sulla posa $(x, y)$.
 
-
-
-
-
-
-
+### Modifiche Applicate
+1. **[DRIVER ROS 2] `robopy_controller/nodes/waveshare_motor_driver.py`:**
+   - **S-Curve Jerk Limiter di 2° Ordine:** Sostituito lo slew rate limit a gradino con un profiler di accelerazione $C^1$ continuo a jerk finito ($j_{max} = 25.0\text{ duty/s}^2, a_{max} = 5.0\text{ duty/s}$). Arresto istantaneo di sicurezza mantenuto su comandi di stop (`duty=0, accel=0`).
+   - **Complementary Yaw Fusion:** Integrata la fusione complementare in tempo reale tra delta angolare da ruote ($\Delta \theta_{wheel}$) e velocità angolare del giroscopio a bordo chassis ESP32 ($\omega_{chassis} \Delta t$) con peso $\alpha = 0.88$ (88% gyro transitorio, 12% ruote baseline a lungo termine).
+   - **Auto-Bias Tracking Stazionario:** Durante le soste (`motors_stopped = True`), stima continua del bias di offset del giroscopio chassis tramite EMA ($\alpha = 0.05$). Sottrazione automatica del bias durante il movimento.
+   - **Fallback Degrado Odometria:** Se i pacchetti IMU chassis tardano $>250\text{ ms}$, il calcolo degrada trasparentemente al 100% differenziale ruote senza interruzioni o errori NaN.
+   - **Risoluzione Reentrant Lock Seriale:** Convertito `serial_lock` da `threading.Lock()` a `threading.RLock()` per prevenire deadlock durante `connect_serial()` che invoca `send_esp32_pid_config()`.
+   - **Dynamic Parameter Reconfigure:** Gestione dinamica dei parametri `enable_chassis_yaw_fusion`, `yaw_fusion_alpha`, `max_duty_accel`, `max_duty_jerk` in `parameter_callback`.
+2. **[TEST UNITARI] `test/unit/test_yaw_fusion_and_scurve.py`:**
+   - Creati 6 test unitari dedicati per continuità e limite jerk S-Curve, clamp arresto immediato, convergenza auto-bias stazionario, fusione yaw complementare con integrazione Runge-Kutta, fallback degradato su telemetria IMU stale, e riconfigurazione dinamica parametri ROS 2.
+   - 28/28 test unitari superati con successo nell'intera suite del sottosistema attuazione.

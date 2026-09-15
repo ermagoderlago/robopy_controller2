@@ -1,5 +1,5 @@
 # 📊 Report Esecutivo DFMEA - Marcus AI Robot Platform
-**Data Generazione:** 2026-09-14 23:37:57  
+**Data Generazione:** 2026-09-15 13:20:15  
 **Metodologia:** AIAG-VDA FMEA Standard con Regola Override Severità ($S \ge 9 \implies$ REVISION_MANDATORY)
 
 ---
@@ -8,8 +8,8 @@
 
 | Metrica | Valore | Note / Impatto |
 | :--- | :---: | :--- |
-| **Totale Modalità di Guasto (FM)** | **123** | Copertura integrata dei sottosistemi Marcus |
-| **🟢 Risk Level LOW** | **89** | $RPN_{res} \le 50$ (Sotto controllo) |
+| **Totale Modalità di Guasto (FM)** | **125** | Copertura integrata dei sottosistemi Marcus |
+| **🟢 Risk Level LOW** | **91** | $RPN_{res} \le 50$ (Sotto controllo) |
 | **🟡 Risk Level MEDIUM** | **7** | $51 \le RPN_{res} \le 199$ (Monitoraggio attivo) |
 | **🟠 Risk Level HIGH** | **2** | $200 \le RPN_{res} \le 349$ (Mitigazione obbligatoria) |
 | **🔴 Risk Level CRITICAL** | **0** | $RPN_{res} \ge 350$ (Blocco rilasci) |
@@ -17,7 +17,7 @@
 
 ### Ripartizione per Sottosistema:
 - **System/DDS:** 5 failure modes
-- **Nav2:** 12 failure modes
+- **Nav2:** 13 failure modes
 - **VUI Audio:** 21 failure modes
 - **Vision:** 2 failure modes
 - **Hardware/Power:** 10 failure modes
@@ -52,7 +52,7 @@
 - **Hardware/Power & Sensors:** 1 failure modes
 - **Actuation/MotorDriver:** 1 failure modes
 - **AI/Evolution:** 1 failure modes
-- **Actuation & Motion:** 3 failure modes
+- **Actuation & Motion:** 4 failure modes
 - **Nav2 & SLAM:** 1 failure modes
 - **Voice User Interface (VUI):** 1 failure modes
 - **Hardware/Power & Compute:** 1 failure modes
@@ -207,6 +207,8 @@
 | **FM-PWR-001** | Hardware/Power & Sensors | `sensor_standby_manager.py / RPLIDAR C1 / RTAB-Map` | Usura meccanica continua a vuoto del rotore RPLIDAR C1, consumo energetico superfluo e sovraccarico computazionale di RTAB-Map quando il robot è stazionario per > 2 minuti | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#smart-standby-motion-gating`](docs/lessons/actuation_motor_driver.md#smart-standby-motion-gating) |
 | **FM-MOT-007** | Actuation & Motion | `waveshare_motor_driver` | Oscillazione della velocità angolare odom wz (+-0.20 rad/s) e sfarfallio a zig-zag della mappa SLAM durante la marcia rettilinea | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#real-encoder-odometry-switch`](docs/lessons/actuation_motor_driver.md#real-encoder-odometry-switch) |
 | **FM-MOT-008** | Actuation & Motion | `waveshare_bridge (ESP32) / waveshare_motor_driver` | Asimmetria di velocità ruote in rettilineo e scivolamento inerziale differenziato all'arresto (TB6612FNG Coast Mode) | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#esp32-pid-short-brake`](docs/lessons/actuation_motor_driver.md#esp32-pid-short-brake) |
+| **FM-MOT-009** | Actuation & Motion | `waveshare_motor_driver` | Scatti di accelerazione (jerk infinito) e beccheggio dell albero sensori (OAK-D / LiDAR) con perturbazione della costmap e della visual odometry | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#scurve-jerk-and-yaw-fusion`](docs/lessons/actuation_motor_driver.md#scurve-jerk-and-yaw-fusion) |
+| **FM-NAV-029** | Nav2 | `waveshare_motor_driver` | Deriva odometrica angolare e accumulo quadratico di errore posa (x, y) indotto da micro-slittamenti differenziali delle ruote | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#scurve-jerk-and-yaw-fusion`](docs/lessons/actuation_motor_driver.md#scurve-jerk-and-yaw-fusion) |
 | **FM-SYS-002** | System/DDS | `system_scripts` | Errore di esecuzione script: OSError [Errno 8] Exec format error | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`marcus_core_rules.md#1-memoria-ram-e-limite-host`](marcus_core_rules.md#1-memoria-ram-e-limite-host) |
 | **FM-TRI-003** | AI/Trinity | `cag_aggregator` | Latenza eccessiva nella raccolta del contesto CAG (> 500ms) che ritarda l'invio del prompt all'LLM | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#trinity-architecture`](docs/lessons/orchestration_and_rag.md#trinity-architecture) |
 | **FM-VUI-022** | Voice/Orchestration | `nomad_exploration_skill` | Mancato riconoscimento del termine 'NOMAD' da parte dell'ASR e mancata registrazione della skill nell'AI Orchestrator | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#gestione-acronimi-stranieri-e-tolleranza-fonetica-asr`](docs/lessons/audio_vui_pipeline.md#gestione-acronimi-stranieri-e-tolleranza-fonetica-asr) |

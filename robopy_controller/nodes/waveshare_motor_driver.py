@@ -51,6 +51,10 @@ class WaveshareMotorDriver(Node):
         self.declare_parameter('esp32_pid_kp', 3.20)               # ESP32 velocity PID Kp
         self.declare_parameter('esp32_pid_ki', 0.22)               # ESP32 velocity PID Ki
         self.declare_parameter('esp32_pid_kd', 0.04)               # ESP32 velocity PID Kd
+        self.declare_parameter('enable_chassis_yaw_fusion', True)  # Complementary fusion with ESP32 chassis gyro
+        self.declare_parameter('yaw_fusion_alpha', 0.88)            # Gyro transient weight (0.88 gyro, 0.12 wheel baseline)
+        self.declare_parameter('max_duty_accel', 5.0)               # Max duty acceleration (duty/s) for S-Curve
+        self.declare_parameter('max_duty_jerk', 25.0)               # Max duty jerk (duty/s^2) for S-Curve
         
         # --- Retrieve Parameters ---
         self.serial_port = self.get_parameter('serial_port').value
@@ -79,6 +83,10 @@ class WaveshareMotorDriver(Node):
         self.esp32_pid_kp = float(self.get_parameter('esp32_pid_kp').value)
         self.esp32_pid_ki = float(self.get_parameter('esp32_pid_ki').value)
         self.esp32_pid_kd = float(self.get_parameter('esp32_pid_kd').value)
+        self.enable_chassis_yaw_fusion = bool(self.get_parameter('enable_chassis_yaw_fusion').value)
+        self.yaw_fusion_alpha = float(self.get_parameter('yaw_fusion_alpha').value)
+        self.max_duty_accel = float(self.get_parameter('max_duty_accel').value)
+        self.max_duty_jerk = float(self.get_parameter('max_duty_jerk').value)
         self.esp32_pid_active = False
         
         # Register dynamic parameter callback
@@ -109,6 +117,15 @@ class WaveshareMotorDriver(Node):
         self.vo_linear_speed = 0.0
         self.current_duty_left = 0.0
         self.current_duty_right = 0.0
+        self.duty_accel_left = 0.0
+        self.duty_accel_right = 0.0
+        self.last_duty_update_time = None
+        
+        # Chassis IMU & Yaw Fusion State
+        self.chassis_yaw_rate = 0.0
+        self.chassis_yaw_bias = 0.0
+        self.last_chassis_imu_time = None
+        
         self.latest_voltage = 12.0
         self.idle_voltage = 12.0
         self.filtered_battery_voltage = 12.0
@@ -158,7 +175,7 @@ class WaveshareMotorDriver(Node):
         self.standstill_encoder_deadband = int(self.get_parameter('standstill_encoder_deadband').value)
         
         # --- Serial Connection & Threads ---
-        self.serial_lock = threading.Lock()
+        self.serial_lock = threading.RLock()
         self.serial_conn = None
         self.running = True
         
@@ -423,6 +440,9 @@ class WaveshareMotorDriver(Node):
         if self.is_system_shutdown or (abs(left) < 0.001 and abs(right) < 0.001):
             self.current_duty_left = 0.0
             self.current_duty_right = 0.0
+            self.duty_accel_left = 0.0
+            self.duty_accel_right = 0.0
+            self.last_duty_update_time = None
             cmd = {"T": 1, "L": 0.0, "R": 0.0}
             cmd_str = json.dumps(cmd, separators=(',', ':')) + "\n"
             with self.serial_lock:
@@ -437,14 +457,34 @@ class WaveshareMotorDriver(Node):
         target_duty_left = self.speed_to_duty(left)
         target_duty_right = self.speed_to_duty(right)
 
-        # Soft-start slew rate limiter (max delta 0.08 per 20ms update) to eliminate inrush current
-        max_slew = 0.08
-        d_left = target_duty_left - self.current_duty_left
-        d_right = target_duty_right - self.current_duty_right
-        
-        self.current_duty_left += max(min(d_left, max_slew), -max_slew)
-        self.current_duty_right += max(min(d_right, max_slew), -max_slew)
-        
+        now_sec = time.time()
+        dt_duty = (now_sec - self.last_duty_update_time) if self.last_duty_update_time is not None else 0.02
+        dt_duty = max(min(dt_duty, 0.10), 0.005)
+        self.last_duty_update_time = now_sec
+
+        # 2nd-order S-Curve Jerk Limiter for smooth C^1 duty transitions (finite jerk)
+        # Left channel
+        err_L = target_duty_left - self.current_duty_left
+        desired_accel_L = max(min(err_L / 0.15, self.max_duty_accel), -self.max_duty_accel)
+        delta_a_L = max(min(desired_accel_L - self.duty_accel_left, self.max_duty_jerk * dt_duty), -self.max_duty_jerk * dt_duty)
+        self.duty_accel_left += delta_a_L
+        self.current_duty_left += self.duty_accel_left * dt_duty
+        if abs(err_L) < 0.005 and abs(self.duty_accel_left) < 0.05:
+            self.current_duty_left = target_duty_left
+            self.duty_accel_left = 0.0
+        self.current_duty_left = max(min(self.current_duty_left, 1.0), -1.0)
+
+        # Right channel
+        err_R = target_duty_right - self.current_duty_right
+        desired_accel_R = max(min(err_R / 0.15, self.max_duty_accel), -self.max_duty_accel)
+        delta_a_R = max(min(desired_accel_R - self.duty_accel_right, self.max_duty_jerk * dt_duty), -self.max_duty_jerk * dt_duty)
+        self.duty_accel_right += delta_a_R
+        self.current_duty_right += self.duty_accel_right * dt_duty
+        if abs(err_R) < 0.005 and abs(self.duty_accel_right) < 0.05:
+            self.current_duty_right = target_duty_right
+            self.duty_accel_right = 0.0
+        self.current_duty_right = max(min(self.current_duty_right, 1.0), -1.0)
+
         duty_left = self.current_duty_left
         duty_right = self.current_duty_right
 
@@ -651,9 +691,9 @@ class WaveshareMotorDriver(Node):
             delta_ticks_left = 0
             delta_ticks_right = 0
         else:
-            # TIER 2: PHYSICAL VELOCITY OUTLIER REJECTION (SPEC-01 §4, vmax = 0.40 m/s)
-            # Max possible ticks in safe_dt at 0.45 m/s physical ceiling:
-            max_allowed_ticks = int(math.ceil((0.45 * safe_dt) / meters_per_tick))
+            # TIER 2: PHYSICAL VELOCITY OUTLIER REJECTION (SPEC-01 §4, vmax = 0.40 m/s with 0.85 m/s transient margin)
+            # Max possible ticks in safe_dt at 0.85 m/s physical ceiling:
+            max_allowed_ticks = int(math.ceil((0.85 * safe_dt) / meters_per_tick))
             if abs(delta_ticks_left) > max_allowed_ticks:
                 self.get_logger().warn(
                     f"⚠️ [ENCODER_GLITCH] Left ticks={delta_ticks_left} exceeded physical limit ({max_allowed_ticks} in {safe_dt:.3f}s). Discarding spike.",
@@ -752,9 +792,24 @@ class WaveshareMotorDriver(Node):
                 mid_theta = self.theta
                 self.x += delta_s * math.cos(mid_theta)
                 self.y += delta_s * math.sin(mid_theta)
+                src_rot = "IMU_42Hz"
             else:
-                # Fallback to wheel encoder differential: delta_theta = (delta_s_right - delta_s_left) / W
-                delta_theta = (delta_s_right - delta_s_left) / self.rotational_wheel_separation if not self.motors_stopped else 0.0
+                # 1. Wheel encoder differential: delta_theta_wheel = (delta_s_right - delta_s_left) / W
+                delta_theta_wheel = (delta_s_right - delta_s_left) / self.rotational_wheel_separation if not self.motors_stopped else 0.0
+                
+                # 2. Complementary Yaw Fusion with Chassis ESP32 Gyro (ECO-2026-09-15-001)
+                chassis_imu_fresh = (
+                    self.last_chassis_imu_time is not None and 
+                    (current_time - self.last_chassis_imu_time) < 0.25
+                )
+                if self.enable_chassis_yaw_fusion and chassis_imu_fresh and not self.motors_stopped:
+                    delta_theta_gyro = self.chassis_yaw_rate * dt
+                    delta_theta = self.yaw_fusion_alpha * delta_theta_gyro + (1.0 - self.yaw_fusion_alpha) * delta_theta_wheel
+                    src_rot = "CHASSIS_FUSED"
+                else:
+                    delta_theta = delta_theta_wheel
+                    src_rot = "ENCODER"
+
                 w_robot = (delta_theta / dt) if dt > 0.001 else 0.0
                 # Mid-point 2nd order Runge-Kutta integration for position
                 mid_theta = self.theta + (delta_theta / 2.0)
@@ -765,7 +820,6 @@ class WaveshareMotorDriver(Node):
 
             if abs(delta_s) > 1e-5 or abs(w_robot) > 1e-3:
                 src_lin = "ENCODER" if self.use_encoder_for_linear else "CMD_VEL"
-                src_rot = "IMU_42Hz" if self.use_imu_for_rotation else "ENCODER"
                 self.get_logger().info(
                     f"[ODOM_REAL] lin={src_lin}(ds={delta_s:.4f}m, v={v_robot:.3f}m/s), rot={src_rot}(th={math.degrees(self.theta):+.2f}deg, w={w_robot:.3f}rad/s), pos=({self.x:.3f}, {self.y:.3f})",
                     throttle_duration_sec=0.5
@@ -969,9 +1023,20 @@ class WaveshareMotorDriver(Node):
             # Yaw (+Z ROS)     -> +gy
             # Pitch (+Y ROS)   -> +gz
             # Roll (+X ROS)    -> +gx
+            raw_gz = math.radians(float(gy))
+            now_ts = self.get_clock().now().nanoseconds / 1e9
+            if self.motors_stopped:
+                # Continuous stationary bias refinement
+                self.chassis_yaw_bias = 0.95 * self.chassis_yaw_bias + 0.05 * raw_gz
+                self.chassis_yaw_rate = 0.0
+            else:
+                unbiased_w = raw_gz - self.chassis_yaw_bias
+                self.chassis_yaw_rate = unbiased_w if abs(unbiased_w) > 0.010 else 0.0
+            self.last_chassis_imu_time = now_ts
+
             imu_msg.angular_velocity.x = math.radians(float(gx))
             imu_msg.angular_velocity.y = math.radians(float(gz))
-            imu_msg.angular_velocity.z = math.radians(float(gy))
+            imu_msg.angular_velocity.z = raw_gz
             
         # Add small default covariances to avoid warnings in EKF
         imu_msg.orientation_covariance = [0.01, 0.0, 0.0, 0.0, 0.01, 0.0, 0.0, 0.0, 0.01]
@@ -984,7 +1049,13 @@ class WaveshareMotorDriver(Node):
         self.vo_linear_speed = msg.twist.twist.linear.x
 
     def parameter_callback(self, params):
-        from rcl_interfaces.msg import SetParametersResult
+        try:
+            from rcl_interfaces.msg import SetParametersResult
+        except ImportError:
+            class SetParametersResult:
+                def __init__(self, successful=True, reason=""):
+                    self.successful = successful
+                    self.reason = reason
         for param in params:
             if param.name == 'wheel_radius':
                 self.wheel_radius = float(param.value)
@@ -1023,6 +1094,18 @@ class WaveshareMotorDriver(Node):
                 self.esp32_pid_kd = float(param.value)
                 self.get_logger().info(f"Dynamic Parameter Updated: esp32_pid_kd = {self.esp32_pid_kd}")
                 self.send_esp32_pid_config()
+            elif param.name == 'enable_chassis_yaw_fusion':
+                self.enable_chassis_yaw_fusion = bool(param.value)
+                self.get_logger().info(f"Dynamic Parameter Updated: enable_chassis_yaw_fusion = {self.enable_chassis_yaw_fusion}")
+            elif param.name == 'yaw_fusion_alpha':
+                self.yaw_fusion_alpha = float(param.value)
+                self.get_logger().info(f"Dynamic Parameter Updated: yaw_fusion_alpha = {self.yaw_fusion_alpha}")
+            elif param.name == 'max_duty_accel':
+                self.max_duty_accel = float(param.value)
+                self.get_logger().info(f"Dynamic Parameter Updated: max_duty_accel = {self.max_duty_accel}")
+            elif param.name == 'max_duty_jerk':
+                self.max_duty_jerk = float(param.value)
+                self.get_logger().info(f"Dynamic Parameter Updated: max_duty_jerk = {self.max_duty_jerk}")
         return SetParametersResult(successful=True)
 
     def destroy_node(self):

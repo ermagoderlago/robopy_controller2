@@ -5699,3 +5699,97 @@
       inerziale all'arresto
     rpn_old: 168
     rpn_new: 7
+- id: FM-MOT-009
+  subsystem: Actuation & Motion
+  component: waveshare_motor_driver
+  function: Transizione fluida dei comandi di velocita con jerk limitato per preservare
+    la stabilita meccanica del telaio e dei sensori di visione
+  failure_mode: Scatti di accelerazione (jerk infinito) e beccheggio dell albero sensori
+    (OAK-D / LiDAR) con perturbazione della costmap e della visual odometry
+  potential_cause: Profilo di velocita del primo ordine con accelerazione costante
+    a gradino; assenza di limitazione continua del jerk
+  potential_effect: Oscillazione elastica del supporto camera OAK-D Lite e LiDAR C1;
+    comparsa di ostacoli fantasma sul pavimento nella costmap 2.5D; smarrimento delle
+    feature visive ORB/SuperPoint
+  classification: PERFORMANCE
+  estimation_basis: measured
+  related_ids:
+  - FM-MOT-001
+  - FM-VIS-001
+  initial_scoring:
+    severity: 7
+    occurrence: 7
+    detection: 3
+    rpn: 147
+  prevention_controls: Profiler S-Curve Jerk Limiter continuo di 2° ordine (C^1) integrato
+    nel driver ROS 2 con max_duty_jerk=25.0 duty/s^2 e max_duty_accel=5.0 duty/s
+  detection_controls: Test unitario test_yaw_fusion_and_scurve.py per continuita e
+    limite di jerk; telemetria accelerazione
+  residual_scoring:
+    severity: 7
+    occurrence: 1
+    detection: 1
+    rpn: 7
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Mantenere attivi i parametri max_duty_accel=5.0 e max_duty_jerk=25.0
+    nel driver waveshare_motor_driver.py
+  verification_method: Test unitario test_yaw_fusion_and_scurve.py; test di risposta
+    al gradino di velocita
+  eco_ref: docs/ecos/actuation_ecos.md#ECO-2026-09-15-001
+  lesson_ref: docs/lessons/actuation_motor_driver.md#scurve-jerk-and-yaw-fusion
+  date_identified: '2026-09-15'
+  last_updated: '2026-09-15'
+  history:
+  - date: '2026-09-15'
+    change: Implementato S-Curve Jerk Limiter di 2° ordine in waveshare_motor_driver.py
+      per eliminare scatti e beccheggio
+    rpn_old: 147
+    rpn_new: 7
+- id: FM-NAV-029
+  subsystem: Nav2
+  component: waveshare_motor_driver
+  function: Stima accurata dell orientamento di imbardata (yaw) e stabilita odometrica
+    in presenza di curve o micro-slittamenti
+  failure_mode: Deriva odometrica angolare e accumulo quadratico di errore posa (x,
+    y) indotto da micro-slittamenti differenziali delle ruote
+  potential_cause: Odometria differenziale puramente cinematica da encoder ruote non
+    compensata da sensori inerziali dello chassis
+  potential_effect: Disallineamento della traiettoria stimata rispetto al corridoio
+    reale prima delle correzioni ICP/SLAM; rotazione fittizia della mappa locale
+  classification: PERFORMANCE
+  estimation_basis: measured
+  related_ids:
+  - FM-NAV-015
+  - FM-MOT-007
+  initial_scoring:
+    severity: 7
+    occurrence: 7
+    detection: 4
+    rpn: 196
+  prevention_controls: Fusione complementare in tempo reale a 20Hz tra odometria differenziale
+    ruote e giroscopio chassis ESP32 (alpha=0.88), con auto-bias tracking stazionario
+    (EMA alpha=0.05) e fallback a 100% ruote su timeout >250ms
+  detection_controls: Test unitario test_yaw_fusion_and_scurve.py; diagnostica IMU
+    chassis /imu/esp32
+  residual_scoring:
+    severity: 7
+    occurrence: 1
+    detection: 1
+    rpn: 7
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Mantenere enable_chassis_yaw_fusion:=True e yaw_fusion_alpha:=0.88
+    in waveshare_motor_driver.py
+  verification_method: Test unitario test_yaw_fusion_and_scurve.py; test di integrazione
+    angolare su curve
+  eco_ref: docs/ecos/actuation_ecos.md#ECO-2026-09-15-001
+  lesson_ref: docs/lessons/actuation_motor_driver.md#scurve-jerk-and-yaw-fusion
+  date_identified: '2026-09-15'
+  last_updated: '2026-09-15'
+  history:
+  - date: '2026-09-15'
+    change: Implementata fusione complementare yaw ruote + giroscopio chassis ESP32
+      con stima automatica del bias stazionario
+    rpn_old: 196
+    rpn_new: 7

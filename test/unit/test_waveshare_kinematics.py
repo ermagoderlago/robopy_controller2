@@ -32,8 +32,9 @@ sys.path.insert(0, os.path.abspath('robopy_controller'))
 class DummyNode:
     def __init__(self, node_name, *args, **kwargs):
         self.node_name = node_name
-    def declare_parameter(self, name, default):
-        pass
+        self._declared_params = {}
+    def declare_parameter(self, name, default=None):
+        self._declared_params[name] = default
     def get_parameter(self, name):
         m = MagicMock()
         defaults = {
@@ -65,10 +66,15 @@ class DummyNode:
             'esp32_pid_kp': 3.20,
             'esp32_pid_ki': 0.22,
             'esp32_pid_kd': 0.04,
+            'enable_chassis_yaw_fusion': True,
+            'yaw_fusion_alpha': 0.88,
+            'max_duty_accel': 5.0,
+            'max_duty_jerk': 25.0,
             'standstill_encoder_deadband': 8,
             'invert_imu_yaw': True,
         }
-        m.value = defaults.get(name, 0.0)
+        val = self._declared_params.get(name, defaults.get(name, 0.0))
+        m.value = val
         return m
     def create_publisher(self, *args, **kwargs):
         return MagicMock()

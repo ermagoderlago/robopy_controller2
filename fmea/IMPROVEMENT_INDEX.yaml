@@ -138,7 +138,18 @@ improvements:
     title: "Miglioramento Attuazione: Odometria Metrica Reale da Encoder PCNT con Integrazione Runge-Kutta a Punto Medio"
     file: "docs/improvements/IMP-MOT-007_pcnt_real_encoder_odometry.md"
     status: "COMPLETED"
+  FM-MOT-009:
+    title: "Miglioramento Attuazione: Profiler S-Curve Jerk Limiter Continuo di 2° Ordine (C^1) per Soppressione Beccheggio"
+    file: "docs/improvements/IMP-MOT-009_scurve_jerk_limiter.md"
+    status: "COMPLETED"
     domain: "actuation_motion"
+
+  FM-NAV-029:
+    title: "Miglioramento Navigazione: Fusione Complementare Yaw Odometria Ruote e Giroscopio Chassis ESP32 con Auto-Bias Tracking"
+    file: "docs/improvements/IMP-NAV-029_chassis_yaw_fusion.md"
+    status: "COMPLETED"
+    domain: "nav2_slam"
+
 
 
 
