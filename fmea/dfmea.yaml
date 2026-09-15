@@ -5843,3 +5843,57 @@
       RTAB-Map
     rpn_old: 256
     rpn_new: 8
+- id: FM-MOT-008
+  subsystem: Actuation/Motion
+  component: waveshare_motor_driver
+  function: Traiettoria rettilinea stabile e rotazioni sul posto simmetriche a comando
+  failure_mode: Deriva sistematica verso destra in moto rettilineo e asimmetria tra
+    rotazione oraria e antioraria
+  potential_cause: Asimmetria meccanica e d attrito tra i due motoriduttori DC (ruota
+    sinistra con attrito inferiore del 35% in avanti e 50% in retromarcia; ruota destra
+    con stiction elevata in retromarcia); anello chiuso PID su ESP32 instabile per
+    guasto linea encoder M1 (GPIO 35)
+  potential_effect: Deviazione sistematica della traiettoria durante la navigazione
+    autonoma, rotazioni su se stesso sbilanciate con traslazione laterale anomala,
+    degradazione del posizionamento AMCL/SLAM
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-MOT-001
+  - FM-MOT-007
+  - FM-NAV-015
+  initial_scoring:
+    severity: 7
+    occurrence: 8
+    detection: 3
+    rpn: 168
+  prevention_controls: Calibrazione empirica feedforward della curva duty open-loop
+    (min_duty=0.095, max_duty=0.28); bilanciamento trim direzionale indipendente (left_motor_trim=0.73,
+    left_motor_trim_rev=0.65, right_motor_trim_rev=1.25); anello attivo di stabilizzazione
+    heading a 42Hz da giroscopio IMU OAK-D Lite per vincolare yaw rate a zero su moto
+    rettilineo; fallback IMU OAK-D nel filtro complementare yaw (alpha=0.88)
+  detection_controls: Script di verifica e calibrazione scripts/test_rotation_symmetry.py;
+    monitoraggio residuo giroscopio e velocita ruote
+  residual_scoring:
+    severity: 7
+    occurrence: 1
+    detection: 1
+    rpn: 7
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Mantenere enable_esp32_pid:=False fino a riparazione hardware
+    linea encoder; utilizzare sempre trim direzionali e stabilizzatore heading giroscopico
+  verification_method: Test di banco measure_motor_stiction.py e test reale test_rotation_symmetry.py
+    (dyaw rettilineo da -15.14 deg a -0.51 deg; simmetria rotazione da delta 15 deg
+    a delta 3.3 deg)
+  eco_ref: docs/ecos/actuation_ecos.md#ECO-2026-09-15-003
+  lesson_ref: docs/lessons/actuation_motor_driver.md#34-asimmetria-motori-e-stabilizzazione-heading
+  date_identified: '2026-09-15'
+  last_updated: '2026-09-15'
+  history:
+  - date: '2026-09-15'
+    change: Identificata asimmetria d attrito (sinistra 35% piu veloce fwd, 2x piu
+      veloce rev). Implementati trim direzionali, stiction feedforward e active gyro
+      stabilizer
+    rpn_old: 168
+    rpn_new: 7

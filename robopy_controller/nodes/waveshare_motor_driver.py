@@ -47,7 +47,7 @@ class WaveshareMotorDriver(Node):
         self.declare_parameter('motor_min_duty_cycle', 0.18)       # Minimum starting PWM duty cycle to overcome gearbox stiction
         self.declare_parameter('raw_battery_topic', '/battery/raw') # Topic for raw ADC battery voltage
         self.declare_parameter('esp32_adc_scale_factor', 2880.95)   # 3S divider factor (36300 -> 12.60V)
-        self.declare_parameter('enable_esp32_pid', True)           # Enable closed-loop velocity PID on ESP32
+        self.declare_parameter('enable_esp32_pid', False)          # Disabled: ESP32 hardware single-channel line fault on M1 (GPIO35)
         self.declare_parameter('esp32_pid_kp', 3.20)               # ESP32 velocity PID Kp
         self.declare_parameter('esp32_pid_ki', 0.22)               # ESP32 velocity PID Ki
         self.declare_parameter('esp32_pid_kd', 0.04)               # ESP32 velocity PID Kd
@@ -55,6 +55,14 @@ class WaveshareMotorDriver(Node):
         self.declare_parameter('yaw_fusion_alpha', 0.88)            # Gyro transient weight (0.88 gyro, 0.12 wheel baseline)
         self.declare_parameter('max_duty_accel', 5.0)               # Max duty acceleration (duty/s) for S-Curve
         self.declare_parameter('max_duty_jerk', 25.0)               # Max duty jerk (duty/s^2) for S-Curve
+        self.declare_parameter('left_motor_trim', 0.73)             # Left motor forward duty multiplier (calibrated: compensates for ~35% lower friction)
+        self.declare_parameter('left_motor_trim_rev', 0.65)         # Left motor reverse duty multiplier (calibrated: compensates for faster reverse)
+        self.declare_parameter('right_motor_trim_rev', 1.25)        # Right motor reverse duty boost (calibrated: overcomes high reverse stiction)
+        self.declare_parameter('enable_heading_stabilizer', True)  # Active IMU gyro heading lock for straight line and symmetric turns
+        self.declare_parameter('heading_stabilizer_kp', 0.12)       # Proportional gyro gain for heading correction
+        self.declare_parameter('heading_stabilizer_ki', 0.04)       # Integral gyro gain for persistent lateral drift elimination
+        self.declare_parameter('open_loop_min_duty', 0.095)        # Minimum duty to break static stiction on Right motor
+        self.declare_parameter('open_loop_max_duty', 0.28)         # Calibrated duty corresponding to nominal max speed 0.40 m/s
         
         # --- Retrieve Parameters ---
         self.serial_port = self.get_parameter('serial_port').value
@@ -87,6 +95,16 @@ class WaveshareMotorDriver(Node):
         self.yaw_fusion_alpha = float(self.get_parameter('yaw_fusion_alpha').value)
         self.max_duty_accel = float(self.get_parameter('max_duty_accel').value)
         self.max_duty_jerk = float(self.get_parameter('max_duty_jerk').value)
+        self.left_motor_trim = float(self.get_parameter('left_motor_trim').value)
+        self.left_motor_trim_rev = float(self.get_parameter('left_motor_trim_rev').value)
+        self.right_motor_trim_rev = float(self.get_parameter('right_motor_trim_rev').value)
+        self.enable_heading_stabilizer = bool(self.get_parameter('enable_heading_stabilizer').value)
+        self.heading_stabilizer_kp = float(self.get_parameter('heading_stabilizer_kp').value)
+        self.heading_stabilizer_ki = float(self.get_parameter('heading_stabilizer_ki').value)
+        self.open_loop_min_duty = float(self.get_parameter('open_loop_min_duty').value)
+        self.open_loop_max_duty = float(self.get_parameter('open_loop_max_duty').value)
+        self.heading_err_integral = 0.0
+        self.last_heading_stabilizer_time = None
         self.esp32_pid_active = False
         
         # Register dynamic parameter callback
@@ -422,30 +440,39 @@ class WaveshareMotorDriver(Node):
         self.last_imu_time = now
 
     def speed_to_duty(self, speed_mps):
-        """Converts speed in m/s to normalized motor duty [-1.0, 1.0] with closed-loop physical scaling."""
+        """Converts speed in m/s to normalized motor duty [-1.0, 1.0].
+        In open-loop mode, maps [0, max_linear_speed] (0 to 0.40 m/s) to [min_duty, max_duty] (0.065 to 0.24)
+        preventing high-speed runaway and ensuring physical velocity tracking.
+        """
         if abs(speed_mps) < 0.003:
             return 0.0
         
         sign = 1.0 if speed_mps > 0 else -1.0
         clamped_mps = min(abs(speed_mps), self.max_linear_speed)
         
-        if getattr(self, 'enable_esp32_pid', True):
+        if getattr(self, 'enable_esp32_pid', False):
             # Physical velocity mapping to ESP32 closed-loop target (MAX_TICKS_PER_20MS = 118.0)
             # hw_max_mps corresponds to 100% duty (118 ticks in 20ms): ~1.89 m/s
             meters_per_tick = (2.0 * math.pi * self.wheel_radius) / self.ticks_per_rev
             hw_max_mps = (118.0 * meters_per_tick) / 0.020
             duty = clamped_mps / hw_max_mps
         else:
+            # Calibrated physical mapping for brushed DC on 3S LiPo:
+            # min_duty (0.065) breaks stiction; max_duty (0.24) produces nominal max 0.40 m/s
             ratio = min(clamped_mps / self.max_linear_speed, 1.0)
-            duty = self.motor_min_duty_cycle + (1.0 - self.motor_min_duty_cycle) * ratio
+            min_d = getattr(self, 'open_loop_min_duty', 0.095)
+            max_d = getattr(self, 'open_loop_max_duty', 0.28)
+            duty = min_d + (max_d - min_d) * ratio
             
         return sign * min(duty, 1.0)
 
     def send_speeds(self, left, right):
         """Formats speeds as JSON and writes to serial port.
         - left and right are target linear speeds in m/s.
-        - Converts to normalized motor duty [-1.0, 1.0] with starting friction boost.
-        - Applies soft-start slew rate limiting to protect battery and SSD from current spikes.
+        - Converts to normalized motor duty [-1.0, 1.0] with calibrated starting friction boost.
+        - Applies Left Motor Hardware Trim (compensating for lower mechanical friction on Left wheel).
+        - Applies Active Gyro Heading Stabilization: nullifies straight-line veer and enforces symmetric turns.
+        - Applies soft-start 2nd-order S-Curve Jerk Limiter for finite jerk and zero sensor mast whip.
         - Applies Feed-Forward Voltage Compensation.
         """
         if self.is_system_shutdown or (abs(left) < 0.001 and abs(right) < 0.001):
@@ -453,7 +480,9 @@ class WaveshareMotorDriver(Node):
             self.current_duty_right = 0.0
             self.duty_accel_left = 0.0
             self.duty_accel_right = 0.0
+            self.heading_err_integral = 0.0
             self.last_duty_update_time = None
+            self.last_heading_stabilizer_time = None
             cmd = {"T": 1, "L": 0.0, "R": 0.0}
             cmd_str = json.dumps(cmd, separators=(',', ':')) + "\n"
             with self.serial_lock:
@@ -468,12 +497,51 @@ class WaveshareMotorDriver(Node):
         target_duty_left = self.speed_to_duty(left)
         target_duty_right = self.speed_to_duty(right)
 
+        # 1. Hardware Motor Trims (eliminates directional friction discrepancies between wheels)
+        if target_duty_left > 0:
+            target_duty_left *= getattr(self, 'left_motor_trim', 0.73)
+        else:
+            target_duty_left *= getattr(self, 'left_motor_trim_rev', 0.65)
+
+        if target_duty_right < 0:
+            target_duty_right *= getattr(self, 'right_motor_trim_rev', 1.25)
+
+        # 2. Active Gyro Heading & Turn Stabilization
         now_sec = time.time()
+        if getattr(self, 'enable_heading_stabilizer', True):
+            dt_head = (now_sec - self.last_heading_stabilizer_time) if self.last_heading_stabilizer_time is not None else 0.05
+            dt_head = max(min(dt_head, 0.10), 0.01)
+            self.last_heading_stabilizer_time = now_sec
+
+            # Prefer high-precision 42Hz OAK IMU gyro; fallback to chassis IMU gyro
+            meas_w = self.oak_yaw_rate if abs(self.oak_yaw_rate) > 0.005 else getattr(self, 'chassis_yaw_rate', 0.0)
+
+            if abs(self.cmd_linear_x) > 0.015 and abs(self.cmd_angular_z) < 0.05:
+                # Straight commanded driving: target yaw rate is strictly 0.0 (eliminates veering right)
+                err_w = 0.0 - meas_w
+                self.heading_err_integral = max(min(self.heading_err_integral + err_w * dt_head, 0.50), -0.50)
+                kp = getattr(self, 'heading_stabilizer_kp', 0.12)
+                ki = getattr(self, 'heading_stabilizer_ki', 0.04)
+                corr = max(min(kp * err_w + ki * self.heading_err_integral, 0.06), -0.06)
+                target_duty_left -= corr
+                target_duty_right += corr
+            elif abs(self.cmd_angular_z) >= 0.05 and abs(self.cmd_linear_x) < 0.02:
+                # In-place rotation: enforce symmetric commanded yaw rate
+                err_w = self.cmd_angular_z - meas_w
+                kp_turn = 0.08
+                corr_turn = max(min(kp_turn * err_w, 0.05), -0.05)
+                target_duty_left -= corr_turn
+                target_duty_right += corr_turn
+            else:
+                self.heading_err_integral = 0.0
+        else:
+            self.heading_err_integral = 0.0
+
         dt_duty = (now_sec - self.last_duty_update_time) if self.last_duty_update_time is not None else 0.02
         dt_duty = max(min(dt_duty, 0.10), 0.005)
         self.last_duty_update_time = now_sec
 
-        # 2nd-order S-Curve Jerk Limiter for smooth C^1 duty transitions (finite jerk)
+        # 3. 2nd-order S-Curve Jerk Limiter for smooth C^1 duty transitions (finite jerk)
         # Left channel
         err_L = target_duty_left - self.current_duty_left
         desired_accel_L = max(min(err_L / 0.15, self.max_duty_accel), -self.max_duty_accel)
@@ -514,7 +582,7 @@ class WaveshareMotorDriver(Node):
                 duty_left = max(min(duty_left, 0.25), -0.25)
                 duty_right = max(min(duty_right, 0.25), -0.25)
 
-            if not getattr(self, 'enable_esp32_pid', True):
+            if not getattr(self, 'enable_esp32_pid', False):
                 duty_left = max(min(duty_left * scale, 1.0), -1.0)
                 duty_right = max(min(duty_right * scale, 1.0), -1.0)
 
@@ -819,15 +887,27 @@ class WaveshareMotorDriver(Node):
                 # 1. Wheel encoder differential: delta_theta_wheel = (delta_s_right - delta_s_left) / W
                 delta_theta_wheel = (delta_s_right - delta_s_left) / self.rotational_wheel_separation if not self.motors_stopped else 0.0
                 
-                # 2. Complementary Yaw Fusion with Chassis ESP32 Gyro (ECO-2026-09-15-001)
+                # 2. Complementary Yaw Fusion with Chassis ESP32 or OAK-D IMU Gyro (ECO-2026-09-15-001)
                 chassis_imu_fresh = (
                     self.last_chassis_imu_time is not None and 
                     (current_time - self.last_chassis_imu_time) < 0.25
                 )
-                if self.enable_chassis_yaw_fusion and chassis_imu_fresh and not self.motors_stopped:
-                    delta_theta_gyro = self.chassis_yaw_rate * dt
-                    delta_theta = self.yaw_fusion_alpha * delta_theta_gyro + (1.0 - self.yaw_fusion_alpha) * delta_theta_wheel
-                    src_rot = "CHASSIS_FUSED"
+                oak_imu_fresh = (
+                    self.last_imu_time is not None and
+                    (current_time - self.last_imu_time) < 0.25
+                )
+                if self.enable_chassis_yaw_fusion and not self.motors_stopped:
+                    if chassis_imu_fresh:
+                        delta_theta_gyro = self.chassis_yaw_rate * dt
+                        delta_theta = self.yaw_fusion_alpha * delta_theta_gyro + (1.0 - self.yaw_fusion_alpha) * delta_theta_wheel
+                        src_rot = "CHASSIS_FUSED"
+                    elif oak_imu_fresh:
+                        delta_theta_gyro = self.oak_yaw_rate * dt
+                        delta_theta = self.yaw_fusion_alpha * delta_theta_gyro + (1.0 - self.yaw_fusion_alpha) * delta_theta_wheel
+                        src_rot = "OAK_FUSED"
+                    else:
+                        delta_theta = delta_theta_wheel
+                        src_rot = "ENCODER"
                 else:
                     delta_theta = delta_theta_wheel
                     src_rot = "ENCODER"
@@ -1133,6 +1213,30 @@ class WaveshareMotorDriver(Node):
             elif param.name == 'max_duty_jerk':
                 self.max_duty_jerk = float(param.value)
                 self.get_logger().info(f"Dynamic Parameter Updated: max_duty_jerk = {self.max_duty_jerk}")
+            elif param.name == 'left_motor_trim':
+                self.left_motor_trim = float(param.value)
+                self.get_logger().info(f"Dynamic Parameter Updated: left_motor_trim = {self.left_motor_trim:.4f}")
+            elif param.name == 'left_motor_trim_rev':
+                self.left_motor_trim_rev = float(param.value)
+                self.get_logger().info(f"Dynamic Parameter Updated: left_motor_trim_rev = {self.left_motor_trim_rev:.4f}")
+            elif param.name == 'right_motor_trim_rev':
+                self.right_motor_trim_rev = float(param.value)
+                self.get_logger().info(f"Dynamic Parameter Updated: right_motor_trim_rev = {self.right_motor_trim_rev:.4f}")
+            elif param.name == 'enable_heading_stabilizer':
+                self.enable_heading_stabilizer = bool(param.value)
+                self.get_logger().info(f"Dynamic Parameter Updated: enable_heading_stabilizer = {self.enable_heading_stabilizer}")
+            elif param.name == 'heading_stabilizer_kp':
+                self.heading_stabilizer_kp = float(param.value)
+                self.get_logger().info(f"Dynamic Parameter Updated: heading_stabilizer_kp = {self.heading_stabilizer_kp:.4f}")
+            elif param.name == 'heading_stabilizer_ki':
+                self.heading_stabilizer_ki = float(param.value)
+                self.get_logger().info(f"Dynamic Parameter Updated: heading_stabilizer_ki = {self.heading_stabilizer_ki:.4f}")
+            elif param.name == 'open_loop_min_duty':
+                self.open_loop_min_duty = float(param.value)
+                self.get_logger().info(f"Dynamic Parameter Updated: open_loop_min_duty = {self.open_loop_min_duty:.4f}")
+            elif param.name == 'open_loop_max_duty':
+                self.open_loop_max_duty = float(param.value)
+                self.get_logger().info(f"Dynamic Parameter Updated: open_loop_max_duty = {self.open_loop_max_duty:.4f}")
         return SetParametersResult(successful=True)
 
     def destroy_node(self):

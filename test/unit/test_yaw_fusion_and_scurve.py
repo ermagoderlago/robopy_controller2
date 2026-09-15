@@ -313,6 +313,12 @@ class TestYawFusionAndSCurve(unittest.TestCase):
             ParamMock('yaw_fusion_alpha', 0.55),
             ParamMock('max_duty_accel', 7.5),
             ParamMock('max_duty_jerk', 35.0),
+            ParamMock('left_motor_trim', 0.85),
+            ParamMock('enable_heading_stabilizer', False),
+            ParamMock('heading_stabilizer_kp', 0.15),
+            ParamMock('heading_stabilizer_ki', 0.05),
+            ParamMock('open_loop_min_duty', 0.07),
+            ParamMock('open_loop_max_duty', 0.25),
         ]
 
         res = self.driver.parameter_callback(params)
@@ -321,6 +327,120 @@ class TestYawFusionAndSCurve(unittest.TestCase):
         self.assertEqual(self.driver.yaw_fusion_alpha, 0.55)
         self.assertEqual(self.driver.max_duty_accel, 7.5)
         self.assertEqual(self.driver.max_duty_jerk, 35.0)
+        self.assertEqual(self.driver.left_motor_trim, 0.85)
+        self.assertFalse(self.driver.enable_heading_stabilizer)
+        self.assertEqual(self.driver.heading_stabilizer_kp, 0.15)
+        self.assertEqual(self.driver.heading_stabilizer_ki, 0.05)
+        self.assertEqual(self.driver.open_loop_min_duty, 0.07)
+        self.assertEqual(self.driver.open_loop_max_duty, 0.25)
+
+    def test_07_calibrated_speed_to_duty_open_loop(self):
+        """Verify open-loop speed_to_duty maps [0, max_speed] to [0.065, 0.24] without runaway."""
+        self.driver.enable_esp32_pid = False
+        self.driver.open_loop_min_duty = 0.065
+        self.driver.open_loop_max_duty = 0.24
+        self.driver.max_linear_speed = 0.40
+
+        # Zero speed
+        self.assertEqual(self.driver.speed_to_duty(0.0), 0.0)
+        # Slow speed (0.08 m/s = 20% of max)
+        duty_slow = self.driver.speed_to_duty(0.08)
+        expected_slow = 0.065 + (0.24 - 0.065) * 0.20
+        self.assertAlmostEqual(duty_slow, expected_slow, places=3)
+        self.assertLess(duty_slow, 0.15, "Duty at 0.08 m/s must be gentle (<0.15), not runaway")
+        # Max speed (0.40 m/s)
+        self.assertAlmostEqual(self.driver.speed_to_duty(0.40), 0.24, places=3)
+        # Reverse sign
+        self.assertAlmostEqual(self.driver.speed_to_duty(-0.08), -duty_slow, places=3)
+
+    def test_08_left_motor_hardware_trim(self):
+        """Verify left_motor_trim scales left wheel duty in send_speeds."""
+        self.driver.enable_esp32_pid = False
+        self.driver.enable_heading_stabilizer = False
+        self.driver.enable_voltage_feedforward = False
+        self.driver.left_motor_trim = 0.88
+        self.driver.current_duty_left = 0.0
+        self.driver.current_duty_right = 0.0
+        self.driver.last_duty_update_time = time.time() - 0.2
+
+        # Command equal speeds (0.10 m/s)
+        self.driver.send_speeds(0.10, 0.10)
+        # Left duty target is scaled by 0.88
+        base_duty = self.driver.speed_to_duty(0.10)
+        # With S-curve advancing, left should be lower than right
+        self.assertLess(self.driver.current_duty_left, self.driver.current_duty_right,
+            "Left duty must be scaled down by left_motor_trim to balance faster left motor")
+
+    def test_09_active_gyro_heading_stabilization(self):
+        """Verify active gyro heading stabilizer counters rightward drift in straight motion."""
+        self.driver.enable_esp32_pid = False
+        self.driver.enable_heading_stabilizer = True
+        self.driver.enable_voltage_feedforward = False
+        self.driver.left_motor_trim = 1.0  # neutral trim to isolate gyro lock
+        self.driver.heading_stabilizer_kp = 0.12
+        self.driver.cmd_linear_x = 0.15
+        self.driver.cmd_angular_z = 0.0  # Straight line command
+
+        # Simulate robot veering right (negative yaw rate, e.g. -0.20 rad/s from OAK IMU)
+        self.driver.oak_yaw_rate = -0.20
+        self.driver.current_duty_left = 0.10
+        self.driver.current_duty_right = 0.10
+        self.driver.last_duty_update_time = time.time() - 0.05
+        self.driver.last_heading_stabilizer_time = time.time() - 0.05
+
+        self.driver.send_speeds(0.15, 0.15)
+        # When veering right (meas_w < 0), err_w > 0, correction > 0:
+        # target_duty_left decreases, target_duty_right increases
+        self.assertGreater(self.driver.current_duty_right, self.driver.current_duty_left,
+            "When veering right, heading stabilizer must increase right wheel duty and reduce left wheel duty")
+
+    def test_10_directional_motor_trims(self):
+        """Verify left_motor_trim_rev and right_motor_trim_rev scale reverse motions."""
+        self.driver.enable_esp32_pid = False
+        self.driver.enable_heading_stabilizer = False
+        self.driver.enable_voltage_feedforward = False
+        self.driver.left_motor_trim = 0.73
+        self.driver.left_motor_trim_rev = 0.65
+        self.driver.right_motor_trim_rev = 1.25
+
+        # Forward Left: scaled by 0.73
+        self.driver.current_duty_left = 0.0
+        self.driver.current_duty_right = 0.0
+        self.driver.last_duty_update_time = time.time() - 0.2
+        self.driver.send_speeds(0.10, 0.10)
+        duty_fwd_L = self.driver.current_duty_left
+
+        # Reverse Left: scaled by 0.50
+        self.driver.current_duty_left = 0.0
+        self.driver.current_duty_right = 0.0
+        self.driver.last_duty_update_time = time.time() - 0.2
+        self.driver.send_speeds(-0.10, -0.10)
+        duty_rev_L = abs(self.driver.current_duty_left)
+        self.assertLess(duty_rev_L, duty_fwd_L, "Reverse Left duty must be trimmed more aggressively (0.50) than forward (0.73)")
+
+    def test_11_oak_imu_complementary_fusion_fallback(self):
+        """Verify that when chassis IMU is unavailable, OAK IMU gyro is fused seamlessly."""
+        self.driver.enable_chassis_yaw_fusion = True
+        self.driver.yaw_fusion_alpha = 0.88
+        self.driver.last_chassis_imu_time = None  # Chassis IMU not available
+        self.driver.last_imu_time = time.time()    # OAK IMU is fresh
+        self.driver.oak_yaw_rate = 0.10           # 0.10 rad/s
+        self.driver.theta = 0.0
+        self.driver.motors_stopped = False
+
+        # Ingest encoder feedback
+        now = time.time()
+        self.driver.last_imu_time = now
+        self.driver.process_encoder_feedback(1000, 1000)
+
+        t_next = now + 0.10
+        with patch.object(self.driver, 'get_clock') as mock_clock:
+            mock_clock.return_value.now.return_value.nanoseconds = int(t_next * 1e9)
+            # Both wheels move equally straight (no differential rotation)
+            self.driver.process_encoder_feedback(1010, 1010)
+
+        # After fusion with OAK IMU gyro rate (0.10 rad/s), theta must have advanced positively
+        self.assertGreater(self.driver.theta, 0.0, "OAK IMU fallback must advance theta when chassis IMU is unavailable")
 
 if __name__ == '__main__':
     unittest.main()

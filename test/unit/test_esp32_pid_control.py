@@ -136,13 +136,14 @@ class TestESP32PIDControl(unittest.TestCase):
         self.driver.serial_conn.is_open = True
 
     def test_default_pid_parameters(self):
-        self.assertTrue(self.driver.enable_esp32_pid)
+        self.assertFalse(self.driver.enable_esp32_pid)
         self.assertEqual(self.driver.esp32_pid_kp, 3.20)
         self.assertEqual(self.driver.esp32_pid_ki, 0.22)
         self.assertEqual(self.driver.esp32_pid_kd, 0.04)
         self.assertFalse(self.driver.esp32_pid_active)
 
     def test_send_esp32_pid_config(self):
+        self.driver.enable_esp32_pid = True
         self.driver.serial_conn.write.reset_mock()
         self.driver.send_esp32_pid_config()
         self.driver.serial_conn.write.assert_called_once()

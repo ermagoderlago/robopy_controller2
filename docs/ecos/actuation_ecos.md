@@ -352,3 +352,34 @@ Durante il primo collaudo fisico a bordo del robot Marcus alimentato a batteria 
 3. **[COLLAUDO FISICO SU MARCUS TELAIO] `scripts/test_ros2_slow_motion.py`:**
    - Comando $v = 0.08\text{ m/s}$ per $0.50\text{ s}$ (teorico $4.00\text{ cm}$): spostamento reale registrato da `/odom` pari a **$4.23\text{ cm}$** (**94.6% di precisione metrica**), deviazione angolare di soli **$1.03^\circ$** e arresto Short-Brake immediato con zero deriva post-stop.
 
+---
+
+<a id="ECO-2026-09-15-003"></a>
+## ECO-2026-09-15-003: Risoluzione Veering Sistematico a Destra, Calibrazione Asimmetria d'Attrito Riduttori, Trim Direzionali e Stabilizzatore di Heading Giroscopico a 42Hz (FM-MOT-008)
+
+* **Data:** 2026-09-15
+* **Autore:** Marcus AI / Antigravity
+* **Stato:** ✅ **APPLICATO IN CODICE, COLLAUDATO FISICAMENTE SU MARCUS PI 5 & VALIDATO CON 21/21 TEST UNITARI**
+* **DFMEA Correlati:** `FM-MOT-008`, `FM-MOT-001`, `FM-MOT-007`, `FM-NAV-015`
+
+### Contesto e Causa Radice
+1. **Veering Sistematico a Destra:** In marcia rettilinea (+0.10 m/s per 0.8s), il robot deviava verso destra accumulando $-15.14^\circ$ di deriva oraria in 0.8s.
+2. **Asimmetria nelle Rotazioni sul Posto:** La rotazione a sinistra (+0.35 rad/s) produceva $+111.94^\circ$, mentre la rotazione a destra ($-0.35$ rad/s) produceva soli $-96.80^\circ$, con un delta asimmetrico di oltre $15^\circ$.
+3. **Misure Empiriche di Banco (`measure_motor_stiction.py`):**
+   - In avanti, il motore sinistro ha circa il 35% in meno di attrito rispetto al destro ($R/L \approx 0.66$ a duty 0.15).
+   - In retromarcia, la ruota sinistra gira oltre 2 volte più veloce della destra, mentre la destra presenta elevata stiction meccanica inversa.
+   - Il PID ESP32 non poteva compensare a causa del guasto hardware mono-canale su GPIO 35 (M1), che rendeva instabile il controllo a circuito chiuso su quel canale.
+
+### Modifiche Applicate
+1. **[DRIVER ROS 2] `robopy_controller/nodes/waveshare_motor_driver.py`:**
+   - **Bypass PID ESP32:** Impostato `enable_esp32_pid:=False` di default.
+   - **Curva Open-Loop Calibrata:** Range $[0, 0.40\text{ m/s}]$ mappato su $[0.095, 0.280]$ duty per superare la stiction del motore destro.
+   - **Trim Direzionali Indipendenti:** `left_motor_trim = 0.73` (forward), `left_motor_trim_rev = 0.65` (reverse), `right_motor_trim_rev = 1.25` (reverse boost).
+   - **Active Gyro Heading Stabilizer a 42Hz:** Anello PI chiuso su `/oak/imu/data` ($K_p=0.12, K_i=0.04$) che forza $\omega_z = 0.0$ in marcia rettilinea e simmetria esatta $\pm \omega_{cmd}$ nelle rotazioni.
+   - **Fallback OAK IMU in Fusione Complementare Odometria:** Qualora l'IMU chassis non sia presente, integra il giroscopio a 42Hz di OAK-D Lite (`src_rot = "OAK_FUSED"`), eliminando le false derive da rumore tick encoder.
+2. **[TEST UNITARI]:** 21/21 test superati al 100%.
+3. **[COLLAUDO FISICO SU MARCUS PI 5]:**
+   - Rettilineo: distanza $7.30\text{ cm}$, deriva yaw ridotta da $-15.14^\circ$ a **$-0.51^\circ$** (veering azzerato).
+   - Rotazioni: delta asimmetria ridotto da $>15^\circ$ a **$3.37^\circ$**.
+
+

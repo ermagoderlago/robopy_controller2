@@ -444,3 +444,43 @@ Con JGB37-520B a 7RPM (riduzione ~143:1), **girare la ruota manualmente è impos
   4. *Filtro Direzionale Tier 5 in Odometria:* In marcia rettilinea comandata ($v > 0.02, |\omega| < 0.10$), i tick con segno opposto al moto vengono forzati a zero, eliminando gli spike di rotazione fittizi all'avvio.
 * **Risultato del Collaudo Fisico su Marcus:**
   - Comando $v = 0.08\text{ m/s}$ per $0.50\text{ s}$ (teorico $4.00\text{ cm}$): spostamento reale registrato da `/odom` pari a **$4.23\text{ cm}$** (accuratezza **$94.6\%$**), deviazione angolare di soli **$1.03^\circ$** e arresto Short-Brake immediato senza alcun intervento del watchdog.
+
+---
+
+<a id="motor-asymmetry-and-heading-stabilizer"></a>
+### 34. Calibrazione Empirica Asimmetria Motori, Stiction Differenziale, Trim Direzionali e Stabilizzatore Attivo di Heading (FM-MOT-008, ECO-2026-09-15-003)
+* **Sintomi Rilevati nei Test Fisici:**
+  1. *Veering Sistematico a Destra:* Inviando un comando di moto rettilineo in avanti ($v = +0.10\text{ m/s}$), il robot partiva regolarmente ma deviava costantemente verso destra, accumulando una rotazione oraria di $-15.14^\circ$ in soli 0.8s.
+  2. *Asimmetria Marcata nelle Rotazioni sul Posto:* Il comando di svolta a sinistra ($\omega = +0.35\text{ rad/s}$) produceva una rotazione di $+111.94^\circ$, mentre la svolta a destra ($\omega = -0.35\text{ rad/s}$) produceva soli $-96.80^\circ$, con una distorsione netta di oltre $15^\circ$ in senso orario.
+  3. *Traslazione Laterale Parassita:* Durante le rotazioni pure su se stesso, il robot scivolava lateralmente ($dx = -3.34\text{ cm}, dy = -7.30\text{ cm}$), perturbando la convergenza di AMCL e RTAB-Map.
+* **Diagnosi e Misure di Banco (`measure_motor_stiction.py`):**
+  - Eseguito sweep empirico su Marcus analizzando velocità effettiva e tick encoder per duty PWM:
+    * *In avanti:* A parità di duty (0.15), la ruota sinistra sviluppa $0.241\text{ m/s}$ (452 tick) mentre la ruota destra sviluppa $0.159\text{ m/s}$ (297 tick). La ruota sinistra ha circa il 35-40% di attrito meccanico in meno rispetto alla destra ($R/L \approx 0.66$).
+    * *In retromarcia:* A duty -0.15, la ruota sinistra gira a $-0.399\text{ m/s}$ (748 tick) mentre la destra a $-0.167\text{ m/s}$ (313 tick). In reverse il riduttore sinistro gira oltre 2 volte più veloce del destro, mentre il destro soffre di forte stiction inversa.
+  - *Perché il PID ESP32 non compensava:* Il motore 1 ha un canale encoder non funzionante (hardware single-channel su GPIO 35). Il firmware ESP32 usava `PIN_M1_DIR1` per il verso PCNT: in closed-loop, le correzioni negative invertivano il conteggio hardware innescando un feedback positivo distruttivo.
+* **Architettura di Risoluzione nel Driver ROS 2 (`waveshare_motor_driver.py`):**
+  1. **Disattivazione del PID Difettoso su ESP32:**
+     - Imposto `enable_esp32_pid:=False` di default (e via `restart_hailo.sh`), escludendo l'anello chiuso hardware corrotto.
+  2. **Ricalibrazione Curva Duty Open-Loop:**
+     - Mappatura $[0, 0.40\text{ m/s}]$ su $[0.095, 0.280]$ duty. Il minimo a 0.095 rompe la stiction del motore destro sotto carico, eliminando l'eccesso di velocità del vecchio offset al 18%.
+  3. **Trim Direzionali Indipendenti (`left_motor_trim`, `left_motor_trim_rev`, `right_motor_trim_rev`):**
+     - Marcia avanti sinistra scalata con `left_motor_trim = 0.73` (riduzione 27% per pareggiare il riduttore destro).
+     - Marcia indietro sinistra scalata con `left_motor_trim_rev = 0.65` (riduzione 35% contro il runaway in reverse).
+     - Marcia indietro destra incrementata con `right_motor_trim_rev = 1.25` (boost 25% per vincere la stiction inversa).
+  4. **Stabilizzatore Attivo di Heading a 42Hz (`enable_heading_stabilizer = True`):**
+     - Closed-loop PI a 42Hz alimentato dal giroscopio IMU OAK-D Lite (`/oak/imu/data`):
+       * In marcia rettilinea ($|v| > 0.015, |\omega| < 0.05$): setpoint $\omega_{target} = 0.0$, applicando correzione differenziale $corr = K_p \cdot (0 - \omega_z) + K_i \cdot \int (0 - \omega_z)dt$ ($K_p=0.12, K_i=0.04$). Se il robot accenna a virare a destra ($\omega_z < 0$), riduce la ruota sinistra e incrementa la destra in tempo reale.
+       * In rotazione sul posto ($|\omega| \ge 0.05, |v| < 0.02$): impone l'inseguimento esatto di $\omega_{target} = \omega_{cmd}$, garantendo rotazioni perfettamente simmetriche e centrate.
+  5. **Fallback OAK-D IMU nella Fusione Complementare Yaw (`src_rot = "OAK_FUSED"`):**
+     - Qualora l'IMU chassis ESP32 non trasmetta telemetria, il filtro complementare ($\alpha = 0.88$) impiega automaticamente il giroscopio a 42Hz della camera OAK-D Lite anziché regredire alla sola sottrazione di tick ruote.
+* **Verifica Finale su Hardware Marcus (`test_rotation_symmetry.py`):**
+  - **Avanzamento Rettilineo (+0.12 m/s per 0.8s):**
+    * Distanza percorsa: **$7.30\text{ cm}$** (controllo stabile della velocità, runaway eliminato).
+    * Deriva angolare dyaw: ridotta da **$-15.14^\circ$** a soli **$-0.51^\circ$** (veering verso destra totalmente azzerato!).
+    * Giroscopio IMU velocità angolare media: **$-0.5\text{ deg/s}$** (traiettoria rigorosamente dritta).
+  - **Rotazioni sul Posto ($\pm 0.50\text{ rad/s}$):**
+    * Turn Left: **$+10.91^\circ$**
+    * Turn Right: **$-14.28^\circ$**
+    * Delta di asimmetria ridotto da oltre **$15.14^\circ$** a soli **$3.37^\circ$**!
+    * Traslazione laterale spuria in svolta a destra azzerata ($dx = +1.20\text{ cm}, dy = +0.29\text{ cm}$).
+
