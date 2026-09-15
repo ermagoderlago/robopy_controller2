@@ -252,8 +252,7 @@ sleep 15
 echo "🗺️ Starting RTAB-Map..."
 > /home/robopy/robopy/logs/rtabmap.log
 # [FM-NAV-014] Di default la mappa persiste. Se richiesto esplicitamente (--delete-db o RESET_DB=1), si avvia con --delete_db_on_start
-DELETE_DB_FLAG=""
-if [ "$1" = "--delete-db" ] || [ "$RESET_DB" = "1" ]; then
+if [ -n "$DELETE_DB_FLAG" ] || [ "$1" = "--delete-db" ] || [ "$RESET_DB" = "1" ]; then
     echo "🧹 [SLAM-RESET] Reset database RTAB-Map richiesto: avvio con --delete_db_on_start..."
     DELETE_DB_FLAG="--delete_db_on_start"
 fi
