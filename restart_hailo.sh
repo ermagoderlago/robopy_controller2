@@ -118,6 +118,8 @@ pkill -9 -f planner_server || true
 pkill -9 -f behavior_server || true
 pkill -9 -f bt_navigator || true
 pkill -9 -f lifecycle_manager || true
+pkill -9 -f map_server || true
+pkill -9 -f amcl || true
 pkill -9 -f ultrasonic_sensor || true
 pkill -9 -f bluedot_node || true
 
