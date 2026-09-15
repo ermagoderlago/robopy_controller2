@@ -38,6 +38,15 @@ graph TD
     NAV2 --> CMD
 ```
 
+### Modalità Operative di Avvio & Esecuzione (Opzione A - FM-NAV-030)
+1. **Modalità Crea Mappa (SLAM 3D/2D con RTAB-Map):**
+   * **Avvio:** `./restart_hailo.sh --slam` (oppure default `./restart_hailo.sh`).
+   * **Esportazione Mappa 2D:** `./scripts/save_map.sh <nome_mappa>` (salva in `/mnt/ssd/maps/<nome_mappa>.yaml` e `.pgm` via `nav2_map_server map_saver_cli`).
+   * **Funzione:** RTAB-Map mantiene l'autorità di `map -> odom` via ICP 2D e chiusura DBoW3, salvando le pose in `/mnt/ssd/rtabmap.db`.
+2. **Modalità Naviga (Navigazione Mappa Statica con AMCL 2D):**
+   * **Avvio:** `./restart_hailo.sh --amcl --map=/mnt/ssd/maps/<nome_mappa>.yaml` (default: `/mnt/ssd/maps/salotto.yaml`).
+   * **Funzione:** `nav2_map_server` serve la mappa statica e `nav2_amcl` gestisce la localizzazione a 10 Hz con modello a campo di verosimiglianza su `/scan`. RTAB-Map viene avviato con `publish_tf:=false` e `Mem/IncrementalMemory:=false`, garantendo zero conflitti TF su `map -> odom`, azzerando le derive angolari in rotazione e preservando al contempo la sicurezza contro scale/dislivelli 2.5D e le memorie visive TRINITY.
+
 ---
 
 ## 3. 🔴 ZONA ROSSA (Inviolabili - NO AUTONOMOUS TOUCH)
@@ -51,6 +60,7 @@ Le seguenti prescrizioni sono categoriche. La loro violazione comporta il crash 
 | **Policy Costmap Combination** | `combination_method: 1` (Maximum) obbligatorio | Cancellazione spuria di ostacoli reali da voxel vuoti | FM-NAV-019 |
 | **No Blind Recovery Rotations** | Vietate rotazioni sul posto cieche a 90°/180° | Collisione della coda e dello chassis contro ostacoli ciechi | FM-NAV-019 |
 | **Gerarchia Albero TF (REP-105)** | `odom ➔ base_link ➔ camera_link ➔ camera_optical_frame` | Cicli TF (`base_link ➔ base_link`) e disallineamento odometrico | FM-NAV-003 |
+| **Autorità Unica TF map -> odom** | **Vietata doppia pubblicazione TF** (`publish_tf: false` su RTAB quando AMCL attivo) | Jitter violento delle costmap, sfarfallio posa, crash Nav2 | FM-NAV-030 |
 | **Encoding Immagine di Profondità** | Forzare `"16UC1"` in C++ (non usare `"mono16"`) | Rifiuto dello stream da `depthimage_to_laserscan` | FM-VIS-002 |
 | **Percorso File Behavior Tree** | `nav2_survival_bt.xml` nel path installato | Fallimento attivazione `bt_navigator` all'avvio | FM-NAV-004 |
 | **Allocazione Database SLAM su SSD** | `database_path: "/mnt/ssd/rtabmap.db"` obbligatorio | Saturazione 100% MicroSD, runaway log e crash I/O irreversibile | FM-NAV-020 |
@@ -102,8 +112,12 @@ pytest tests/test_extrinsic_camera_calibrator.py -v
 
 # 4. Verifica assenza cicli TF nell'albero delle trasformazioni
 bash tf_verify.sh
+
+# 5. Verifica integrazione Nav2 AMCL & Map Server (Opzione A - FM-NAV-030)
+python test/unit/test_amcl_nav2_integration.py
 ```
 I test devono confermare:
 - Intervento istantaneo dell'ostacolo letale su dislivelli superiori a 15 cm.
 - Nessuna allocazione di memoria incontrollata nel loop 2.5D durante 1000 iterazioni mock.
 - Albero TF strettamente conforme a REP-105 senza cicli o frame orfani.
+- Sintassi e parametri di AMCL e Map Server conformi e assenza di conflitti TF.

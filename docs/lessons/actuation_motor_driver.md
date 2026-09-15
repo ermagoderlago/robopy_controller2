@@ -421,3 +421,26 @@ Con JGB37-520B a 7RPM (riduzione ~143:1), **girare la ruota manualmente è impos
      - Se i pacchetti IMU chassis non arrivano per oltre $250\text{ ms}$, il driver esclude automaticamente il termine giroscopico, passando al 100% differenziale ruote senza interruzioni del servizio né deadlock.
   5. **Risoluzione Deadlock Lock Seriale:**
      - `self.serial_lock` convertito da `threading.Lock()` a `threading.RLock()`, risolvendo il freeze all'avvio in cui `connect_serial()` acquisiva il lock ed invocava `send_esp32_pid_config()` che richiedeva lo stesso lock.
+
+---
+
+<a id="pid-speed-duty-stop-tuning"></a>
+### 33. Reattività Immediata dello Stop, Ricalibrazione Metrica Duty per Anello Chiuso ESP32 e Filtro Direzionale Tier 5 (FM-MOT-001, FM-MOT-007, FM-MOT-008)
+* **Sintomi Rilevati nei Test Fisici:**
+  1. *Overshoot di Distanza a Bassa Velocità:* Inviando un comando di micro-movimento $v = 0.08\text{ m/s}$ per $0.50\text{ s}$ (teorico $\sim 4\text{ cm}$), il robot percorreva fisicamente a terra quasi $40\text{ cm}$ ad una velocità reale di oltre $0.35\text{ m/s}$.
+  2. *Ritardo di Arresto all'Invio di Zero:* Al rilascio del tasto o termine dello script, i motori continuavano a ruotare per mezzo secondo extra prima di fermarsi bruscamente per intervento del watchdog (500 ms).
+  3. *Oscillazione Iniziale di Heading:* Nei primi cicli di marcia rettilinea, la ruota sinistra registrava occasionalmente tick negativi fittizi, inducendo una deviazione iniziale di rotta prima della correzione PID.
+* **Causa Radice:**
+  1. *Filtro Anti-Chatter Bloccante sui Comandi Zero:* In `cmd_vel_callback`, la guardia `if (now - last_active_cmd_time) < 0.35: return` scartava incondizionatamente qualsiasi messaggio con $v=0, \omega=0$ se inviato entro 350 ms dall'ultimo comando attivo. Di conseguenza, i comandi di stop inviati immediatamente dopo l'avanzamento venivano tutti ignorati, costringendo il veicolo a muoversi fino all'intervento del watchdog a 500 ms (durata totale $0.5\text{s} + 0.5\text{s} = 1.0\text{s}$).
+  2. *Offset Statico di Attrito (`motor_min_duty_cycle = 0.18`) e Scala Massima Errata:* `speed_to_duty()` sommava artificialmente un duty minimo del 18% mappando $[0, v_{max}]$ su $[0.18, 1.0]$. Inoltre, sul firmware ESP32, il setpoint target dei tick a 50Hz è calcolato come $\text{target\_ticks} = \text{target\_duty} \times 118$, dove 118 tick/20ms corrispondono fisicamente a $v_{100\%} \approx 1.89\text{ m/s}$ (e non al tetto software di $0.40\text{ m/s}$). Il duty inviato per soli 0.08 m/s era quindi $0.344$ (34% PWM), che sull'ESP32 imponeva un setpoint di oltre $0.65\text{ m/s}$.
+  3. *Distorsione Feed-Forward di Tensione su PID:* La moltiplicazione di `target_duty` per il fattore di tensione $11.10\text{V} / 12.60\text{V} = 0.88$ in modalità PID alterava il setpoint di velocità anziché scalare solo il duty open-loop.
+  4. *Glitches di Transizione sul Livello di Direzione PCNT:* L'encoder del motore 1 usa il pin di direzione `PIN_M1_DIR1` per determinare il conteggio up/down del contatore hardware PCNT. A riposo (`motors_stopped`), dopo la frenata dinamica di 250ms il pin transita a `LOW`. Nel primo millisecondo di avvio in avanti, prima che il comando forzi `DIR1=HIGH`, eventuali fronti sul canale B venivano contati come negativi.
+* **Risoluzione Implementata:**
+  1. *Stop Diretto Senza Ritardi con Filtro a 2 Campioni:* Sostituito il blocco temporale di 350ms con un contatore di comandi zero consecutivi: un singolo zero isolato durante uno stream attivo viene filtrato, ma 2 comandi zero consecutivi (o un comando dopo >200ms) attivano immediatamente l'arresto hardware, l'S-Curve e lo short brake a terra.
+  2. *Mapping Fisico Rigoroso $v \to \text{duty}$ per ESP32 PID:* In modalità ad anello chiuso (`enable_esp32_pid = True`), la velocità $v$ viene mappata direttamente sul setpoint tick dell'ESP32 tramite la scala fisica reale:
+     $$v_{100\%} = \frac{118 \times \text{meters\_per\_tick}}{0.020\text{ s}} \approx 1.890\text{ m/s}, \quad \text{duty} = \frac{\text{clamp}(v, 0, v_{max})}{v_{100\%}}$$
+     A $v = 0.08\text{ m/s}$, il duty calcolato è esattamente $0.0423$, generando un setpoint di 5.0 tick/20ms che il PID 50Hz insegue con precisione millimetrica. L'offset artificiale `motor_min_duty_cycle` è preservato esclusivamente come fallback in modalità open-loop.
+  3. *Feed-Forward Tensione Confinato all'Open-Loop:* La scalatura per tensione batteria opera solo se `enable_esp32_pid = False`, lasciando inalterato il setpoint del PID.
+  4. *Filtro Direzionale Tier 5 in Odometria:* In marcia rettilinea comandata ($v > 0.02, |\omega| < 0.10$), i tick con segno opposto al moto vengono forzati a zero, eliminando gli spike di rotazione fittizi all'avvio.
+* **Risultato del Collaudo Fisico su Marcus:**
+  - Comando $v = 0.08\text{ m/s}$ per $0.50\text{ s}$ (teorico $4.00\text{ cm}$): spostamento reale registrato da `/odom` pari a **$4.23\text{ cm}$** (accuratezza **$94.6\%$**), deviazione angolare di soli **$1.03^\circ$** e arresto Short-Brake immediato senza alcun intervento del watchdog.

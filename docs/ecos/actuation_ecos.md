@@ -323,3 +323,32 @@ A causa di storici problemi di rumorosità e interruzione hardware su una linea 
 2. **[TEST UNITARI] `test/unit/test_yaw_fusion_and_scurve.py`:**
    - Creati 6 test unitari dedicati per continuità e limite jerk S-Curve, clamp arresto immediato, convergenza auto-bias stazionario, fusione yaw complementare con integrazione Runge-Kutta, fallback degradato su telemetria IMU stale, e riconfigurazione dinamica parametri ROS 2.
    - 28/28 test unitari superati con successo nell'intera suite del sottosistema attuazione.
+
+---
+
+<a id="ECO-2026-09-15-002"></a>
+## ECO-2026-09-15-002: Reattività Immediata dello Stop, Ricalibrazione Metrica Duty per Anello Chiuso ESP32 e Filtro Direzionale Tier 5 (FM-MOT-001, FM-MOT-007, FM-MOT-008)
+
+* **Data:** 2026-09-15
+* **Autore:** Marcus AI / Antigravity
+* **Stato:** ✅ **APPLICATO IN CODICE, COLLAUDATO FISICAMENTE SU MARCUS PI 5 & VALIDATO CON 28/28 TEST UNITARI**
+* **DFMEA Correlati:** `FM-MOT-001`, `FM-MOT-007`, `FM-MOT-008`, `FM-MOT-009`
+
+### Contesto e Causa Radice
+Durante il primo collaudo fisico a bordo del robot Marcus alimentato a batteria (12.60V), sono state scoperte tre anomalie:
+1. **Overshoot di Distanza a Bassa Velocità:** Un comando di micro-movimento $v = 0.08\text{ m/s}$ per $0.50\text{ s}$ ($\sim 4\text{ cm}$) ha prodotto $39.20\text{ cm}$ di spostamento con velocità di circa $0.35\text{ m/s}$.
+   - *Causa A:* In `cmd_vel_callback`, la guardia anti-chatter scartava incondizionatamente qualsiasi messaggio zero per 350 ms dall'ultimo comando attivo. I comandi di stop venivano ignorati e il robot correva per altri 500 ms fino all'intervento del watchdog, raddoppiando il tempo di marcia.
+   - *Causa B:* In `speed_to_duty()`, il duty veniva sommato con un offset minimo del 18% (`motor_min_duty_cycle = 0.18`), e il target duty veniva mappato sul range software $[0, 0.40]\text{ m/s}$ anziché sulla scala hardware del circuito chiuso ESP32 ($v_{100\%} \approx 1.89\text{ m/s}$ su 118 tick/20ms). Di conseguenza, per $v = 0.08\text{ m/s}$ veniva inviato un duty del 34% (anziché 4.2%), ordinando all'ESP32 un setpoint di $0.65\text{ m/s}$.
+2. **Glitches di Segno PCNT all'Avvio:** Il canale M1 usa il pin `PIN_M1_DIR1` per definire la direzione del contatore hardware PCNT. A motore fermo, il pin transita a `LOW`, inducendo transitoriamente tick negativi al primo istante di avanzamento.
+
+### Modifiche Applicate
+1. **[DRIVER ROS 2] `robopy_controller/nodes/waveshare_motor_driver.py`:**
+   - **Reattività di Stop a 2 Campioni:** Sostituito il blocco fisso da 350 ms con un filtro a 2 campioni consecutivi: una sequenza di stop ($v=0, \omega=0$) attiva immediatamente l'arresto hardware, il profiler S-Curve e lo short brake a terra senza attendere il watchdog.
+   - **Ricalibrazione Metrica $v \to \text{duty}$ per Anello Chiuso ESP32:** Quando `enable_esp32_pid = True`, il duty viene calcolato direttamente dalla velocità fisica reale corrispondente a 118 tick/20ms ($v_{100\%} \approx 1.890\text{ m/s}$). A $v = 0.08\text{ m/s}$, il duty calcolato è esattamente $0.0423$, ordinando 5.0 tick/20ms che il PID mantiene con precisione millimetrica. L'offset artificiale `motor_min_duty_cycle` è preservato esclusivamente in open loop.
+   - **Isolamento Feed-Forward Tensione:** La scalatura $11.1\text{V}/V_{meas}$ opera solo in modalità open loop per non alterare il setpoint di velocità del PID a batteria carica.
+   - **Filtro Direzionale Tier 5:** In marcia rettilinea comandata ($|v| > 0.02, |\omega| < 0.10$), i tick con polarità opposta al comando vengono forzati a zero.
+2. **[TEST UNITARI] Sottosistema Attuazione:**
+   - 28/28 unit test superati con successo al 100%.
+3. **[COLLAUDO FISICO SU MARCUS TELAIO] `scripts/test_ros2_slow_motion.py`:**
+   - Comando $v = 0.08\text{ m/s}$ per $0.50\text{ s}$ (teorico $4.00\text{ cm}$): spostamento reale registrato da `/odom` pari a **$4.23\text{ cm}$** (**94.6% di precisione metrica**), deviazione angolare di soli **$1.03^\circ$** e arresto Short-Brake immediato con zero deriva post-stop.
+

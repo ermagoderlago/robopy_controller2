@@ -410,3 +410,20 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
 * **Problema:** `nomad_reactive_pipeline_node.py` eseguiva la deserializzazione OpenCV `cv_bridge.imgmsg_to_cv2` su ogni frame a 15 Hz anche quando NoMaD era disarmato (`enable_on_startup:=false`).
 * **Soluzione:** Inserito early return `if not self.is_active: return` prima della conversione, eliminando 5-8% di carico CPU a riposo.
 
+---
+
+## 🎯 Opzione A: Localizzazione 2D AMCL ad Alta Frequenza (10Hz) su Mappe Note (Settembre 2026 - FM-NAV-030)
+
+### Problema Riscontrato: Disallineamento Intermittente LiDAR-Mappa in Curva
+* **Sintomo:** Durante la navigazione in un ambiente cartografato, i punti del LiDAR RPLIDAR C1 risultavano nitidi e privi di rumore, ma la mappa `/map` frequentemente non si allineava sui nuovi punti, manifestando scostamenti angolari o pareti sdoppiate a stella.
+* **Cause Radice:**
+  1. **Discrepanza Dinamica:** A 1.0 Hz, una rotazione del robot a $0.5\,\text{rad/s}$ accumula un drift odometrico da micro-slittamento delle ruote che a $3.5\,\text{m}$ supera i $35\,\text{cm}$ di tolleranza ICP (`Icp/MaxCorrespondenceDistance: 0.35m`).
+  2. **ICP All-or-Nothing:** L'ICP deterministico locale rigetta l'allineamento se l'errore supera il bacino di attrazione, portando a una divergenza cumulativa a catena.
+  3. **Covarianza Odometrica Troppo Bassa:** La covarianza rigida a $10^{-5}$ induceva GTSAM a respingere le correzioni laser come outlier.
+* **Soluzione Architetturale Implementata:**
+  1. **Separazione Funzionale (Opzione A):** Per la navigazione in mappe note, la localizzazione 2D globale è affidata a `nav2_amcl` (filtro particellare KLD a 10 Hz) e `nav2_map_server` (mappa statica da `/mnt/ssd/maps/salotto.yaml`).
+  2. **Isolamento TF (REP-105):** In modalità AMCL (`./restart_hailo.sh --amcl`), RTAB-Map viene avviato con `-p publish_tf:=false -p Mem/IncrementalMemory:=false`, operando unicamente per gli ostacoli negativi (scale `FM-NAV-009`) e la semantica TRINITY/Hailo, mentre AMCL detiene l'autorità esclusiva sul transform `map -> odom`.
+  3. **Covarianza Dinamica Ruote:** Corretta la matrice in `waveshare_motor_driver.py` con incertezza di imbardata a $0.02\,\text{rad}^2$ ($\sim 8^\circ$) per consentire ad AMCL e all'ottimizzatore di agganciare il laser senza resistenze artificiali.
+  4. **Tooling Esportazione Mappa:** Fornito lo script `scripts/save_map.sh` per congelare ed esportare al volo la mappa generata da RTAB-Map in formato standard Nav2 YAML+PGM.
+
+

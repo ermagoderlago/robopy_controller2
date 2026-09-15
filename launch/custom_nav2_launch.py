@@ -39,6 +39,8 @@ def generate_launch_description():
     container_name_full = (namespace, '/', container_name)
     use_respawn = LaunchConfiguration('use_respawn')
     log_level = LaunchConfiguration('log_level')
+    enable_amcl = LaunchConfiguration('enable_amcl')
+    map_yaml_file = LaunchConfiguration('map')
 
     lifecycle_nodes = [
         'controller_server',
@@ -56,7 +58,10 @@ def generate_launch_description():
     remappings = [('/tf', 'tf'), ('/tf_static', 'tf_static')]
 
     # Create our own temporary YAML files that include substitutions
-    param_substitutions = {'autostart': autostart}
+    param_substitutions = {
+        'autostart': autostart,
+        'yaml_filename': map_yaml_file,
+    }
 
     configured_params = ParameterFile(
         RewrittenYaml(
@@ -116,10 +121,63 @@ def generate_launch_description():
         'log_level', default_value='info', description='log level'
     )
 
+    declare_enable_amcl_cmd = DeclareLaunchArgument(
+        'enable_amcl',
+        default_value='False',
+        description='Whether to run map_server and amcl for 2D localization on a known map (Opzione A)',
+    )
+
+    declare_map_yaml_cmd = DeclareLaunchArgument(
+        'map',
+        default_value='/mnt/ssd/maps/salotto.yaml',
+        description='Full path to map yaml file to load',
+    )
+
     load_nodes = GroupAction(
         condition=IfCondition(PythonExpression(['not ', use_composition])),
         actions=[
             SetParameter('use_sim_time', use_sim_time),
+            # ============================================================
+            # AMCL & Map Server (Opzione A - Localizzazione 2D su Mappa Nota)
+            # ============================================================
+            Node(
+                condition=IfCondition(enable_amcl),
+                package='nav2_map_server',
+                executable='map_server',
+                name='map_server',
+                output='screen',
+                respawn=use_respawn,
+                respawn_delay=2.0,
+                parameters=[configured_params, {'yaml_filename': map_yaml_file}],
+                arguments=['--ros-args', '--log-level', log_level],
+                remappings=remappings,
+            ),
+            Node(
+                condition=IfCondition(enable_amcl),
+                package='nav2_amcl',
+                executable='amcl',
+                name='amcl',
+                output='screen',
+                respawn=use_respawn,
+                respawn_delay=2.0,
+                parameters=[configured_params],
+                arguments=['--ros-args', '--log-level', log_level],
+                remappings=remappings,
+            ),
+            Node(
+                condition=IfCondition(enable_amcl),
+                package='nav2_lifecycle_manager',
+                executable='lifecycle_manager',
+                name='lifecycle_manager_localization',
+                output='screen',
+                arguments=['--ros-args', '--log-level', log_level],
+                parameters=[
+                    {'autostart': autostart},
+                    {'node_names': ['map_server', 'amcl']},
+                    {'bond_timeout': 120.0},
+                    {'bond_disable_heartbeat_timeout': True},
+                ],
+            ),
             Node(
                 package='nav2_controller',
                 executable='controller_server',
@@ -243,6 +301,8 @@ def generate_launch_description():
     ld.add_action(declare_container_name_cmd)
     ld.add_action(declare_use_respawn_cmd)
     ld.add_action(declare_log_level_cmd)
+    ld.add_action(declare_enable_amcl_cmd)
+    ld.add_action(declare_map_yaml_cmd)
     # Add the actions to launch all of the navigation nodes
     ld.add_action(load_nodes)
     ld.add_action(load_composable_nodes)

@@ -21,6 +21,8 @@ export ROS_DOMAIN_ID=42
 # --- Configurazione Hardware & Power-Saving ---
 # Se ENABLE_HAILO=false, la NPU Hailo-10H non viene avviata per azzerare il carico di corrente PCIe (previene brownout)
 ENABLE_HAILO="${ENABLE_HAILO:-false}"
+USE_AMCL="${USE_AMCL:-false}"
+MAP_FILE="${MAP_FILE:-/mnt/ssd/maps/salotto.yaml}"
 DELETE_DB_FLAG=""
 
 for arg in "$@"; do
@@ -33,6 +35,15 @@ for arg in "$@"; do
             ;;
         --delete-db)
             DELETE_DB_FLAG="--delete_db_on_start"
+            ;;
+        --amcl)
+            USE_AMCL="true"
+            ;;
+        --slam)
+            USE_AMCL="false"
+            ;;
+        --map=*)
+            MAP_FILE="${arg#*=}"
             ;;
     esac
 done
@@ -235,9 +246,9 @@ echo "⏳ Attesa inizializzazione hardware camera (15 secondi)..."
 sleep 15
 
 # =============================================================================
-# STEP 2: AVVIO RTAB-MAP SLAM E SUITE AI DI MARCUS
+# STEP 2: AVVIO RTAB-MAP (SLAM o Supervisore 3D/Semantico)
 # =============================================================================
-echo "🗺️ Starting RTAB-Map SLAM..."
+echo "🗺️ Starting RTAB-Map..."
 > /home/robopy/robopy/logs/rtabmap.log
 # [FM-NAV-014] Di default la mappa persiste. Se richiesto esplicitamente (--delete-db o RESET_DB=1), si avvia con --delete_db_on_start
 DELETE_DB_FLAG=""
@@ -246,9 +257,18 @@ if [ "$1" = "--delete-db" ] || [ "$RESET_DB" = "1" ]; then
     DELETE_DB_FLAG="--delete_db_on_start"
 fi
 
+RTAB_EXTRA_ARGS=""
+if [ "$USE_AMCL" = "true" ]; then
+    echo "🗺️ [OPZIONE A] Modalità AMCL 2D attiva: disattivata pubblicazione TF map->odom e incremental memory in RTAB-Map (REP-105)."
+    RTAB_EXTRA_ARGS="-p publish_tf:=false -p Mem/IncrementalMemory:=false"
+else
+    echo "🗺️ [SLAM] Modalità standard SLAM attiva: RTAB-Map è autorità map->odom."
+fi
+
 nohup taskset -c 2,3 ros2 run rtabmap_slam rtabmap $DELETE_DB_FLAG --ros-args \
     --params-file /mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_controller/config/rtabmap.yaml \
     -p database_path:=/mnt/ssd/rtabmap.db \
+    $RTAB_EXTRA_ARGS \
     -r rgb/image:=/rgb/image \
     -r rgb/camera_info:=/camera/camera_info \
     -r depth/image:=/camera/depth/image_raw \
@@ -395,10 +415,12 @@ sleep 10
 # =============================================================================
 # STEP 3: AVVIO NAV2 STACK (Solo dopo che i sensori e TF odom/map sono stabili)
 # =============================================================================
-echo "🚀 Starting Nav2 Stack..."
+echo "🚀 Starting Nav2 Stack (enable_amcl=$USE_AMCL, map=$MAP_FILE)..."
 > /home/robopy/robopy/logs/nav2.log
 nohup ros2 launch robopy_controller custom_nav2_launch.py \
     params_file:=/mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_controller/config/nav2_params_jazzy.yaml \
+    enable_amcl:=$USE_AMCL \
+    map:=$MAP_FILE \
     use_sim_time:=false \
     autostart:=true \
     use_respawn:=true \

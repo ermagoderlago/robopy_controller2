@@ -10,6 +10,9 @@
 
 set -e  # Esci subito in caso di errore
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
 TARGET_HOST="robopy@marcus"
 TARGET_DIR="/mnt/ssd/robopy_controller_host"
 
@@ -133,6 +136,10 @@ rsync -avz -e "${RSYNC_SSH}" \
 rsync -avz -e "${RSYNC_SSH}" \
     --exclude='__pycache__/' --exclude='*.pyc' \
     launch/ ${TARGET_HOST}:${TARGET_DIR}/install/robopy_controller/share/robopy_controller/launch/
+
+rsync -avz -e "${RSYNC_SSH}" \
+    --exclude='__pycache__/' --exclude='*.pyc' \
+    robopy_controller/config/ ${TARGET_HOST}:${TARGET_DIR}/install/robopy_controller/share/robopy_controller/config/
 
 # --- STEP 4: PERMESSI REMOTI (eseguiti in una sola chiamata SSH) ---
 echo ""

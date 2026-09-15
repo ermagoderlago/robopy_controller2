@@ -5793,3 +5793,53 @@
       con stima automatica del bias stazionario
     rpn_old: 196
     rpn_new: 7
+- id: FM-NAV-030
+  subsystem: Nav2
+  component: localization_amcl
+  function: Allineamento metrico continuo della scansione LiDAR 2D a 360° sulla mappa
+    di occupazione durante navigazione autonoma in ambienti noti
+  failure_mode: Mancato allineamento della mappa sui punti LiDAR, sdoppiamento pareti
+    e stallo dell algoritmo SLAM/ICP deterministico a 1Hz
+  potential_cause: Deriva angolare odometrica durante rotazioni e curve che supera
+    il raggio di corrispondenza ICP (35cm); covarianza rigida (1e-5); campionamento
+    lento (1Hz) e dipendenza da approx_sync RGB-D
+  potential_effect: Nav2 pianifica traiettorie su ostacoli fantasma o pareti disallineate;
+    abort dei goal di navigazione; distorsione permanente della costmap
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-NAV-016
+  - FM-NAV-028
+  - FM-NAV-029
+  initial_scoring:
+    severity: 8
+    occurrence: 8
+    detection: 4
+    rpn: 256
+  prevention_controls: Adozione architettura Opzione A (Best Practice Industriale
+    Nav2) con nav2_amcl (filtro particellare KLD a 10Hz su /scan) e nav2_map_server,
+    disattivazione TF e memoria incrementale su RTAB-Map per prevenire conflitti REP-105,
+    e correzione covarianza yaw ruote a 0.02
+  detection_controls: Topic /amcl_pose e /particlecloud; monitoraggio errore residuo
+    laser likelihood field; test di non-regressione test_amcl_nav2_integration.py
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Avviare Marcus con flag --amcl su mappe note; esportare la mappa
+    tramite scripts/save_map.sh
+  verification_method: Test unitario test_amcl_nav2_integration.py; benchmark di tracking
+    laser su rotazioni a 0.5 rad/s
+  eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-09-15-002
+  lesson_ref: docs/lessons/nav2_slam_tuning.md#opzione-a-amcl-2d
+  date_identified: '2026-09-15'
+  last_updated: '2026-09-15'
+  history:
+  - date: '2026-09-15'
+    change: Implementata Opzione A con nav2_amcl a 10Hz, map_server e isolamento TF
+      RTAB-Map
+    rpn_old: 256
+    rpn_new: 8

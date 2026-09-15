@@ -15,6 +15,8 @@ Quando viene richiesto di analizzare, correggere o implementare un modulo o un n
 3) Utilizzare il tool di lettura per estrarre ESCLUSIVAMENTE il codice sorgente del nodo interessato e il file delle lezioni/ECO identificato. È SEVERAMENTE VIETATO caricare documentazione non pertinente al dominio corrente.
 4) Prima di emettere il codice modificato, produrre un blocco di testo prefissato con [COGNITIVE_CHECK] che attesti esplicitamente il rispetto dei vincoli di marcus_core_rules.md applicati al codice che si sta per scrivere.
 5) Se le modifiche alterano le funzionalità generali, i flussi utente o lo stato di avanzamento del robot, aggiornare la guida globale 'marcus_robot_guide.md'.
+6) Ispezionare e aggiornare la DFMEA ('fmea/dfmea.yaml') ed eseguire 'python fmea/calculate_and_report_fmea.py' per ricalcolare i Risk Priority Number.
+7) Sincronizzare le modifiche tra PC e Robot tramite './sync_marcus.sh' (recupero autonomo back-sync e hot-swap Python).
 
 ───────────────────────────────────────────────────────────────────
 
@@ -23,6 +25,8 @@ Quando viene richiesto di analizzare, correggere o implementare un modulo o un n
 
 1️⃣  marcus_core_rules.md  ⭐ NUCLEO RESIDENTE (Alta importanza)
     └─ Vincoli fisici globali (RAM, 2.5D, 16kHz audio, core pinning)
+    └─ Modalità operative di avvio: Crea Mappa (--slam) vs Naviga (--amcl)
+    └─ Disciplina di auto-aggiornamento e sincronizzazione (sync_marcus.sh)
     └─ Mappa Spoke per orientarsi nei domini
 
 2️⃣  /docs/lessons/ (Media importanza)
@@ -42,18 +46,25 @@ Quando viene richiesto di analizzare, correggere o implementare un modulo o un n
 
 ───────────────────────────────────────────────────────────────────
 
-🚀 QUICK START (3 STEPS DI VERIFICA)
+🚀 QUICK START & MODALITÀ DI AVVIO OPERATIVE
 ───────────────────────────────────────────────────────────────────
 
-Step 1: Launch the system
-    ros2 launch robopy_controller test_odometry_launch.py
+► MODALITÀ CREA MAPPA (SLAM 3D/2D con RTAB-Map):
+    ssh robopy@marcus
+    ./restart_hailo.sh --slam    # oppure default ./restart.sh
+    # Quando la mappa 2D è completa, salvala in /mnt/ssd/maps/:
+    ./scripts/save_map.sh salotto
 
-Step 2: Verify frame hierarchy
+► MODALITÀ NAVIGA SU MAPPA NOTA (AMCL 2D + Map Server - FM-NAV-030):
+    ssh robopy@marcus
+    ./restart_hailo.sh --amcl --map=/mnt/ssd/maps/salotto.yaml
+    # Zero conflitti TF (RTAB-Map publish_tf: false, ostacoli 2.5D attivi)
+
+► VERIFICA FRAME & GERARCHIA TF (REP-105):
     ros2 run tf2_tools view_frames
-
-Step 3: Run automated verification
     bash tf_verify.sh
 
 Frame standard ROS atteso:
     odom → base_link → camera_link → camera_optical_frame
                     ↘ imu_link
+    (in navigazione: map → odom emesso esclusivamente da AMCL o RTAB-Map)

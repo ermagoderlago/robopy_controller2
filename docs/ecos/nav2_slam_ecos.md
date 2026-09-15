@@ -327,10 +327,25 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
   * **[CONFIGURAZIONE SLAM]** `robopy_controller/config/rtabmap.yaml`:
     - Abilitato `RGBD/ProximityGlobalScanMap: "true"`: RTAB-Map aggrega ora tutti i laser scan dei nodi vicini entro un raggio locale in una submap densa delle pareti, eseguendo l'ICP 2D contro la stanza intera anziché contro un singolo fotogramma ToF.
     - Esteso `RGBD/LocalRadius: "3.5"` (da 2.5m) e `RGBD/ProximityPathMaxNeighbors: "10"` per coprire l'intera ampiezza delle stanze domestiche.
-    - Ampliato il bacino di cattura ICP `Icp/MaxCorrespondenceDistance: "0.35"` (da 0.30m, range SPEC-02 Zona Verde) e ridotta la soglia minima di corrispondenza `Icp/CorrespondenceRatio: "0.20"` (da 0.25).
-    - Calibrata la verifica di loop closure visivo: `Vis/MinInliers: "10"` (da 15) e `Vis/InlierDistance: "0.15"` (da 0.10m) per prevenire lo scarto ingiustificato di loop con 20+ feature match.
-    - Incrementato `Rtabmap/DetectionRate: "2.0"` (da 1.5 Hz) per campionare con passi angolari più piccoli e impedire accumuli di errore durante le rotazioni.
-    - Disabilitato esplicitamente `octomap: false` per sopprimere i warning spuri di occupanza 3D a terminale.
+## 📈 ECO-2026-09-15-002: Adozione Opzione A (AMCL 2D + Map Server) per Localizzazione ad Alta Frequenza (10Hz) su Mappe Note
+* **Stato:** ✅ **Completato, Testato e Attivo su Hardware Host**
+* **Autore:** 🤖 **Antigravity Engine**
+* **DFMEA Correlati:** `FM-NAV-030`, `FM-NAV-028`, `FM-NAV-029`
+* **Descrizione:** Risoluzione definitiva del disallineamento intermittente tra scansione LiDAR e mappa d'occupabilità in navigazione autonoma tramite adozione dell'architettura industriale standard (AMCL 2D + Map Server). La localizzazione globale a 10 Hz viene affidata al filtro particellare di `nav2_amcl` alimentato da RPLIDAR C1, mentre RTAB-Map opera come supervisore 3D/semantico con `publish_tf: false` (evitando conflitti REP-105).
+* **Modifiche apportate:**
+  * **[CONFIGURAZIONE NAV2]** `robopy_controller/config/nav2_params_jazzy.yaml`:
+    - Inserito blocco `map_server` per pubblicazione `/map` statica da file YAML.
+    - Inserito blocco `amcl` ottimizzato per Pi 5 con 300-1500 particelle KLD, modello sensoriale `likelihood_field` e aggiornamento continuo a 10 Hz.
+  * **[LAUNCH SYSTEM]** `launch/custom_nav2_launch.py`:
+    - Aggiunti argomenti `enable_amcl` e `map`.
+    - Inseriti condizionalmente i nodi `map_server`, `amcl` e `lifecycle_manager_localization`.
+  * **[DRIVER MOTORI]** `robopy_controller/nodes/waveshare_motor_driver.py`:
+    - Corretta la matrice di covarianza dinamica in moto da `1e-5` a `0.02` su yaw e `1e-4` su x/y per eliminare rigidità artificiali nell'ottimizzatore odometrico.
+  * **[ORCHESTRAZIONE AVVIO]** `restart_hailo.sh`:
+    - Introdotto supporto ai flag `--amcl` e `--map=<path>`, disabilitando `publish_tf` su RTAB-Map in modalità AMCL per garantire autorità singola su `map -> odom`.
+  * **[TOOLING]** `scripts/save_map.sh`:
+    - Creato script one-touch per esportare `/map` in formato standard YAML/PGM da RTAB-Map.
+
 
 
 

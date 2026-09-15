@@ -37,6 +37,21 @@ Per garantire la sopravvivenza hardware, la fluidità di esecuzione ed evitare i
 * **Divieto Assoluto Scrittura Mappa su MicroSD:** È severamente vietato salvare, copiare o lasciare che RTAB-Map generi il database cartografico sulla memoria flash MicroSD (`/dev/mmcblk0p2` o directory `~/.ros/` senza symlink integro). L'accumulo di nodi e descrittori visivi DBoW3 provoca la saturazione del 100% della MicroSD (`[Errno 28] No space left on device`), runaway log e usura distruttiva delle celle flash.
 * **Configurazione Obbligatoria:** Sia in `robopy_controller/config/rtabmap.yaml` che nei parametri di avvio in `restart_hailo.sh`, il parametro `database_path` deve essere esplicitamente e permanentemente impostato su `/mnt/ssd/rtabmap.db`.
 
+### 6. Modalità Operative di Avvio: Crea Mappa (SLAM) vs Navigazione (AMCL 2D - FM-NAV-030)
+* **Modalità Crea Mappa (SLAM 3D/2D con RTAB-Map):**
+  * Avvio: `./restart_hailo.sh --slam` (oppure default `./restart_hailo.sh` / `./restart.sh`).
+  * Salvataggio rapido mappa 2D: `./scripts/save_map.sh <nome_mappa>` (esporta in `/mnt/ssd/maps/<nome_mappa>.yaml` e `.pgm` via `nav2_map_server map_saver_cli`).
+* **Modalità Naviga (Navigazione Mappa Statica con AMCL 2D):**
+  * Avvio: `./restart_hailo.sh --amcl --map=/mnt/ssd/maps/<nome_mappa>.yaml` (default se omesso: `/mnt/ssd/maps/salotto.yaml`).
+  * **Regola Inviolabile Unicità Autorità TF `map -> odom` (REP-105):** In modalità AMCL, RTAB-Map viene avviato con `publish_tf:=false` e `Mem/IncrementalMemory:=false`. È severamente vietato che AMCL e RTAB-Map pubblichino contemporaneamente `map -> odom`. Questa modalità azzera lo sfasamento e la duplicazione dei muri da wheel scrub, mantenendo al contempo attive la proiezione semantica 2.5D, la prevenzione scale e le memorie visive TRINITY.
+
+### 7. Auto-Aggiornamento del Progetto e Disciplina di Sincronizzazione (Book-to-Skill V2)
+* **Sincronizzazione Bidirezionale Host (PC ↔ Pi 5):** Tramite `./sync_marcus.sh` con tunnel multiplexato SSH ControlMaster.
+  * **Anti-Flattening Back-Sync (Robot ➔ PC):** Recupera automaticamente dal robot skills generate dinamicamente, diari evolutivi, log, DFMEA (`fmea/dfmea.yaml`), schede tecniche e lezioni prima di qualsiasi push.
+  * **Forward-Sync (PC ➔ Robot):** Esegue rsync con `-u` (`--update`) per non sovrascrivere mai file aventi data più recente sul robot.
+  * **Python Hot-Swap:** Aggiorna a caldo `nodes/`, `robot_ai/` e `launch/` nella cartella `install/` senza richiedere ricompilazioni `colcon build`.
+* **Ciclo di Auto-Evoluzione Autonoma (Project Autopoiesis):** Eseguibile sul robot via `python scripts/run_autonomous_evolution_cycle.py`. Seleziona i failure mode a più alto RPN da `fmea/dfmea.yaml`, valida il codice con `SecurityValidator` (AST), lo collauda in `SkillSandbox`, e obbliga l'aggiornamento simultaneo di `/docs/lessons/`, `/docs/ecos/`, DFMEA (`python fmea/calculate_and_report_fmea.py`) ed `evolution_journal.md`. Qualsiasi tocco alla Zona Rossa deve essere respinto con apertura RFC in `docs/ideas/RED_ZONE_IDEAS_RFC.md`.
+
 ---
 
 ## 🗺️ Indice Operativo dei Domini (Mappa Spoke)

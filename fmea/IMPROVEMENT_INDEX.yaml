@@ -150,6 +150,13 @@ improvements:
     status: "COMPLETED"
     domain: "nav2_slam"
 
+  FM-NAV-030:
+    title: "Miglioramento Navigazione: Best Practice AMCL 2D e Map Server per Localizzazione ad Alta Frequenza (10Hz) su Mappe Note"
+    file: "docs/improvements/IMP-NAV-030_amcl_2d_localization.md"
+    status: "COMPLETED"
+    domain: "nav2_slam"
+
+
 
 
 

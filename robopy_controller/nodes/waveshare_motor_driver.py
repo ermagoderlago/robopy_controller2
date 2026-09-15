@@ -25,7 +25,7 @@ class WaveshareMotorDriver(Node):
         super().__init__('waveshare_motor_driver')
         
         # --- Parameter Declaration ---
-        self.declare_parameter('serial_port', '/dev/ttyUSB0')
+        self.declare_parameter('serial_port', '/dev/motor_driver')
         self.declare_parameter('baud_rate', 115200)
         self.declare_parameter('wheel_radius', 0.0335)      # in meters (67mm diameter)
         self.declare_parameter('wheel_separation', 0.285)   # track width in meters (285mm)
@@ -328,10 +328,12 @@ class WaveshareMotorDriver(Node):
         
         if not is_zero:
             self.last_active_cmd_time = now
-        elif hasattr(self, 'last_active_cmd_time') and (now - self.last_active_cmd_time) < 0.35:
-            # Ignore intermittent zero commands from idle nodes (Nav2 controller_server)
-            # while an active command is being published
-            return
+            self.consecutive_zero_count = 0
+        else:
+            self.consecutive_zero_count = getattr(self, 'consecutive_zero_count', 0) + 1
+            if hasattr(self, 'last_active_cmd_time') and (now - self.last_active_cmd_time) < 0.20 and self.consecutive_zero_count < 2:
+                # Filter single isolated zero glitch if an active stream is flowing
+                return
 
         self.get_logger().info(f"📥 Received cmd_vel: v={v:.4f}, w={w:.4f}", throttle_duration_sec=2.0)
         
@@ -420,14 +422,23 @@ class WaveshareMotorDriver(Node):
         self.last_imu_time = now
 
     def speed_to_duty(self, speed_mps):
-        """Converts speed in m/s to normalized motor duty [-1.0, 1.0] with deadband compensation."""
+        """Converts speed in m/s to normalized motor duty [-1.0, 1.0] with closed-loop physical scaling."""
         if abs(speed_mps) < 0.003:
             return 0.0
         
         sign = 1.0 if speed_mps > 0 else -1.0
-        # Linear scaling from [0, max_speed] mapped to [min_duty, 1.0]
-        ratio = min(abs(speed_mps) / self.max_linear_speed, 1.0)
-        duty = self.motor_min_duty_cycle + (1.0 - self.motor_min_duty_cycle) * ratio
+        clamped_mps = min(abs(speed_mps), self.max_linear_speed)
+        
+        if getattr(self, 'enable_esp32_pid', True):
+            # Physical velocity mapping to ESP32 closed-loop target (MAX_TICKS_PER_20MS = 118.0)
+            # hw_max_mps corresponds to 100% duty (118 ticks in 20ms): ~1.89 m/s
+            meters_per_tick = (2.0 * math.pi * self.wheel_radius) / self.ticks_per_rev
+            hw_max_mps = (118.0 * meters_per_tick) / 0.020
+            duty = clamped_mps / hw_max_mps
+        else:
+            ratio = min(clamped_mps / self.max_linear_speed, 1.0)
+            duty = self.motor_min_duty_cycle + (1.0 - self.motor_min_duty_cycle) * ratio
+            
         return sign * min(duty, 1.0)
 
     def send_speeds(self, left, right):
@@ -503,8 +514,9 @@ class WaveshareMotorDriver(Node):
                 duty_left = max(min(duty_left, 0.25), -0.25)
                 duty_right = max(min(duty_right, 0.25), -0.25)
 
-            duty_left = max(min(duty_left * scale, 1.0), -1.0)
-            duty_right = max(min(duty_right * scale, 1.0), -1.0)
+            if not getattr(self, 'enable_esp32_pid', True):
+                duty_left = max(min(duty_left * scale, 1.0), -1.0)
+                duty_right = max(min(duty_right * scale, 1.0), -1.0)
 
         if self.invert_left_motor:
             duty_left = -duty_left
@@ -736,6 +748,16 @@ class WaveshareMotorDriver(Node):
                     delta_ticks_left = 0
                 if abs(delta_ticks_right) <= self.encoder_dead_zone:
                     delta_ticks_right = 0
+
+            # TIER 5: Direction consistency check (FM-MOT-007)
+            # In straight commanded motion, wheel ticks cannot have opposite sign to commanded direction
+            # (suppresses PCNT direction-level latching latency artifacts from DIR=LOW state)
+            if self.cmd_linear_x > 0.02 and abs(self.cmd_angular_z) < 0.10:
+                if delta_ticks_left < 0: delta_ticks_left = 0
+                if delta_ticks_right < 0: delta_ticks_right = 0
+            elif self.cmd_linear_x < -0.02 and abs(self.cmd_angular_z) < 0.10:
+                if delta_ticks_left > 0: delta_ticks_left = 0
+                if delta_ticks_right > 0: delta_ticks_right = 0
             
         self.prev_left_ticks = left_ticks
         self.prev_right_ticks = right_ticks
@@ -828,12 +850,17 @@ class WaveshareMotorDriver(Node):
         self.v_robot = v_robot
         self.w_robot = w_robot
         
-        # --- DYNAMIC COVARIANCES ---
+        # --- DYNAMIC COVARIANCES (FM-NAV-030 & FM-NAV-028) ---
+        # A robot fermo l'incertezza e confinata; in moto la cinematica differenziale
+        # accumula incertezza di heading per micro-slittamento (~8°), per cui pose_cov_yaw
+        # e tarata realisticamente a 0.02 per consentire l'aggancio rapido di AMCL e GTSAM ICP.
         if self.motors_stopped:
-            pose_cov = 1e-3
+            pose_cov_xy = 1e-3
+            pose_cov_yaw = 1e-3
             twist_cov = 1e-3
         else:
-            pose_cov = 1e-5
+            pose_cov_xy = 1e-4
+            pose_cov_yaw = 0.02
             twist_cov = 1e-4
             
         # Publish Odometry
@@ -848,9 +875,9 @@ class WaveshareMotorDriver(Node):
         
         # Diagonal covariance matrices (6x6 flattened to 36)
         odom.pose.covariance = [0.0] * 36
-        odom.pose.covariance[0] = pose_cov    # x
-        odom.pose.covariance[7] = pose_cov    # y
-        odom.pose.covariance[35] = pose_cov   # yaw
+        odom.pose.covariance[0] = pose_cov_xy    # x
+        odom.pose.covariance[7] = pose_cov_xy    # y
+        odom.pose.covariance[35] = pose_cov_yaw  # yaw
         
         odom.twist.twist = Twist(
             linear=Vector3(x=v_robot, y=0.0, z=0.0),

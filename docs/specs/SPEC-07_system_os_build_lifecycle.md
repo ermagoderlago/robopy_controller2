@@ -8,11 +8,14 @@
   - `robopy_controller.nodes.cloud_watchdog_node`
   - `robopy_controller.nodes.performance_monitor`
 - **Script di Build, Deploy & Sistema:**
-  - `sync_marcus.sh`, `compile_wsl.sh`, `restart.sh`, `restart_hailo.sh`, `CMakeLists.txt`, `setup.py`, `package.xml`
+  - `sync_marcus.sh` (Sincronizzazione bidirezionale intelligente SSH ControlMaster con Anti-Flattening Guard e Python Hot-Swap)
+  - `restart_hailo.sh`, `restart.sh` (Launcher di produzione con flag `--slam` per mappatura 3D/2D e `--amcl --map=...` per navigazione su mappa nota)
+  - `scripts/save_map.sh` (Esportatore rapido mappa 2D Nav2 da `/map` in `/mnt/ssd/maps/` via `map_saver_cli`)
+  - `compile_wsl.sh`, `CMakeLists.txt`, `setup.py`, `package.xml`
   - `/etc/udev/rules.d/99-marcus-serial.rules` (Mappatura deterministica porte seriali USB CP2102N per RPLIDAR e Motor Driver)
   - `/home/robopy/lidar_ws` (Workspace isolato driver C1 compilato con `MAKEFLAGS="-j1"`)
 - **Hardware Diretto:** Raspberry Pi 5 (Broadcom BCM2712 Quad-core Cortex-A76 @ 2.4GHz, 4GB LPDDR4X SDRAM, HAT PCIe NVMe SSD).
-- **DFMEA Correlati:** `FM-SYS-001` (OOM Kill indotto dal compilatore), `FM-SYS-002` (Exec format error BOM UTF-8), `FM-SYS-008` (RAM Pressure e coordinamento lifecycle), `FM-MOT-004` (Conflitto enumerazione porte USB CP2102N).
+- **DFMEA Correlati:** `FM-SYS-001` (OOM Kill indotto dal compilatore), `FM-SYS-002` (Exec format error BOM UTF-8), `FM-SYS-008` (RAM Pressure e coordinamento lifecycle), `FM-NAV-030` (Dual-mode SLAM/AMCL), `FM-MOT-004` (Conflitto enumerazione porte USB CP2102N).
 
 ---
 

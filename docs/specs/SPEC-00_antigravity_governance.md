@@ -17,6 +17,13 @@ Quando Antigravity è attivo sul robot:
 4. **Divieto Assoluto di Forzatura Soluzioni su Raspberry Pi (Zero-Forcing Policy):** Mentre su PC lo sviluppatore umano può decidere di forzare una modifica o ignorare un warning, sul Raspberry Pi l'agente Antigravity NON HA ALCUNA AUTORIZZAZIONE A FORZARE. Se una soluzione fallisce la validazione AST (`SecurityValidator`) o lo smoke test cinematico in `SkillSandbox`, viene scartata (max 3 tentativi di retry, poi abort); se tocca la Zona Rossa, viene obbligatoriamente dirottata in `RED_ZONE_IDEAS_RFC.md`.
 5. **Dicitura Obbligatoria negli ECO:** Ogni Engineering Change Order creato a seguito di codice o refactoring generato dal robot deve riportare esplicitamente: `* **Autore:** 🤖 **Generata autonomamente da Marcus** (Antigravity Engine)`.
 6. **Modello AI Primario:** L'agente adotta come modello primario la famiglia **Gemini 3.8** (`gemini-3.8-flash` con extended thinking integrato / `gemini-3.8-pro`), con fallback trasparente a serie 2.5.
+7. **Disciplina di Auto-Aggiornamento e Sincronizzazione Progetto (Book-to-Skill & Sync):**
+   * **Sincronizzazione PC ↔ Robot (`sync_marcus.sh`):**
+     - *Back-Sync Protetto (Robot ➔ PC):* Recupera preventivamente skills generate dinamicamente (`skills/`), diari evolutivi (`docs/evolution/`), report DFMEA (`fmea/`) e logs prima di qualsiasi invio di codice, prevenendo l'azzeramento involontario (Anti-Flattening Guard).
+     - *Forward-Sync Protetto (PC ➔ Robot):* Esegue rsync con `-u` (`--update`), impedendo la sovrascrittura di file più recenti sul robot.
+     - *Python Hot-Swap:* Sincronizza a caldo `nodes/`, `robot_ai/` e `launch/` nella directory `install/` senza richiedere ricompilazioni lente `colcon build`.
+     - *Permessi & CRLF Sanitize:* Applica `chmod +x` e rimuove i ritorni a capo Windows `\r` dagli script shell.
+   * **Ciclo di Auto-Evoluzione Autonoma (`scripts/run_autonomous_evolution_cycle.py`):** L'agente esegue cicli evolutivi guidati dall'RPN di `fmea/dfmea.yaml`, validando il codice tramite AST (`SecurityValidator`) ed esecuzione protetta (`SkillSandbox`). Ogni ciclo completato aggiorna le lezioni atomiche (`docs/lessons/`), registra un ECO formale (`docs/ecos/`), ricalcola l'FMEA (`python fmea/calculate_and_report_fmea.py`) e archivia l'esperienza in `docs/evolution/evolution_journal.md`. Qualsiasi tentativo di toccare la Zona Rossa deve essere respinto con annotazione in `docs/ideas/RED_ZONE_IDEAS_RFC.md`.
 
 ---
 

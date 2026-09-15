@@ -80,9 +80,12 @@ routes:
       - "robopy_controller/config/rtabmap*.yaml"
       - "robopy_controller/config/ekf*.yaml"
       - "launch/fast_flow_launch.py"
+      - "launch/custom_nav2_launch.py"
+      - "scripts/save_map.sh"
       - "tests/test_negative_obstacles.py"
       - "tests/test_semantic_costmap_injector.py"
       - "tests/test_extrinsic_camera_calibrator.py"
+      - "test/unit/test_amcl_nav2_integration.py"
     key_topics:
       - "/map"
       - "/costmap/**"
@@ -94,6 +97,7 @@ routes:
       - "Rilevamento ostacoli negativi / drop-off attivo (dislivello > 15 cm letale)"
       - "Costmap combination_method: 1 (Maximum)"
       - "Albero TF REP-105: odom -> base_link -> camera_link -> camera_optical_frame"
+      - "Autorità unica TF map -> odom (REP-105): RTAB-Map publish_tf=false se AMCL è attivo"
       - "Path nav2_survival_bt.xml installato fisso"
 
   # ----------------------------------------------------------------------------
@@ -254,6 +258,7 @@ routes:
       - "compile_wsl.sh"
       - "restart.sh"
       - "restart_hailo.sh"
+      - "scripts/save_map.sh"
       - "build_clang.sh"
       - "bringup_fix.sh"
       - "robopy_controller/nodes/system_lifecycle_coordinator_node.py"
@@ -285,6 +290,7 @@ routes:
       - "fmea/**"
       - ".agent/**"
       - "tests/**"
+      - "scripts/run_autonomous_evolution_cycle.py"
     mandatory_red_zone_checks:
       - "Vietato committare direttamente su main/master (usare branch feature)"
       - "Divieto di bypassare o rilassare le schede tecniche SPEC-XX"

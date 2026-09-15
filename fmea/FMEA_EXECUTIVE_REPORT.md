@@ -1,5 +1,5 @@
 # 📊 Report Esecutivo DFMEA - Marcus AI Robot Platform
-**Data Generazione:** 2026-09-15 13:20:15  
+**Data Generazione:** 2026-09-15 22:33:38  
 **Metodologia:** AIAG-VDA FMEA Standard con Regola Override Severità ($S \ge 9 \implies$ REVISION_MANDATORY)
 
 ---
@@ -8,8 +8,8 @@
 
 | Metrica | Valore | Note / Impatto |
 | :--- | :---: | :--- |
-| **Totale Modalità di Guasto (FM)** | **125** | Copertura integrata dei sottosistemi Marcus |
-| **🟢 Risk Level LOW** | **91** | $RPN_{res} \le 50$ (Sotto controllo) |
+| **Totale Modalità di Guasto (FM)** | **126** | Copertura integrata dei sottosistemi Marcus |
+| **🟢 Risk Level LOW** | **92** | $RPN_{res} \le 50$ (Sotto controllo) |
 | **🟡 Risk Level MEDIUM** | **7** | $51 \le RPN_{res} \le 199$ (Monitoraggio attivo) |
 | **🟠 Risk Level HIGH** | **2** | $200 \le RPN_{res} \le 349$ (Mitigazione obbligatoria) |
 | **🔴 Risk Level CRITICAL** | **0** | $RPN_{res} \ge 350$ (Blocco rilasci) |
@@ -17,7 +17,7 @@
 
 ### Ripartizione per Sottosistema:
 - **System/DDS:** 5 failure modes
-- **Nav2:** 13 failure modes
+- **Nav2:** 14 failure modes
 - **VUI Audio:** 21 failure modes
 - **Vision:** 2 failure modes
 - **Hardware/Power:** 10 failure modes
@@ -197,6 +197,7 @@
 | **FM-SYS-010** | System/Support | `skill_sandbox / filesystem` | Saturazione progressiva dello storage flash SSD NVMe a causa dell'accumulo di script di prova e log di sandbox | 8 | 1 | 1 | **8** | `LOW` | `CLOSED` | [`marcus_core_rules.md`](marcus_core_rules.md) |
 | **FM-NAV-026** | Navigation & SLAM | `restart_hailo.sh / lifecycle_manager_navigation` | Abort del bringup Nav2 e stallo dei nodi in inactive per timeout Invalid frame ID map | 8 | 1 | 1 | **8** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#prevenzione-errore-invalid-frame-id-map`](docs/lessons/nav2_slam_tuning.md#prevenzione-errore-invalid-frame-id-map) |
 | **FM-MOT-006** | Actuation & Motion | `waveshare_motor_driver` | Runaway ad alta frequenza dell'encoder a veicolo fermo (bouncing su transizione magnetica Hall) | 8 | 1 | 1 | **8** | `LOW` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#hall-standstill-jitter`](docs/lessons/actuation_motor_driver.md#hall-standstill-jitter) |
+| **FM-NAV-030** | Nav2 | `localization_amcl` | Mancato allineamento della mappa sui punti LiDAR, sdoppiamento pareti e stallo dell algoritmo SLAM/ICP deterministico a 1Hz | 8 | 1 | 1 | **8** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#opzione-a-amcl-2d`](docs/lessons/nav2_slam_tuning.md#opzione-a-amcl-2d) |
 | **FM-COG-002** | AI/Cognitive | `conversation_manager / llm_service` | Perdita dell'acronimo di identità e mancata ricerca RAG in conversazione | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#identita-dellacronimo-e-ricerca-semantica-rag-attiva`](docs/lessons/orchestration_and_rag.md#identita-dellacronimo-e-ricerca-semantica-rag-attiva) |
 | **FM-CPU-001** | Vision/CPU | `hailo_bridge_node` | Saturazione CPU da pipeline annotazione video sincrona a 30 Hz in rgb_callback | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/vision_hailo_npu.md`](docs/lessons/vision_hailo_npu.md) |
 | **FM-TRI-005** | AI/Trinity | `metaprompt_fusion` | Saturazione del budget token con troncamento silenzioso da parte dell'LLM o errore di context length | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#trinity-architecture`](docs/lessons/orchestration_and_rag.md#trinity-architecture) |
