@@ -23,34 +23,34 @@ rtabmap:
     Rtabmap/CreateIntermediateNodes: "false"
     Mem/NotLinkedNodesKept: "true"
     Mem/SaveRawData: "false"
-    Mem/IncrementalMemory: "true"  # Modalità Mappatura attiva per nuova scansione 360° LiDAR + Depth
+    Mem/IncrementalMemory: "true"  # Modalità Mappatura attiva per nuova scansione 360° LiDAR
 
     # Timing e performance (RPi5 4GB)
     Rtabmap/TimeThr: "0"
     Rtabmap/MemoryThr: "300"
     Rtabmap/DetectionRate: "1.0"  # 1.0 Hz — conforme a SPEC-02 Zona Verde (protezione CPU Pi 5)
 
-    # RGBD
+    # Prossimità 2D LiDAR (Loop closure geometrico puro, 0 dipendenza dalla camera)
     RGBD/ProximityBySpace: "true"
     RGBD/ProximityAngle: "360"     # Abilita proximity loop a 360° con LiDAR indipendentemente dall'orientamento
     RGBD/LocalRadius: "3.5"        # Raggio ricerca prossimità esteso a 3.5m per coprire l'intera stanza
-    RGBD/ProximityGlobalScanMap: "true" # Match ICP contro la submap locale aggregata (massima stabilità 2D LiDAR)
+    RGBD/ProximityGlobalScanMap: "false" # Match locale pulito nodo-su-nodo (evita distorsioni da accumulo nuvola globale)
     RGBD/ProximityPathMaxNeighbors: "10"
     RGBD/ProximityMaxGraphDepth: "0"
-    RGBD/AngularUpdate: "0.20"     # ~11.5° di rotazione minima (riduce inserimenti ridondanti)
-    RGBD/LinearUpdate: "0.20"      # 20cm di traslazione minima (ottimizza carico GTSAM e DBoW3)
+    RGBD/AngularUpdate: "0.15"     # ~8.5° di rotazione minima (frequenza ottimale keyframes)
+    RGBD/LinearUpdate: "0.15"      # 15cm di traslazione minima
     RGBD/OptimizeMaxError: "0"     # Disabilita rigetto spurio del loop closure: ICP fa validazione metrica diretta
-    RGBD/LoopClosureRejectionWithGraph: "false" # Validazione geometrica affidata a corrispondenze ICP LiDAR
+    RGBD/LoopClosureRejectionWithGraph: "false"
 
     # Ottimizzatore grafo
     Optimizer/Strategy: "1"       # GTSAM
     Optimizer/Iterations: "30"
     Optimizer/Slam2D: "true"
 
-    # Griglia occupancy con fusione Multi-Sensore (LiDAR 360° + 2.5D Depth Camera)
+    # Griglia occupancy PURA da LiDAR RPLIDAR C1 (Zero rumore stereo depth, perfetta al buio)
     Grid/RangeMin: "0.05"
-    Grid/RangeMax: "16.0"
-    Grid/Sensor: "2"              # 2 = Both (LiDAR 2D 360° + Depth Camera 3D)
+    Grid/RangeMax: "12.0"         # Range nominale RPLIDAR C1 ToF
+    Grid/Sensor: "0"              # 0 = Laser scan ONLY (elimina i falsi punti stereo e funziona al buio)
     Grid/FromDepth: "false"       # false = Usa lo scan LiDAR come base metrica primaria
     Grid/3D: "false"
     Grid/RayTracing: "true"
@@ -63,30 +63,28 @@ rtabmap:
     Grid/FootprintWidth: "0.18"
     Grid/FootprintHeight: "0.10"
 
-    # Loop Closure — DBoW3 nativo C++ (ORB/FAST) (FM-NAV-016)
-    Kp/MaxFeatures: "1000"
-    Kp/MinFeatures: "30"          # Scarta frame con meno di 30 feature visive (guardrail pareti spoglie)
-    Kp/DetectorStrategy: "8"      # 8 = ORB / FAST (DBoW3 nativo C++)
-    Kp/RoiRatios: "0.0 0.0 0.10 0.0" # Taglia il 10% inferiore dell'immagine (evita falsi match su riflessi/texture pavimento)
-    Vis/FeatureType: "6"          # GFTT/BRIEF — veloce su RPi5
-    Vis/MinInliers: "10"          # Calibrato per OAK-D Lite depth range (evita scarto spurio loop validi)
-    Vis/InlierDistance: "0.15"    # Tolleranza rumore stereoscopico depth
-    Vis/PnPReprojError: "2.5"     # Tolleranza riproiezione PnP rigida contro aliasing percettivo
-    Vis/CorType: "0"              # Features nativo C++
-    Rtabmap/LoopThr: "0.20"       # Soglia di similarità innalzata a 0.20 (previene falsi loop in corridoi simmetrici)
-    RGBD/LoopClosureReextractFeatures: "true"
+    # Feature visive azzerate: SLAM 100% indipendente dalla luce (funziona al buio completo)
+    Kp/MaxFeatures: "0"           # Disabilita vincolo visivo
+    Kp/MinFeatures: "0"           # Accetta frame con 0 feature visive (buio pesto)
+    Kp/DetectorStrategy: "8"
+    Rtabmap/LoopThr: "0.20"
 
-    # Registrazione e Allineamento Scan Matching (LiDAR 2D ICP Loop Closure & Continuous Tracking)
-    Reg/Strategy: "2"            # 2 = Visual + ICP (Visual DBoW3 per vincolo 3D globale senza scivolamento lungo pareti, ICP per snapping millimetrico LiDAR ToF)
-    Reg/Force3DoF: "true"
-    RGBD/NeighborLinkRefining: "false" # Disabilitato per link consecutivi: l'odometria fusa da encoder + gyro 42Hz è esatta. Evita scivolamento ICP su muri lisci.
-    Icp/Strategy: "0"            # 0 = Point-to-Point 2D standard veloce
-    Icp/PointToPlane: "false"    # Point-to-point per scan 2D planare senza normali
-    Icp/VoxelSize: "0.03"        # 3cm voxel filtering per match laser accurato
-    Icp/MaxCorrespondenceDistance: "0.40" # 40cm bacino di cattura ICP per garantire chiusure loop fluide
-    Icp/CorrespondenceRatio: "0.15"       # 15% corrispondenze minime (favorisce chiusure d'anello rapide al rientro)
-    Icp/MaxTranslation: "0.60"   # Tolleranza correzione traslazione fino a 60cm
-    Icp/MaxRotation: "0.90"      # Tolleranza correzione rotazione fino a ~51° (0.90 rad)
+    # Registrazione e Scan Matching: PURE 2D LIDAR ICP (Point-to-Plane)
+    Reg/Strategy: "1"            # 1 = PURE ICP LiDAR (Zero dipendenza da camera, perfetto al buio)
+    Reg/Force3DoF: "true"        # Vincolo rigoroso sul piano 2D (x, y, yaw)
+    RGBD/NeighborLinkRefining: "false" # Consecutive links trust gyro-fused odom (evita scivolamento su pareti lisce)
+    Icp/Strategy: "0"            # 0 = Standard Point-to-Point / Point-to-Plane
+    Icp/PointToPlane: "true"     # CRITICO: Calcolo normali 2D su scan laser (blocca lo scivolamento e chiude i loop)
+    Icp/PointToPlaneK: "5"       # Calcolo normale su 5 punti vicini (fitting retta parete)
+    Icp/PointToPlaneRadius: "0.10"
+    Icp/PointToPlaneNormalsMinRelativeError: "0.01"
+    Icp/PointToPlaneLowComplexity: "false"
+    Icp/VoxelSize: "0.02"        # 2cm voxel filtering per match laser accurato
+    Icp/MaxCorrespondenceDistance: "0.35" # 35cm bacino di cattura ICP
+    Icp/CorrespondenceRatio: "0.20"       # 20% corrispondenze minime
+    Icp/MaxTranslation: "0.50"   # Tolleranza correzione traslazione fino a 50cm
+    Icp/MaxRotation: "0.78"      # Tolleranza correzione rotazione fino a ~45° (0.78 rad)
     Icp/Iterations: "40"
-    Icp/OutlierRatio: "0.85"
+    Icp/OutlierRatio: "0.80"
+    Icp/Epsilon: "0.001"
 

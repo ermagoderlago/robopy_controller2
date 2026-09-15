@@ -4367,12 +4367,18 @@
   eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-08-28-NAV-DFMEA-FIXES
   lesson_ref: docs/lessons/nav2_slam_tuning.md#rtabmap-anti-aliasing
   date_identified: '2026-08-28'
-  last_updated: '2026-08-28'
+  last_updated: '2026-09-16'
   history:
   - date: '2026-08-28'
     change: Rafforzata la soglia di similarità e verifica geometrica RANSAC in rtabmap.yaml
     rpn_old: 378
     rpn_new: 36
+  - date: '2026-09-16'
+    change: Implementato ICP Point-to-Plane 2D (Icp/PointToPlane=true, K=5) e disattivata
+      dipendenza visiva (Reg/Strategy=1, Kp/MinFeatures=0, Grid/Sensor=0) per operatività
+      autonoma al buio totale ed eliminazione scorrimento pareti
+    rpn_old: 36
+    rpn_new: 18
 - id: FM-NAV-017
   subsystem: Nav2
   component: fast_flow_vo_cpp

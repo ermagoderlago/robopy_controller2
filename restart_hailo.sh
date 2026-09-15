@@ -145,6 +145,11 @@ sleep 1
 # STEP 1: AVVIO CAMERA E TRASFORMATE STATICHE (Subito)
 # =============================================================================
 echo "⚙️ Starting waveshare_motor_driver..."
+# Auto-sync driver node to install site-packages for immediate deployment without full build
+if [ -f "/mnt/ssd/robopy_controller_host/robopy_controller/nodes/waveshare_motor_driver.py" ]; then
+    cp -u /mnt/ssd/robopy_controller_host/robopy_controller/nodes/waveshare_motor_driver.py \
+          /mnt/ssd/robopy_controller_host/install/robopy_controller/lib/python3.11/site-packages/robopy_controller/nodes/waveshare_motor_driver.py 2>/dev/null || true
+fi
 > /home/robopy/robopy/logs/waveshare_motor_driver.log
 nohup ros2 run robopy_controller waveshare_motor_driver --ros-args \
     -p serial_port:=/dev/motor_driver \
@@ -265,6 +270,13 @@ if [ "$USE_AMCL" = "true" ]; then
     RTAB_EXTRA_ARGS="-p publish_tf:=false -p Mem/IncrementalMemory:=false"
 else
     echo "🗺️ [SLAM] Modalità standard SLAM attiva: RTAB-Map è autorità map->odom."
+fi
+
+# Auto-sync rtabmap.yaml config to install share directory
+if [ -f "/mnt/ssd/robopy_controller_host/robopy_controller/config/rtabmap.yaml" ]; then
+    mkdir -p /mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_controller/config
+    cp -u /mnt/ssd/robopy_controller_host/robopy_controller/config/rtabmap.yaml \
+          /mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_controller/config/rtabmap.yaml 2>/dev/null || true
 fi
 
 nohup taskset -c 2,3 ros2 run rtabmap_slam rtabmap $DELETE_DB_FLAG --ros-args \

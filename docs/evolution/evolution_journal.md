@@ -178,3 +178,153 @@ Questo file costituisce il registro permanente della curiosità, delle indagini 
 - **Esito del Ciclo:** `THEME_SELECTED`
 
 ---
+
+### [DAILY_FOCUS_2026-09-16] Hardware/Power - 2026-09-16 00:22:59
+- **Failure Mode Riferito:** FM-NAV-018
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema Hardware/Power.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema giornaliero: Mitigazione FMEA [FM-NAV-018]: Cecità geometrica totale al di fuori del campo visivo primario (FOV 72.9 H) con rischio di collisione laterale o posteriore. Pipeline multi-modello allocata (gemini-3.1-pro + gemini-3.8-flash).
+- **Esito del Ciclo:** `THEME_SELECTED`
+
+---
+
+### [DAILY_FOCUS_2026-09-16] Hardware/Power - 2026-09-16 00:22:59
+- **Failure Mode Riferito:** FM-NAV-018
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema Hardware/Power.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema giornaliero: Mitigazione FMEA [FM-NAV-018]: Cecità geometrica totale al di fuori del campo visivo primario (FOV 72.9 H) con rischio di collisione laterale o posteriore. Pipeline multi-modello allocata (gemini-3.1-pro + gemini-3.8-flash).
+- **Esito del Ciclo:** `THEME_SELECTED`
+
+---
+
+### [DAILY_FOCUS_2026-09-16] Hardware/Power - 2026-09-16 00:22:59
+- **Failure Mode Riferito:** FM-NAV-018
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema Hardware/Power.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema giornaliero: Mitigazione FMEA [FM-NAV-018]: Cecità geometrica totale al di fuori del campo visivo primario (FOV 72.9 H) con rischio di collisione laterale o posteriore. Pipeline multi-modello allocata (gemini-3.1-pro + gemini-3.8-flash).
+- **Esito del Ciclo:** `THEME_SELECTED`
+
+---
+
+### [DAILY_FOCUS_2026-09-16] Hardware/Power - 2026-09-16 00:23:00
+- **Failure Mode Riferito:** FM-NAV-018
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema Hardware/Power.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema giornaliero: Mitigazione FMEA [FM-NAV-018]: Cecità geometrica totale al di fuori del campo visivo primario (FOV 72.9 H) con rischio di collisione laterale o posteriore. Pipeline multi-modello allocata (gemini-3.1-pro + gemini-3.8-flash).
+- **Esito del Ciclo:** `THEME_SELECTED`
+
+---
+
+### [DAILY_FOCUS_2026-09-16] Hardware/Power - 2026-09-16 00:23:01
+- **Failure Mode Riferito:** FM-NAV-018
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema Hardware/Power.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema giornaliero: Mitigazione FMEA [FM-NAV-018]: Cecità geometrica totale al di fuori del campo visivo primario (FOV 72.9 H) con rischio di collisione laterale o posteriore. Pipeline multi-modello allocata (gemini-3.1-pro + gemini-3.8-flash).
+- **Esito del Ciclo:** `THEME_SELECTED`
+
+---
+
+### [DAILY_FOCUS_2026-09-16] Hardware/Power - 2026-09-16 00:23:16
+- **Failure Mode Riferito:** FM-NAV-018
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema Hardware/Power.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema giornaliero: Mitigazione FMEA [FM-NAV-018]: Cecità geometrica totale al di fuori del campo visivo primario (FOV 72.9 H) con rischio di collisione laterale o posteriore. Pipeline multi-modello allocata (gemini-3.1-pro + gemini-3.8-flash).
+- **Esito del Ciclo:** `THEME_SELECTED`
+
+---
+
+### [DAILY_FOCUS_2026-09-16] Hardware/Power - 2026-09-16 00:23:16
+- **Failure Mode Riferito:** FM-NAV-018
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema Hardware/Power.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema giornaliero: Mitigazione FMEA [FM-NAV-018]: Cecità geometrica totale al di fuori del campo visivo primario (FOV 72.9 H) con rischio di collisione laterale o posteriore. Pipeline multi-modello allocata (gemini-3.1-pro + gemini-3.8-flash).
+- **Esito del Ciclo:** `THEME_SELECTED`
+
+---
+
+### [DAILY_FOCUS_2026-09-16] Hardware/Power - 2026-09-16 00:23:16
+- **Failure Mode Riferito:** FM-NAV-018
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema Hardware/Power.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema giornaliero: Mitigazione FMEA [FM-NAV-018]: Cecità geometrica totale al di fuori del campo visivo primario (FOV 72.9 H) con rischio di collisione laterale o posteriore. Pipeline multi-modello allocata (gemini-3.1-pro + gemini-3.8-flash).
+- **Esito del Ciclo:** `THEME_SELECTED`
+
+---
+
+### [DAILY_FOCUS_2026-09-16] Hardware/Power - 2026-09-16 00:23:16
+- **Failure Mode Riferito:** FM-NAV-018
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema Hardware/Power.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema giornaliero: Mitigazione FMEA [FM-NAV-018]: Cecità geometrica totale al di fuori del campo visivo primario (FOV 72.9 H) con rischio di collisione laterale o posteriore. Pipeline multi-modello allocata (gemini-3.1-pro + gemini-3.8-flash).
+- **Esito del Ciclo:** `THEME_SELECTED`
+
+---
+
+### [DAILY_FOCUS_2026-09-16] Hardware/Power - 2026-09-16 00:23:17
+- **Failure Mode Riferito:** FM-NAV-018
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema Hardware/Power.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema giornaliero: Mitigazione FMEA [FM-NAV-018]: Cecità geometrica totale al di fuori del campo visivo primario (FOV 72.9 H) con rischio di collisione laterale o posteriore. Pipeline multi-modello allocata (gemini-3.1-pro + gemini-3.8-flash).
+- **Esito del Ciclo:** `THEME_SELECTED`
+
+---
+
+### [DAILY_FOCUS_2026-09-16] Hardware/Power - 2026-09-16 00:24:25
+- **Failure Mode Riferito:** FM-NAV-018
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema Hardware/Power.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema giornaliero: Mitigazione FMEA [FM-NAV-018]: Cecità geometrica totale al di fuori del campo visivo primario (FOV 72.9 H) con rischio di collisione laterale o posteriore. Pipeline multi-modello allocata (gemini-3.1-pro + gemini-3.8-flash).
+- **Esito del Ciclo:** `THEME_SELECTED`
+
+---
+
+### [DAILY_FOCUS_2026-09-16] Hardware/Power - 2026-09-16 00:24:26
+- **Failure Mode Riferito:** FM-NAV-018
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema Hardware/Power.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema giornaliero: Mitigazione FMEA [FM-NAV-018]: Cecità geometrica totale al di fuori del campo visivo primario (FOV 72.9 H) con rischio di collisione laterale o posteriore. Pipeline multi-modello allocata (gemini-3.1-pro + gemini-3.8-flash).
+- **Esito del Ciclo:** `THEME_SELECTED`
+
+---
+
+### [DAILY_FOCUS_2026-09-16] Hardware/Power - 2026-09-16 00:24:26
+- **Failure Mode Riferito:** FM-NAV-018
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema Hardware/Power.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema giornaliero: Mitigazione FMEA [FM-NAV-018]: Cecità geometrica totale al di fuori del campo visivo primario (FOV 72.9 H) con rischio di collisione laterale o posteriore. Pipeline multi-modello allocata (gemini-3.1-pro + gemini-3.8-flash).
+- **Esito del Ciclo:** `THEME_SELECTED`
+
+---
+
+### [DAILY_FOCUS_2026-09-16] Hardware/Power - 2026-09-16 00:24:26
+- **Failure Mode Riferito:** FM-NAV-018
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema Hardware/Power.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema giornaliero: Mitigazione FMEA [FM-NAV-018]: Cecità geometrica totale al di fuori del campo visivo primario (FOV 72.9 H) con rischio di collisione laterale o posteriore. Pipeline multi-modello allocata (gemini-3.1-pro + gemini-3.8-flash).
+- **Esito del Ciclo:** `THEME_SELECTED`
+
+---
+
+### [DAILY_FOCUS_2026-09-16] Hardware/Power - 2026-09-16 00:24:26
+- **Failure Mode Riferito:** FM-NAV-018
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema Hardware/Power.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema giornaliero: Mitigazione FMEA [FM-NAV-018]: Cecità geometrica totale al di fuori del campo visivo primario (FOV 72.9 H) con rischio di collisione laterale o posteriore. Pipeline multi-modello allocata (gemini-3.1-pro + gemini-3.8-flash).
+- **Esito del Ciclo:** `THEME_SELECTED`
+
+---

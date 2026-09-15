@@ -109,8 +109,9 @@ class WaveshareMotorDriver(Node):
         self.last_heading_stabilizer_time = None
         self.esp32_pid_active = False
         
-        # Register dynamic parameter callback
-        self.add_on_set_parameters_callback(self.parameter_callback)
+        # Register dynamic parameter callback (if supported by node runtime/mock)
+        if hasattr(self, 'add_on_set_parameters_callback'):
+            self.add_on_set_parameters_callback(self.parameter_callback)
         
         self.get_logger().info(
             f"Configured parameters: Port={self.serial_port}, Baud={self.baud_rate}, "
@@ -123,7 +124,7 @@ class WaveshareMotorDriver(Node):
         self.theta = 0.0
         self.prev_left_ticks = None
         self.prev_right_ticks = None
-        self.last_odom_time = self.get_clock().now().nanoseconds / 1e9
+        self.last_odom_time = (self.get_clock().now().nanoseconds / 1e9) if hasattr(self, 'get_clock') else time.time()
         
         # --- Watchdog & Control State ---
         self.last_cmd_vel_time = time.time()
@@ -764,7 +765,7 @@ class WaveshareMotorDriver(Node):
         - odl (left_ticks param) is physical LEFT wheel encoder.
         - odr (right_ticks param) is physical RIGHT wheel encoder.
         """
-        current_time = self.get_clock().now().nanoseconds / 1e9
+        current_time = (self.get_clock().now().nanoseconds / 1e9) if hasattr(self, 'get_clock') else time.time()
         dt = current_time - self.last_odom_time
         
         if self.prev_left_ticks is None or self.prev_right_ticks is None:
@@ -1152,7 +1153,7 @@ class WaveshareMotorDriver(Node):
             # Pitch (+Y ROS)   -> +gz
             # Roll (+X ROS)    -> +gx
             raw_gz = math.radians(float(gy))
-            now_ts = self.get_clock().now().nanoseconds / 1e9
+            now_ts = (self.get_clock().now().nanoseconds / 1e9) if hasattr(self, 'get_clock') else time.time()
             if self.motors_stopped:
                 # Continuous stationary bias refinement
                 self.chassis_yaw_bias = 0.95 * self.chassis_yaw_bias + 0.05 * raw_gz

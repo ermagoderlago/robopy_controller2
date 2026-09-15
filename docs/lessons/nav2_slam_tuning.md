@@ -429,11 +429,15 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
 ### Risoluzione Degenerazione ICP su Muri Lisci e Miglioramento Chiusura Loop (FM-NAV-028, FM-NAV-016)
 * **Sintomo:** Durante la mappatura in modalità SLAM, anche su avanzamenti lenti e rettilinei la mappa si deformava o si sdoppiava a stella (rotazioni fantasma di 35-45°), e i loop closure non chiudevano al rientro al punto di partenza.
 * **Cause Radice:**
-  1. *Degenerazione di Scorrimento con `RGBD/NeighborLinkRefining: true`:* Su scan laser 2D point-to-point, in presenza di pareti lisce o corridoi, l'ICP non possiede vincoli geometrici lungo l'asse della parete. Attivando il raffinamento continuo dei link consecutivi, l'ICP "scivolava" sulle pareti sovrascrivendo l'odometria precisa degli encoder e introducendo derive angolari parassite nel pose-graph.
-  2. *Esclusione delle Feature Visive (`Reg/Strategy: 1`):* Usando solo ICP, RTAB-Map non sfruttava la ricchezza 3D dei descrittori visivi DBoW3 della OAK-D Lite per trovare l'ipotesi iniziale di trasformazione, rigettando qualsiasi loop in cui l'errore cumulato superasse il bacino laser ristretto.
-* **Soluzioni Implementate in `rtabmap.yaml`:**
-  1. **Disattivazione del Raffinamento Consecutivo:** `RGBD/NeighborLinkRefining: "false"`. L'odometria fusa tra encoder ruote e giroscopio OAK 42Hz è ora considerata attendibile per la cinematica locale ($t \to t+1$), eliminando le rotazioni spurie su muri lisci.
-  2. **Strategia Ibrida Visual + ICP:** `Reg/Strategy: "2"`. La camera OAK-D Lite identifica il loop closure geometrico a 6-DoF senza ambiguità di scorrimento, e l'ICP ToF del LiDAR RPLIDAR C1 rifinisce la posa con accuratezza sub-centimetrica.
-  3. **Ampliamento Bacino ICP:** `Icp/MaxCorrespondenceDistance: "0.40"`, `Icp/CorrespondenceRatio: "0.15"`, `Icp/MaxTranslation: "0.60"`, `Icp/MaxRotation: "0.90"` per garantire l'aggancio solido anche al termine di lunghi circuiti.
+  1. *Degenerazione Point-to-Point su Muri Lisci (`Icp/PointToPlane: false`):* L'ICP point-to-point 2D puro minimizza la distanza euclidea punto-punto senza considerare le normali alle superfici; su pareti piane o corridoi, non possiede gradiente lungo l'asse longitudinale ed è soggetto a minimi locali e scorrimento incontrollato.
+  2. *Dipendenza Visiva al Buio (`Reg/Strategy: 2` & `Kp/MinFeatures: 30`):* Affidarsi a feature ottiche (DBoW3) impedisce il funzionamento notturno o al buio completo, poiché con telecamera oscurata il rilevatore trova 0 feature e RTAB-Map rifiuta di aggiungere nodi al grafo.
+  3. *Distorsione da Nuvola Globale (`RGBD/ProximityGlobalScanMap: true`):* L'allineamento di prossimità contro l'intera nuvola globale accumulata causava snap errati su pareti parallele o angoli ruotati.
+  4. *Inquinamento da Rumore Stereo (`Grid/Sensor: 2`):* La mappa di occupazione 2D incorporava il rumore della stereo-camera OAK-D Lite oltre al laser, generando falsi punti nel piano libero.
+* **Soluzione Definitiva in `rtabmap.yaml` (Pure 2D LiDAR Point-to-Plane ICP):**
+  1. **ICP Point-to-Plane 2D con Normali Rigorose:** `Icp/PointToPlane: "true"` con `Icp/PointToPlaneK: "5"`. RTAB-Map calcola le normali 2D su 5 punti adiacenti dello scan laser ToF. La metrica punto-linea blocca istantaneamente lo scorrimento e garantisce la convergenza stabile sui muri rettilinei e sugli spigoli.
+  2. **Indipendenza Totale dalla Luce (Zero-Light SLAM):** `Reg/Strategy: "1"` (Pure ICP) e `Kp/MinFeatures: "0"`. La registrazione e il loop closure sono guidati al 100% dal LiDAR RPLIDAR C1 (infrarosso attivo ToF 905nm a 10 Hz), funzionando sia in pieno giorno che in buio pesto.
+  3. **Griglia 2D Pura da Laser:** `Grid/Sensor: "0"` (laser scan only, range 12.0m). Eliminato qualsiasi rumore o manufatto della camera stereo dalla mappa 2D.
+  4. **Match Locale di Prossimità:** `RGBD/ProximityGlobalScanMap: "false"` con `RGBD/ProximityPathMaxNeighbors: "10"` per confrontare lo scan solo coi vicini topologici immediati, impedendo rotazioni a stella.
+
 
 
