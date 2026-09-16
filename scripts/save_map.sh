@@ -26,6 +26,11 @@ ros2 run nav2_map_server map_saver_cli \
 
 if [ -f "${MAP_DIR}/${MAP_NAME}.yaml" ]; then
     echo "✅ Mappa '${MAP_NAME}' esportata con successo in ${MAP_DIR}!"
+    
+    # Salva la posa attuale del robot nel frame map per Pose Persistence
+    echo "📍 Salvataggio posa attuale del robot per AMCL..."
+    python3 /mnt/ssd/robopy_controller_host/scripts/save_current_pose.py "${MAP_DIR}/${MAP_NAME}_pose.yaml" || true
+
     echo "   Puoi ora avviare Marcus in modalità Opzione A (AMCL 2D) con:"
     echo "   ./restart_hailo.sh --amcl --map=${MAP_DIR}/${MAP_NAME}.yaml"
 else

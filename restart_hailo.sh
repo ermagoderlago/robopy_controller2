@@ -39,6 +39,10 @@ for arg in "$@"; do
         --amcl)
             USE_AMCL="true"
             ;;
+        --relocalize)
+            RELOCALIZE_FLAG="true"
+            USE_AMCL="true"
+            ;;
         --slam)
             USE_AMCL="false"
             ;;
@@ -272,11 +276,15 @@ else
     echo "🗺️ [SLAM] Modalità standard SLAM attiva: RTAB-Map è autorità map->odom."
 fi
 
-# Auto-sync rtabmap.yaml config to install share directory
+# Auto-sync rtabmap.yaml and nav2 configs to install share directory
+mkdir -p /mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_controller/config
 if [ -f "/mnt/ssd/robopy_controller_host/robopy_controller/config/rtabmap.yaml" ]; then
-    mkdir -p /mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_controller/config
     cp -u /mnt/ssd/robopy_controller_host/robopy_controller/config/rtabmap.yaml \
           /mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_controller/config/rtabmap.yaml 2>/dev/null || true
+fi
+if [ -f "/mnt/ssd/robopy_controller_host/robopy_controller/config/nav2_params_jazzy.yaml" ]; then
+    cp -u /mnt/ssd/robopy_controller_host/robopy_controller/config/nav2_params_jazzy.yaml \
+          /mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_controller/config/nav2_params_jazzy.yaml 2>/dev/null || true
 fi
 
 nohup taskset -c 2,3 ros2 run rtabmap_slam rtabmap $DELETE_DB_FLAG --ros-args \
@@ -443,6 +451,26 @@ nohup ros2 launch robopy_controller custom_nav2_launch.py \
 # Attesa di inizializzazione per i nodi lifecycle gestiti nativamente da Nav2
 echo "⏳ [NAV2-MONITOR] Nav2 lifecycle manager gestisce la transizione automatica dei nodi..."
 sleep 15
+
+# Inizializzazione Automatica Localizzazione AMCL (Pose Persistence o Auto-Relocalize)
+if [ "$USE_AMCL" = "true" ]; then
+    echo "🎯 [AMCL-INIT] Inizializzazione automatica della localizzazione..."
+    POSE_FILE="${MAP_FILE%.*}_pose.yaml"
+    if [ ! -f "$POSE_FILE" ]; then
+        POSE_FILE="/mnt/ssd/last_known_pose.yaml"
+    fi
+    
+    if [ "$RELOCALIZE_FLAG" = "true" ]; then
+        echo "🔄 [AMCL-INIT] Richiesta auto-localizzazione attiva a 360°..."
+        nohup python3 /mnt/ssd/robopy_controller_host/scripts/auto_relocalize.py --force-global > /home/robopy/robopy/logs/auto_relocalize.log 2>&1 &
+    elif [ -f "$POSE_FILE" ]; then
+        echo "📍 [AMCL-INIT] Iniezione posa nota da $POSE_FILE..."
+        python3 /mnt/ssd/robopy_controller_host/scripts/auto_relocalize.py --pose-file="$POSE_FILE" --inject-only > /home/robopy/robopy/logs/auto_relocalize.log 2>&1 || true
+    else
+        echo "🌐 [AMCL-INIT] Nessuna posa salvata trovata: avvio auto-localizzazione globale..."
+        nohup python3 /mnt/ssd/robopy_controller_host/scripts/auto_relocalize.py > /home/robopy/robopy/logs/auto_relocalize.log 2>&1 &
+    fi
+fi
 
 echo "📌 [CPU-OPT] Forzatura Hot-Swap affinità CPU sui nodi C++..."
 for node_name in "fast_flow_vo_cpp" "rtabmap" "hailo_bridge_node_cpp"; do

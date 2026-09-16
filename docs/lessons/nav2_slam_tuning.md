@@ -461,3 +461,14 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
 * **Trade-off Documentato:**
   - Point-to-Point converge più lentamente di Point-to-Plane su pareti perfettamente lisce, ma **non degenera mai** in corridoi o ambienti con muri paralleli.
   - Il costo CPU aggiuntivo di `NeighborLinkRefining: "true"` è stimato in ~2-5% su Pi 5 a 1 Hz.
+
+### Automazione Completa Localizzazione AMCL, Pose Persistence & Spin-to-Settle (Settembre 2026 - FM-NAV-031)
+* **Sintomo:** Al riavvio in modalità AMCL (`--amcl`), Marcus partiva sistematicamente disallineato rispetto alla mappa `piano_terra` (laser ToF spostato e ruotato rispetto ai muri), e l'invocazione di `/reinitialize_global_localization` non produceva alcun effetto visivo a robot fermo.
+* **Causa Radice:**
+  1. *Reset Hardcoded all'Origine:* In `nav2_params_jazzy.yaml`, `set_initial_pose: true` forzava $(0.0, 0.0, 0.0)$, mentre il robot al termine della mappatura si trovava in un'altra zona della casa.
+  2. *Gating Cinematico di AMCL:* Per design algoritmico, AMCL ignora le letture laser finché il robot è fermo (`update_min_d: 0.08m`, `update_min_a: 0.08 rad`). La dispersione globale di particelle richiede un movimento (rotazione o traslazione) per consentire al filtro di confrontare i raggi ToF con la griglia e far collassare la nuvola di probabilità sulla posa reale.
+* **Soluzione Implementata:**
+  1. *Pose Persistence:* In `save_map.sh` e allo shutdown, lo script `scripts/save_current_pose.py` cattura la trasformata `map -> base_link` e la serializza in `${MAP_NAME}_pose.yaml` e `/mnt/ssd/last_known_pose.yaml`. All'avvio di `restart_hailo.sh --amcl`, la posa nota viene automaticamente iniettata su `/initialpose`, allineando istantaneamente il robot senza richiedere spostamenti fisici.
+  2. *Disattivazione Reset:* `set_initial_pose: false` in `nav2_params_jazzy.yaml` per consentire alle pose persistenti e ai messaggi `/initialpose` di comandare la stima iniziale.
+  3. *Auto-Relocalizer Routine (`scripts/auto_relocalize.py`):* Script autonomo per il Kidnapped Robot Problem. Invoca `/reinitialize_global_localization`, esegue una rotazione dolce sul posto ($\omega = 0.30\text{ rad/s}$), monitora la traccia di covarianza su `/amcl_pose` e si arresta autonomamente non appena la confidenza è consolidata ($\text{trace} < 0.08$), salvando la nuova posa su disco.
+
