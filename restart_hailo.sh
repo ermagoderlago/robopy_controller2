@@ -22,8 +22,17 @@ export ROS_DOMAIN_ID=42
 # Se ENABLE_HAILO=false, la NPU Hailo-10H non viene avviata per azzerare il carico di corrente PCIe (previene brownout)
 ENABLE_HAILO="${ENABLE_HAILO:-false}"
 USE_AMCL="${USE_AMCL:-false}"
-MAP_FILE="${MAP_FILE:-/mnt/ssd/maps/salotto.yaml}"
+if [ -z "$MAP_FILE" ]; then
+    if [ -f "/mnt/ssd/maps/piano_terra_opt.yaml" ]; then
+        MAP_FILE="/mnt/ssd/maps/piano_terra_opt.yaml"
+    elif [ -f "/mnt/ssd/maps/piano_terra.yaml" ]; then
+        MAP_FILE="/mnt/ssd/maps/piano_terra.yaml"
+    else
+        MAP_FILE="/mnt/ssd/maps/salotto.yaml"
+    fi
+fi
 DELETE_DB_FLAG=""
+
 
 for arg in "$@"; do
     case "$arg" in

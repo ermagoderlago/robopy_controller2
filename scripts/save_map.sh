@@ -4,8 +4,9 @@
 
 set -e
 
-MAP_NAME="${1:-salotto}"
+MAP_NAME="${1:-piano_terra}"
 MAP_DIR="/mnt/ssd/maps"
+
 
 mkdir -p "$MAP_DIR"
 
