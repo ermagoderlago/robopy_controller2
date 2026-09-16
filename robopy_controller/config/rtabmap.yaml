@@ -69,22 +69,22 @@ rtabmap:
     Kp/DetectorStrategy: "8"
     Rtabmap/LoopThr: "0.20"
 
-    # Registrazione e Scan Matching: PURE 2D LIDAR ICP (Point-to-Plane)
+    # Registrazione e Scan Matching: PURE 2D LIDAR ICP (Point-to-Point)
+    # [FM-NAV-028 v3] Point-to-Point ICP: immune al "corridor sliding" che affligge Point-to-Plane
+    # su muri rettilinei. Point-to-Plane ha costo zero lungo l'asse del muro → scivolamento
+    # longitudinale incontrollato. Point-to-Point misura distanze assolute punto-punto →
+    # vincolo efficace in TUTTE le direzioni, inclusa la traslazione avanti/indietro.
     Reg/Strategy: "1"            # 1 = PURE ICP LiDAR (Zero dipendenza da camera, perfetto al buio)
     Reg/Force3DoF: "true"        # Vincolo rigoroso sul piano 2D (x, y, yaw)
-    RGBD/NeighborLinkRefining: "false" # Consecutive links trust gyro-fused odom (evita scivolamento su pareti lisce)
-    Icp/Strategy: "0"            # 0 = Standard Point-to-Point / Point-to-Plane
-    Icp/PointToPlane: "true"     # CRITICO: Calcolo normali 2D su scan laser (blocca lo scivolamento e chiude i loop)
-    Icp/PointToPlaneK: "5"       # Calcolo normale su 5 punti vicini (fitting retta parete)
-    Icp/PointToPlaneRadius: "0.10"
-    Icp/PointToPlaneNormalsMinRelativeError: "0.01"
-    Icp/PointToPlaneLowComplexity: "false"
+    RGBD/NeighborLinkRefining: "true"  # ICP tra ogni coppia di frame consecutivi: corregge drift odometrico in tempo reale
+    Icp/Strategy: "0"            # 0 = Standard Point-to-Point ICP
+    Icp/PointToPlane: "false"    # CRITICO: Point-to-Point (NON Point-to-Plane) per eliminare corridor sliding
     Icp/VoxelSize: "0.02"        # 2cm voxel filtering per match laser accurato
-    Icp/MaxCorrespondenceDistance: "0.35" # 35cm bacino di cattura ICP
-    Icp/CorrespondenceRatio: "0.20"       # 20% corrispondenze minime
-    Icp/MaxTranslation: "0.50"   # Tolleranza correzione traslazione fino a 50cm
-    Icp/MaxRotation: "0.78"      # Tolleranza correzione rotazione fino a ~45° (0.78 rad)
+    Icp/MaxCorrespondenceDistance: "0.25" # 25cm bacino di cattura (stretto: impedisce snap su pareti parallele)
+    Icp/CorrespondenceRatio: "0.30"       # 30% corrispondenze minime (più selettivo contro falsi positivi)
+    Icp/MaxTranslation: "0.20"   # Max correzione traslazione 20cm/frame (impedisce salti catastrofici)
+    Icp/MaxRotation: "0.35"      # Max correzione rotazione ~20°/frame (impedisce rotazioni fantasma)
     Icp/Iterations: "40"
-    Icp/OutlierRatio: "0.80"
+    Icp/OutlierRatio: "0.65"     # 65% outlier tolerance (più selettivo con Point-to-Point)
     Icp/Epsilon: "0.001"
 

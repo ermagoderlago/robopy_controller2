@@ -439,5 +439,25 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
   3. **Griglia 2D Pura da Laser:** `Grid/Sensor: "0"` (laser scan only, range 12.0m). Eliminato qualsiasi rumore o manufatto della camera stereo dalla mappa 2D.
   4. **Match Locale di Prossimità:** `RGBD/ProximityGlobalScanMap: "false"` con `RGBD/ProximityPathMaxNeighbors: "10"` per confrontare lo scan solo coi vicini topologici immediati, impedendo rotazioni a stella.
 
-
-
+### Risoluzione Definitiva "Corridor Sliding" ICP durante Traslazione Lineare (FM-NAV-028 v3 — Settembre 2026)
+* **Sintomo:** La mappa esplode con muri duplicati a ventaglio **esclusivamente durante traslazione avanti/indietro** (linea retta). Le rotazioni producono una mappa stabile e coerente.
+* **Causa Radice — Degenerazione Point-to-Plane su Muri Rettilinei:**
+  - **Point-to-Plane ICP** (`Icp/PointToPlane: "true"`) minimizza la distanza punto-piano proiettata lungo le **normali** delle superfici.
+  - Su muri rettilinei e corridoi, le normali sono **perpendicolari** alla parete.
+  - Traslare il robot **lungo** la parete produce un **costo matematico nullo** (il punto scorre sulla superficie senza allontanarsi dal piano).
+  - L'algoritmo ICP perde il vincolo longitudinale → la posizione scivola liberamente lungo l'asse di marcia → la mappa si duplica a ventaglio.
+  - Le **rotazioni** funzionano perché gli angoli dei muri cambiano, fornendo un gradiente di costo forte in direzione angolare.
+* **Aggravante — NeighborLinkRefining Disabilitato:**
+  - Con `RGBD/NeighborLinkRefining: "false"`, RTAB-Map si fidava ciecamente dell'odometria tra frame consecutivi senza mai correggerla con il LiDAR.
+  - Qualsiasi errore odometrico si accumulava liberamente fino al loop closure, momento in cui l'ICP (già degenerato) produceva correzioni catastrofiche.
+* **Soluzione Definitiva in `rtabmap.yaml`:**
+  1. **Point-to-Point ICP:** `Icp/PointToPlane: "false"`. L'ICP Point-to-Point minimizza la distanza assoluta euclidea punto-punto. Quando il robot scorre lungo il muro, i punti si allontanano dai loro accoppiamenti originali, producendo un costo > 0 in **tutte le direzioni** inclusa quella longitudinale.
+  2. **NeighborLinkRefining attivato:** `RGBD/NeighborLinkRefining: "true"`. L'ICP viene eseguito tra ogni coppia di scansioni consecutive (1 Hz), correggendo il drift odometrico in tempo reale anziché accumularlo.
+  3. **Bacino di cattura ridotto:** `Icp/MaxCorrespondenceDistance: "0.25"` (da 0.35) per impedire snap errati su pareti parallele.
+  4. **Soglia inlier aumentata:** `Icp/CorrespondenceRatio: "0.30"` (da 0.20) per richiedere più punti matching.
+  5. **Limiti di correzione stretti:** `Icp/MaxTranslation: "0.20"` (da 0.50) e `Icp/MaxRotation: "0.35"` (da 0.78) per impedire salti catastrofici che "strappano" la mappa.
+  6. **Outlier ratio conservativo:** `Icp/OutlierRatio: "0.65"` (da 0.80).
+  7. **Parametri Point-to-Plane rimossi:** `PointToPlaneK`, `PointToPlaneRadius`, `PointToPlaneNormalsMinRelativeError`, `PointToPlaneLowComplexity` — non più necessari.
+* **Trade-off Documentato:**
+  - Point-to-Point converge più lentamente di Point-to-Plane su pareti perfettamente lisce, ma **non degenera mai** in corridoi o ambienti con muri paralleli.
+  - Il costo CPU aggiuntivo di `NeighborLinkRefining: "true"` è stimato in ~2-5% su Pi 5 a 1 Hz.
