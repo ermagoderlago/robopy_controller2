@@ -177,6 +177,7 @@ class AutoLocalizerNode(Node):
         twist.angular.z = 0.30  # Velocità dolce conforme a SPEC-02
 
         start_time = time.time()
+        max_duration = 25.0
         last_log = time.time()
         while rclpy.ok():
             rclpy.spin_once(self, timeout_sec=0.08)
