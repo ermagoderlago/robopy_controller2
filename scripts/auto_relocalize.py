@@ -177,12 +177,14 @@ class AutoLocalizerNode(Node):
         twist.angular.z = 0.30  # Velocità dolce conforme a SPEC-02
 
         start_time = time.time()
-        max_duration = 25.0     # Massimo 25 secondi (~1.2 giri a 0.3 rad/s)
-
-        rate = self.create_rate(10) # 10 Hz
+        last_log = time.time()
         while rclpy.ok():
-            rclpy.spin_once(self, timeout_sec=0.05)
+            rclpy.spin_once(self, timeout_sec=0.08)
             elapsed = time.time() - start_time
+
+            if time.time() - last_log >= 1.0:
+                self.get_logger().info(f"⏳ Calibrazione in corso ({elapsed:.1f}s)... Covarianza: {self.latest_cov_trace:.4f} (target < 0.08)")
+                last_log = time.time()
 
             if self.converged:
                 self.get_logger().info(f"🎯 CONVERGENZA RAGGIUNTA in {elapsed:.1f}s! Covarianza: {self.latest_cov_trace:.4f}")
@@ -193,7 +195,7 @@ class AutoLocalizerNode(Node):
                 break
 
             self.cmd_vel_pub.publish(twist)
-            rate.sleep()
+            time.sleep(0.02)
 
         # Stop immediato motori
         stop_twist = Twist()
