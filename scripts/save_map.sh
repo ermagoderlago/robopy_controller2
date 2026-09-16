@@ -16,6 +16,8 @@ echo "📁 Destinazione: ${MAP_DIR}/${MAP_NAME}.yaml e ${MAP_DIR}/${MAP_NAME}.pg
 source /home/robopy/ros2_jazzy/install/setup.bash 2>/dev/null || true
 source /home/robopy/ros2_venv/bin/activate 2>/dev/null || true
 source /mnt/ssd/robopy_controller_host/install/setup.bash 2>/dev/null || true
+export ROS_DOMAIN_ID=42
+export CYCLONEDDS_URI=/tmp/cyclonedds_robopy.xml
 
 # Esegue map_saver_cli
 ros2 run nav2_map_server map_saver_cli \
