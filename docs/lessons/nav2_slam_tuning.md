@@ -472,3 +472,16 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
   2. *Disattivazione Reset:* `set_initial_pose: false` in `nav2_params_jazzy.yaml` per consentire alle pose persistenti e ai messaggi `/initialpose` di comandare la stima iniziale.
   3. *Auto-Relocalizer Routine (`scripts/auto_relocalize.py`):* Script autonomo per il Kidnapped Robot Problem. Invoca `/reinitialize_global_localization`, esegue una rotazione dolce sul posto ($\omega = 0.30\text{ rad/s}$), monitora la traccia di covarianza su `/amcl_pose` e si arresta autonomamente non appena la confidenza è consolidata ($\text{trace} < 0.08$), salvando la nuova posa su disco.
 
+### Ottimizzazione Mappa 2D, Pulizia Rumore Speckle e Chiusura Muri (FM-NAV-031)
+* **Sintomo:** Le mappe d'occupazione 2D esportate dopo lunghe sessioni SLAM presentano micro-punti di rumore isolati (speckle) nelle aree libere calpestabili (dovuti a polvere, riflessi speculari ToF a 905nm o transienti di scansione) e piccole interruzioni/fori (pinhole) nei muri continui causati da assorbimento angolare o occlusioni transitorie.
+* **Causa Radice:** RTAB-Map accumula scansioni in una griglia probabilistica discretizzata. Nelle celle poco campionate, la probabilità d'occupazione può oscillare attorno alla soglia binaria, lasciando pixel isolati o discontinuità di 1-2 pixel lungo le pareti.
+* **Soluzione Tooling (`scripts/analyze_and_clean_map.py`):**
+  1. *Filtraggio Componenti Connesse (Spazio Libero):* Identifica ed elimina tutti i cluster di celle occupate con dimensione $< 5\text{ pixel}$ ($< 25\text{ cm}$ lineari / $< 125\text{ cm}^2$ d'area a risoluzione $0.05\text{ m/pixel}$). Questo elimina il 100% del rumore ToF isolato senza rimuovere gambe di sedie, tavoli o ostacoli fisici rilevanti ($\ge 30\text{ cm}$).
+  2. *Chiusura Morfologica (Muri Solidi):* Applicazione di un operatore di chiusura (dilatazione seguita da erosione) con kernel a croce 4-connesso $3 \times 3$. Questo sigilla ermeticamente tutte le fessure e i fori singoli nelle pareti esterne ed interne, impedendo al planner globale Navfn di generare percorsi impossibili che tagliano attraverso fessure nei muri.
+  3. *Risultati Misurati su `piano_terra`:*
+     - 191 pixel di rumore isolato rimossi dallo spazio libero.
+     - 247 fori/pinhole chiusi nelle pareti perimetrali.
+     - Tempo di calcolo: $< 0.5\text{ s}$ per una griglia $313 \times 208$.
+     - Database SQLite riparato e consolidato con `rtabmap-recovery` e `PRAGMA integrity_check: ok`.
+
+

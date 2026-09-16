@@ -1,5 +1,5 @@
 # 📊 Report Esecutivo DFMEA - Marcus AI Robot Platform
-**Data Generazione:** 2026-09-16 22:24:50  
+**Data Generazione:** 2026-09-16 23:28:29  
 **Metodologia:** AIAG-VDA FMEA Standard con Regola Override Severità ($S \ge 9 \implies$ REVISION_MANDATORY)
 
 ---
@@ -8,8 +8,8 @@
 
 | Metrica | Valore | Note / Impatto |
 | :--- | :---: | :--- |
-| **Totale Modalità di Guasto (FM)** | **127** | Copertura integrata dei sottosistemi Marcus |
-| **🟢 Risk Level LOW** | **93** | $RPN_{res} \le 50$ (Sotto controllo) |
+| **Totale Modalità di Guasto (FM)** | **128** | Copertura integrata dei sottosistemi Marcus |
+| **🟢 Risk Level LOW** | **94** | $RPN_{res} \le 50$ (Sotto controllo) |
 | **🟡 Risk Level MEDIUM** | **7** | $51 \le RPN_{res} \le 199$ (Monitoraggio attivo) |
 | **🟠 Risk Level HIGH** | **2** | $200 \le RPN_{res} \le 349$ (Mitigazione obbligatoria) |
 | **🔴 Risk Level CRITICAL** | **0** | $RPN_{res} \ge 350$ (Blocco rilasci) |
@@ -17,7 +17,7 @@
 
 ### Ripartizione per Sottosistema:
 - **System/DDS:** 5 failure modes
-- **Nav2:** 14 failure modes
+- **Nav2:** 15 failure modes
 - **VUI Audio:** 21 failure modes
 - **Vision:** 2 failure modes
 - **Hardware/Power:** 10 failure modes
@@ -212,6 +212,7 @@
 | **FM-MOT-009** | Actuation & Motion | `waveshare_motor_driver` | Scatti di accelerazione (jerk infinito) e beccheggio dell albero sensori (OAK-D / LiDAR) con perturbazione della costmap e della visual odometry | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#scurve-jerk-and-yaw-fusion`](docs/lessons/actuation_motor_driver.md#scurve-jerk-and-yaw-fusion) |
 | **FM-NAV-029** | Nav2 | `waveshare_motor_driver` | Deriva odometrica angolare e accumulo quadratico di errore posa (x, y) indotto da micro-slittamenti differenziali delle ruote | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#scurve-jerk-and-yaw-fusion`](docs/lessons/actuation_motor_driver.md#scurve-jerk-and-yaw-fusion) |
 | **FM-MOT-008** | Actuation/Motion | `waveshare_motor_driver` | Deriva sistematica verso destra in moto rettilineo e asimmetria tra rotazione oraria e antioraria | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#34-asimmetria-motori-e-stabilizzazione-heading`](docs/lessons/actuation_motor_driver.md#34-asimmetria-motori-e-stabilizzazione-heading) |
+| **FM-NAV-031** | Nav2 | `map_optimization_and_pose_persistence` | Disallineamento sistematico all'avvio in modalità AMCL, stallo del filtro a robot fermo, e presenza di rumore speckle / buchi nei muri nella mappa 2D esportata | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#ottimizzazione-mappa-2d-e-pulizia-speckle`](docs/lessons/nav2_slam_tuning.md#ottimizzazione-mappa-2d-e-pulizia-speckle) |
 | **FM-SYS-002** | System/DDS | `system_scripts` | Errore di esecuzione script: OSError [Errno 8] Exec format error | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`marcus_core_rules.md#1-memoria-ram-e-limite-host`](marcus_core_rules.md#1-memoria-ram-e-limite-host) |
 | **FM-TRI-003** | AI/Trinity | `cag_aggregator` | Latenza eccessiva nella raccolta del contesto CAG (> 500ms) che ritarda l'invio del prompt all'LLM | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#trinity-architecture`](docs/lessons/orchestration_and_rag.md#trinity-architecture) |
 | **FM-VUI-022** | Voice/Orchestration | `nomad_exploration_skill` | Mancato riconoscimento del termine 'NOMAD' da parte dell'ASR e mancata registrazione della skill nell'AI Orchestrator | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#gestione-acronimi-stranieri-e-tolleranza-fonetica-asr`](docs/lessons/audio_vui_pipeline.md#gestione-acronimi-stranieri-e-tolleranza-fonetica-asr) |

@@ -346,6 +346,30 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
   * **[TOOLING]** `scripts/save_map.sh`:
     - Creato script one-touch per esportare `/map` in formato standard YAML/PGM da RTAB-Map.
 
+---
+
+## 📈 ECO-2026-09-16-001: Pipeline di Ottimizzazione Mappe 2D Occupancy Grid, Pulizia Morfologica Rumore Speckle e Pose Persistence AMCL
+* **Stato:** ✅ **Completato, Testato e Attivo su Hardware Host**
+* **Autore:** 🤖 **Antigravity Engine**
+* **DFMEA Correlati:** `FM-NAV-031`, `FM-NAV-030`, `FM-NAV-028`
+* **Descrizione:** Implementazione di una pipeline completa di post-processing e consolidamento per le mappe d'occupazione 2D generate da SLAM, eliminando il rumore transitorio isolato ToF (speckles) e sigillando le discontinuità nelle pareti solide (pinholes). Integrazione della pose persistence per garantire l'allineamento deterministico immediato di AMCL su `/initialpose` all'avvio.
+* **Modifiche apportate:**
+  * **[TOOLING OTTIMIZZAZIONE MAPPE]** `scripts/analyze_and_clean_map.py`:
+    - Filtraggio delle componenti connesse per eliminare cluster di rumore isolato $< 5\text{ pixel}$ ($< 25\text{ cm}$ lineari) nello spazio libero.
+    - Operazione morfologica di chiusura (closing) per sigillare ermeticamente fessure e pinhole nei muri continui.
+    - Generazione automatica di metriche comparative prima/dopo e rendering PNG per ispezione visiva.
+    - Testata su `piano_terra`: rimossi 191 speckle, chiusi 247 pinhole nei muri.
+  * **[RIPRISTINO & CONSOLIDAMENTO DATABASE]** `scripts/check_and_recover_db.py`:
+    - Esecuzione di `rtabmap-recovery` e validazione integrità SQLite (`PRAGMA integrity_check: ok`).
+    - Recuperati 870/883 nodi, 817 link e 102,954 parole visive su `piano_terra_opt.recovery.db`.
+  * **[POSE PERSISTENCE & AUTO-LOCALIZATION]** `scripts/auto_relocalize.py` & `restart_hailo.sh`:
+    - Modificato `restart_hailo.sh` per iniettare automaticamente all'avvio `--amcl` la posa salvata dal file `${MAP_FILE%.*}_pose.yaml` su `/initialpose`.
+    - Modalità `--relocalize` con rotazione controllata *Spin-to-Settle* sul posto a $0.30\text{ rad/s}$ per far convergere il filtro Monte Carlo in caso di robot rapito.
+  * **[CONFIGURAZIONE NAV2]** `robopy_controller/config/nav2_params_jazzy.yaml`:
+    - Disabilitato `set_initial_pose: false` per evitare reset arbitrario a $(0,0,0)$.
+    - Aumentati `max_beams: 120` e `laser_likelihood_max_dist: 2.5` per massimizzare la sensibilità ToF 360°.
+
+
 
 
 

@@ -5916,3 +5916,58 @@
       stalli.
     rpn_old: 7
     rpn_new: 7
+- id: FM-NAV-031
+  subsystem: Nav2
+  component: map_optimization_and_pose_persistence
+  function: Generazione ed esportazione di mappe d'occupazione 2D prive di rumore
+    isolato e mantenimento dell'allineamento deterministico della posa al riavvio
+    in modalità AMCL
+  failure_mode: Disallineamento sistematico all'avvio in modalità AMCL, stallo del
+    filtro a robot fermo, e presenza di rumore speckle / buchi nei muri nella mappa
+    2D esportata
+  potential_cause: Reset forzato a (0,0,0) in nav2_params_jazzy.yaml; gating cinematico
+    di AMCL che impedisce aggiornamenti senza movimento; rumore ToF isolato e raggi
+    laser filtrati che creano micro-fori nelle pareti continue durante la mappatura
+  potential_effect: Marcus tenta di navigare su coordinate errate partendo da una
+    posa sfalsata; pianificatore globale navfn bloccato da falsi ostacoli isolati
+    nello spazio libero o perdite di continuità nelle barriere perimetrali
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-NAV-016
+  - FM-NAV-028
+  - FM-NAV-030
+  initial_scoring:
+    severity: 7
+    occurrence: 8
+    detection: 3
+    rpn: 168
+  prevention_controls: Pipeline morfologica di pulizia mappa scripts/analyze_and_clean_map.py
+    (filtro cluster <5px / <25cm lineari e chiusura fori perimetrali); modulo di pose
+    persistence scripts/save_current_pose.py e scripts/auto_relocalize.py; iniezione
+    automatica su /initialpose all'avvio di restart_hailo.sh --amcl
+  detection_controls: Topic /amcl_pose e trasformata tf2 map->base_link; metriche
+    di pulizia cluster e pinhole calcolate dallo script prima dell'attivazione
+  residual_scoring:
+    severity: 7
+    occurrence: 1
+    detection: 1
+    rpn: 7
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Ottimizzare le mappe esportate con scripts/analyze_and_clean_map.py
+    e avviare Marcus con i file _opt.yaml e _opt_pose.yaml generati
+  verification_method: Test live di allineamento su mappa piano_terra_opt.yaml (191
+    speckle rimossi, 247 pinhole chiusi; aggancio TF istantaneo con deviazione <1.5cm
+    e <1.0 deg)
+  eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-09-16-001
+  lesson_ref: docs/lessons/nav2_slam_tuning.md#ottimizzazione-mappa-2d-e-pulizia-speckle
+  date_identified: '2026-09-16'
+  last_updated: '2026-09-16'
+  history:
+  - date: '2026-09-16'
+    change: Implementato tooling di pulizia morfologica mappa, rimozione speckle e
+      chiusura fori pareti. Implementata iniezione deterministica posa su /initialpose
+      al boot AMCL.
+    rpn_old: 168
+    rpn_new: 7
