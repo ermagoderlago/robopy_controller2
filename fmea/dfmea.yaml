@@ -5523,7 +5523,8 @@
   prevention_controls: Abilitazione ProximityGlobalScanMap:=true con LocalRadius:=3.5m
     per ICP su submap laser densa; allargamento bacino di cattura ICP (MaxCorrespondenceDistance:=0.35m);
     calibrazione inlier visivi Vis/MinInliers:=10; DetectionRate:=2.0Hz per nodi più
-    ravvicinati
+    ravvicinati; Point-to-Point ICP (PointToPlane=false) per eliminare corridor sliding
+    su muri rettilinei; NeighborLinkRefining=true
   detection_controls: Log di RTAB-Map per rigetti 'Not enough inliers'; monitoraggio
     Foxglove della mappa d'occupabilità
   residual_scoring:
@@ -5540,11 +5541,17 @@
   eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-09-08-003
   lesson_ref: docs/lessons/nav2_slam_tuning.md#loop-closure-submap-matching
   date_identified: '2026-09-08'
-  last_updated: '2026-09-08'
+  last_updated: '2026-09-16'
   history:
   - date: '2026-09-08'
     change: Implementato ICP submap matching aggregato a 360 gradi e calibrata tolleranza
       inlier visivi
+    rpn_old: 84
+    rpn_new: 6
+  - date: '2026-09-16'
+    change: 'Risolto corridor sliding durante moto rettilineo avanti/indietro: transizione
+      a Point-to-Point ICP (PointToPlane=false), NeighborLinkRefining=true per correzione
+      drift continuo a 1Hz, e limiti correzione MaxTranslation=0.20m.'
     rpn_old: 84
     rpn_new: 6
 - id: FM-VUI-024
