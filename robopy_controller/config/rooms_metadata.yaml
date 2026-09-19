@@ -1,0 +1,87 @@
+# ==============================================================================
+# Marcus Autonomous Semantic Room Registry
+# Specification Version: 1.0
+# Reference Map: Nav2 2D Occupancy Grid (REP-105 standard coordinate frame)
+# ==============================================================================
+
+version: "1.0"
+building: "headquarters"
+floor_id: "floor_0"
+map_name: "salotto"
+last_modified: "2026-09-17T12:00:00Z"
+
+rooms:
+  - room_name: "salotto"
+    display_name: "Salotto Principale"
+    floor_id: "floor_0"
+    polygon:
+      - [0.0, 0.0]
+      - [5.5, 0.0]
+      - [5.5, 4.2]
+      - [0.0, 4.2]
+    centroid: [2.75, 2.1]
+    bounding_box: [0.0, 0.0, 5.5, 4.2]
+    navigation_goal:
+      x: 2.75
+      y: 2.1
+      theta_rad: 0.0
+    vpr_cluster_centroids:
+      format: "inline_floats"
+      vector_dim: 512
+      clusters: []
+    lidar_signature:
+      format: "polar_ranges"
+      num_bins: 360
+      bins: []
+    created_at: "2026-09-17T12:00:00Z"
+    updated_at: "2026-09-17T12:00:00Z"
+
+  - room_name: "cucina"
+    display_name: "Cucina"
+    floor_id: "floor_0"
+    polygon:
+      - [5.5, 0.0]
+      - [9.2, 0.0]
+      - [9.2, 3.8]
+      - [5.5, 3.8]
+    centroid: [7.35, 1.9]
+    bounding_box: [5.5, 0.0, 9.2, 3.8]
+    navigation_goal:
+      x: 7.35
+      y: 1.9
+      theta_rad: 1.5708
+    vpr_cluster_centroids:
+      format: "inline_floats"
+      vector_dim: 512
+      clusters: []
+    lidar_signature:
+      format: "polar_ranges"
+      num_bins: 360
+      bins: []
+    created_at: "2026-09-17T12:00:00Z"
+    updated_at: "2026-09-17T12:00:00Z"
+
+  - room_name: "corridoio"
+    display_name: "Corridoio Notte"
+    floor_id: "floor_0"
+    polygon:
+      - [0.0, 4.2]
+      - [5.5, 4.2]
+      - [5.5, 5.8]
+      - [0.0, 5.8]
+    centroid: [2.75, 5.0]
+    bounding_box: [0.0, 4.2, 5.5, 5.8]
+    navigation_goal:
+      x: 2.75
+      y: 5.0
+      theta_rad: 0.0
+    vpr_cluster_centroids:
+      format: "inline_floats"
+      vector_dim: 512
+      clusters: []
+    lidar_signature:
+      format: "polar_ranges"
+      num_bins: 360
+      bins: []
+    created_at: "2026-09-17T12:00:00Z"
+    updated_at: "2026-09-17T12:00:00Z"

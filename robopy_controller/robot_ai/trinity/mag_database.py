@@ -21,21 +21,26 @@ class MAGDatabase:
         self._init_db()
 
     def _get_connection(self) -> sqlite3.Connection:
-        """Creates and returns a SQLite connection."""
-        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        """Creates and returns a SQLite connection with busy timeout and WAL support."""
+        conn = sqlite3.connect(self.db_path, timeout=5.0, check_same_thread=False)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA foreign_keys=ON")
         return conn
 
     def _init_db(self) -> None:
-        """Initializes the database schema with WAL mode and FTS5 tables."""
+        """Initializes the database schema with WAL mode, busy timeout, and FTS5 tables."""
         with self._lock:
             try:
                 conn = self._get_connection()
                 cursor = conn.cursor()
                 
-                # PRAGMA for performance and crash protection (Pi 5)
+                # PRAGMA for performance, concurrency and crash protection (Pi 5)
                 cursor.execute("PRAGMA journal_mode=WAL")
                 cursor.execute("PRAGMA synchronous=NORMAL")
+                cursor.execute("PRAGMA busy_timeout=5000")
+                cursor.execute("PRAGMA foreign_keys=ON")
                 
                 # 1. episodes table
                 cursor.execute('''
@@ -120,6 +125,58 @@ class MAGDatabase:
                     END;
                 ''')
 
+                # 5. rooms table (Spatial Geometry)
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS rooms (
+                        id TEXT PRIMARY KEY,
+                        room_name TEXT UNIQUE NOT NULL,
+                        display_name TEXT,
+                        floor_id TEXT DEFAULT 'floor_0' NOT NULL,
+                        floor TEXT DEFAULT 'floor_0',
+                        map_name TEXT DEFAULT 'default',
+                        centroid_x REAL NOT NULL,
+                        centroid_y REAL NOT NULL,
+                        min_x REAL,
+                        min_y REAL,
+                        max_x REAL,
+                        max_y REAL,
+                        polygon_json TEXT NOT NULL,
+                        nav_goal_x REAL,
+                        nav_goal_y REAL,
+                        nav_goal_theta REAL,
+                        created_at REAL NOT NULL,
+                        updated_at REAL NOT NULL
+                    )
+                ''')
+                
+                # 6. room_signatures table (Multimodal Perceptual Descriptors)
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS room_signatures (
+                        id TEXT PRIMARY KEY,
+                        room_id TEXT,
+                        room_name TEXT NOT NULL,
+                        signature_type TEXT DEFAULT 'multimodal',
+                        dimension INTEGER DEFAULT 512,
+                        vpr_cluster_blob BLOB,
+                        vpr_count INTEGER DEFAULT 0,
+                        vpr_dim INTEGER DEFAULT 512,
+                        vpr_dtype TEXT DEFAULT 'float16',
+                        lidar_signature_blob BLOB,
+                        lidar_type TEXT DEFAULT 'polar_360',
+                        lidar_bins INTEGER DEFAULT 360,
+                        lidar_dtype TEXT DEFAULT 'float32',
+                        metadata TEXT,
+                        created_at REAL NOT NULL,
+                        updated_at REAL NOT NULL,
+                        FOREIGN KEY(room_name) REFERENCES rooms(room_name) ON DELETE CASCADE
+                    )
+                ''')
+                
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_rooms_name ON rooms(room_name)')
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_rooms_floor ON rooms(floor_id)')
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_room_signatures_room_id ON room_signatures(room_id)')
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_room_signatures_room_name ON room_signatures(room_name)')
+
                 conn.commit()
                 conn.close()
                 logger.info(f"MAG Database initialized at {self.db_path} with WAL mode.")
@@ -130,6 +187,44 @@ class MAGDatabase:
     def initialize(self) -> None:
         """Initializes or ensures database schema is ready."""
         self._init_db()
+
+    @staticmethod
+    def pack_vector_array(arr: Any, dtype: str = "float16") -> Optional[bytes]:
+        """Serializes numpy array or list of floats into binary BLOB."""
+        if arr is None:
+            return None
+        try:
+            import numpy as np
+            target_dt = getattr(np, dtype, np.float16)
+            if isinstance(arr, np.ndarray):
+                return arr.astype(target_dt).tobytes()
+            np_arr = np.asarray(arr, dtype=target_dt)
+            return np_arr.tobytes()
+        except ImportError:
+            import struct
+            flat = [float(x) for x in (arr if isinstance(arr, list) else list(arr))]
+            fmt_char = 'e' if dtype == 'float16' else 'f'
+            return struct.pack(f'{len(flat)}{fmt_char}', *flat)
+
+    @staticmethod
+    def unpack_vector_array(blob: Optional[bytes], dtype: str = "float16", shape: Optional[Tuple[int, ...]] = None) -> Any:
+        """Deserializes binary BLOB into numpy array (or list of floats if numpy unavailable)."""
+        if not blob:
+            return None
+        try:
+            import numpy as np
+            target_dt = getattr(np, dtype, np.float16)
+            arr = np.frombuffer(blob, dtype=target_dt)
+            if shape is not None:
+                arr = arr.reshape(shape)
+            return arr
+        except ImportError:
+            import struct
+            fmt_char = 'e' if dtype == 'float16' else 'f'
+            item_size = 2 if dtype == 'float16' else 4
+            num_items = len(blob) // item_size
+            unpacked = list(struct.unpack(f'{num_items}{fmt_char}', blob))
+            return unpacked
 
     def _pack_embedding(self, embedding: Optional[List[float]]) -> Optional[bytes]:
         """Pack a list of floats into a float16 BLOB for storage."""
@@ -433,6 +528,212 @@ class MAGDatabase:
             except Exception as e:
                 logger.error(f"Failed to get stats: {e}")
                 return {}
+
+    def insert_room(
+        self,
+        room_name: str,
+        centroid_x: float,
+        centroid_y: float,
+        polygon: List[Any],
+        floor_id: str = "floor_0",
+        display_name: Optional[str] = None,
+        map_name: str = "default",
+        min_x: Optional[float] = None,
+        min_y: Optional[float] = None,
+        max_x: Optional[float] = None,
+        max_y: Optional[float] = None,
+        nav_goal: Optional[Tuple[float, float, float]] = None,
+        floor: Optional[str] = None
+    ) -> str:
+        """Inserts or updates a room record in the database."""
+        room_id = str(uuid.uuid4())
+        now = time.time()
+        poly_json = json.dumps(polygon)
+        disp_name = display_name or room_name
+        flr = floor or floor_id
+        
+        if min_x is None or min_y is None or max_x is None or max_y is None:
+            xs = [p[0] for p in polygon]
+            ys = [p[1] for p in polygon]
+            min_x, max_x = float(min(xs)), float(max(xs))
+            min_y, max_y = float(min(ys)), float(max(ys))
+            
+        nav_x, nav_y, nav_th = nav_goal if nav_goal else (centroid_x, centroid_y, 0.0)
+        
+        with self._lock:
+            try:
+                conn = self._get_connection()
+                conn.execute('''
+                    INSERT INTO rooms (
+                        id, room_name, display_name, floor_id, floor, map_name,
+                        centroid_x, centroid_y, min_x, min_y, max_x, max_y,
+                        polygon_json, nav_goal_x, nav_goal_y, nav_goal_theta,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(room_name) DO UPDATE SET
+                        display_name=excluded.display_name,
+                        floor_id=excluded.floor_id,
+                        floor=excluded.floor,
+                        map_name=excluded.map_name,
+                        centroid_x=excluded.centroid_x,
+                        centroid_y=excluded.centroid_y,
+                        min_x=excluded.min_x,
+                        min_y=excluded.min_y,
+                        max_x=excluded.max_x,
+                        max_y=excluded.max_y,
+                        polygon_json=excluded.polygon_json,
+                        nav_goal_x=excluded.nav_goal_x,
+                        nav_goal_y=excluded.nav_goal_y,
+                        nav_goal_theta=excluded.nav_goal_theta,
+                        updated_at=excluded.updated_at
+                ''', (
+                    room_id, room_name, disp_name, flr, flr, map_name,
+                    centroid_x, centroid_y, min_x, min_y, max_x, max_y,
+                    poly_json, nav_x, nav_y, nav_th, now, now
+                ))
+                conn.commit()
+                row = conn.execute("SELECT id FROM rooms WHERE room_name = ?", (room_name,)).fetchone()
+                conn.close()
+                return row['id'] if row else room_id
+            except Exception as e:
+                logger.error(f"Failed to insert room '{room_name}': {e}")
+                raise
+
+    def get_room_by_name(self, room_name: str) -> Optional[Dict[str, Any]]:
+        """Fetches room record by room_name."""
+        with self._lock:
+            try:
+                conn = self._get_connection()
+                row = conn.execute("SELECT * FROM rooms WHERE room_name = ?", (room_name,)).fetchone()
+                conn.close()
+                if not row:
+                    return None
+                res = dict(row)
+                res['polygon'] = json.loads(res['polygon_json'])
+                if res.get('min_x') is not None and res.get('min_y') is not None:
+                    res['bounding_box'] = (res['min_x'], res['min_y'], res['max_x'], res['max_y'])
+                else:
+                    xs = [p[0] for p in res['polygon']]
+                    ys = [p[1] for p in res['polygon']]
+                    res['bounding_box'] = (min(xs), min(ys), max(xs), max(ys))
+                res['centroid'] = (res['centroid_x'], res['centroid_y'])
+                return res
+            except Exception as e:
+                logger.error(f"Failed to get room '{room_name}': {e}")
+                return None
+
+    def list_all_rooms(self, floor_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Fetches all registered rooms."""
+        with self._lock:
+            try:
+                conn = self._get_connection()
+                if floor_id:
+                    cursor = conn.execute(
+                        "SELECT * FROM rooms WHERE floor_id = ? OR floor = ? ORDER BY room_name",
+                        (floor_id, floor_id)
+                    )
+                else:
+                    cursor = conn.execute("SELECT * FROM rooms ORDER BY room_name")
+                rows = [dict(r) for r in cursor.fetchall()]
+                conn.close()
+                for r in rows:
+                    r['polygon'] = json.loads(r['polygon_json'])
+                    if r.get('min_x') is not None and r.get('min_y') is not None:
+                        r['bounding_box'] = (r['min_x'], r['min_y'], r['max_x'], r['max_y'])
+                    else:
+                        xs = [p[0] for p in r['polygon']]
+                        ys = [p[1] for p in r['polygon']]
+                        r['bounding_box'] = (min(xs), min(ys), max(xs), max(ys))
+                    r['centroid'] = (r['centroid_x'], r['centroid_y'])
+                return rows
+            except Exception as e:
+                logger.error(f"Failed to list rooms: {e}")
+                return []
+
+    def upsert_signatures(
+        self,
+        room_name: str,
+        vpr_blob: Optional[bytes],
+        vpr_count: int,
+        vpr_dim: int = 512,
+        lidar_blob: Optional[bytes] = None,
+        lidar_type: str = "polar_360",
+        lidar_bins: int = 360,
+        signature_type: str = "multimodal",
+        metadata: Optional[str] = None
+    ) -> bool:
+        """Upserts multimodal signatures for a given room."""
+        room = self.get_room_by_name(room_name)
+        if not room:
+            logger.error(f"Cannot register signatures: room '{room_name}' does not exist.")
+            return False
+            
+        room_id = room['id']
+        sig_id = str(uuid.uuid4())
+        now = time.time()
+        
+        with self._lock:
+            try:
+                conn = self._get_connection()
+                existing = conn.execute("SELECT id FROM room_signatures WHERE room_name = ?", (room_name,)).fetchone()
+                if existing:
+                    conn.execute('''
+                        UPDATE room_signatures SET
+                            vpr_cluster_blob=?, vpr_count=?, vpr_dim=?,
+                            lidar_signature_blob=?, lidar_type=?, lidar_bins=?,
+                            signature_type=?, metadata=?, updated_at=?
+                        WHERE room_name=?
+                    ''', (vpr_blob, vpr_count, vpr_dim, lidar_blob, lidar_type, lidar_bins, signature_type, metadata, now, room_name))
+                else:
+                    conn.execute('''
+                        INSERT INTO room_signatures (
+                            id, room_id, room_name, signature_type, dimension,
+                            vpr_cluster_blob, vpr_count, vpr_dim, vpr_dtype,
+                            lidar_signature_blob, lidar_type, lidar_bins, lidar_dtype,
+                            metadata, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'float16', ?, ?, ?, 'float32', ?, ?, ?)
+                    ''', (
+                        sig_id, room_id, room_name, signature_type, vpr_dim,
+                        vpr_blob, vpr_count, vpr_dim,
+                        lidar_blob, lidar_type, lidar_bins,
+                        metadata, now, now
+                    ))
+                conn.commit()
+                conn.close()
+                return True
+            except Exception as e:
+                logger.error(f"Failed to upsert signatures for '{room_name}': {e}")
+                return False
+
+    def get_signatures_for_room(self, room_name: str) -> Optional[Dict[str, Any]]:
+        """Retrieves the latest signatures for a room."""
+        with self._lock:
+            try:
+                conn = self._get_connection()
+                row = conn.execute(
+                    "SELECT * FROM room_signatures WHERE room_name = ? ORDER BY updated_at DESC LIMIT 1",
+                    (room_name,)
+                ).fetchone()
+                conn.close()
+                return dict(row) if row else None
+            except Exception as e:
+                logger.error(f"Failed to get signatures for '{room_name}': {e}")
+                return None
+
+    def delete_room(self, room_name: str) -> bool:
+        """Deletes a room and associated signatures."""
+        with self._lock:
+            try:
+                conn = self._get_connection()
+                conn.execute("DELETE FROM room_signatures WHERE room_name = ?", (room_name,))
+                cursor = conn.execute("DELETE FROM rooms WHERE room_name = ?", (room_name,))
+                conn.commit()
+                deleted = cursor.rowcount > 0
+                conn.close()
+                return deleted
+            except Exception as e:
+                logger.error(f"Failed to delete room '{room_name}': {e}")
+                return False
 
     def close(self) -> None:
         """Optional cleanup logic, as connections are handled per-operation."""

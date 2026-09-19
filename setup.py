@@ -192,6 +192,18 @@ setup(
             "cognitive_amygdala = robopy_controller.robot_ai.cognitive.cognitive_amygdala:main",
             "cognitive_core_node = robopy_controller.robot_ai.cognitive.cognitive_core_node:main",
             "neuro_vegetative_bridge = robopy_controller.robot_ai.cognitive.neuro_vegetative_bridge:main",
+            # === Perception & Room Recognition (Milestone 2) ===
+            "luminance_safety_gate = robopy_controller.nodes.luminance_safety_gate:main",
+            "vpr_room_recognizer = robopy_controller.nodes.vpr_room_recognizer:main",
+            "lidar_room_recognizer = robopy_controller.nodes.lidar_room_recognizer:main",
+            "kidnapped_robot_recovery = robopy_controller.nodes.kidnapped_robot_recovery:main",
+            # === Autonomous Mapping & Frontier Exploration (Milestone 3) ===
+            "frontier_explorer_node = robopy_controller.nodes.frontier_explorer_node:main",
+            "map_export_optimizer = robopy_controller.nodes.map_export_optimizer:main",
+            "mapping_state_machine = robopy_controller.robot_ai.core.mapping_state_machine:main",
+            # === Milestone 5: Hierarchical Hybrid Navigation & Target Seeking ===
+            "hybrid_target_seeker = robopy_controller.nodes.hybrid_target_seeker:main",
         ],
     },
 )
+

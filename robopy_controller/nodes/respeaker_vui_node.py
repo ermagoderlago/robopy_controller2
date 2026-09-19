@@ -594,16 +594,38 @@ class ReSpeakerVUINode(Node):
         self.led_pub.publish(msg)
 
     # ------------------------------------------------------------------ #
+    # Audio conditioning & VUI methods (SPEC-04 / M4)
+    # ------------------------------------------------------------------ #
+    def verify_audio_resampling(self, input_rate: int, output_hw_rate: int) -> bool:
+        """
+        Validates ReSpeaker 16kHz mono in -> 48kHz hardware DAC out rule.
+        Strictly returns True for (16000, 48000), False otherwise (FM-VUI-001).
+        """
+        return input_rate == 16000 and output_hw_rate == 48000
+
+    def set_tts_active(self, is_speaking: bool):
+        """
+        Sets STT gain attenuation during TTS playback for barge-in.
+        [SPEC-04 / FM-VUI-002] stt_gain = 0.1 during active TTS, 1.0 when idle.
+        """
+        self._tts_active = is_speaking
+        self._is_tts_speaking = is_speaking
+        if is_speaking:
+            self._ev_tts.set()
+            self.stt_gain = 0.1
+        else:
+            self._ev_tts.clear()
+            self.stt_gain = 1.0
+
+    # ------------------------------------------------------------------ #
     # Subscriber callbacks
     # ------------------------------------------------------------------ #
     def _tts_speaking_cb(self, msg: Bool):
-        self._is_tts_speaking = msg.data
+        self.set_tts_active(msg.data)
         if msg.data:
-            self._ev_tts.set()
             # [v14.1] LED SUCCESS (verde fisso) quando Marcus sta parlando
             self.set_led('SUCCESS')
         else:
-            self._ev_tts.clear()
             if self._ev_listening.is_set():
                 # [v21.0] Riavvia il timer di ascolto esteso (180s) a fine risposta AI per consentire follow-up diretti
                 self._start_listen_timer()
@@ -1057,7 +1079,8 @@ class ReSpeakerVUINode(Node):
                 audio_stereo = np.frombuffer(in_data, dtype=np.int16)
                 stt_gain_to_use = self.stt_gain
                 
-                l_ch = audio_stereo[::2].astype(np.float32)
+                # [SPEC-04 / FM-VUI-003] Mandatory 3.0x software attenuation pre-int16 scaling to eliminate square-wave clipping
+                l_ch = audio_stereo[::2].astype(np.float32) / 3.0
                 n    = min(len(l_ch), CHUNK_SIZE)
                 
                 # 1. Filtro Passa-Alto @ 140 Hz (HPF) per eliminare ronzio ventola Pi 5
@@ -1184,8 +1207,7 @@ class ReSpeakerVUINode(Node):
                 # Dynamic Gain Control: guadagno base 2.5x con AGC dinamico software [v20.1]
                 stt_gain_to_use = self.stt_gain
                 
-                with self._vad_state_lock:
-                    is_attentive = self._ev_listening.is_set() or self._is_speech_active
+                is_attentive = self._ev_listening.is_set() or self._is_speech_active
 
                 if is_attentive and not self._is_tts_speaking and not ai_cooldown_active:
                     # [v20.1 FM-VUI-005 Fix] Se il segnale vocale è sopra il gate ma debole (< 1500 RMS),
@@ -1194,15 +1216,12 @@ class ReSpeakerVUINode(Node):
                         agc_multiplier = min(2.0, 1500.0 / max(rms_l, 100.0))
                         stt_gain_to_use = self.stt_gain * agc_multiplier
 
-                if self._is_tts_speaking:
-                    # [v21.0 FIX] AEC Hardware XMOS disattivato/mancante. 
-                    # L'unico modo per evitare che il robot si auto-interrompa (Acoustic Echo Leakage)
-                    # ascoltando la propria voce è inibire completamente l'input microfonico durante il TTS.
-                    # Questo disabilita il barge-in vocale puro, ma garantisce stabilità totale.
-                    stt_gain_to_use = 0.0
+                if self._is_tts_speaking or self._ev_tts.is_set():
+                    # [SPEC-04 / FM-VUI-002] 0.1x software attenuation during TTS for vocal barge-in
+                    stt_gain_to_use = 0.1
                 elif ai_cooldown_active:
-                    # Durante il cooldown di 400ms, azzeriamo il guadagno software per assorbire l'eco finale del buffer
-                    stt_gain_to_use = 0.0
+                    # Durante il cooldown di 400ms, attenuazione 0.1x per assorbire l'eco finale del buffer
+                    stt_gain_to_use = 0.1
 
                 if self._cfg_diag_mode and self._rms_chunk_count % 16 == 0:
                     rms_boosted = rms_l * stt_gain_to_use

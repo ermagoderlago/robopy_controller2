@@ -288,12 +288,17 @@
   eco_ref: docs/ecos/audio_vui_ecos.md#ECO-2026-06-02-001
   lesson_ref: docs/lessons/audio_vui_pipeline.md#peak-limiter
   date_identified: '2026-06-02'
-  last_updated: '2026-07-29'
+  last_updated: '2026-09-18'
   history:
   - date: '2026-06-02'
     change: Integrazione algoritmo Peak Limiter vettoriale in respeaker_vui_node.py
     rpn_old: 140
     rpn_new: 20
+  - date: '2026-09-18'
+    change: Integrazione attenuazione software 3.0x pre-int16 scaling e barge-in gain
+      0.1x per M4
+    rpn_old: 20
+    rpn_new: 10
 - id: FM-VUI-003
   subsystem: VUI Audio
   component: respeaker_vui_node
@@ -3961,19 +3966,25 @@
     detection: 2
     rpn: 16
   risk_level: LOW
-  mitigation_status: PLANNED
+  mitigation_status: CLOSED
   recommended_action: Mantenere database separati e busy_timeout elevato per gestire
     contese occasionali
   verification_method: Stress test con 100 inserimenti concorrenti su entrambi i database
   eco_ref: docs/ecos/orchestration_rag_ecos.md
   lesson_ref: docs/lessons/orchestration_and_rag.md
   date_identified: '2026-08-24'
-  last_updated: '2026-08-24'
+  last_updated: '2026-09-17'
   history:
   - date: '2026-08-24'
     change: Inserimento Failure Mode per lock contention SQLite WAL tra VPR e TRINITY
     rpn_old: 60
     rpn_new: 60
+  - date: '2026-09-17'
+    change: Implementato PRAGMA busy_timeout=5000 in _get_connection() e _init_db()
+      di MAGDatabase con test di concorrenza multi-thread validato (TestWALConcurrency
+      in test_mag_room_registry.py)
+    rpn_old: 60
+    rpn_new: 16
 - id: FM-NOM-006
   subsystem: Navigation/Vision
   component: nomad_reactive_pipeline_node

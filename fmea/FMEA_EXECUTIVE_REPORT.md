@@ -1,5 +1,5 @@
 # 📊 Report Esecutivo DFMEA - Marcus AI Robot Platform
-**Data Generazione:** 2026-09-16 23:28:29  
+**Data Generazione:** 2026-09-19 08:19:46  
 **Metodologia:** AIAG-VDA FMEA Standard con Regola Override Severità ($S \ge 9 \implies$ REVISION_MANDATORY)
 
 ---
@@ -159,7 +159,7 @@
 | **FM-VIS-002** | Vision | `hailo_bridge_node` | Race condition e crash dell'infezione NPU con errore HAILO_INVALID_OPERATION | 8 | 1 | 2 | **16** | `LOW` | `CLOSED` | [`docs/lessons/vision_hailo_npu.md#npu-concurrency`](docs/lessons/vision_hailo_npu.md#npu-concurrency) |
 | **FM-NOM-005** | Navigation/NoMaD | `nomad_reactive_pipeline_node` | Un singolo ciclo di inferenza lento (280 ms) piu GC da 30 ms superano il watchdog 300 ms causando uno stop spurio | 4 | 2 | 2 | **16** | `LOW` | `PLANNED` | [`docs/lessons/nav2_slam_tuning.md`](docs/lessons/nav2_slam_tuning.md) |
 | **FM-VPR-003** | AI/Memory | `chroma_native_store / vpr_topological_graph_node` | Un embedding con dimensionalita errata (768D da pipeline Gemini) viene inserito nella collection vpr_embeddings (512D) corrompendo l'indice HNSW | 8 | 1 | 2 | **16** | `LOW` | `PLANNED` | [`docs/lessons/orchestration_and_rag.md`](docs/lessons/orchestration_and_rag.md) |
-| **FM-VPR-004** | AI/Memory | `topological_graph.db / mag_trinity.db` | Accesso concorrente a due database SQLite WAL da thread diversi causa lock wait > 50 ms rallentando l'inserimento dei nodi topologici | 4 | 2 | 2 | **16** | `LOW` | `PLANNED` | [`docs/lessons/orchestration_and_rag.md`](docs/lessons/orchestration_and_rag.md) |
+| **FM-VPR-004** | AI/Memory | `topological_graph.db / mag_trinity.db` | Accesso concorrente a due database SQLite WAL da thread diversi causa lock wait > 50 ms rallentando l'inserimento dei nodi topologici | 4 | 2 | 2 | **16** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md`](docs/lessons/orchestration_and_rag.md) |
 | **FM-NOM-006** | Navigation/Vision | `nomad_reactive_pipeline_node` | Mancato rilevamento visivo di ostacolo basso, specchiato o trasparente con urto meccanico e stallo motori | 4 | 2 | 2 | **16** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#nomad-collision-recovery`](docs/lessons/nav2_slam_tuning.md#nomad-collision-recovery) |
 | **FM-SYS-008** | Cloud, Memory & Orchestration | `system_lifecycle_coordinator_node` | OOM Crash da saturazione progressiva della memoria RAM (DDS creep, RAG embeddings) e riavvio distruttivo da watchdog | 8 | 2 | 1 | **16** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#memory-pressure-sentinel`](docs/lessons/orchestration_and_rag.md#memory-pressure-sentinel) |
 | **FM-NAV-020** | Navigation & SLAM | `rtabmap` | Saturazione MicroSD al 100% (0 byte liberi), runaway log da 4.1GB e Load Average 18.10 dovuto a loop continuo VWDictionary.cpp:741 su database da 16GB | 8 | 2 | 1 | **16** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#FM-NAV-020`](docs/lessons/nav2_slam_tuning.md#FM-NAV-020) |

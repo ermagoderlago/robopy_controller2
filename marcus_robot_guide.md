@@ -115,6 +115,27 @@ Marcus si muove su una base mobile differenziale, gestendo il movimento e la map
 * **Allocazione Vincolante Database SLAM su SSD NVMe (FM-NAV-020):**
   Il database RTAB-Map risiede tassativamente ed esclusivamente su `/mnt/ssd/rtabmap.db`. È severamente vietata qualsiasi scrittura di mappe sulla MicroSD interna per prevenire la saturazione del disco (`[Errno 28] No space left on device`) e runaway log.
 * **Sicurezza Attiva:** Il modulo `reactive_safety.py` gestisce l'arresto d'emergenza in caso di rilevamento ostacolo immediato tramite il sensore a ultrasuoni (`ultrasonic_sensor`) o disconnessioni della telecamera.
+* **Percezione Autonoma, Mappatura a Frontiera & Navigazione Ibrida Gerarchica (Book-to-Skill V2 / Milestones 1-6):**
+  Marcus integra un'architettura completa per l'autonomia spaziale e semantica in ambienti interni complessi:
+  * *Registro Semantico delle Stanze (`mag_room_registry.py` & `rooms_metadata.yaml`):* Mappa metrica 2D continua (YAML + PGM) per piano, arricchita con partizioni poligonali delle stanze, centroidi geometrici, cluster di embedding VPR CosPlace 512D e firme geometriche LiDAR 360° memorizzati in SQLite WAL (`mag_database.py`).
+  * *Mappatura Autonoma a Frontiera & HRI Safety Gate (`mapping_state_machine.py` & `frontier_explorer_node.py`):*
+    - Gate di sicurezza luminanza: inibisce la mappatura visiva se il livello medio dell'immagine è $< 25/255$ lux, autorizzandola se $> 30/255$ lux.
+    - Macchina a stati HRI con protocollo vocale prima del movimento: richiesta esplicita di autorizzazione, sollecito dopo 120s di silenzio e aborto sicuro con standby a 300s se non confermato.
+    - Clustering delle frontiere libere/inesplorate con navigazione progressiva fino a frontiere residue $< 0.40\text{ m}$.
+    - Ottimizzazione globale del grafo SLAM (bundle adjustment RTAB-Map) con incremento RAM $< 80\text{ MB}$, ed esportazione atomica su SSD NVMe (`/mnt/ssd/maps/<ambiente>.yaml` e `.pgm`).
+  * *Riconoscimento Ambienti Multimodale & Localizzazione al Buio (`vpr_room_recognizer.py`, `lidar_room_recognizer.py`):*
+    - Diurno/Illuminato: Estrazione embedding CosPlace 512D su Hailo-10H NPU in $< 50\text{ ms}$, con riconoscimento stanza ad alta confidenza (similarità coseno $> 0.84$).
+    - Buio Totale (0 lux): Disattivazione della visione e riconoscimento geometrico dell'ambiente tramite rotazione controllata a 360° con LiDAR ToF RPLIDAR C1, convergenza AMCL con traccia covarianza $< 0.08$ entro $\le 2$ rotazioni e risoluzione automatica del kidnapped robot all'avvio.
+  * *Interfaccia Vocale & Situational Awareness (`vui_dialogue_engine.py` & `destructive_confirmation_gate.py`):*
+    - Risposte fluide in linguaggio naturale alle query: *"Dove ti trovi?"*, *"In quale mappa stai navigando?"*, *"Cosa vedi?"*.
+    - Normalizzazione Unicode per apostrofi tipografici (`’`, `‘`) e backtick (`` ` ``).
+    - Gate di conferma a 30 secondi con gestione robusta delle elisioni preposizionali italiane (*"aggiorna la mappa dell'ufficio"* $\to$ stanza `"ufficio"`).
+    - Risoluzione conflitti vocali: priorità assoluta alla negazione (*"non confermo"* blocca ogni azione).
+  * *Navigazione Ibrida Gerarchica & Ricerca Target (`hybrid_target_seeker.py`):*
+    - **Fase 1 (Nav2 Macro):** Macro-navigazione verso il centroide della stanza target tramite action client Nav2 e MPPI controller.
+    - **Handover FSM:** All'arrivo nel locale, Nav2 disingaggia il controllo, applica un impulso di arresto a velocità zero e attiva NOMAD.
+    - **Fase 2 (NOMAD Reactive):** Perlustrazione visiva reattiva dei punti ciechi confinata geometricamente all'interno del poligono della stanza target (containment a 3 zone: Free, Soft Buffer, Hard Turnaround con timeout a 120s).
+    - **Fase 3 (Visual Servoing & Sighting):** Gating rilevamento Hailo YOLO con confidenza $\ge 0.55$; aggancio target, disattivazione istantanea NOMAD e avvicinamento in visual servoing proporzionale conforme ai limiti di sicurezza SPEC-01 ($|v| \le 0.30\text{ m/s}, |\omega| \le 1.0\text{ rad/s}$), arresto di precisione a distanza $\le 0.30\text{ m}$, riproduzione chime sonoro e annuncio vocale di completamento.
 
 ---
 
