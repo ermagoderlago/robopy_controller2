@@ -28,9 +28,9 @@ class WaveshareMotorDriver(Node):
         self.declare_parameter('serial_port', '/dev/motor_driver')
         self.declare_parameter('baud_rate', 115200)
         self.declare_parameter('wheel_radius', 0.0335)      # in meters (67mm diameter)
-        self.declare_parameter('wheel_separation', 0.285)   # track width in meters (285mm)
-        self.declare_parameter('rotational_wheel_separation', 0.285) # pure kinematic wheel separation (285mm)
-        self.declare_parameter('ticks_per_rev', 657)        # exact calibrated ticks per wheel rev (657 CPR)
+        self.declare_parameter('wheel_separation', 0.285)   # track width in meters (285mm outer wheelbase)
+        self.declare_parameter('rotational_wheel_separation', 0.266) # calibrated centerline tire-scrub track width (266mm)
+        self.declare_parameter('ticks_per_rev', 1440)       # 1440 CPR (ESP32 PCNT 4X quadrature decoding)
         
         self.declare_parameter('invert_left_motor', False)
         self.declare_parameter('invert_right_motor', False)
@@ -512,21 +512,22 @@ class WaveshareMotorDriver(Node):
             target_duty_left = self.speed_to_duty(left)
             target_duty_right = self.speed_to_duty(right)
 
-        # 1. Hardware Motor Trims (eliminates directional friction discrepancies between wheels)
-        if target_duty_left > 0:
-            target_duty_left *= getattr(self, 'left_motor_trim', 0.73)
+        # 1. Hardware Motor Trims (eliminates directional friction discrepancies between wheels during linear driving)
+        if not is_in_place_spin:
+            if target_duty_left > 0:
+                target_duty_left *= getattr(self, 'left_motor_trim', 0.73)
+            else:
+                target_duty_left *= getattr(self, 'left_motor_trim_rev', 0.65)
+
+            if target_duty_right < 0:
+                target_duty_right *= getattr(self, 'right_motor_trim_rev', 1.25)
         else:
-            target_duty_left *= getattr(self, 'left_motor_trim_rev', 0.65)
-
-        if target_duty_right < 0:
-            target_duty_right *= getattr(self, 'right_motor_trim_rev', 1.25)
-
-        if is_in_place_spin and not getattr(self, 'enable_esp32_pid', False):
-            # Clamp minimum absolute floor after trims to prevent motor stall
-            if abs(target_duty_left) < 0.13:
-                target_duty_left = math.copysign(0.13, target_duty_left)
-            if abs(target_duty_right) < 0.15:
-                target_duty_right = math.copysign(0.15, target_duty_right)
+            # Dedicated spin torque floor for in-place turning to overcome floor/carpet tire scrub
+            if not getattr(self, 'enable_esp32_pid', False):
+                if abs(target_duty_left) < 0.22:
+                    target_duty_left = math.copysign(0.22, target_duty_left)
+                if abs(target_duty_right) < 0.22:
+                    target_duty_right = math.copysign(0.22, target_duty_right)
 
         # 2. Active Gyro Heading & Turn Stabilization
         now_sec = time.time()
@@ -622,6 +623,8 @@ class WaveshareMotorDriver(Node):
             "R": round(duty_right, 4)
         }
         cmd_str = json.dumps(cmd, separators=(',', ':')) + "\n"
+        if abs(duty_left) > 0.001 or abs(duty_right) > 0.001:
+            self.get_logger().info(f"[MOTOR_CMD] L={cmd['L']}, R={cmd['R']} (v_L={left:.3f}, v_R={right:.3f})", throttle_duration_sec=0.2)
         
         with self.serial_lock:
             if self.serial_conn and self.serial_conn.is_open:
@@ -703,7 +706,7 @@ class WaveshareMotorDriver(Node):
                 try:
                     line_str = line.decode('utf-8', errors='ignore').strip()
                     if line_str:
-                        self.get_logger().debug(f"🔌 Serial RX: {line_str}")
+                        self.get_logger().info(f"🔌 Serial RX: {line_str}", throttle_duration_sec=1.0)
                 except Exception as de:
                     self.get_logger().error(f"Decode error: {de}")
                     continue
@@ -1192,6 +1195,12 @@ class WaveshareMotorDriver(Node):
             elif param.name == 'wheel_separation':
                 self.wheel_separation = float(param.value)
                 self.get_logger().info(f"Dynamic Parameter Updated: wheel_separation = {self.wheel_separation:.5f}m")
+            elif param.name == 'rotational_wheel_separation':
+                self.rotational_wheel_separation = float(param.value)
+                self.get_logger().info(f"Dynamic Parameter Updated: rotational_wheel_separation = {self.rotational_wheel_separation:.5f}m")
+            elif param.name == 'ticks_per_rev':
+                self.ticks_per_rev = int(param.value)
+                self.get_logger().info(f"Dynamic Parameter Updated: ticks_per_rev = {self.ticks_per_rev}")
             elif param.name == 'invert_left_encoder':
                 self.invert_left_encoder = bool(param.value)
                 self.get_logger().info(f"Dynamic Parameter Updated: invert_left_encoder = {self.invert_left_encoder}")

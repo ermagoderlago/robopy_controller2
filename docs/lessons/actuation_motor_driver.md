@@ -492,3 +492,51 @@ Con JGB37-520B a 7RPM (riduzione ~143:1), **girare la ruota manualmente è impos
   - Quando $|v| < 0.02\text{ m/s}$ e $|\omega| \ge 0.05\text{ rad/s}$, il calcolo della tensione viene promosso direttamente al range di spin $[0.18, 0.28]$.
   - Applicato un pavimento assoluto post-trim: $\|duty_{left}\| \ge 0.13$ e $\|duty_{right}\| \ge 0.15$, garantendo coppia abbondante per vincere il tire scrub su qualsiasi pavimento/tappeto senza stalli.
 
+### 36. Disallineamento di Scala Odometrica 2x (1440 CPR vs 657 CPR) e Sblocco Trim in Spin Puro (FM-MOT-002, FM-MOT-007)
+* **Sintomi Rilevati:**
+  1. *Rotazione della Mappa Raddoppiata:* Con `wheel_separation:=0.285`, quando il robot ruotava fisicamente di $360^\circ$ (o veniva girato manualmente dall'utente), l'odometria `/odom` accumulava $+740.8^\circ$ (circa $2.06\times$ il valore reale). In Foxglove, l'orientamento del robot girava al doppio della velocità reale, distruggendo la convergenza di AMCL e RTAB-Map.
+  2. *Stallo dei Motori in Rotazione sul Posto:* All'invio di `cmd_vel` di rotazione moderata ($0.30\text{-}0.50\text{ rad/s}$), il motore sinistro riceveva solo PWM 30-35 a causa del trim di reverse (`left_motor_trim_rev = 0.65`) e della scalatura per tensione batteria ($0.88$), stallando contro il pavimento.
+* **Causa Radice:**
+  1. *Risoluzione Encoder Hardware dell'ESP32:* Il firmware dell'ESP32 (`waveshare_bridge.h`) decodifica la ruota destra con PCNT in quadratura simmetrica 4X (fronti A e B su canali 1 e 2 = $360 \times 4 = 1440\text{ CPR}$ nominali). Per la ruota sinistra (single-channel con pin di direzione), conta entrambi i fronti del canale B e invia via seriale `left_ticks * 2`, pareggiando la risoluzione a **1440 CPR**. Nel driver ROS 2 (`restart_hailo.sh` e `waveshare_motor_driver.py`), `ticks_per_rev` era erroneamente configurato a **657**, raddoppiando artificialmente la distanza metrica calcolata per ogni singolo tick ($1440 / 657 \approx 2.19\times$).
+  2. *Contaminazione dei Trim Rettilinei nella Rotazione Pura:* I trim per correggere la traiettoria rettilinea (`left_motor_trim_rev = 0.65`) venivano applicati anche durante le rotazioni sul posto, soffocando la coppia del motore sinistro e impedendo la rotazione simmetrica.
+* **Risoluzione Implementata:**
+  1. Configurato `ticks_per_rev:=1440` nominale in `restart_hailo.sh`, `start_driver.sh` e `waveshare_motor_driver.py` (conforme a SPEC-01 Tabella Zona Rossa).
+  2. Aggiunto supporto a `ticks_per_rev` e `rotational_wheel_separation` nel callback dei parametri dinamici di `waveshare_motor_driver.py`.
+  3. Modificato `send_speeds`: i trim direzionali operano esclusivamente se `not is_in_place_spin`; in rotazione sul posto viene garantito un floor di coppia simmetrico pari ad almeno $0.22$ duty su entrambi i motori.
+* **Verifica Sperimentale su Marcus:**
+  - Spin 360° a $0.60\text{ rad/s}$: rotazione perfettamente simmetrica (`d_left = -12, d_right = 13`, `pwml = -55, pwmr = 55`), spostamento del centro di rotazione di appena $7\text{ mm}$ su X e $28\text{ mm}$ su Y. Errore di scala 2x completamente azzerato.
+
+---
+
+### 37. Calibrazione Sperimentale Ground-Truth dell'Interasse Rotazionale con LiDAR ToF (FM-MOT-007, FM-NAV-029)
+* **Sintomi Rilevati:**
+  - Dopo la correzione del CPR a 1440, durante le rotazioni sul posto di 360°, la mappa presentava ancora una lieve deriva angolare residua di circa $8^\circ\text{-}15^\circ$ ($2.5\%\text{-}4\%$).
+  - Misura geometrica esterna fornita dall'utente: interasse ruote esterno $W_{outer} = 285\text{ mm}$ ($0.285\text{ m}$).
+* **Analisi Fisica e Meccanica (Tire-Scrub Kinematic Track Width):**
+  - La cinematica differenziale pura assume ruote infinitesimalmente sottili con contatto puntiforme:
+    $$\Delta \theta = \frac{\Delta s_R - \Delta s_L}{W}$$
+  - Nella realtà fisica, le ruote in gomma di Marcus hanno una larghezza del battistrada di circa $20\text{-}25\text{ mm}$. Durante una rotazione sul posto (*in-place spin*), i pneumatici non rotolano liberamente ma strisciano trasversalmente (*tire scrub*).
+  - La linea mediana effettiva di rotolamento (*contact patch centerline*) non coincide con l'ingombro esterno massimo ($285\text{ mm}$), bensì con la mezzeria dei battistrada ($285\text{ mm} - 19\text{ mm} = 266\text{ mm} = 0.266\text{ m}$).
+  - Con $W_{rotational} = 0.285\text{ m}$, l'angolo integrato da `/odom` sottostimava la rotazione reale di circa il $7\%$, inducendo il controllore o AMCL a correggere continuamente la posa.
+* **Metodologia di Calibrazione Ground-Truth via RPLIDAR C1 ToF:**
+  - Sviluppato lo script di precisione `scripts/test_odometry_spin_verification.py`:
+    1. Cattura dello scan laser iniziale a 360° (720 raggi, risoluzione angolare $0.5^\circ$, accuratezza millimetrica ToF).
+    2. Rotazione ad anello chiuso su `/odom` a $\omega = 0.45\text{ rad/s}$ fino al target di $360.0^\circ$.
+    3. Cattura dello scan laser finale e calcolo della rotazione fisica reale tramite cross-correlazione di fase a 360°:
+       $$\text{arg min}_{\delta} \sum_{i=1}^{720} \left| r_{final}[i + \delta] - r_{init}[i] \right|$$
+* **Risultati Sperimentali su Marcus (Hardware Reale):**
+  1. *Con $W = 0.285\text{ m}$:* Rotazione fisica reale misurata $= 352.0^\circ$ (errore $-8.0^\circ$, scala 1.0255).
+  2. *Con $W_{rotational} = 0.266\text{ m}$:*
+     - Delta `/odom` integrato: **$361.4^\circ$**
+     - Rotazione fisica reale LiDAR (Ground-Truth): **$361.5^\circ$**
+     - Errore residuo di chiusura: **$+0.1^\circ$**!
+     - Errore medio di fit laser: **$0.008\text{ m}$ ($8\text{ mm}$)** su tutti i 720 raggi!
+     - Rapporto scala Odometria / Fisico: **$0.9999$** (**accuratezza $99.99\%$**).
+* **Impatto su AMCL e QoS Transient Local:**
+  - La covarianza del filtro di particelle AMCL su `/amcl_pose` è crollata a $var_x = 0.0136$, $var_y = 0.0180$, $var_{yaw} = 0.0125\text{ rad}^2$ ($\sigma_{yaw} \approx 6.4^\circ$), garantendo ancoraggio perfetto della mappa statica.
+  - Risolto anche il bug di monitoraggio di `/amcl_pose`: in ROS 2 Jazzy, AMCL pubblica con `durability: TRANSIENT_LOCAL`. I nodi subscriber devono usare `QoSProfile(depth=1, durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)` per ricevere la posa stazionaria.
+* **Persistenza:**
+  - Aggiornati `restart_hailo.sh`, `scripts/start_driver.sh` e `waveshare_motor_driver.py` con `rotational_wheel_separation:=0.266` e `wheel_separation:=0.285`.
+
+
+

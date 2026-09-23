@@ -11,15 +11,19 @@ nohup ros2 run robopy_controller waveshare_motor_driver --ros-args \
     -p baud_rate:=115200 \
     -p wheel_radius:=0.0335 \
     -p wheel_separation:=0.285 \
-    -p rotational_wheel_separation:=0.285 \
-    -p ticks_per_rev:=657 \
+    -p rotational_wheel_separation:=0.266 \
+    -p ticks_per_rev:=1440 \
     -p invert_left_motor:=False \
     -p invert_right_motor:=False \
     -p invert_left_encoder:=False \
     -p invert_right_encoder:=False \
     -p encoder_dead_zone:=2 \
-    -p publish_tf:=False \
-    -p odom_topic:=/odom_wheel \
+    -p publish_tf:=True \
+    -p use_cmd_vel_odometry:=False \
+    -p use_imu_for_rotation:=False \
+    -p use_encoder_for_linear:=True \
+    -p enable_esp32_pid:=False \
+    -p odom_topic:=/odom \
     </dev/null > /home/robopy/robopy/logs/waveshare_motor_driver.log 2>&1 &
 sleep 2
 echo "DRIVER_STARTED"

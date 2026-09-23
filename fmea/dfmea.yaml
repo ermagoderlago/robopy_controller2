@@ -5496,7 +5496,7 @@
   eco_ref: docs/ecos/actuation_ecos.md#ECO-2026-09-08-002
   lesson_ref: docs/lessons/actuation_motor_driver.md#real-encoder-odometry-switch
   date_identified: '2026-09-08'
-  last_updated: '2026-09-14'
+  last_updated: '2026-09-24'
   history:
   - date: '2026-09-08'
     change: Implementata odometria cinematica teorica pura e disaccoppiamento del
@@ -5507,6 +5507,12 @@
     change: Passaggio all'odometria metrica reale su spostamento encoder PCNT con
       anello chiuso 50Hz e integrazione a punto medio Runge-Kutta 2° ordine (use_cmd_vel_odometry:=False,
       use_encoder_for_linear:=True, invert_right_encoder:=False)
+    rpn_old: 7
+    rpn_new: 7
+  - date: '2026-09-24'
+    change: Risolto errore di scala 2x su ticks_per_rev (ripristinato 1440 CPR da
+      ESP32 PCNT anziché 657) e sbloccato floor coppia simmetrico in rotazione sul
+      posto (Lezione 36)
     rpn_old: 7
     rpn_new: 7
 - id: FM-NAV-028
@@ -5810,12 +5816,18 @@
   eco_ref: docs/ecos/actuation_ecos.md#ECO-2026-09-15-001
   lesson_ref: docs/lessons/actuation_motor_driver.md#scurve-jerk-and-yaw-fusion
   date_identified: '2026-09-15'
-  last_updated: '2026-09-15'
+  last_updated: '2026-09-24'
   history:
   - date: '2026-09-15'
     change: Implementata fusione complementare yaw ruote + giroscopio chassis ESP32
       con stima automatica del bias stazionario
     rpn_old: 196
+    rpn_new: 7
+  - date: '2026-09-24'
+    change: Calibrato rotational_wheel_separation a 0.266m tramite ground-truth LiDAR
+      ToF cross-correlation a 360° (accuratezza 99.99%, residuo 0.1° su 360°), distinguendo
+      interasse esterno 285mm da tire-scrub centerline 266mm (Lezione 37)
+    rpn_old: 7
     rpn_new: 7
 - id: FM-NAV-030
   subsystem: Nav2
