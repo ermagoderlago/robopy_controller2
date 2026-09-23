@@ -24,10 +24,19 @@ map_server:
 amcl:
   ros__parameters:
     use_sim_time: false
-    alpha1: 0.2
-    alpha2: 0.2
-    alpha3: 0.2
-    alpha4: 0.2
+    # --- Modello di rumore cinematica differenziale ---
+    # alpha1: rumore rotazionale da rotazione (robot gira -> errore yaw)
+    # alpha2: rumore rotazionale da traslazione (robot avanza -> deriva yaw)
+    # alpha3: rumore traslazionale da traslazione
+    # alpha4: rumore traslazionale da rotazione
+    # FIX 2026-09-23: portati a 0.5 (erano 0.2) per catturare il vero rumore
+    # rotazionale di Marcus (odometria encoder non calibrata vs AMCL).
+    # Valori alti = particelle si diffondono di più durante il moto ->
+    # localizzazione globale più robusta dopo spin di 360°.
+    alpha1: 0.5
+    alpha2: 0.5
+    alpha3: 0.3
+    alpha4: 0.5
     alpha5: 0.2
     base_frame_id: "base_link"
     beam_skip_distance: 0.5
@@ -41,8 +50,11 @@ amcl:
     laser_min_range: 0.05
     laser_model_type: "likelihood_field"
     max_beams: 120
-    max_particles: 2000
-    min_particles: 500
+    # FIX 2026-09-23: aumentate da 2000/500 a 4000/1000 per convergenza
+    # globale robusta in appartamento (serve piu copertura dello spazio
+    # delle pose quando si chiama reinitialize_global_localization)
+    max_particles: 4000
+    min_particles: 1000
     odom_frame_id: "odom"
     pf_err: 0.05
     pf_z: 0.99
@@ -51,12 +63,14 @@ amcl:
     resample_interval: 1
     robot_model_type: "nav2_amcl::DifferentialMotionModel"
     save_pose_rate: 0.5
-    sigma_hit: 0.2
+    sigma_hit: 0.15
     tf_broadcast: true
     transform_tolerance: 1.0
-    update_min_a: 0.08
-    update_min_d: 0.08
-    z_hit: 0.8
+    # FIX 2026-09-23: abbassato update_min_a da 0.08 a 0.05 per aggiornare
+    # AMCL anche con piccole rotazioni (spin lenta durante localizzazione)
+    update_min_a: 0.05
+    update_min_d: 0.05
+    z_hit: 0.85
     z_max: 0.05
     z_rand: 0.05
     z_short: 0.05
