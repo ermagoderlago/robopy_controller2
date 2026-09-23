@@ -92,3 +92,64 @@ Questo documento raccoglie le linee guida operative, le ricette di build e le le
           sys.path.append(p)
   ```
   Questo garantisce l'esecuzione trasparente sia all'interno che all'esterno di virtualenv attive.
+
+---
+
+## 🌐 Monitoring ROS 2 via SSH — ROS_DOMAIN_ID=42 e CycloneDDS (FM-DDS-007)
+
+> [!IMPORTANT]
+> **Lezione critica appresa il 2026-09-23.** Questa sezione va letta prima di qualsiasi sessione di monitoring remoto su Marcus. L'errore `Failed to find a free participant index for domain 42` ha già causato perdita di tempo in più sessioni.
+
+### Problema Ricorrente
+
+Marcus gira con **`ROS_DOMAIN_ID=42`** e **`RMW_IMPLEMENTATION=rmw_cyclonedds_cpp`**. Con ~38 nodi attivi, il limite default di CycloneDDS (32 partecipanti) è già saturo. Le sessioni SSH nuove non ereditano le variabili d'ambiente di `restart_hailo.sh`, quindi:
+
+- `ros2 node list` / `ros2 topic list` → **funzionano** (usano il daemon già attivo)
+- `ros2 topic hz /scan` / `ros2 topic echo /battery_state` → **FALLISCONO** con:
+  ```
+  Failed to find a free participant index for domain 42
+  rmw_create_node: failed to create domain, error Error
+  ```
+  perché questi comandi creano un **nuovo** nodo ROS 2 (subscriber/partecipante DDS) e il limite di 32 è già pieno.
+
+Il file `/tmp/cyclonedds_robopy.xml` (generato da `restart_hailo.sh`) alza il limite a 200, ma solo i processi avviati con `CYCLONEDDS_URI=/tmp/cyclonedds_robopy.xml` lo vedono.
+
+### Soluzione: Prefisso Obbligatorio
+
+Ogni comando SSH che crea nuovi nodi ROS 2 deve includere:
+```bash
+export ROS_DOMAIN_ID=42
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+export CYCLONEDDS_URI=/tmp/cyclonedds_robopy.xml
+source /home/robopy/ros2_jazzy/install/setup.bash
+source /mnt/ssd/robopy_controller_host/install/setup.bash
+```
+
+In WSL/PowerShell riga singola:
+```
+wsl ssh robopy@marcus "export ROS_DOMAIN_ID=42; export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp; export CYCLONEDDS_URI=/tmp/cyclonedds_robopy.xml; source /home/robopy/ros2_jazzy/install/setup.bash; source /mnt/ssd/robopy_controller_host/install/setup.bash; <COMANDO>"
+```
+
+### Comandi di Monitoring Verificati (con CYCLONEDDS_URI)
+
+| Comando | Freq. Attesa | Note |
+|---|---|---|
+| `timeout 5 ros2 topic hz /scan` | ~10 Hz | LiDAR RPLiDAR A1/A2 |
+| `timeout 4 ros2 topic hz /odom` | ~20 Hz | Encoder WaveShare |
+| `timeout 5 ros2 topic echo /battery_state --once` | — | voltage ~12.6V full |
+| `timeout 5 ros2 topic echo /amcl_pose --once` | — | x, y localizzazione |
+| `timeout 5 ros2 topic echo /diagnostics --once` | — | battery, motor_stall |
+| `timeout 3 ros2 topic hz /ultrasonic_range` | ~5-10 Hz | sensore HC-SR04 |
+
+### Fix Permanente Consigliato
+
+Aggiungere a `/home/robopy/.bashrc` sul robot (da fare una volta sola):
+```bash
+# ROS 2 Marcus — environment permanente
+export ROS_DOMAIN_ID=42
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+export CYCLONEDDS_URI=/tmp/cyclonedds_robopy.xml
+source /home/robopy/ros2_jazzy/install/setup.bash
+source /mnt/ssd/robopy_controller_host/install/setup.bash 2>/dev/null
+```
+⚠️ `/tmp/cyclonedds_robopy.xml` viene ricreato da `restart_hailo.sh` a ogni avvio — non è un problema se il file non esiste al boot (CycloneDDS userà il default con limit=32 solo per la breve finestra prima dell'avvio dello stack).

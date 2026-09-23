@@ -54,6 +54,72 @@ Per garantire la sopravvivenza hardware, la fluidità di esecuzione ed evitare i
 
 ---
 
+## 8. 🔧 Note Operative SSH su Marcus — ROS 2 Monitoring (LEGGERE SEMPRE!)
+
+> [!IMPORTANT]
+> **Ogni volta che ti connetti via SSH a Marcus per ispezionare topic, nodi o frequenze, DEVI impostare queste tre variabili d'ambiente.** Senza di esse, `ros2 topic list` mostra nodi ma `ros2 topic hz/echo` fallisce con `Failed to find a free participant index for domain 42`.
+
+### 8.1 Dominio ROS 2 e Configurazione CycloneDDS
+
+Marcus usa **`ROS_DOMAIN_ID=42`** e **`RMW_IMPLEMENTATION=rmw_cyclonedds_cpp`**. Il file di configurazione CycloneDDS (che alza il limite di partecipanti da 32 a 200) risiede in `/tmp/cyclonedds_robopy.xml` (generato da `restart_hailo.sh`).
+
+⚠️ Le sessioni SSH normali **NON ereditano** queste variabili (non sono in `.bashrc`). Risultato: `ros2 topic hz` e `ros2 topic echo` falliscono con "Failed to find a free participant index" perché vedono il limite CycloneDDS default (32) già saturo dai ~38 nodi attivi.
+
+### 8.2 Template SSH Corretto (usare sempre questo)
+
+Per qualsiasi comando `ros2 topic`, `ros2 node info`, `ros2 service call` da SSH, usare **sempre questo prefisso** nella stessa sessione:
+
+```bash
+export ROS_DOMAIN_ID=42
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+export CYCLONEDDS_URI=/tmp/cyclonedds_robopy.xml
+source /home/robopy/ros2_jazzy/install/setup.bash
+source /mnt/ssd/robopy_controller_host/install/setup.bash
+```
+
+In PowerShell/WSL una riga sola:
+```
+wsl ssh robopy@marcus "export ROS_DOMAIN_ID=42; export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp; export CYCLONEDDS_URI=/tmp/cyclonedds_robopy.xml; source /home/robopy/ros2_jazzy/install/setup.bash; source /mnt/ssd/robopy_controller_host/install/setup.bash; <COMANDO>"
+```
+
+### 8.3 Comandi di Monitoring Verificati e Funzionanti
+
+```bash
+# ros2 node list e topic list funzionano anche senza CYCLONEDDS_URI (usano daemon)
+ros2 node list
+ros2 topic list
+
+# Hz e echo RICHIEDONO CYCLONEDDS_URI (creano un nuovo subscriber/partecipante DDS)
+timeout 5 ros2 topic hz /scan          # atteso ~10 Hz
+timeout 4 ros2 topic hz /odom          # atteso ~20 Hz
+timeout 3 ros2 topic hz /ultrasonic_range
+timeout 5 ros2 topic echo /battery_state --once    # voltage, percentage
+timeout 5 ros2 topic echo /amcl_pose --once        # x, y localizzazione
+timeout 5 ros2 topic echo /diagnostics --once      # errori e warning
+```
+
+### 8.4 Fix Permanente Consigliato
+
+Aggiungere a `/home/robopy/.bashrc` sul robot per non dover reimpostare le variabili a ogni sessione SSH:
+```bash
+export ROS_DOMAIN_ID=42
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+export CYCLONEDDS_URI=/tmp/cyclonedds_robopy.xml
+source /home/robopy/ros2_jazzy/install/setup.bash
+source /mnt/ssd/robopy_controller_host/install/setup.bash 2>/dev/null
+```
+
+### 8.5 Symlink robot_ai (verifica post-build)
+
+Se viene eseguito `colcon build`, verificare che il symlink sia ancora intatto:
+```bash
+SITE_PKG="/mnt/ssd/robopy_controller_host/install/robopy_controller/lib/python3.11/site-packages"
+ls -la ${SITE_PKG}/robot_ai   # deve essere un link a .../robopy_controller/robot_ai
+```
+Già inserito in `restart_hailo.sh`. In caso di assenza: `ln -sfn "${SITE_PKG}/robopy_controller/robot_ai" "${SITE_PKG}/robot_ai"`
+
+---
+
 ## 🗺️ Indice Operativo dei Domini (Mappa Spoke)
 
 > [!CAUTION]
