@@ -106,6 +106,7 @@ fi
 
 sudo sysctl -w net.core.rmem_max=16777216 2>/dev/null || true
 sudo sysctl -w net.core.rmem_default=16777216 2>/dev/null || true
+sudo ip link set lo multicast on 2>/dev/null || true
 
 echo "📄 Generating /tmp/cyclonedds_robopy.xml..."
 cat << 'EOF' > /tmp/cyclonedds_robopy.xml
