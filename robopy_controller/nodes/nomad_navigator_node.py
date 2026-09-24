@@ -54,7 +54,11 @@ class NomadNavigatorNode(Node):
         self.declare_parameter('input_height', 128)
         self.declare_parameter('cmd_vel_topic', '/cmd_vel')
         self.declare_parameter('max_linear_speed', 0.18)   # m/s
+        self.declare_parameter('min_linear_speed', 0.05)   # m/s anti-stiction minimum velocity floor
         self.declare_parameter('max_angular_speed', 0.45)  # rad/s
+        self.declare_parameter('max_linear_accel', 0.35)   # m/s^2 smooth linear acceleration
+        self.declare_parameter('max_angular_accel', 1.20)  # rad/s^2 smooth angular acceleration
+        self.declare_parameter('min_turning_radius', 0.18) # m continuous turning radius (Marcus chassis radius)
         self.declare_parameter('goal_reach_distance', 0.35)# m
         self.declare_parameter('lookahead_index', 2)       # Waypoint index for pure pursuit
         self.declare_parameter('base_frame', 'base_link')
@@ -69,7 +73,11 @@ class NomadNavigatorNode(Node):
         self.input_height = self.get_parameter('input_height').get_parameter_value().integer_value
         self.cmd_vel_topic = self.get_parameter('cmd_vel_topic').get_parameter_value().string_value
         self.max_linear_speed = self.get_parameter('max_linear_speed').get_parameter_value().double_value
+        self.min_linear_speed = self.get_parameter('min_linear_speed').get_parameter_value().double_value
         self.max_angular_speed = self.get_parameter('max_angular_speed').get_parameter_value().double_value
+        self.max_linear_accel = self.get_parameter('max_linear_accel').get_parameter_value().double_value
+        self.max_angular_accel = self.get_parameter('max_angular_accel').get_parameter_value().double_value
+        self.min_turning_radius = self.get_parameter('min_turning_radius').get_parameter_value().double_value
         self.goal_reach_distance = self.get_parameter('goal_reach_distance').get_parameter_value().double_value
         self.lookahead_index = self.get_parameter('lookahead_index').get_parameter_value().integer_value
         self.base_frame = self.get_parameter('base_frame').get_parameter_value().string_value
@@ -84,6 +92,9 @@ class NomadNavigatorNode(Node):
         self.latest_raw_frame: Optional[np.ndarray] = None
         self.last_frame_time = 0.0
         self.last_inference_time = 0.0
+        self._last_cmd_v = 0.0
+        self._last_cmd_w = 0.0
+        self._last_cmd_time = None
 
         # QoS Profiles
         sensor_qos = QoSProfile(
@@ -298,9 +309,12 @@ class NomadNavigatorNode(Node):
 
         return waypoints, distance_estimate
 
-    def _compute_pure_pursuit_cmd(self, waypoints: List[Tuple[float, float]]) -> Twist:
+    def _compute_pure_pursuit_cmd(self, waypoints: List[Tuple[float, float]], current_time: Optional[float] = None) -> Twist:
         cmd = Twist()
         if not waypoints:
+            self._last_cmd_v = 0.0
+            self._last_cmd_w = 0.0
+            self._last_cmd_time = None
             return cmd
 
         # Select lookahead target
@@ -310,17 +324,46 @@ class NomadNavigatorNode(Node):
         # Calculate curvature and steering angle
         target_dist = math.sqrt(target_x ** 2 + target_y ** 2)
         if target_dist < 1e-4:
+            self._last_cmd_v = 0.0
+            self._last_cmd_w = 0.0
+            self._last_cmd_time = None
             return cmd
 
         heading_error = math.atan2(target_y, target_x)
 
-        # Speed scaling based on heading error (slow down during sharp turns)
-        speed_factor = max(0.2, math.cos(heading_error))
+        # Smooth speed scaling based on heading error (slow down during sharp turns)
+        speed_factor = max(0.30, math.cos(heading_error))
         linear_v = self.max_linear_speed * speed_factor
 
+        # Anti-stiction floor when moving
+        if linear_v > 0.01:
+            linear_v = max(self.min_linear_speed, linear_v)
+        else:
+            linear_v = 0.0
+
         # Proportional angular controller
-        k_angular = 1.8
-        angular_w = np.clip(k_angular * heading_error, -self.max_angular_speed, self.max_angular_speed)
+        k_angular = 1.40
+        angular_w = float(np.clip(k_angular * heading_error, -self.max_angular_speed, self.max_angular_speed))
+
+        # Continuous curvature enforcement: prevent turning radius below 18cm (Marcus chassis radius)
+        # when moving forward, avoiding in-place skid stops during visual exploration
+        if linear_v > 0.02 and abs(angular_w) > 1e-3:
+            max_w_for_radius = linear_v / self.min_turning_radius
+            if abs(angular_w) > max_w_for_radius:
+                angular_w = math.copysign(max_w_for_radius, angular_w)
+
+        # Slew rate limiter / acceleration smoothing
+        now = time.monotonic() if current_time is None else current_time
+        if self._last_cmd_time is not None:
+            dt = max(0.01, min(0.50, now - self._last_cmd_time))
+            max_dv = self.max_linear_accel * dt
+            max_dw = self.max_angular_accel * dt
+            linear_v = float(np.clip(linear_v, self._last_cmd_v - max_dv, self._last_cmd_v + max_dv))
+            angular_w = float(np.clip(angular_w, self._last_cmd_w - max_dw, self._last_cmd_w + max_dw))
+
+        self._last_cmd_v = linear_v
+        self._last_cmd_w = angular_w
+        self._last_cmd_time = now
 
         cmd.linear.x = float(linear_v)
         cmd.angular.z = float(angular_w)
@@ -357,6 +400,9 @@ class NomadNavigatorNode(Node):
     def _stop_robot(self):
         stop_cmd = Twist()
         self.pub_cmd_vel.publish(stop_cmd)
+        self._last_cmd_v = 0.0
+        self._last_cmd_w = 0.0
+        self._last_cmd_time = None
 
     def publish_status(self):
         msg = String()

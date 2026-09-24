@@ -24,6 +24,7 @@ dp/
 
 # Scratch and local test scripts
 scratch/
+.agents/
 test_motore_remote.py
 test_motori_remote.py
 test_porcupine.py

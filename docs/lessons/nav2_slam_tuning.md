@@ -10,6 +10,7 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
 * **Regola:** Non implementare la mappatura volumetrica continua 3D (STVL) su Raspberry Pi 5. La CPU ed il bus di memoria non sono in grado di sostenerne il calcolo.
 * **Soluzione:** Proiettare gli ostacoli 3D estratti dalla visione artificiale in ostacoli costmap 2D localizzati (2.5D). Il nodo `semantic_costmap_injector.py` converte i bounding box tridimensionali in coordinate 2D e li inietta nel costmap Nav2 con un decadimento temporale associato.
 * **Rilevamento Ostacoli Negativi (Scale / Dislivelli - FM-NAV-009):** Il nodo `semantic_costmap_injector.py` sottoscrive `/camera/depth/image_raw` ed esegue il *Depth-Gradient Hole Raycasting* lungo i campioni verticali dell'immagine. Quando rileva un dislivello $\Delta Z > 15\text{ cm}$ sotto il piano del terreno ($Z_{base} = 0.0\text{m}$), inietta ostacoli letali sul topic `/hailo_semantic_obstacles_pc` per forzare Nav2 ad evitare il bordo del precipizio.
+* **Ottimizzazione CPU Vettoriale SIMD (FM-CPU-001 / FM-NAV-009):** L'implementazione originaria con cicli annidati Python (`for u in range...: for v in range...`) su matrici depth causava un assorbimento del 58.5% di CPU sul Pi 5. La riprogettazione con griglia vettoriale NumPy (`np.meshgrid`, indicizzazione tensoriale `np.ix_` e moltiplicazione tensoriale `pts_cam @ rot_mat.T` in BLAS C) insieme al rate-limiting a 1.25 Hz ha abbattuto il tempo di esecuzione da 150ms a 0.5ms per frame, riducendo l'impatto CPU del nodo da 58.5% a <2%.
 
 ### Allineamento dei Frame ID e `/scan`
 * **Errore:** RTAB-Map fallisce l'aggiornamento con il messaggio `Could not convert laser scan msg! Aborting rtabmap update...`.
@@ -483,5 +484,40 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
      - 247 fori/pinhole chiusi nelle pareti perimetrali.
      - Tempo di calcolo: $< 0.5\text{ s}$ per una griglia $313 \times 208$.
      - Database SQLite riparato e consolidato con `rtabmap-recovery` e `PRAGMA integrity_check: ok`.
+
+---
+
+### Nav2 MPPI Continuous Curvature & Prevenzione Moto a Scatti "Robotico" (Settembre 2026 - FM-NAV-032 / FM-MOT-008)
+* **Sintomo:** Durante la navigazione autonoma con Nav2, il robot procedeva con movimenti rigidi e a scatti ("robotici"): si fermava completamente a ogni cambio di direzione per ruotare sul posto, poi ripartiva a velocità bassissime ($0.02 - 0.04\text{ m/s}$), finendo spesso bloccato dall'attrito statico (stiction) delle ruote.
+* **Causa Radice:**
+  1. *Curvatura Minima Nulla (`base_min_turning_radius: 0.0`):* Con raggio minimo nullo e cinematica differenziale, l'ottimizzatore MPPI considerava le rotazioni sul posto ($v=0, \omega \ne 0$) a costo energetico equivalente o preferibile rispetto a curve continue.
+  2. *Squilibrio Critici MPPI:* `PathAlignCritic` impostato a un peso sproporzionato (`14.0`) rispetto a `PathFollowCritic` (`5.0`). A ogni vertice discretizzato del percorso globale, MPPI penalizzava duramente l'angolo della sagoma arrestando l'avanzamento per riallinearsi a zero gradi prima di proseguire.
+  3. *Campionamento a Scatti & Crawling Sub-Millimetrico:* `vx_std: 0.03` troppo basso esplorava solo perturbazioni minime di velocità lineare; contemporaneamente `min_x_velocity_threshold: 0.001` permetteva a Nav2 di pubblicare comandi di strisciamento sub-millimetrici ($< 1\text{ mm/s}$), che cadevano nella deadband dei motori.
+* **Soluzione Implementata in `nav2_params_jazzy.yaml`:**
+  1. *Raggio di Curvatura Minimo Vincolato:* `base_min_turning_radius: 0.18`. Obbliga MPPI a generare esclusivamente archi di cerchio continui e raccordati durante il tracciamento del percorso, eliminando gli stop a gomito.
+  2. *Rebalancing Critici per Flusso Continuo:*
+     - `PathAlignCritic: 8.0` (da 14.0): rilassata la severità di allineamento rigido per permettere manovre fluide in curva.
+     - `PathFollowCritic: 10.0` (da 5.0): raddoppiata la priorità di scorrimento in avanti lungo il percorso.
+     - `PathAngleCritic: 1.5` (da 2.0): attenuata la penalità di divergenza angolare locale.
+  3. *Soglia Minima di Velocità Nav2:* `min_x_velocity_threshold: 0.05` (da 0.001). Nav2 non genera più comandi al di sotto di $5\text{ cm/s}$, lavorando in perfetta sinergia con il breakout kick e il dynamic floor del driver motori.
+  4. *Spazio di Campionamento Dinamico:* `vx_std: 0.08` e `wz_std: 0.12` per traiettorie più dinamiche e reattive.
+  5. *Navfn Global Planner A\* Smooth:* `use_astar: true` e `tolerance: 0.3` in `NavfnPlanner` per generare percorsi globali meno frastagliati rispetto al Dijkstra puro.
+
+---
+
+### NOMAD Visual Foundation Navigation: Moto Naturale, Anti-Stiction & Slew Rate (Settembre 2026 - FM-NOM-008)
+* **Sintomo:** Durante l'esplorazione autonoma e la navigazione visiva guidata da NOMAD, il robot manifestava un comportamento convulso:
+  1. *Stallo su curve strette:* In prossimità di angoli o porte, la velocità lineare scendeva a $0.036 - 0.04\text{ m/s}$, con il robot bloccato dalla stiction o che avanzava a passo di lumaca.
+  2. *Pivot bruschi sul posto:* `max_angular_speed` impostato a $1.50\text{ rad/s}$ ($\sim 86^\circ/\text{s}$) faceva scattare il robot violentemente in rotazione sul posto con le ruote in contro-rotazione, per poi accelerare di colpo a $0.22\text{ m/s}$ appena riallineato (oscillazione "hunting" a zigzag).
+  3. *Saltelli a 4 Hz (Jerk di Controllo):* Senza un filtro di accelerazione (slew rate limiter) tra cicli consecutivi a 4 Hz, variazioni istantanee di traiettoria inviavano impulsi a gradino ai motori.
+  4. *Stop spuri del watchdog (300ms):* Con loop a 250ms (4 Hz), un ritardo di 55ms (DDS batching o GC) superava la soglia di 300ms, inducendo un arresto d'emergenza fittizio e una ripartenza a singhiozzo.
+* **Soluzione Implementata in `nomad_reactive_pipeline_node.py` e `nomad_navigator_node.py`:**
+  1. *Floor di Velocità Lineare Anti-Stiction:* `min_linear_speed: 0.05` m/s. Allineato alla soglia minima di Nav2, garantisce coppia sufficiente e avanzamento positivo senza mai cadere nella deadband meccanica.
+  2. *Curvatura Continua Vincolata:* Quando $v > 0.02\text{ m/s}$, la velocità angolare massima viene limitata dinamicamente da $\omega \le v / R_{min}$ con $R_{min} = 0.18\text{ m}$ (raggio geometrico del telaio di Marcus). Il robot non contro-ruota mai le ruote sul posto durante l'avanzamento, ma raccorda ogni curva in archi continui e fluidi.
+  3. *Slew Rate Limiter Integrato:* Limitazione progressiva dell'accelerazione sia lineare ($a_{max} = 0.35\text{ m/s}^2$) che angolare ($\alpha_{max} = 1.20\text{ rad/s}^2$) all'interno di `PurePursuitController`, azzerando il jerk a 4 Hz.
+  4. *Limitazione Angolare Realistica:* `max_angular_speed` abbassato da $1.50$ a **$0.70\text{ rad/s}$** per un'andatura visiva naturale ed armoniosa.
+  5. *Estensione Watchdog a 500 ms:* Margine di sicurezza portato a 500 ms (pari a 2 cicli completi a 4 Hz persi e allineato al watchdog hardware di SPEC-01), eliminando il 100% degli stop spuri da jitter software.
+  6. *Default Topic `/cmd_vel`:* Configurato nativamente su `/cmd_vel` per azionamento diretto e deterministico dell'hardware.
+
 
 

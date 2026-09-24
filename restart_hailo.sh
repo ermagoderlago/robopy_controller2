@@ -8,6 +8,8 @@ if [ -z "$FROM_WATCHDOG" ]; then
     sudo -n systemctl stop marcus-watchdog.service 2>/dev/null || true
     systemctl --user stop marcus-watchdog.service 2>/dev/null || true
     pkill -9 -f watchdog.sh || true
+    # Salva gli argomenti per il watchdog in caso di riavvio automatico futuro
+    echo "$@" > /mnt/ssd/last_run_args.env 2>/dev/null || true
 fi
 
 # --- Setup ambiente ---
@@ -22,6 +24,9 @@ export ROS_DOMAIN_ID=42
 # Se ENABLE_HAILO=false, la NPU Hailo-10H non viene avviata per azzerare il carico di corrente PCIe (previene brownout)
 ENABLE_HAILO="${ENABLE_HAILO:-false}"
 USE_AMCL="${USE_AMCL:-false}"
+ENABLE_WATCHDOG="${ENABLE_WATCHDOG:-false}"
+SOFT_START="${SOFT_START:-true}"
+TARGET_CPU_FREQ="${TARGET_CPU_FREQ:-1500000}"
 if [ -z "$MAP_FILE" ]; then
     if [ -f "/mnt/ssd/maps/piano_terra_opt.yaml" ]; then
         MAP_FILE="/mnt/ssd/maps/piano_terra_opt.yaml"
@@ -58,8 +63,35 @@ for arg in "$@"; do
         --map=*)
             MAP_FILE="${arg#*=}"
             ;;
+        --watchdog)
+            ENABLE_WATCHDOG="true"
+            ;;
+        --no-watchdog|--disable-watchdog)
+            ENABLE_WATCHDOG="false"
+            ;;
+        --soft-start|--dolce)
+            SOFT_START="true"
+            ;;
+        --no-soft-start|--full-power)
+            SOFT_START="false"
+            ;;
+        --turbo|--2.4ghz)
+            TARGET_CPU_FREQ="2400000"
+            ;;
+        --eco|--1.6ghz)
+            TARGET_CPU_FREQ="1600000"
+            ;;
     esac
 done
+
+# --- Profilo Energetico Dolce (Soft-Start Anti-Sag & Inrush Protection) ---
+# Limita la frequenza massima della CPU Cortex-A76 a 1.6 GHz durante l'inizializzazione
+# per azzerare i picchi di assorbimento (di/dt) che portano il rail 5V sotto 4.63V.
+trap 'echo $TARGET_CPU_FREQ | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_max_freq >/dev/null 2>&1 || true' EXIT INT TERM
+if [ "$SOFT_START" = "true" ]; then
+    echo "🎚️ [SOFT-START] Attivazione profilatura energetica dolce (CPU limitata a 1.6 GHz per prevenire cali di tensione)..."
+    echo 1600000 | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_max_freq > /dev/null 2>&1 || true
+fi
 
 if [ "$RESET_DB" = "1" ]; then
     DELETE_DB_FLAG="--delete_db_on_start"
@@ -80,6 +112,9 @@ cat << 'EOF' > /tmp/cyclonedds_robopy.xml
 <?xml version="1.0" encoding="UTF-8" ?>
 <CycloneDDS xmlns="https://cdds.io/config" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://cdds.io/config https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
     <Domain id="any">
+        <General>
+            <NetworkInterfaceAddress>lo</NetworkInterfaceAddress>
+        </General>
         <Discovery>
             <MaxAutoParticipantIndex>200</MaxAutoParticipantIndex>
         </Discovery>
@@ -158,10 +193,20 @@ sleep 1
 # STEP 1: AVVIO CAMERA E TRASFORMATE STATICHE (Subito)
 # =============================================================================
 echo "⚙️ Starting waveshare_motor_driver..."
-# Auto-sync driver node to install site-packages for immediate deployment without full build
-if [ -f "/mnt/ssd/robopy_controller_host/robopy_controller/nodes/waveshare_motor_driver.py" ]; then
-    cp -u /mnt/ssd/robopy_controller_host/robopy_controller/nodes/waveshare_motor_driver.py \
-          /mnt/ssd/robopy_controller_host/install/robopy_controller/lib/python3.11/site-packages/robopy_controller/nodes/waveshare_motor_driver.py 2>/dev/null || true
+# Auto-sync updated python nodes to install site-packages and lib directory for immediate deployment
+LIB_DEST="/mnt/ssd/robopy_controller_host/install/robopy_controller/lib/robopy_controller"
+SITE_DEST="/mnt/ssd/robopy_controller_host/install/robopy_controller/lib/python3.11/site-packages/robopy_controller/nodes"
+for node_file in waveshare_motor_driver.py semantic_costmap_injector.py sensor_standby_manager.py robot_health_supervisor.py; do
+    src_file="/mnt/ssd/robopy_controller_host/robopy_controller/nodes/$node_file"
+    if [ -f "$src_file" ]; then
+        cp -u "$src_file" "$SITE_DEST/$node_file" 2>/dev/null || true
+        node_base="${node_file%.py}"
+        cp -u "$src_file" "$LIB_DEST/$node_base" 2>/dev/null || true
+        chmod +x "$LIB_DEST/$node_base" 2>/dev/null || true
+    fi
+done
+if [ -d "/mnt/ssd/robopy_controller_host/robopy_controller/robot_ai" ]; then
+    cp -ru /mnt/ssd/robopy_controller_host/robopy_controller/robot_ai /mnt/ssd/robopy_controller_host/install/robopy_controller/lib/python3.11/site-packages/robopy_controller/ 2>/dev/null || true
 fi
 > /home/robopy/robopy/logs/waveshare_motor_driver.log
 nohup ros2 run robopy_controller waveshare_motor_driver --ros-args \
@@ -256,6 +301,10 @@ nohup ros2 run sllidar_ros2 sllidar_node --ros-args \
     -p angle_compensate:=true \
     -p scan_mode:=Standard \
     > /home/robopy/robopy/logs/sllidar_c1.log 2>&1 &
+if [ "$SOFT_START" = "true" ]; then
+    echo "⏳ [SOFT-START] Pausa stabilizzazione corrente di spunto RPLIDAR (3s)..."
+    sleep 3
+fi
 
 echo "📡 Starting ultrasonic_sensor..."
 > /home/robopy/robopy/logs/ultrasonic_sensor.log
@@ -415,18 +464,14 @@ echo "🛡️ Starting system_lifecycle_coordinator_node (Memory Pressure Sentin
 nohup ros2 run robopy_controller system_lifecycle_coordinator_node \
     > /home/robopy/robopy/logs/system_lifecycle_coordinator_node.log 2>&1 &
 
-echo "🤖 Starting robot_ai_node (Cognitive Orchestrator)..."
-> /home/robopy/robopy/logs/robot_ai_node_debug_TEST4.log
-nohup ros2 run robopy_controller robot_ai_node \
-    > /home/robopy/robopy/logs/robot_ai_node_debug_TEST4.log 2>&1 &
-
-echo "🔌 Starting foxglove_bridge..."
+echo "🔌 Starting foxglove_bridge (CPU-safe, no zstd compression)..."
 > /home/robopy/robopy/logs/foxglove_bridge.log
-nohup ros2 run foxglove_bridge foxglove_bridge --ros-args \
+nohup taskset -c 0,1 nice -n 10 ros2 run foxglove_bridge foxglove_bridge --ros-args \
     -p port:=8765 \
     -p send_buffer_limit:=10000000 \
-    -p max_subscription_rate:=10.0 \
-    -p use_compression:=true \
+    -p max_subscription_rate:=4.0 \
+    -p ignore_unresponsive_param_nodes:=true \
+    -p use_compression:=false \
     > /home/robopy/robopy/logs/foxglove_bridge.log 2>&1 &
 
 echo "🌉 Starting foxglove_nav2_bridge..."
@@ -461,6 +506,15 @@ nohup ros2 launch robopy_controller custom_nav2_launch.py \
 echo "⏳ [NAV2-MONITOR] Nav2 lifecycle manager gestisce la transizione automatica dei nodi..."
 sleep 15
 
+echo "🤖 Starting robot_ai_node (Cognitive Orchestrator, soft-scheduled)..."
+> /home/robopy/robopy/logs/robot_ai_node_debug_TEST4.log
+nohup nice -n 5 ros2 run robopy_controller robot_ai_node \
+    > /home/robopy/robopy/logs/robot_ai_node_debug_TEST4.log 2>&1 &
+if [ "$SOFT_START" = "true" ]; then
+    echo "⏳ [SOFT-START] Pausa stabilizzazione modelli cognitivi AI (4s)..."
+    sleep 4
+fi
+
 # Inizializzazione Automatica Localizzazione AMCL (Pose Persistence o Auto-Relocalize)
 if [ "$USE_AMCL" = "true" ]; then
     echo "🎯 [AMCL-INIT] Inizializzazione automatica della localizzazione..."
@@ -488,14 +542,21 @@ for node_name in "fast_flow_vo_cpp" "rtabmap" "hailo_bridge_node_cpp"; do
     done
 done
 
+if [ "$SOFT_START" = "true" ]; then
+    echo "⚡ [SOFT-START] Tutti i sottosistemi agganciati! Profilo operativo stabile a ${TARGET_CPU_FREQ%000} MHz..."
+    echo "$TARGET_CPU_FREQ" | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_max_freq > /dev/null 2>&1 || true
+fi
+
 echo "✅ Stack completo (AI, Percezione, SLAM e Nav2) avviato con successo!"
 echo "   Camera log:    tail -f /home/robopy/robopy/logs/oak_camera.log"
 echo "   RTAB-Map log:  tail -f /home/robopy/robopy/logs/rtabmap.log"
 echo "   Nav2 log:      tail -f /home/robopy/robopy/logs/nav2.log"
 echo "   VUI log:       tail -f /home/robopy/robopy/logs/respeaker_vui_node.log"
 
-if [ -z "$FROM_WATCHDOG" ]; then
+if [ -z "$FROM_WATCHDOG" ] && [ "$ENABLE_WATCHDOG" = "true" ]; then
     echo "🟢 Riattivazione del Watchdog..."
     sudo systemctl start marcus-watchdog.service || true
     systemctl --user start marcus-watchdog.service || true
+else
+    echo "🛡️ [SAFETY] Watchdog disattivato per test e debug interattivo."
 fi

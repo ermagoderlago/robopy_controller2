@@ -9,6 +9,44 @@ goal-conditioned navigation, and pure pursuit controller logic.
 import unittest
 import numpy as np
 import math
+import sys
+import os
+from unittest.mock import MagicMock
+
+# Setup lightweight ROS 2 mocks before importing ROS modules
+class FakeNode:
+    def __init__(self, *args, **kwargs):
+        pass
+
+for mod in [
+    'rclpy', 'rclpy.node', 'rclpy.qos',
+    'sensor_msgs', 'sensor_msgs.msg',
+    'nav_msgs', 'nav_msgs.msg',
+    'geometry_msgs', 'geometry_msgs.msg',
+    'std_msgs', 'std_msgs.msg',
+    'cv_bridge'
+]:
+    if mod not in sys.modules:
+        sys.modules[mod] = MagicMock()
+
+sys.modules['rclpy.node'].Node = FakeNode
+
+class FakeTwist:
+    class Linear:
+        def __init__(self):
+            self.x = 0.0
+            self.y = 0.0
+            self.z = 0.0
+    class Angular:
+        def __init__(self):
+            self.x = 0.0
+            self.y = 0.0
+            self.z = 0.0
+    def __init__(self):
+        self.linear = self.Linear()
+        self.angular = self.Angular()
+
+sys.modules['geometry_msgs.msg'].Twist = FakeTwist
 
 from robopy_controller.nodes.nomad_navigator_node import NomadNavigatorNode
 
@@ -20,9 +58,16 @@ class MockNomadNode:
         self.input_width = 128
         self.input_height = 128
         self.max_linear_speed = 0.18
+        self.min_linear_speed = 0.05
         self.max_angular_speed = 0.45
+        self.max_linear_accel = 0.35
+        self.max_angular_accel = 1.20
+        self.min_turning_radius = 0.18
         self.goal_reach_distance = 0.35
         self.lookahead_index = 2
+        self._last_cmd_v = 0.0
+        self._last_cmd_w = 0.0
+        self._last_cmd_time = None
         self.infer_policy = NomadNavigatorNode._infer_nomad_policy
         self.compute_cmd = NomadNavigatorNode._compute_pure_pursuit_cmd
 

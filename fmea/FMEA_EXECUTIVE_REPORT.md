@@ -1,5 +1,5 @@
 # 📊 Report Esecutivo DFMEA - Marcus AI Robot Platform
-**Data Generazione:** 2026-09-24 00:46:18  
+**Data Generazione:** 2026-09-24 23:50:56  
 **Metodologia:** AIAG-VDA FMEA Standard con Regola Override Severità ($S \ge 9 \implies$ REVISION_MANDATORY)
 
 ---
@@ -8,8 +8,8 @@
 
 | Metrica | Valore | Note / Impatto |
 | :--- | :---: | :--- |
-| **Totale Modalità di Guasto (FM)** | **128** | Copertura integrata dei sottosistemi Marcus |
-| **🟢 Risk Level LOW** | **94** | $RPN_{res} \le 50$ (Sotto controllo) |
+| **Totale Modalità di Guasto (FM)** | **129** | Copertura integrata dei sottosistemi Marcus |
+| **🟢 Risk Level LOW** | **95** | $RPN_{res} \le 50$ (Sotto controllo) |
 | **🟡 Risk Level MEDIUM** | **7** | $51 \le RPN_{res} \le 199$ (Monitoraggio attivo) |
 | **🟠 Risk Level HIGH** | **2** | $200 \le RPN_{res} \le 349$ (Mitigazione obbligatoria) |
 | **🔴 Risk Level CRITICAL** | **0** | $RPN_{res} \ge 350$ (Blocco rilasci) |
@@ -36,7 +36,7 @@
 - **Voice/Orchestration:** 1 failure modes
 - **Navigation/Odometry:** 1 failure modes
 - **Actuation/Odometry:** 2 failure modes
-- **Navigation/NoMaD:** 5 failure modes
+- **Navigation/NoMaD:** 6 failure modes
 - **Vision/VPR:** 2 failure modes
 - **AI/Memory:** 2 failure modes
 - **Actuation/Hardware:** 1 failure modes
@@ -68,8 +68,8 @@
 | **FM-LLM-004** | AI/LangGraph | `dynamic_skill_creator` | Esecuzione di codice auto-generato (Skill) pericoloso, instabile o fuori controllo (AI Code Hazard) | 9 ➔ 9 | 324 ➔ **324** | `REVISION_MANDATORY` | `OPEN` | N/A |
 | **FM-ACT-006** | Hardware/Power | `waveshare_motor_driver / IMU` | Il robot viene sollevato da terra (in volo) mentre è in movimento, le ruote continuano a girare a vuoto alla massima velocità | 8 ➔ 8 | 280 ➔ **280** | `HIGH` | `OPEN` | N/A |
 | **FM-VUI-006** | VUI Audio | `respeaker_vui_node` | Distorsione audio meccanica dell'altoparlante (Clipping fisico e saturazione) | 8 ➔ 8 | 240 ➔ **240** | `HIGH` | `OPEN` | N/A |
-| **FM-NAV-009** | Nav2/Vision | `semantic_costmap_injector / oak_d_lite` | Caduta dalle scale o da dislivelli (Negative Obstacle Fall) | 10 ➔ 10 | 560 ➔ **210** | `REVISION_MANDATORY` | `IN_PROGRESS` | [`docs/ecos/nav2_slam_ecos.md#ECO-2026-07-30-004`](docs/ecos/nav2_slam_ecos.md#ECO-2026-07-30-004) |
 | **FM-ACT-007** | Hardware/Power | `chassis / IMU` | Ribaltamento fisico del robot (Tipped Over / Rollover) | 9 ➔ 9 | 180 ➔ **180** | `REVISION_MANDATORY` | `OPEN` | N/A |
+| **FM-NAV-009** | Nav2/Vision | `semantic_costmap_injector / oak_d_lite` | Caduta dalle scale o da dislivelli (Negative Obstacle Fall) | 10 ➔ 10 | 560 ➔ **100** | `REVISION_MANDATORY` | `CLOSED` | [`docs/ecos/nav2_slam_ecos.md#ECO-2026-07-30-004`](docs/ecos/nav2_slam_ecos.md#ECO-2026-07-30-004) |
 | **FM-ACT-001** | Hardware/Power | `waveshare_motor_driver` | Immobilità del robot con ronzio prolungato dei motori in condizioni di stiction o batteria scarica | 9 ➔ 9 | 360 ➔ **36** | `REVISION_MANDATORY` | `CLOSED` | [`docs/ecos/actuation_ecos.md#ECO-2026-07-22-010`](docs/ecos/actuation_ecos.md#ECO-2026-07-22-010) |
 | **FM-NAV-006** | Nav2 | `waveshare_motor_driver / oak_superpoint_odometry` | Slittamento ruote (Wheel Slip) su piastrelle/tappeti con conseguente deriva odometrica accumulata e disallineamento della posa globale | 9 ➔ 9 | 315 ➔ **36** | `REVISION_MANDATORY` | `OPEN` | [`docs/ecos/actuation_ecos.md`](docs/ecos/actuation_ecos.md) |
 | **FM-NAV-016** | Nav2 | `rtabmap` | Falso aggancio del grafo SLAM (False Loop Closure) con rotazione/traslazione spuria della mappa globale | 9 ➔ 9 | 378 ➔ **36** | `REVISION_MANDATORY` | `CLOSED` | [`docs/ecos/nav2_slam_ecos.md#ECO-2026-08-28-NAV-DFMEA-FIXES`](docs/ecos/nav2_slam_ecos.md#ECO-2026-08-28-NAV-DFMEA-FIXES) |
@@ -102,11 +102,11 @@
 | **FM-LLM-004** | AI/LangGraph | `dynamic_skill_creator` | Esecuzione di codice auto-generato (Skill) pericoloso, instabile o fuori controllo (AI Code Hazard) | 9 | 6 | 6 | **324** | `REVISION_MANDATORY` | `OPEN` | [`docs/lessons/llm_live_api.md`](docs/lessons/llm_live_api.md) |
 | **FM-ACT-006** | Hardware/Power | `waveshare_motor_driver / IMU` | Il robot viene sollevato da terra (in volo) mentre è in movimento, le ruote continuano a girare a vuoto alla massima velocità | 8 | 7 | 5 | **280** | `HIGH` | `OPEN` | [`docs/lessons/actuation_motor_driver.md`](docs/lessons/actuation_motor_driver.md) |
 | **FM-VUI-006** | VUI Audio | `respeaker_vui_node` | Distorsione audio meccanica dell'altoparlante (Clipping fisico e saturazione) | 8 | 6 | 5 | **240** | `HIGH` | `OPEN` | [`docs/lessons/telemetry_and_autotuning.md`](docs/lessons/telemetry_and_autotuning.md) |
-| **FM-NAV-009** | Nav2/Vision | `semantic_costmap_injector / oak_d_lite` | Caduta dalle scale o da dislivelli (Negative Obstacle Fall) | 10 | 7 | 3 | **210** | `REVISION_MANDATORY` | `IN_PROGRESS` | [`docs/lessons/nav2_slam_tuning.md`](docs/lessons/nav2_slam_tuning.md) |
 | **FM-NAV-007** | Nav2 | `rtabmap` | Perdita del Tracking SLAM per mancanza di Inliers in ambienti non strutturati (es. corridoi bianchi) | 7 | 7 | 4 | **196** | `MEDIUM` | `OPEN` | [`docs/lessons/telemetry_and_autotuning.md`](docs/lessons/telemetry_and_autotuning.md) |
 | **FM-SYS-005** | System/Compute | `pi5_thermal_manager` | Perdita scadenze real-time (Deadline Miss) e movimento a scatti causati da Thermal Throttling della CPU | 6 | 8 | 4 | **192** | `MEDIUM` | `OPEN` | [`docs/lessons/telemetry_and_autotuning.md`](docs/lessons/telemetry_and_autotuning.md) |
 | **FM-SYS-006** | System/DDS | `fastdds_middleware` | Caduta dell'albero TF e latenza critica dei topic ROS 2 causata da Multicast Discovery Storm | 8 | 6 | 4 | **192** | `MEDIUM` | `OPEN` | [`docs/lessons/dev_and_deployment.md`](docs/lessons/dev_and_deployment.md) |
 | **FM-ACT-007** | Hardware/Power | `chassis / IMU` | Ribaltamento fisico del robot (Tipped Over / Rollover) | 9 | 5 | 4 | **180** | `REVISION_MANDATORY` | `OPEN` | [`docs/lessons/actuation_motor_driver.md`](docs/lessons/actuation_motor_driver.md) |
+| **FM-NAV-009** | Nav2/Vision | `semantic_costmap_injector / oak_d_lite` | Caduta dalle scale o da dislivelli (Negative Obstacle Fall) | 10 | 5 | 2 | **100** | `REVISION_MANDATORY` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md`](docs/lessons/nav2_slam_tuning.md) |
 | **FM-VIS-003** | Vision/Hardware | `oak_d_mount / tf_broadcaster` | Falso rilevamento ostacoli (Muri Inesistenti) o mancata rilevazione pavimento causati da Drift Meccanico (Sag) della telecamera | 8 | 6 | 2 | **96** | `MEDIUM` | `COMPLETED` | [`docs/lessons/vision_hailo_npu.md`](docs/lessons/vision_hailo_npu.md) |
 | **FM-VPR-002** | Vision/VPR | `vpr_topological_graph_node` | Ambienti visivamente simili (corridoi identici, stanze con stesso arredamento) generano embedding CosPlace con similarita > 0.84 producendo archi spuri nel grafo topologico | 8 | 3 | 3 | **72** | `MEDIUM` | `PLANNED` | [`docs/lessons/vision_hailo_npu.md`](docs/lessons/vision_hailo_npu.md) |
 | **FM-SIM-002** | Simulation/Testing | `synthetic_scenario_generator` | Divergenza tra Simulazione e Realtà ('Sim-to-Real Cognitive Gap') | 7 | 3 | 3 | **63** | `MEDIUM` | `OPEN` | [`docs/lessons/orchestration_and_rag.md`](docs/lessons/orchestration_and_rag.md) |
@@ -168,6 +168,7 @@
 | **FM-TRI-002** | AI/Trinity | `rag_document_indexer` | Freeze temporaneo o blocco dell'Event Loop asyncio durante il chunking e embedding di file voluminosi | 7 | 1 | 2 | **14** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#trinity-architecture`](docs/lessons/orchestration_and_rag.md#trinity-architecture) |
 | **FM-VUI-023** | Audio & VUI | `live_connection_bridge_node` | Latenza audio elevata, audio glitches e mancata cancellazione di skill dovuta a monolite llm_service.py (>46KB) | 7 | 2 | 1 | **14** | `LOW` | `CLOSED` | [`docs/lessons/llm_live_api.md#cognitive-pipeline-modularization`](docs/lessons/llm_live_api.md#cognitive-pipeline-modularization) |
 | **FM-NOM-007** | Navigation/Vision | `nomad_reactive_pipeline_node` | Cecità ottica su pareti bianche o porte monocromatiche con proiezione di waypoints dritti e slittamento ruote su ostacolo | 3 | 2 | 2 | **12** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#white-wall-protection`](docs/lessons/nav2_slam_tuning.md#white-wall-protection) |
+| **FM-NOM-008** | Navigation/NoMaD | `PurePursuitController & nomad_reactive_pipeline_node` | Stallo a bassa velocità (0.036-0.04 m/s), pivot violenti sul posto (1.50 rad/s) e scatti robotici a 4 Hz | 3 | 2 | 2 | **12** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#nomad-smooth-motion`](docs/lessons/nav2_slam_tuning.md#nomad-smooth-motion) |
 | **FM-COG-003** | Orchestration & RAG | `orchestrator & conversation` | Triplice ricezione ed elaborazione dei messaggi inviati su /robopy/conversation_rx, con conseguente scatto del prompt di insistenza ripetuta dell'LLM (repeat_count >= 2) | 6 | 2 | 1 | **12** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#FM-COG-003`](docs/lessons/orchestration_and_rag.md#FM-COG-003) |
 | **FM-COG-004** | Orchestration & RAG | `conversation, metaprompt_fusion, memory_manager & memory_info_skill` | Mancato recupero fatti appresi (echo loop su 'non ho visto nulla di nuovo'), allucinazione etimologica latina/dio Marte sul nome MARCUS, crash MemoryInfoSkill (AttributeError get_stats) e muting vocale su chat | 6 | 2 | 1 | **12** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#FM-COG-004`](docs/lessons/orchestration_and_rag.md#FM-COG-004) |
 | **FM-LLM-002** | AI/LangGraph | `llm_live_api` | Risposte multiple e sovrapposte ('doppia voce') ad una singola frase dell'utente | 5 | 1 | 2 | **10** | `LOW` | `CLOSED` | [`docs/lessons/llm_live_api.md`](docs/lessons/llm_live_api.md) |

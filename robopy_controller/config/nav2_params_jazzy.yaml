@@ -111,9 +111,9 @@ controller_server:
   ros__parameters:
     use_sim_time: false
     controller_frequency: 5.0  # 5Hz — motori open-loop lenti, 10Hz era eccessivo
-    min_x_velocity_threshold: 0.001
+    min_x_velocity_threshold: 0.05  # Evita comandi di micro-strisciamento sotto soglia fisica (era 0.001)
     min_y_velocity_threshold: 0.5
-    min_theta_velocity_threshold: 0.001
+    min_theta_velocity_threshold: 0.02
     failure_tolerance: 0.3
     progress_checker_plugins: ["progress_checker"]
     goal_checker_plugins: ["general_goal_checker"]
@@ -132,20 +132,20 @@ controller_server:
       xy_goal_tolerance: 0.25
       yaw_goal_tolerance: 0.25
 
-    # Controller (MPPI) ottimizzato per robot cingolato non olonomo
+    # Controller (MPPI) ottimizzato per traiettorie fluide e curve ad arco continuo
     FollowPath:
       plugin: "nav2_mppi_controller::MPPIController"
       time_steps: 20    # [CPU-OPT Pi 5] Orizzonte ridotto (robot lento, non serve guardare lontano)
       model_dt: 0.2     # Passo temporale doppio (coerente con robot lento)
-      batch_size: 300   # [CPU-OPT Pi 5] Ridotto da 500 a 300 per contenere CPU/RAM Pi 5
-      vx_std: 0.03      # Campionamento stretto (velocità basse)
+      batch_size: 150   # [CPU-OPT Pi 5] Ridotto da 300 a 150: identica curvatura continua a 0.2m/s, -50% CPU
+      vx_std: 0.08      # Campionamento allargato per esplorare velocità operative (era 0.03)
       vy_std: 0.0
-      wz_std: 0.08       # Campionamento proporzionale
-      vx_max: 0.18      # Velocità lineare max REALE del robot
+      wz_std: 0.12      # Reattività proporzionale in sterzata (era 0.08)
+      vx_max: 0.20      # Velocità lineare di crociera fluida (limite max SPEC-01: 0.40 m/s)
       vx_min: 0.0       # Zero: NESSUNA RETROMARCIA AMMESSA cieca
-      wz_max: 0.8      # Velocità angolare max REALE del robot
+      wz_max: 0.8       # Velocità angolare max REALE del robot
       kinematics:
-        base_min_turning_radius: 0.0  # Permetti rotazione sul posto (skid steer) per curve taglienti
+        base_min_turning_radius: 0.18  # ENFORCE: il robot non può fermarsi a ruotare sul posto, deve fare curve continue ad arco
       critics: ["ConstraintCritic", "GoalCritic", "GoalAngleCritic", "ObstaclesCritic", "PathAlignCritic", "PathFollowCritic", "PathAngleCritic", "PreferForwardCritic"]
       ConstraintCritic:
         cost_power: 1
@@ -160,20 +160,20 @@ controller_server:
         threshold_to_consider: 0.5
       ObstaclesCritic:
         cost_power: 1
-        cost_weight: 30.0
+        cost_weight: 25.0
         repulsion_weight: 1.5
       PathAlignCritic:
         cost_power: 1
-        cost_weight: 14.0
+        cost_weight: 8.0  # Ridotto da 14.0 per non forzare soste continue di riallineamento
       PathFollowCritic:
         cost_power: 1
-        cost_weight: 5.0
+        cost_weight: 10.0 # Aumentato da 5.0 per privilegiare l'avanzamento continuo lungo la rotta
       PathAngleCritic:
         cost_power: 1
-        cost_weight: 2.0
+        cost_weight: 1.5  # Ridotto da 2.0 per evitare stop improvvisi in curva
       PreferForwardCritic:
         cost_power: 1
-        cost_weight: 50.0  # Penalità altissima per le retromarce cieche
+        cost_weight: 40.0 # Penalità per retromarce cieche
 
 # ============================================================
 # LOCAL COSTMAP — Rolling window 3×3m, ObstacleLayer 2D
@@ -182,8 +182,8 @@ controller_server:
 local_costmap:
   local_costmap:
     ros__parameters:
-      update_frequency: 5.0
-      publish_frequency: 2.0
+      update_frequency: 3.0
+      publish_frequency: 1.5
       global_frame: odom
       robot_base_frame: base_link
       use_sim_time: false
@@ -309,9 +309,9 @@ planner_server:
     planner_plugins: ["GridBased"]
     GridBased:
       plugin: "nav2_navfn_planner::NavfnPlanner"
-      tolerance: 0.5
+      tolerance: 0.3
       allow_unknown: true
-      use_astar: false
+      use_astar: true
 
 # ============================================================
 # BEHAVIOR SERVER (ex "recoveries_server" in Galactic)

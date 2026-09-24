@@ -352,6 +352,11 @@ class AIOrchestrator(Node):
     def _camera_callback(self, msg):
         if self._shutdown_flag:
             return
+        now = time.time()
+        # [CPU-OPT Pi 5] Rate limit frame ingestion to 2 Hz (0.50s) to save Python GIL and CPU
+        if now - getattr(self, '_last_cam_frame_time', 0.0) < 0.50:
+            return
+        self._last_cam_frame_time = now
         try:
             self._latest_frame_bytes = msg.data
             frame = CameraFrame(raw=msg.data)

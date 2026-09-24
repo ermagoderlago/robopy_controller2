@@ -253,9 +253,9 @@ class SemanticCostmapInjector(Node):
     def depth_callback(self, msg):
         """Callback per la matrice di profondità (Depth Image): aggiorna cache e raycasting ostacoli negativi."""
         try:
-            # [CPU-OPT Pi 5 / FM-CPU-001] Gate di ingresso: processa a ~3.3 Hz max per evitare conversioni NumPy continue
+            # [CPU-OPT Pi 5 / FM-CPU-001] Gate di ingresso: processa a ~1.25 Hz max (0.8s) per proteggere la CPU
             now_sec = time.time()
-            if now_sec - getattr(self, '_last_depth_process_time', 0.0) < 0.30:
+            if now_sec - getattr(self, '_last_depth_process_time', 0.0) < 0.80:
                 return
             self._last_depth_process_time = now_sec
 
@@ -298,29 +298,41 @@ class SemanticCostmapInjector(Node):
             cx = width / 2.0
             cy = height / 2.0
 
-            step_x = 16
-            step_y = 8
+            step_x = 20
+            step_y = 10
             start_y = height // 2
             now_sec = time.time()
 
-            for u in range(0, width, step_x):
-                last_valid_pt = None
-                for v in range(height - 1, start_y, -step_y):
-                    z_val = depth_map[v, u]
+            # [CPU-OPT Pi 5 / FM-CPU-001] Vectorized meshgrid and SIMD matrix transformation
+            u_coords = np.arange(0, width, step_x, dtype=np.int32)
+            v_coords = np.arange(height - 1, start_y, -step_y, dtype=np.int32)
 
-                    if np.isnan(z_val) or np.isinf(z_val) or z_val <= 0.2 or z_val > self.max_floor_dist:
+            sub_depth = depth_map[np.ix_(v_coords, u_coords)]
+            u_mesh, v_mesh = np.meshgrid(u_coords, v_coords)
+
+            x_cam = (u_mesh - cx) * sub_depth / fx
+            y_cam = (v_mesh - cy) * sub_depth / fy
+            z_cam = sub_depth
+
+            pts_cam = np.column_stack([x_cam.ravel(), y_cam.ravel(), z_cam.ravel()])
+            pts_map = (pts_cam @ rot_mat.T) + trans_vec
+            pts_map_grid = pts_map.reshape((len(v_coords), len(u_coords), 3))
+
+            valid_mask = (sub_depth > 0.2) & (sub_depth <= self.max_floor_dist) & ~np.isnan(sub_depth) & ~np.isinf(sub_depth)
+
+            num_v = len(v_coords)
+            num_u = len(u_coords)
+
+            for col in range(num_u):
+                last_valid_pt = None
+                for row in range(num_v):
+                    if not valid_mask[row, col]:
                         if last_valid_pt is not None:
                             self._register_negative_obstacle(last_valid_pt, now_sec)
                             break
                         continue
 
-                    x_cam = (u - cx) * z_val / fx
-                    y_cam = (v - cy) * z_val / fy
-                    z_cam = z_val
-
-                    p_cam = np.array([x_cam, y_cam, z_cam], dtype=np.float32)
-                    p_map = rot_mat @ p_cam + trans_vec
-
+                    p_map = pts_map_grid[row, col]
                     pt_map_point = Point()
                     pt_map_point.x = float(p_map[0])
                     pt_map_point.y = float(p_map[1])

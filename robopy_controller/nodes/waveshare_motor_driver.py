@@ -61,9 +61,13 @@ class WaveshareMotorDriver(Node):
         self.declare_parameter('enable_heading_stabilizer', True)  # Active IMU gyro heading lock for straight line and symmetric turns
         self.declare_parameter('heading_stabilizer_kp', 0.12)       # Proportional gyro gain for heading correction
         self.declare_parameter('heading_stabilizer_ki', 0.04)       # Integral gyro gain for persistent lateral drift elimination
-        self.declare_parameter('open_loop_min_duty', 0.095)        # Minimum duty to break static stiction on Right motor
+        self.declare_parameter('open_loop_min_duty', 0.12)        # Calibrated minimum duty to break static stiction on Right motor
         self.declare_parameter('open_loop_spin_min_duty', 0.18)   # Minimum duty for in-place rotation to overcome tire scrub
         self.declare_parameter('open_loop_max_duty', 0.28)         # Calibrated duty corresponding to nominal max speed 0.40 m/s
+        self.declare_parameter('linear_min_duty_left', 0.12)      # Minimum operational duty floor for Left motor to overcome stiction
+        self.declare_parameter('linear_min_duty_right', 0.14)     # Minimum operational duty floor for Right motor to overcome stiction
+        self.declare_parameter('stiction_kick_duty', 0.18)        # Initial torque kick duty to overcome static friction on start
+        self.declare_parameter('stiction_kick_duration', 0.12)    # Duration of stiction kick in seconds
         
         # --- Retrieve Parameters ---
         self.serial_port = self.get_parameter('serial_port').value
@@ -105,6 +109,12 @@ class WaveshareMotorDriver(Node):
         self.open_loop_min_duty = float(self.get_parameter('open_loop_min_duty').value)
         self.open_loop_spin_min_duty = float(self.get_parameter('open_loop_spin_min_duty').value)
         self.open_loop_max_duty = float(self.get_parameter('open_loop_max_duty').value)
+        self.linear_min_duty_left = float(self.get_parameter('linear_min_duty_left').value)
+        self.linear_min_duty_right = float(self.get_parameter('linear_min_duty_right').value)
+        self.stiction_kick_duty = float(self.get_parameter('stiction_kick_duty').value)
+        self.stiction_kick_duration = float(self.get_parameter('stiction_kick_duration').value)
+        self.stiction_kick_start_time = 0.0
+        self.was_stopped = True
         self.heading_err_integral = 0.0
         self.last_heading_stabilizer_time = None
         self.esp32_pid_active = False
@@ -422,7 +432,18 @@ class WaveshareMotorDriver(Node):
 
     def oak_imu_callback(self, msg: Imu):
         """Continuously integrates physical heading from the high-precision OAK-D Lite IMU at 42 Hz."""
-        now = self.get_clock().now().nanoseconds / 1e9
+        now = (self.get_clock().now().nanoseconds / 1e9) if hasattr(self, 'get_clock') else time.time()
+
+        # [CPU-OPT Pi 5] Standstill bypass: if motors are stopped and IMU is not used for rotation odometry, skip
+        if getattr(self, 'motors_stopped', True) and not getattr(self, 'use_imu_for_rotation', False):
+            self.oak_yaw_rate = 0.0
+            self.last_imu_time = now
+            return
+
+        # Rate limit to max 40 Hz (0.025s) to prevent high-frequency callback starvation
+        if self.last_imu_time is not None and (now - self.last_imu_time) < 0.025:
+            return
+
         raw_w = msg.angular_velocity.z
         
         # Invert sign if configured (OAK-D Lite IMU Z gyro has opposite polarity to ROS REP-103)
@@ -463,7 +484,7 @@ class WaveshareMotorDriver(Node):
             # Calibrated physical mapping for brushed DC on 3S LiPo:
             # min_duty (0.065) breaks stiction; max_duty (0.24) produces nominal max 0.40 m/s
             ratio = min(clamped_mps / self.max_linear_speed, 1.0)
-            min_d = getattr(self, 'open_loop_min_duty', 0.095)
+            min_d = getattr(self, 'open_loop_min_duty', 0.12)
             max_d = getattr(self, 'open_loop_max_duty', 0.28)
             duty = min_d + (max_d - min_d) * ratio
             
@@ -486,6 +507,8 @@ class WaveshareMotorDriver(Node):
             self.heading_err_integral = 0.0
             self.last_duty_update_time = None
             self.last_heading_stabilizer_time = None
+            self.was_stopped = True
+            self.stiction_kick_start_time = 0.0
             cmd = {"T": 1, "L": 0.0, "R": 0.0}
             cmd_str = json.dumps(cmd, separators=(',', ':')) + "\n"
             with self.serial_lock:
@@ -495,6 +518,14 @@ class WaveshareMotorDriver(Node):
                     except Exception as e:
                         self.get_logger().error(f"Failed to write to serial port: {e}")
             return
+
+        now_sec = time.time()
+        # Stiction Breakout Kick: on transition from standstill to movement
+        if getattr(self, 'was_stopped', True):
+            self.was_stopped = False
+            self.stiction_kick_start_time = now_sec
+
+        is_kicking = (now_sec - getattr(self, 'stiction_kick_start_time', 0.0)) < getattr(self, 'stiction_kick_duration', 0.12)
 
         # Convert m/s to duty cycle [-1.0, 1.0] with starting torque boost
         is_in_place_spin = (abs(self.cmd_linear_x) < 0.02 and abs(self.cmd_angular_z) >= 0.05)
@@ -521,6 +552,20 @@ class WaveshareMotorDriver(Node):
 
             if target_duty_right < 0:
                 target_duty_right *= getattr(self, 'right_motor_trim_rev', 1.25)
+
+            # Minimum operational duty floor for linear/curved driving to overcome gearbox stiction
+            if not getattr(self, 'enable_esp32_pid', False):
+                floor_l = getattr(self, 'linear_min_duty_left', 0.12)
+                floor_r = getattr(self, 'linear_min_duty_right', 0.14)
+                if is_kicking:
+                    kick_d = getattr(self, 'stiction_kick_duty', 0.18)
+                    floor_l = max(floor_l, kick_d * getattr(self, 'left_motor_trim', 0.73))
+                    floor_r = max(floor_r, kick_d)
+
+                if abs(left) >= 0.003 and abs(target_duty_left) < floor_l:
+                    target_duty_left = math.copysign(floor_l, target_duty_left) if target_duty_left != 0.0 else math.copysign(floor_l, left)
+                if abs(right) >= 0.003 and abs(target_duty_right) < floor_r:
+                    target_duty_right = math.copysign(floor_r, target_duty_right) if target_duty_right != 0.0 else math.copysign(floor_r, right)
         else:
             # Dedicated spin torque floor for in-place turning to overcome floor/carpet tire scrub
             if not getattr(self, 'enable_esp32_pid', False):
@@ -530,7 +575,6 @@ class WaveshareMotorDriver(Node):
                     target_duty_right = math.copysign(0.22, target_duty_right)
 
         # 2. Active Gyro Heading & Turn Stabilization
-        now_sec = time.time()
         if getattr(self, 'enable_heading_stabilizer', True):
             dt_head = (now_sec - self.last_heading_stabilizer_time) if self.last_heading_stabilizer_time is not None else 0.05
             dt_head = max(min(dt_head, 0.10), 0.01)
@@ -608,6 +652,20 @@ class WaveshareMotorDriver(Node):
             if not getattr(self, 'enable_esp32_pid', False):
                 duty_left = max(min(duty_left * scale, 1.0), -1.0)
                 duty_right = max(min(duty_right * scale, 1.0), -1.0)
+
+                # Ensure post-scale duty does not drop below stiction threshold for active wheels
+                if not is_in_place_spin:
+                    floor_l = getattr(self, 'linear_min_duty_left', 0.12)
+                    floor_r = getattr(self, 'linear_min_duty_right', 0.14)
+                    if abs(left) >= 0.003 and abs(duty_left) < floor_l:
+                        duty_left = math.copysign(floor_l, duty_left)
+                    if abs(right) >= 0.003 and abs(duty_right) < floor_r:
+                        duty_right = math.copysign(floor_r, duty_right)
+                else:
+                    if abs(left) >= 0.003 and abs(duty_left) < 0.16:
+                        duty_left = math.copysign(0.16, duty_left)
+                    if abs(right) >= 0.003 and abs(duty_right) < 0.18:
+                        duty_right = math.copysign(0.18, duty_right)
 
         if self.invert_left_motor:
             duty_left = -duty_left
@@ -1268,6 +1326,18 @@ class WaveshareMotorDriver(Node):
             elif param.name == 'open_loop_max_duty':
                 self.open_loop_max_duty = float(param.value)
                 self.get_logger().info(f"Dynamic Parameter Updated: open_loop_max_duty = {self.open_loop_max_duty:.4f}")
+            elif param.name == 'linear_min_duty_left':
+                self.linear_min_duty_left = float(param.value)
+                self.get_logger().info(f"Dynamic Parameter Updated: linear_min_duty_left = {self.linear_min_duty_left:.4f}")
+            elif param.name == 'linear_min_duty_right':
+                self.linear_min_duty_right = float(param.value)
+                self.get_logger().info(f"Dynamic Parameter Updated: linear_min_duty_right = {self.linear_min_duty_right:.4f}")
+            elif param.name == 'stiction_kick_duty':
+                self.stiction_kick_duty = float(param.value)
+                self.get_logger().info(f"Dynamic Parameter Updated: stiction_kick_duty = {self.stiction_kick_duty:.4f}")
+            elif param.name == 'stiction_kick_duration':
+                self.stiction_kick_duration = float(param.value)
+                self.get_logger().info(f"Dynamic Parameter Updated: stiction_kick_duration = {self.stiction_kick_duration:.4f}")
         return SetParametersResult(successful=True)
 
     def destroy_node(self):

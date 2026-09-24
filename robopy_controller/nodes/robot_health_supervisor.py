@@ -92,16 +92,18 @@ class RobotHealthSupervisor(Node):
         self.latest_battery_voltage = float(msg.data)
 
     def imu_cb(self, msg: Imu):
-        self._imu_counter += 1
-        if self._imu_counter >= 20:
-            self._imu_counter = 0
-            self.last_imu_time = time.time()
+        now = time.time()
+        if now - getattr(self, '_last_imu_sample', 0.0) < 0.10:
+            return
+        self._last_imu_sample = now
+        self.last_imu_time = now
 
     def camera_cb(self, msg: CameraInfo):
-        self._cam_counter += 1
-        if self._cam_counter >= 6:
-            self._cam_counter = 0
-            self.last_camera_time = time.time()
+        now = time.time()
+        if now - getattr(self, '_last_cam_sample', 0.0) < 0.10:
+            return
+        self._last_cam_sample = now
+        self.last_camera_time = now
 
     def get_cpu_temp(self) -> float:
         try:

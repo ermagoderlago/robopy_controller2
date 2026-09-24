@@ -84,7 +84,7 @@ rtabmap:
     Icp/CorrespondenceRatio: "0.30"       # 30% corrispondenze minime (più selettivo contro falsi positivi)
     Icp/MaxTranslation: "0.20"   # Max correzione traslazione 20cm/frame (impedisce salti catastrofici)
     Icp/MaxRotation: "0.35"      # Max correzione rotazione ~20°/frame (impedisce rotazioni fantasma)
-    Icp/Iterations: "40"
+    Icp/Iterations: "20"
     Icp/OutlierRatio: "0.65"     # 65% outlier tolerance (più selettivo con Point-to-Point)
     Icp/Epsilon: "0.001"
 

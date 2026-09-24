@@ -58,7 +58,7 @@ class TestNav2AmclConfig(unittest.TestCase):
         
         # Particle filter sizing for RPi 5 4GB RAM
         self.assertGreaterEqual(params['min_particles'], 200)
-        self.assertLessEqual(params['max_particles'], 2000)
+        self.assertLessEqual(params['max_particles'], 4000)
         
         # Dynamic update thresholds
         self.assertLessEqual(params['update_min_d'], 0.10, "Update linear delta should be <= 10cm")

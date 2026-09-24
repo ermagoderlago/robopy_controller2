@@ -117,6 +117,11 @@ class SensorStandbyManager(Node):
 
     def imu_callback(self, msg: Imu):
         """Monitors linear acceleration and angular velocity for stillness or external shocks."""
+        now = time.time()
+        if now - getattr(self, '_last_imu_sample_time', 0.0) < 0.10:
+            return
+        self._last_imu_sample_time = now
+
         ax = msg.linear_acceleration.x
         ay = msg.linear_acceleration.y
         az = msg.linear_acceleration.z

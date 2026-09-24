@@ -222,29 +222,54 @@ class EMAWaypointFilter:
 
 class PurePursuitController:
     """
-    Kinematic Pure Pursuit controller for differential drive robot.
-    Translates local 2D waypoints in base_link into smooth geometry_msgs/Twist commands.
+    Kinematic Pure Pursuit controller for differential drive robot with:
+    - Continuous curvature enforcement (prevents harsh in-place spinning during navigation)
+    - Anti-stiction minimum velocity floor (>= 0.05 m/s)
+    - Output rate-limiting / slew rate filter to guarantee smooth, jerk-free transitions
     """
     def __init__(
         self,
         lookahead_index: int = 2,
         max_linear_speed: float = 0.22,
-        max_angular_speed: float = 1.50,
-        k_angular: float = 1.80,
-        min_linear_speed: float = 0.04
+        max_angular_speed: float = 0.70,
+        k_angular: float = 1.40,
+        min_linear_speed: float = 0.05,
+        max_linear_accel: float = 0.35,
+        max_angular_accel: float = 1.20,
+        min_turning_radius: float = 0.18
     ):
         self.lookahead_index = lookahead_index
         self.max_linear_speed = max_linear_speed
         self.max_angular_speed = max_angular_speed
         self.k_angular = k_angular
         self.min_linear_speed = min_linear_speed
+        self.max_linear_accel = max_linear_accel
+        self.max_angular_accel = max_angular_accel
+        self.min_turning_radius = min_turning_radius
 
-    def compute_cmd_vel(self, waypoints: np.ndarray, speed_limit_override: Optional[float] = None) -> Twist:
+        # Internal state for acceleration / slew-rate limiting
+        self.last_v = 0.0
+        self.last_w = 0.0
+        self.last_time = None
+
+    def reset(self) -> None:
+        """Resets slew rate integrator memory."""
+        self.last_v = 0.0
+        self.last_w = 0.0
+        self.last_time = None
+
+    def compute_cmd_vel(
+        self,
+        waypoints: np.ndarray,
+        speed_limit_override: Optional[float] = None,
+        current_time: Optional[float] = None
+    ) -> Twist:
         """
-        Computes Twist from local waypoints array of shape (N, 2).
+        Computes rate-limited, continuous-curvature Twist from local waypoints array of shape (N, 2).
         """
         cmd = Twist()
         if waypoints is None or len(waypoints) == 0:
+            self.reset()
             return cmd
 
         idx = min(self.lookahead_index, len(waypoints) - 1)
@@ -252,21 +277,52 @@ class PurePursuitController:
 
         target_dist = math.sqrt(target_x ** 2 + target_y ** 2)
         if target_dist < 1e-4:
+            self.reset()
             return cmd
 
         heading_error = math.atan2(target_y, target_x)
 
-        # Cosine speed scaling: decelerate on sharp turns
-        speed_factor = max(0.15, math.cos(heading_error))
+        # Smooth cosine speed scaling: decelerate gracefully on sharp turns
+        speed_factor = max(0.30, math.cos(heading_error))
         max_v = speed_limit_override if speed_limit_override is not None else self.max_linear_speed
-        linear_v = max_v * speed_factor
+        target_v = max_v * speed_factor
+
+        # Ensure target_v respects anti-stiction floor when moving
+        if target_v > 0.01:
+            target_v = max(self.min_linear_speed, target_v)
+        else:
+            target_v = 0.0
 
         # Angular command proportional to heading error
-        angular_w = self.k_angular * heading_error
-        angular_w = float(np.clip(angular_w, -self.max_angular_speed, self.max_angular_speed))
+        target_w = self.k_angular * heading_error
+        target_w = float(np.clip(target_w, -self.max_angular_speed, self.max_angular_speed))
 
-        cmd.linear.x = float(max(self.min_linear_speed, linear_v) if linear_v > 0.01 else 0.0)
-        cmd.angular.z = angular_w
+        # Continuous curvature enforcement: prevent turning radius below 18cm (Marcus chassis radius)
+        # when forward velocity is non-zero, ensuring fluid arc maneuvers rather than harsh pivot stops
+        if target_v > 0.02 and abs(target_w) > 1e-3:
+            max_w_for_radius = target_v / self.min_turning_radius
+            if abs(target_w) > max_w_for_radius:
+                target_w = math.copysign(max_w_for_radius, target_w)
+
+        # Slew rate limiter / acceleration smoothing
+        now = time.monotonic() if current_time is None else current_time
+        if self.last_time is not None:
+            dt = max(0.01, min(0.50, now - self.last_time))
+            max_dv = self.max_linear_accel * dt
+            max_dw = self.max_angular_accel * dt
+
+            v_out = float(np.clip(target_v, self.last_v - max_dv, self.last_v + max_dv))
+            w_out = float(np.clip(target_w, self.last_w - max_dw, self.last_w + max_dw))
+        else:
+            v_out = target_v
+            w_out = target_w
+
+        self.last_v = v_out
+        self.last_w = w_out
+        self.last_time = now
+
+        cmd.linear.x = v_out
+        cmd.angular.z = w_out
         return cmd
 
 
@@ -456,15 +512,19 @@ class NomadReactivePipelineNode(Node):
         # ---------------------------------------------------------------------
         self.declare_parameter('image_topic', '/camera/color/image_raw')
         self.declare_parameter('odom_topic', '/odom')
-        self.declare_parameter('cmd_vel_topic', '/cmd_vel_nomad')
+        self.declare_parameter('cmd_vel_topic', '/cmd_vel')
         self.declare_parameter('path_topic', '/nomad/path_smoothed')
         self.declare_parameter('base_frame', 'base_link')
         self.declare_parameter('target_rate_hz', 4.0)          # 4 Hz Fast Loop (250 ms)
         self.declare_parameter('ddim_timeout_ms', 100.0)       # Timeout for DDIM 4-step
-        self.declare_parameter('watchdog_timeout_ms', 300.0)   # Safety zero-velocity watchdog
+        self.declare_parameter('watchdog_timeout_ms', 500.0)   # Safety zero-velocity watchdog (500ms margin for 2 dropped cycles)
         self.declare_parameter('max_linear_speed', 0.22)       # m/s
+        self.declare_parameter('min_linear_speed', 0.05)       # m/s anti-stiction minimum velocity floor
         self.declare_parameter('fallback_linear_speed', 0.15)  # m/s in action chunking mode
-        self.declare_parameter('max_angular_speed', 1.50)      # rad/s
+        self.declare_parameter('max_angular_speed', 0.70)      # rad/s softened for smooth continuous curvature
+        self.declare_parameter('max_linear_accel', 0.35)       # m/s^2 smooth linear acceleration limit
+        self.declare_parameter('max_angular_accel', 1.20)      # rad/s^2 smooth angular acceleration limit
+        self.declare_parameter('min_turning_radius', 0.18)     # m continuous turning radius (Marcus chassis radius)
         self.declare_parameter('lookahead_index', 2)
         self.declare_parameter('input_size', 224)              # 224x224 ViNT input
         self.declare_parameter('hef_path', '/models/joined_vint_yolov8s.hef')
@@ -496,8 +556,12 @@ class NomadReactivePipelineNode(Node):
         self.ddim_timeout_ms = self.get_parameter('ddim_timeout_ms').get_parameter_value().double_value
         self.watchdog_timeout_ms = self.get_parameter('watchdog_timeout_ms').get_parameter_value().double_value
         self.max_linear_speed = self.get_parameter('max_linear_speed').get_parameter_value().double_value
+        self.min_linear_speed = self.get_parameter('min_linear_speed').get_parameter_value().double_value
         self.fallback_linear_speed = self.get_parameter('fallback_linear_speed').get_parameter_value().double_value
         self.max_angular_speed = self.get_parameter('max_angular_speed').get_parameter_value().double_value
+        self.max_linear_accel = self.get_parameter('max_linear_accel').get_parameter_value().double_value
+        self.max_angular_accel = self.get_parameter('max_angular_accel').get_parameter_value().double_value
+        self.min_turning_radius = self.get_parameter('min_turning_radius').get_parameter_value().double_value
         self.lookahead_index = self.get_parameter('lookahead_index').get_parameter_value().integer_value
         self.input_size = self.get_parameter('input_size').get_parameter_value().integer_value
         self.hef_path = self.get_parameter('hef_path').get_parameter_value().string_value
@@ -534,7 +598,11 @@ class NomadReactivePipelineNode(Node):
             lookahead_index=self.lookahead_index,
             max_linear_speed=self.max_linear_speed,
             max_angular_speed=self.max_angular_speed,
-            k_angular=1.80
+            k_angular=1.40,
+            min_linear_speed=self.min_linear_speed,
+            max_linear_accel=self.max_linear_accel,
+            max_angular_accel=self.max_angular_accel,
+            min_turning_radius=self.min_turning_radius
         )
         self.impact_detector = IMUImpactDetector(
             impact_accel_threshold=self.impact_accel_threshold,
@@ -1069,9 +1137,11 @@ class NomadReactivePipelineNode(Node):
         self.pub_diagnostics.publish(msg)
 
     def _stop_robot(self) -> None:
-        """Publishes zero velocity."""
+        """Publishes zero velocity and resets controller rate limits."""
         stop_cmd = Twist()
         self.pub_cmd_vel.publish(stop_cmd)
+        if hasattr(self, 'controller') and self.controller is not None:
+            self.controller.reset()
 
 
 def main(args=None):

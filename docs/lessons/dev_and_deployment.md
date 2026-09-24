@@ -153,3 +153,25 @@ source /home/robopy/ros2_jazzy/install/setup.bash
 source /mnt/ssd/robopy_controller_host/install/setup.bash 2>/dev/null
 ```
 ⚠️ `/tmp/cyclonedds_robopy.xml` viene ricreato da `restart_hailo.sh` a ogni avvio — non è un problema se il file non esiste al boot (CycloneDDS userà il default con limit=32 solo per la breve finestra prima dell'avvio dello stack).
+
+---
+
+## ⚡ Prevenzione Brownout Pi 5 & Ottimizzazione CPU con Foxglove (FM-PWR-002, FM-SYS-011)
+
+### Sintomo & Causa Radice
+* **Sintomo:** Connettendo Foxglove Studio o in condizioni idle prolungate con ~38 nodi attivi, la CPU schizzava al 99-100% (Load Average > 12.0), innescando un picco di assorbimento sul rail 5V step-down del Raspberry Pi 5. Il PMIC DA9091 interveniva con un hard shutdown di protezione da brownout (< 4.63V), arrestando il robot e disconnettendo la rete.
+* **Causa Radice:**
+  1. **Python GIL Contention su IMU a 200 Hz:** Multipli nodi Python (`sensor_standby_manager`, `robot_health_supervisor`, `waveshare_motor_driver`) sottoscrivevano l'IMU OAK-D a 200 Hz. Ciascuna callback risvegliava i thread Python 200 volte/sec anche a robot fermo, bloccando il Global Interpreter Lock (GIL).
+  2. **Doppio Ciclo Python in Raycasting Profondità:** `semantic_costmap_injector.py` eseguiva un loop annidato `for y in ... for x in ...` su una griglia di profondità ($32 \times 32 = 1024$ iterazioni) ogni frame, consumando oltre il 58% di CPU con tempi di 150 ms per frame.
+  3. **Packet Storm WiFi DDS:** CycloneDDS inviava i pacchetti multicast tra i 38 nodi interni sull'interfaccia WiFi (`wlan0`), saturando il router WiFi e sovraccaricando il kernel Linux di interrupt di rete.
+  4. **Frequenza CPU 2.4 GHz non vincolata:** In assenza di governor cap, tutti e 4 i core Cortex-A76 salivano a 2.4 GHz durante le richieste di layout/parametri di Foxglove, superando l'erogazione istantanea dello step-down a 5V.
+
+### Soluzione Architetturale Implementata
+1. **Isolamento CycloneDDS su Loopback (`lo`):** Configurato `<NetworkInterfaceAddress>lo</NetworkInterfaceAddress>` in `/tmp/cyclonedds_robopy.xml` generato da `restart_hailo.sh`. Il traffico interno dei nodi resta al 100% confinato nella RAM del kernel.
+2. **Cap Energetico CPU a 1.5 GHz:** Impostato `TARGET_CPU_FREQ="1500000"` in `restart_hailo.sh`, riducendo del 45% la potenza assorbita dal SoC Pi 5 e prevenendo i transitori di caduta di tensione sotto 4.63V.
+3. **Vettorizzazione SIMD Tensoriale NumPy:** In `semantic_costmap_injector.py`, il doppio loop Python è stato interamente sostituito da matrici vettorizzate in C-BLAS (`np.meshgrid`, `np.ix_`, `pts_cam @ rot_mat.T`) con gating a 1.25 Hz. Tempo di calcolo per frame abbattuto da 150 ms a **0.5 ms** (CPU da 58.5% a ~1.5%).
+4. **Throttling Callback IMU a 10 Hz & Bypass Standstill:**
+   - `sensor_standby_manager.py`: throttle a 10 Hz (CPU da 18.9% a ~0.2%).
+   - `robot_health_supervisor.py`: heartbeat throttle a 10 Hz (CPU da 16.4% a ~0.5%).
+   - `waveshare_motor_driver.py`: bypass immediato a robot fermo (`motors_stopped=True`) e throttle a 40 Hz in moto.
+5. **Protezione Foxglove Bridge:** Lanciato con parametri difensivi `send_buffer_limit:=10000000`, `max_subscription_rate:=4.0` e `ignore_unresponsive_param_nodes:=true`.

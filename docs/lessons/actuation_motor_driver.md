@@ -538,5 +538,25 @@ Con JGB37-520B a 7RPM (riduzione ~143:1), **girare la ruota manualmente è impos
 * **Persistenza:**
   - Aggiornati `restart_hailo.sh`, `scripts/start_driver.sh` e `waveshare_motor_driver.py` con `rotational_wheel_separation:=0.266` e `wheel_separation:=0.285`.
 
+---
+
+<a id="nav2-stiction-breakout-kick"></a>
+### 38. Compensazione Stiction a Bassa Velocità Nav2, Floor Lineare Post-Trim e Stiction Breakout Kick (FM-MOT-008, FM-ACT-001)
+* **Sintomi Rilevati:**
+  - Nav2 comandava spostamenti a bassa velocità ($0.02\text{ - }0.06\text{ m/s}$) o manovre di avvicinamento fine. I motori emettevano un leggero ronzio (buzzing) ma le ruote rimanevano fisicamente bloccate a terra senza girare.
+  - Al contempo, il robot manifestava un moto a scatti "robotico" con frequenti soste (stop-and-go) ad ogni cambio di curvatura.
+* **Causa Radice Fisica:**
+  1. *Deadband e Schiacciamento Duty dai Trim e Tensione:* La stiction statica del riduttore JGB37-520B sotto il peso del telaio (~2.5 kg) richiede almeno $0.12\text{ - }0.14$ duty PWM effettivo. A basse velocità, `speed_to_duty` generava duty ~0.10. Dopo l'applicazione di `left_motor_trim = 0.73` e del feedforward di tensione ($11.1\text{V} / 12.6\text{V} \approx 0.88$), il duty della ruota sinistra crollava a ~0.061 (PWM 15 su 255), ampiamente all'interno della zona morta di stallo.
+  2. *Assenza di Floor Lineare Post-Trim:* Il floor minimo di sicurezza era stato implementato solo per le rotazioni sul posto (`is_in_place_spin`), lasciando la marcia lineare priva di protezione dal sottodimensionamento di coppia.
+  3. *Attrito Statico di Primo Distacco:* Alla ripartenza da fermo, l'attrito statico $\mu_s$ è significativamente maggiore dell'attrito dinamico di rotolamento $\mu_k$.
+* **Risoluzione Implementata:**
+  1. *Floor Operativo Minimo Lineare Post-Trim e Post-Scale:* Introdotte soglie minime assolute `linear_min_duty_left = 0.12` e `linear_min_duty_right = 0.14` applicate sia post-trim che post-feedforward di tensione. Se una ruota è comandata a muoversi ($|v| \ge 0.003\text{ m/s}$), il PWM effettivo non può mai scendere sotto la soglia di breakout.
+  2. *Stiction Breakout Kick (120 ms @ 0.18 duty):* Alla transizione da stato di quiete (`was_stopped == True`) ad avanzamento attivo, viene applicato un impulso di coppia iniziale (120ms @ 0.18 duty) che sblocca istantaneamente la strizione meccanica prima che l'S-Curve Jerk Limiter raccordi morbidamente il moto alla velocità di crociera richiesta.
+  3. *Ricalibrazione `open_loop_min_duty`:* Elevato a 0.12 (era 0.095).
+  4. *Supporto Dinamico a Caldo:* Parametri `linear_min_duty_left`, `linear_min_duty_right`, `stiction_kick_duty`, `stiction_kick_duration` integrati in `parameter_callback`.
+* **Verifica Sperimentale:**
+  - Convalidato con `test/unit/test_motor_stiction_and_nav2.py` e script interattivo `scripts/test_nav2_motion_verification.py`. Le ruote si muovono prontamente a partire da soli 0.04 m/s senza ronzio né stalli.
+
+
 
 

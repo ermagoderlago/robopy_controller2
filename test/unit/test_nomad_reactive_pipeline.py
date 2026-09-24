@@ -15,8 +15,46 @@ Comprehensive unit tests covering:
 import math
 import time
 import queue
+import sys
+import os
+from unittest.mock import MagicMock
 import pytest
 import numpy as np
+
+# Setup lightweight ROS 2 mocks before importing ROS modules
+class FakeNode:
+    def __init__(self, *args, **kwargs):
+        pass
+
+for mod in [
+    'rclpy', 'rclpy.node', 'rclpy.qos',
+    'sensor_msgs', 'sensor_msgs.msg',
+    'nav_msgs', 'nav_msgs.msg',
+    'geometry_msgs', 'geometry_msgs.msg',
+    'std_msgs', 'std_msgs.msg',
+    'cv_bridge'
+]:
+    if mod not in sys.modules:
+        sys.modules[mod] = MagicMock()
+
+sys.modules['rclpy.node'].Node = FakeNode
+
+class FakeTwist:
+    class Linear:
+        def __init__(self):
+            self.x = 0.0
+            self.y = 0.0
+            self.z = 0.0
+    class Angular:
+        def __init__(self):
+            self.x = 0.0
+            self.y = 0.0
+            self.z = 0.0
+    def __init__(self):
+        self.linear = self.Linear()
+        self.angular = self.Angular()
+
+sys.modules['geometry_msgs.msg'].Twist = FakeTwist
 
 from robopy_controller.nodes.nomad_reactive_pipeline_node import (
     EMAWaypointFilter,
