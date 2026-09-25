@@ -4488,7 +4488,7 @@
     rpn_old: 448
     rpn_new: 28
 - id: FM-NAV-018
-  subsystem: Hardware/Power
+  subsystem: Nav2 & SLAM
   component: navigation_sensors
   function: Rilevamento continuo degli ostacoli a 360 gradi a livello del pavimento
     per la navigazione sicura del footprint
@@ -4499,7 +4499,7 @@
   potential_effect: Collisione con ostacoli bassi, persone o animali durante rotazioni
     sul posto o manovre di arretramento
   classification: SAFETY
-  estimation_basis: inferred
+  estimation_basis: measured
   related_ids:
   - FM-NAV-005
   - FM-NAV-019
@@ -4508,31 +4508,40 @@
     occurrence: 9
     detection: 9
     rpn: 729
-  prevention_controls: Integrazione hardware di un sensore LiDAR 2D 360 gradi (LDROBOT
-    LD19 / RPLiDAR C1) collegato via UART a 230400 baud
-  detection_controls: Scansione laser continua a 10Hz sul topic /scan_lidar e validazione
-    geometrica a 360 gradi
+  prevention_controls: Integrazione hardware completa di sensore LiDAR 2D 360 gradi
+    Slamtec RPLIDAR C1 ToF su /dev/rplidar (460800 baud) con driver nativo sllidar_ros2,
+    trasformata TF2 base_link -> laser (yaw 180°), e iniezione diretta in Nav2 local
+    e global costmaps
+  detection_controls: Scansione laser planare continua a 10Hz sul topic standard /scan,
+    con marcatura e pulizia istantanea (clearing & marking) nelle costmap e supporto
+    a RTAB-Map ICP e AMCL 2D
   residual_scoring:
     severity: 9
-    occurrence: 9
-    detection: 9
-    rpn: 729
+    occurrence: 1
+    detection: 1
+    rpn: 9
   risk_level: REVISION_MANDATORY
-  mitigation_status: OPEN
-  recommended_action: Progettare supporto meccanico e integrare il modulo LDROBOT
-    LD19 UART 360 gradi per la dual-layer costmap fusion
-  verification_method: Stress test di rotazione in ambiente ad alta densità di ostacoli
-    non visibili frontalmente
-  eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-08-28-NAV-DFMEA-FIXES
-  lesson_ref: marcus_core_rules.md
+  mitigation_status: CLOSED
+  recommended_action: Manutenzione delle regole udev /dev/rplidar e monitoraggio periodico
+    dei punti di scan e assorbimento energetico tramite sensor_standby_manager
+  verification_method: Validazione continua su Foxglove Studio dello stream /scan
+    a 360 gradi e test di non-regressione automatizzato test_fm_nav_018_lidar_coverage.py
+  eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-09-04-001
+  lesson_ref: docs/lessons/nav2_slam_tuning.md#FM-NAV-018
   date_identified: '2026-08-28'
-  last_updated: '2026-08-28'
+  last_updated: '2026-09-25'
   history:
   - date: '2026-08-28'
     change: Formalizzata modalità di guasto hardware cecità 360 gradi da analisi DFMEA
       NotebookLM
     rpn_old: 729
     rpn_new: 729
+  - date: '2026-09-25'
+    change: 'Mitigazione completata e validata su hardware fisico con Slamtec RPLIDAR
+      C1 ToF (ECO-2026-09-04-001): chiusura del failure mode con RPN ridotto da 729
+      a 9'
+    rpn_old: 729
+    rpn_new: 9
 - id: FM-NAV-019
   subsystem: Nav2
   component: nav2_bt_navigator
@@ -6070,3 +6079,70 @@
       al boot AMCL.
     rpn_old: 168
     rpn_new: 7
+- id: FM-PWR-003
+  subsystem: Hardware/Power & Compute
+  component: esp32_waveshare_driver / ina219
+  function: Monitoraggio accurato e dinamico in tempo reale della tensione (V) e corrente
+    (A) erogata dalla batteria LiPo 3S2P e rilevamento alimentatore esterno / base
+    di ricarica
+  failure_mode: Blocco permanente della telemetria tensione batteria a valore fittizio
+    (12.60V) e indicazione ingannevole costante di stato 'DISCHARGING'
+  potential_cause: Il vecchio firmware campionava via ADC il pin GPIO 33 (I2C SCL
+    collegato a pull-up 3.3V) credendolo un partitore analogico inesistente sulla
+    scheda Waveshare General Driver, calcolando un valore saturato (~36300 mV) forzato
+    a 12.60V dal driver ROS 2; contemporaneamente il topic /battery/raw forzava costantemente
+    POWER_SUPPLY_STATUS_DISCHARGING
+  potential_effect: Cecità totale sul livello reale della batteria, rischio gravissimo
+    di scarica profonda LiPo (FM-SYS-003) o arresto improvviso per battery cliff (FM-SYS-004)
+    durante la navigazione, e mancato rilevamento dell'alimentazione da rete con inibizione
+    dello stato di carica
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-SYS-003
+  - FM-SYS-004
+  - FM-SYS-006
+  - FM-SYS-007
+  initial_scoring:
+    severity: 9
+    occurrence: 9
+    detection: 3
+    rpn: 243
+  prevention_controls: Riconoscimento architettura hardware Waveshare General Driver
+    (chip INA219 a indirizzo I2C 0x42 su SDA=GPIO32, SCL=GPIO33 con shunt 0.01 Ohm
+    su DC_IN), implementazione driver I2C nativo ESP-IDF in waveshare_bridge.h per
+    lettura bus voltage (mV) e corrente (mA), parsing dinamico millivolti e corrente
+    in waveshare_motor_driver.py e battery_manager_node.py, determinazione dinamica
+    CHARGING (V >= 12.70V) / DISCHARGING (V < 12.70V)
+  detection_controls: Topic /battery/raw e /battery_state con tensione e corrente
+    variabili in tempo reale, diagnostics /diagnostics con monitoraggio stato di alimentazione,
+    test unitario test_battery_monitoring.py
+  residual_scoring:
+    severity: 9
+    occurrence: 1
+    detection: 1
+    rpn: 9
+  risk_level: REVISION_MANDATORY
+  mitigation_status: CLOSED
+  recommended_action: Flashare il binario waveshare_driver.factory.bin su scheda Waveshare
+    ESP32 al boot del robot e deployare i nodi ROS 2 aggiornati
+  verification_method: Compilazione binario factory in WSL superata, test unitario
+    pytest test/unit/test_battery_monitoring.py superato con 5/5 test passati
+  eco_ref: docs/ecos/actuation_ecos.md#ECO-2026-09-25-001
+  lesson_ref: docs/lessons/actuation_motor_driver.md#39-risoluzione-telemetria-batteria-ina219
+  date_identified: '2026-09-25'
+  last_updated: '2026-09-25'
+  history:
+  - change: Scoperta assenza di partitore analogico su GPIO 33 e presenza di sensore
+      digitale I2C INA219 (0x42). Riscritto waveshare_bridge.h con ESP-IDF driver
+      I2C, corretto parsing mV e mA su ROS 2, abilitato rilevamento automatico carica/scarica,
+      generato firmware factory bin in WSL e validato con test_battery_monitoring.py.
+    date: '2026-09-25'
+    rpn_new: 9
+    rpn_old: 243
+  - change: Calibrata la curva OCV specifica per 6 celle Panasonic NCR18650B (3S2P,
+      6800 mAh, 75.5 Wh). Introdotta compensazione dinamica del Voltage Sag ohmico
+      (R_int = 85 mOhm) e stima corrente base quiescent Pi5 (1.2A @ 12V).
+    date: '2026-09-25'
+    rpn_new: 9
+    rpn_old: 9

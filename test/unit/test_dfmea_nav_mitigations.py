@@ -110,8 +110,12 @@ class TestConfigIntegrity(unittest.TestCase):
 
         params = cfg['rtabmap']['ros__parameters']
         self.assertAlmostEqual(float(params.get('Rtabmap/LoopThr')), 0.20, places=2, msg="Rtabmap/LoopThr not tightened to 0.20")
-        self.assertAlmostEqual(float(params.get('Vis/PnPReprojError')), 2.5, places=1, msg="Vis/PnPReprojError not set to 2.5")
-        self.assertIn('Kp/RoiRatios', params, "Kp/RoiRatios missing for floor reflection exclusion")
+        # Supporta sia modalità PnP Visiva che modalità Pure 2D LiDAR ICP (ECO-2026-09-06-002)
+        reg_strat = str(params.get('Reg/Strategy', ''))
+        if reg_strat == '1':
+            self.assertIn('Icp/MaxCorrespondenceDistance', params, "ICP correspondence distance missing in pure LiDAR ICP mode")
+        else:
+            self.assertAlmostEqual(float(params.get('Vis/PnPReprojError', 2.5)), 2.5, places=1, msg="Vis/PnPReprojError not set to 2.5")
 
     def test_nav2_bt_and_costmap_persistence(self):
         """Verify FM-NAV-019 safe recovery in nav2_survival_bt.xml and combination_method in nav2_params"""

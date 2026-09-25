@@ -20,6 +20,13 @@ improvements:
     status: "COMPLETED"
     domain: "hardware_power"
 
+  FM-PWR-003:
+    title: "Miglioramento Alimentazione: Telemetria Batteria via Sensore I2C INA219 e Rilevamento Carica"
+    file: "docs/improvements/IMP-PWR-003_battery_ina219_telemetry.md"
+    status: "COMPLETED"
+    domain: "hardware_power"
+
+
   FM-LLM-004:
     title: "Miglioramento AI: Pre-flight Kinematic Sandbox per Skill Dinamiche"
     file: "docs/improvements/IMP-LLM-004_skill_sandbox.md"
@@ -95,6 +102,12 @@ improvements:
   FM-NAV-017:
     title: "Miglioramento Odometria: Dynamic ZUPT Gyro Z Bias Auto-Nulling per Deriva Termica BMI270"
     file: "docs/improvements/IMP-NAV-017_imu_bias_zupt.md"
+    status: "COMPLETED"
+    domain: "nav2_slam"
+
+  FM-NAV-018:
+    title: "Miglioramento Navigazione: Copertura Sensoriale 360 Gradi tramite Slamtec RPLIDAR C1 ToF"
+    file: "docs/improvements/IMP-NAV-018_360_lidar_coverage.md"
     status: "COMPLETED"
     domain: "nav2_slam"
 

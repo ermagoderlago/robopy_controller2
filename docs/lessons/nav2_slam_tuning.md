@@ -297,8 +297,8 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
      In modalità localizzazione pura, RTAB-Map non inserisce nuovi nodi nel database, azzera le scritture su disco, abbatte il consumo RAM (<250 MB) ed elimina qualsiasi rischio di eccezione `addLink()`, garantendo la pubblicazione continua e stabile del TF `map -> odom`.
   2. **Workflow per Nuove Mappature:** Se si desidera cartografare un nuovo ambiente, iniziare sempre con un database vergine/vuoto (`/mnt/ssd/rtabmap.db`) e non eseguire mai append incrementale su mappe legacy complesse.
 
-### Integrazione Hardware Slamtec RPLIDAR C1 & Coesistenza Multi-Sensore (FM-NAV-005)
-* **Contesto:** Per superare i limiti di campo visivo ristretto della sola camera OAK-D Lite (75° HFOV, cecità a 360° durante manovre e superfici vetrate/specchiate), è stato integrato un sensore LiDAR planare a tempo di volo **Slamtec RPLIDAR C1** collegato via USB (`/dev/rplidar` a 460800 baud).
+### Integrazione Hardware Slamtec RPLIDAR C1 & Copertura 360° (FM-NAV-018, FM-NAV-005)
+* **Contesto:** Per superare la cecità perimetrale ($287.1^\circ$) e i limiti di campo visivo ristretto della sola camera OAK-D Lite (72.9° HFOV, con rischio di collisione laterale o posteriore censito in **FM-NAV-018** e documento [`IMP-NAV-018`](../improvements/IMP-NAV-018_360_lidar_coverage.md)), è stato integrato un sensore LiDAR planare a tempo di volo **Slamtec RPLIDAR C1** collegato via USB (`/dev/rplidar` a 460800 baud).
 * **Regola Udev Persistente:** Poiché la scheda motori Waveshare e l'adattatore RPLIDAR C1 impiegano entrambi ponti CP2102N (`10c4:ea60`), è stata creata la regola `/etc/udev/rules.d/99-marcus-serial.rules` basata sui numeri di serie univoci:
   - `/dev/rplidar` $\rightarrow$ S/N `1af3e590ed31f11197da945f30d20014` (RPLIDAR C1)
   - `/dev/motor_driver` $\rightarrow$ S/N `4c7fd634626cef11acaca4adc169b110` (Scheda Motori ESP32)

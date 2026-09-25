@@ -557,6 +557,70 @@ Con JGB37-520B a 7RPM (riduzione ~143:1), **girare la ruota manualmente è impos
 * **Verifica Sperimentale:**
   - Convalidato con `test/unit/test_motor_stiction_and_nav2.py` e script interattivo `scripts/test_nav2_motion_verification.py`. Le ruote si muovono prontamente a partire da soli 0.04 m/s senza ronzio né stalli.
 
+---
+
+<a id="39-risoluzione-telemetria-batteria-ina219"></a>
+### 39. Risoluzione Telemetria Batteria e Corrente: Integrazione Hardware Chip I2C INA219 (0x42), Rimozione Finto ADC su GPIO 33 e Rilevamento Dinamico Carica/Alimentazione Esterna (FM-PWR-003, FM-SYS-003, FM-SYS-007)
+* **Sintomi Rilevati:**
+  - Il topic `/battery/raw` e `/battery_state` mostravano un valore di tensione rigorosamente fisso a 12.60V (non scendeva mai nemmeno dopo ore di funzionamento, né variava sotto carico).
+  - Il topic dello stato di alimentazione riportava invariabilmente `POWER_SUPPLY_STATUS_DISCHARGING`, anche quando Marcus era collegato alla rete / alimentatore esterno a 12.80V.
+* **Causa Radice Hardware e Software:**
+  1. *Assenza di Partitore Resistivo Analogico:* L'ispezione dello schema elettrico ufficiale Waveshare General Driver for Robots (`schematic.pdf`) ha rivelato che la scheda **non dispone di alcun partitore resistivo collegato a pin ADC dell'ESP32**.
+  2. *Presenza Chip Monitor I2C INA219 (Texas Instruments):* La tensione `DC_IN` (proveniente direttamente dalla LiPo 3S2P senza regolatori intermedi) attraversa una resistenza di shunt di precisione $R_{11} = 0.01\,\Omega$ ($10\text{ m}\Omega$) monitorata da un chip **INA219 (SOP-8)** connesso via **I2C ad indirizzo `0x42`** su **SDA = GPIO 32** e **SCL = GPIO 33**.
+  3. *Lettura Fittizia nel Vecchio Firmware:* Il vecchio codice `waveshare_bridge.h` eseguiva `analogRead(33)` con `#define PIN_BATTERY 33`. Poiché GPIO 33 è la linea di clock I2C con pull-up a 3.3V, l'ADC leggeva costantemente ~4095. La formula di conversione `36300 mV` divisa per `2880.95` generava artificialmente $12.60\text{ V}$.
+  4. *Stato Discharging Hardcoded:* In `waveshare_motor_driver.py` (linea 1129) il messaggio `BatteryState` assegnava incondizionatamente `POWER_SUPPLY_STATUS_DISCHARGING`. Inoltre, poiché 12.60V è inferiore alla soglia di carica ($12.70\text{ V}$), il nodo `battery_manager_node` non rilevava mai l'alimentazione da rete.
+* **Risoluzione Implementata:**
+  1. *Firmware ESP32 (`waveshare_bridge.h`):*
+     - Rimossa la macro `PIN_BATTERY 33` e le chiamate ad `analogRead`.
+     - Implementato il driver I2C nativo ESP-IDF (`driver/i2c.h`) sulla porta `I2C_NUM_0` con frequenza a 100 kHz.
+     - Configurato il registro di configurazione INA219: Bus FSR 32V, Shunt Gain $\pm 320\text{ mV}$ (PGA /8), ADC 12-bit continuo.
+     - Lettura a $5\text{ Hz}$ dei registri Bus Voltage (`0x02`, LSB $4\text{ mV}$) e Shunt Voltage (`0x01`, LSB $10\,\mu\text{V} \implies 1\text{ mA}$ con shunt da $0.01\,\Omega$).
+     - Telemetria seriale JSON `T:1001` arricchita con `"v": voltage_mv` e `"c": current_ma`.
+  2. *Driver ROS 2 (`waveshare_motor_driver.py`):*
+     - Introdotto parametro `charging_threshold_voltage` (default $12.70\text{ V}$).
+     - Supporto duale per millivolti nativi ($500 < V \le 30000 \implies V / 1000.0$) e fallback retrocompatibile legacy.
+     - Conversione e pubblicazione della corrente $A = \text{mA} / 1000.0$ su `bat_msg.current`.
+     - Transizione dinamica a `POWER_SUPPLY_STATUS_CHARGING` se $V \ge 12.70\text{ V}$, altrimenti `POWER_SUPPLY_STATUS_DISCHARGING`.
+     - Pubblicazione della corrente e stato su `/diagnostics`.
+  3. *Battery Manager (`battery_manager_node.py`):*
+     - Normalizzazione dei campioni raw millivolt all'inserimento nel buffer FIFO anti-sag.
+     - Propagazione del campo corrente `current` su `sensor_msgs/BatteryState`.
+     - In modalità rete/carica ($V \ge 12.70\text{ V}$), il SoC convenzionale viene forzato al 100% (`percentage = 1.0`) anziché `-1.0`.
+  4. *Toolchain di Compilazione WSL (`compile_waveshare_wsl.sh`):*
+     - Rimosso `PYTHONPATH` conflittuale con ESPHome/PlatformIO e abilitato `export IDF_MAINTAINER=1`.
+     - Binario compilato con successo: `/home/robopy/waveshare_build/output/waveshare_driver.factory.bin`.
+* **Verifica e Validazione:**
+  - Suite unitaria `test/unit/test_battery_monitoring.py` completata con tutti i test passati.
+  - Verifica assenza di regressioni sui test di cinematica, PID e motion gating.
+
+---
+
+<a id="40-stima-carica-cccv-undock-trigger-verifica-post-dock"></a>
+### 40. Stima dello Stato di Carica Panasonic NCR18650B (3S2P), Modello CC-CV in Docking, Trigger di Scucciamento Automatico e Verifica Post-Dock (FM-PWR-003, FM-SYS-003, FM-SYS-007)
+* **Contesto Hardware & Cablaggio Reale:**
+  - Il pacco batteria è composto da **6 celle Panasonic NCR18650B** (3400 mAh ciascuna) collegate in configurazione **3S2P** (Capacità nominale totale: $6800\text{ mAh} = 6.80\text{ Ah}$, Tensione nominale: $11.10\text{ V}$, Massima: $12.60\text{ V}$, Minima: $9.00\text{ V}$, Energia: $75.5\text{ Wh}$, Resistenza interna equivalente pack: $R_{int} \approx 85\text{ m}\Omega$).
+  - *Asimmetria di Misura Elettrica:* La batteria alimenta il `BUS COMUNE 12V` tramite il Diodo Ideale 2. Il bus a sua volta alimenta sia la scheda Waveshare (dove risiede l'INA219 su `DC_IN`), sia lo Step-Down 2 a 5.1V (che alimenta Pi 5, Hailo NPU, LiDAR e camera con un assorbimento di fondo di circa $1.20\text{ A}$ a 12V). Di conseguenza, l'INA219 della scheda motori misura **solo la corrente dei motori**, non la corrente totale del robot.
+  - *Isolamento Batteria durante la Ricarica:* Quando il robot si connette all'alimentatore 24V della cuccia, lo Step-Down 1 eroga $12.80\text{ V}$ sul bus comune, interdicendo il Diodo Ideale 2 ($12.80\text{V} > 12.60\text{V}$). Un caricatore step-down CC-CV dedicato ricarica il pacco a monte del diodo sul ramo $P+$ con una corrente costante di $1.50\text{ A}$. In questa fase, l'INA219 vede la tensione di linea $12.80\text{ V}$ e non può leggere direttamente la corrente di ricarica che fluisce nelle celle.
+* **Soluzione Software Adottata nel BMS (`battery_manager_node.py`):**
+  1. *Curva OCV a 14 Punti Panasonic NCR18650B:* Tabella di lookup empirica interpolata linearmente da 12.60V (100%) a 9.00V (0%), con modellazione fedele del tipico plateau delle celle NMC/Li-ion tra 3.6V e 3.8V per cella (10.8V - 11.4V pack).
+  2. *Compensazione Dinamica del Voltage Sag ($I \cdot R$):*
+     $$V_{OCV} = V_{filt} + \left(I_{motori} + I_{quiescent}\right) \cdot R_{int}$$
+     con $I_{quiescent} = 1.20\text{ A}$ e $R_{int} = 0.085\,\Omega$, evitando false transizioni sotto sforzo.
+  3. *Modello di Avanzamento Carica CC-CV nel Tempo:*
+     - All'aggancio in cuccia ($V \ge 12.70\text{ V}$), il nodo memorizza il SoC di partenza $SoC_{start}$ ed incrementa l'energia accumulata $\Delta Ah = I_{eff} \cdot \Delta t$, riducendo progressivamente la corrente nella fase di saturazione CV.
+     - Viene calcolato e pubblicato su Foxglove Studio (`/foxglove/power_status`) lo stato in tempo reale con i minuti stimati al completamento: `IN CARICA (XX%) - Mancano ~YYm`.
+  4. *Trigger di Scucciamento Automatico (`/robot/docking/undock_trigger`):*
+     - Quando il SoC stimato raggiunge la soglia di carica completa ($\ge 98\%$), lo stato commuta in `CARICA COMPLETA (100%)` (`POWER_SUPPLY_STATUS_FULL`).
+     - Viene pubblicato un impulso booleano `True` sul topic `/robot/docking/undock_trigger`, consentendo al supervisore di navigazione o alla FSM di comportamento di comandare l'uscita dalla cuccia (undock).
+  5. *Procedura di Verifica Tensione Post-Docking (Appena Staccato):*
+     - Al distacco dalla cuccia (la tensione scende sotto $12.65\text{ V}$), l'alimentazione torna istantaneamente a carico della batteria e l'INA219 torna a misurare la reale tensione chimica delle celle.
+     - Si apre una finestra temporale di osservazione di **5.0 secondi** (`VERIFICA CARICA (XX.XXV)`).
+     - Se dopo 5.0 secondi la tensione a circuito aperto $V \ge 12.45\text{ V}$ ($\ge 95\%$ SoC), la carica viene convalidata: lo stato diventa `CARICA VERIFICATA OK (100%)`.
+     - Se $V < 12.45\text{ V}$ (es. distacco prematuro dell'alimentatore), il nodo segnala warning e ricalcola all'istante il vero SoC residuo dalla curva OCV, prevenendo sorprese di fermo robot sul campo.
+* **Miglioramento Hardware Futuro (Soluzione Professionale):**
+  - Integrare un sensore di corrente I2C bidirezionale (INA219 o INA226 con shunt $10\text{ m}\Omega$) direttamente sul cavo arancione $P+$ tra il BMS e l'anodo del Diodo Ideale 2, collegato al bus I2C del Raspberry Pi 5. Questo consentirà misura hardware diretta al 100% sia della scarica complessiva del robot che della ricarica effettiva erogata dal CC-CV.
+
+
 
 
 

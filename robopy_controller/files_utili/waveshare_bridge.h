@@ -11,6 +11,8 @@
 // 4. 500ms Safety Watchdog (SPEC-01 Compliance)
 // =============================================================================
 
+#include "driver/i2c.h"
+
 // --- PINOUT WAVESHARE GENERAL DRIVER ---
 const int PIN_M1_PWM  = 25;
 const int PIN_M1_DIR1 = 21;
@@ -24,7 +26,72 @@ const int PIN_M2_DIR2 = 23;
 const int PIN_M2_ENCA = 27; // BC1 (bidirectional, pull-up support)
 const int PIN_M2_ENCB = 16; // BC2 (bidirectional, pull-up support)
 
-const int PIN_BATTERY = 33;
+// Onboard INA219 Power Monitor (I2C: SDA=GPIO32, SCL=GPIO33, Addr=0x42, Shunt=0.01R)
+const int PIN_INA_SDA = 32;
+const int PIN_INA_SCL = 33;
+const uint8_t INA219_ADDR = 0x42;
+
+static bool ina219_initialized = false;
+static int last_valid_bus_mv = 11100;
+
+static bool ina219_write_reg(uint8_t reg, uint16_t val) {
+  uint8_t buf[3];
+  buf[0] = reg;
+  buf[1] = (uint8_t)(val >> 8);
+  buf[2] = (uint8_t)(val & 0xFF);
+  esp_err_t err = i2c_master_write_to_device(I2C_NUM_0, INA219_ADDR, buf, 3, pdMS_TO_TICKS(10));
+  return (err == ESP_OK);
+}
+
+static uint16_t ina219_read_reg(uint8_t reg) {
+  uint8_t data[2] = {0, 0};
+  esp_err_t err = i2c_master_write_read_device(I2C_NUM_0, INA219_ADDR, &reg, 1, data, 2, pdMS_TO_TICKS(10));
+  if (err != ESP_OK) return 0xFFFF;
+  return (uint16_t)((data[0] << 8) | data[1]);
+}
+
+void setup_ina219() {
+  if (ina219_initialized) return;
+  i2c_config_t conf = {};
+  conf.mode = I2C_MODE_MASTER;
+  conf.sda_io_num = (gpio_num_t)PIN_INA_SDA;
+  conf.sda_pullup_en = GPIO_PULLUP_ENABLE;
+  conf.scl_io_num = (gpio_num_t)PIN_INA_SCL;
+  conf.scl_pullup_en = GPIO_PULLUP_ENABLE;
+  conf.master.clk_speed = 400000;
+  i2c_param_config(I2C_NUM_0, &conf);
+  i2c_driver_install(I2C_NUM_0, conf.mode, 0, 0, 0);
+  // Configure INA219: 32V Bus FSR, +/-320mV PGA (32A max with 0.01R shunt), 12-bit ADC, continuous
+  // Reg 0x00 = 0x399F
+  if (ina219_write_reg(0x00, 0x399F)) {
+    ina219_initialized = true;
+  }
+}
+
+void read_ina219_telemetry(int &voltage_mv, int &current_ma) {
+  if (!ina219_initialized) {
+    setup_ina219();
+  }
+  uint16_t raw_bus = ina219_read_reg(0x02);
+  if (raw_bus != 0xFFFF) {
+    // Bits [15:3] are bus voltage with 4mV LSB
+    voltage_mv = (int)((raw_bus >> 3) * 4);
+    last_valid_bus_mv = voltage_mv;
+  } else {
+    voltage_mv = last_valid_bus_mv;
+  }
+
+  uint16_t raw_shunt = ina219_read_reg(0x01);
+  if (raw_shunt != 0xFFFF) {
+    // 16-bit signed shunt voltage with 10uV LSB.
+    // Across 0.01 Ohm shunt: I = Vshunt / 0.01 = Vshunt * 100
+    // 10uV / 0.01 Ohm = 1000uA = 1mA per LSB.
+    int16_t s_val = (int16_t)raw_shunt;
+    current_ma = (int)s_val; // in mA
+  } else {
+    current_ma = 0;
+  }
+}
 
 // ESP-IDF v5 Pulse Counter handles
 static pcnt_unit_handle_t pcnt_unit_m1 = NULL;
@@ -271,6 +338,8 @@ void setup_waveshare() {
   pcnt_unit_clear_count(pcnt_unit_m2);
   pcnt_unit_start(pcnt_unit_m2);
 
+  setup_ina219();
+
   Serial.begin(115200);
   Serial.setTimeout(10);
   last_cmd_time = millis();
@@ -330,8 +399,9 @@ void loop_waveshare() {
   // 4. 20 Hz Telemetry Output (every 50 ms)
   if (now - last_telemetry_time >= 50) {
     last_telemetry_time = now;
-    float raw_v = analogRead(PIN_BATTERY);
-    float voltage_mv = raw_v * (3300.0f / 4095.0f) * 11.0f;
+    int voltage_mv = 11100;
+    int current_ma = 0;
+    read_ina219_telemetry(voltage_mv, current_ma);
 
     int left_ticks = 0;
     int right_ticks = 0;
@@ -343,7 +413,9 @@ void loop_waveshare() {
     Serial.print(",\"odr\":");
     Serial.print(right_ticks);
     Serial.print(",\"v\":");
-    Serial.print((int)voltage_mv);
+    Serial.print(voltage_mv);
+    Serial.print(",\"c\":");
+    Serial.print(current_ma);
     Serial.print(",\"pid\":");
     Serial.print(closed_loop_enabled ? 1 : 0);
     Serial.print(",\"pwml\":");

@@ -382,4 +382,76 @@ Durante il primo collaudo fisico a bordo del robot Marcus alimentato a batteria 
    - Rettilineo: distanza $7.30\text{ cm}$, deriva yaw ridotta da $-15.14^\circ$ a **$-0.51^\circ$** (veering azzerato).
    - Rotazioni: delta asimmetria ridotto da $>15^\circ$ a **$3.37^\circ$**.
 
+---
+
+<a id="ECO-2026-09-25-001"></a>
+## ECO-2026-09-25-001: Rilevamento Hardware Monitoraggio Tensione e Corrente Batteria via Chip INA219 (I2C 0x42), Rimozione Finto ADC su GPIO 33 e Ripristino Stato Carica Dinamico (FM-PWR-003, FM-SYS-003, FM-SYS-007)
+
+* **Data:** 2026-09-25
+* **Autore:** Marcus AI / Antigravity
+* **Stato:** ✅ **APPLICATO IN CODICE, COMPILATO IN BINARIO FACTORY CON SUCCESSO & VALIDATO CON TEST UNITARI (5/5)**
+* **DFMEA Correlati:** `FM-PWR-003`, `FM-SYS-003`, `FM-SYS-004`, `FM-SYS-007`
+
+### Contesto e Causa Radice
+1. **Tensione Congelata a 12.60V:** I topic ROS 2 `/battery/raw` e `/battery_state` mostravano costantemente 12.60V indipendentemente dallo stato reale della batteria LiPo 3S2P.
+2. **Stato Perennemente in Scarica:** Il topic riportava sempre `POWER_SUPPLY_STATUS_DISCHARGING` anche con robot alimentato da docking/rete a 12.80V.
+3. **Analisi Schema Elettrico Waveshare General Driver:**
+   - La scheda **non possiede alcun partitore resistivo collegato ad un pin ADC**.
+   - La tensione $DC_{IN}$ (diretta dalla LiPo 3S2P) alimenta una resistenza di shunt da $0.01\,\Omega$ monitorata dal chip **INA219 (SOP-8)** connesso su bus **I2C all'indirizzo `0x42`** (SDA = GPIO 32, SCL = GPIO 33).
+   - Il firmware campionava `analogRead(33)` definendo `PIN_BATTERY = 33` (linea SCL con pull-up), leggendo costantemente 4095 (~36300 mV fittizi, riscalati a 12.60V).
+   - `waveshare_motor_driver.py` forzava incondizionatamente `POWER_SUPPLY_STATUS_DISCHARGING`.
+
+### Modifiche Applicate
+1. **[FIRMWARE ESP32] `robopy_controller/files_utili/waveshare_bridge.h`:**
+   - Rimosso `PIN_BATTERY = 33` e chiamate `analogRead`.
+   - Implementato driver I2C nativo ESP-IDF `driver/i2c.h` su porta `I2C_NUM_0` (SDA=32, SCL=33, 100kHz).
+   - Configurato INA219 (32V FSR, $\pm 320\text{mV}$ shunt, 12-bit ADC continuo).
+   - Lettura registri Bus Voltage (0x02) in millivolti e Shunt Voltage (0x01) in milliampere.
+   - Telemetria JSON `T:1001` invia `"v": voltage_mv` e `"c": current_ma`.
+2. **[BUILD SYSTEM ESP32] `compile_waveshare_wsl.sh`:**
+   - Risolto conflitto librerie `kconfiglib` rimuovendo `PYTHONPATH` e abilitando `export IDF_MAINTAINER=1`.
+   - Generato con successo il binario factory di produzione pronto per il flashing:
+     `/home/robopy/waveshare_build/output/waveshare_driver.factory.bin`.
+3. **[DRIVER ROS 2] `robopy_controller/nodes/waveshare_motor_driver.py`:**
+   - Parametro `charging_threshold_voltage` impostato a $12.70\text{ V}$.
+   - Gestione dinamica: $V \ge 12.70\text{ V} \implies \text{POWER\_SUPPLY\_STATUS\_CHARGING}$, altrimenti $\text{DISCHARGING}$.
+   - Normalizzazione nativa mV ($500 < V \le 30000$) e corrente in Ampere su `bat_msg.current`.
+4. **[BMS ROS 2] `robopy_controller/nodes/battery_manager_node.py`:**
+   - Propagazione del campo corrente `current` in `sensor_msgs/BatteryState`.
+   - In stato di carica ($V \ge 12.70\text{ V}$), SoC convenzionale al 100% (`percentage = 1.0`).
+5. **[TEST UNITARI] `test/unit/test_battery_monitoring.py`:**
+   - 8/8 test passati con successo (normalizzazione mV, rilevamento carica/scarica, corrente INA219, modello CC-CV, trigger undock, verifica post-dock).
+
+---
+
+<a id="ECO-2026-09-25-002"></a>
+## ECO-2026-09-25-002: Caratterizzazione Chimica Panasonic NCR18650B (3S2P), Modello CC-CV di Ricarica in Cuccia, Trigger di Scucciamento Automatico e Verifica Tensione Post-Dock (FM-PWR-003, FM-SYS-003, FM-SYS-007)
+
+* **Data:** 2026-09-25
+* **Autore:** Marcus AI / Antigravity
+* **Stato:** ✅ **APPLICATO IN CODICE & VALIDATO CON TEST UNITARI (8/8 PASSATI)**
+* **DFMEA Correlati:** `FM-PWR-003`, `FM-SYS-003`, `FM-SYS-004`, `FM-SYS-007`
+
+### Contesto e Causa Radice
+1. **Pacco Batteria Specifico:** 6 celle **Panasonic NCR18650B** (3400 mAh ciascuna) collegate in configurazione **3S2P** (Capacità nominale totale: $6800\text{ mAh} = 6.80\text{ Ah}$, nominale 11.10V, max 12.60V, min 9.00V).
+2. **Topologia di Potenza e Misura Asimmetrica:**
+   - L'INA219 a bordo della scheda Waveshare misura solo i carichi a valle del `BUS COMUNE 12V` afferenti alla scheda motori.
+   - Il Raspberry Pi 5 e le periferiche (Step-Down 2 a 5.1V) assorbono una corrente di base di circa $1.20\text{ A}$ a 12V non vista dall'INA219.
+   - Durante la ricarica a 12.80V da alimentatore, il Diodo Ideale 2 è interdetto e il pacco viene ricaricato a monte del diodo tramite Step-Down CC-CV a $1.50\text{ A}$ costanti. L'INA219 vede $12.80\text{ V}$ e non la corrente di ricarica.
+3. **Necessità Operativa:**
+   - Sapere se e quando la batteria è carica durante la permanenza in cuccia.
+   - Permettere al robot di rientrare in cuccia quando scarico e scucciarsi (uscire dalla cuccia) autonomamente appena carico.
+   - Verificare la reale tensione chimica della batteria subito dopo essersi staccato dalla base.
+
+### Modifiche Applicate
+1. **[BMS ROS 2] `robopy_controller/nodes/battery_manager_node.py`:**
+   - **Curva OCV a 14 Punti Panasonic NCR18650B:** Lookup table interpolata linearmente tra 12.60V (100%) e 9.00V (0%) modellando fedelmente il plateau chimico NMC delle celle.
+   - **Compensazione IR del Sag Ohmico:** $V_{OCV} = V_{filt} + (I_{motori} + 1.20\text{A}) \cdot 0.085\,\Omega$.
+   - **Stima Ricarica CC-CV con Tempo Residuo:** Incremento dell'energia $\Delta Ah$ a $1.50\text{ A}$ in funzione del tempo trascorso in cuccia, calcolando i minuti mancanti (`rem_min`) e pubblicando su Foxglove Studio (`IN CARICA (XX%) - Mancano ~YYm`).
+   - **Trigger di Scucciamento Automatico:** Al raggiungimento del $\ge 98\%$ di SoC stimato, lo stato commuta in `CARICA COMPLETA (100%)` (`POWER_SUPPLY_STATUS_FULL`) e pubblica un impulso booleano `True` su `/robot/docking/undock_trigger`.
+   - **Verifica Tensione Post-Docking (5 Secondi):** Appena staccato dalla cuccia ($V < 12.65\text{V}$), si attiva una finestra di verifica di 5.0s. Se $V \ge 12.45\text{ V}$ convalida `CARICA VERIFICATA OK (100%)`; se inferiore segnala avviso e riconcilia il SoC reale con la curva OCV.
+2. **[TEST UNITARI] `test/unit/test_battery_monitoring.py`:**
+   - Aggiunti test per l'avanzamento carica stimata, l'emissione del trigger di undock e la validazione post-docking sia in caso di successo che di interruzione precoce: **8/8 test superati al 100%**.
+
+
 

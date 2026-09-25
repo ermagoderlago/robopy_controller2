@@ -46,6 +46,7 @@ class WaveshareMotorDriver(Node):
         self.declare_parameter('max_linear_speed', 0.40)           # Maximum linear speed of chassis (m/s)
         self.declare_parameter('motor_min_duty_cycle', 0.18)       # Minimum starting PWM duty cycle to overcome gearbox stiction
         self.declare_parameter('raw_battery_topic', '/battery/raw') # Topic for raw ADC battery voltage
+        self.declare_parameter('charging_threshold_voltage', 12.70) # External power charging threshold (12.70V)
         self.declare_parameter('esp32_adc_scale_factor', 2880.95)   # 3S divider factor (36300 -> 12.60V)
         self.declare_parameter('enable_esp32_pid', False)          # Disabled: ESP32 hardware single-channel line fault on M1 (GPIO35)
         self.declare_parameter('esp32_pid_kp', 3.20)               # ESP32 velocity PID Kp
@@ -91,7 +92,10 @@ class WaveshareMotorDriver(Node):
         self.max_linear_speed = float(self.get_parameter('max_linear_speed').value)
         self.motor_min_duty_cycle = float(self.get_parameter('motor_min_duty_cycle').value)
         self.raw_battery_topic = self.get_parameter('raw_battery_topic').value
+        thresh_val = self.get_parameter('charging_threshold_voltage').value
+        self.charging_threshold_voltage = float(thresh_val) if (thresh_val is not None and float(thresh_val) > 5.0) else 12.70
         self.esp32_adc_scale_factor = float(self.get_parameter('esp32_adc_scale_factor').value)
+
         self.enable_esp32_pid = bool(self.get_parameter('enable_esp32_pid').value)
         self.esp32_pid_kp = float(self.get_parameter('esp32_pid_kp').value)
         self.esp32_pid_ki = float(self.get_parameter('esp32_pid_ki').value)
@@ -788,10 +792,11 @@ class WaveshareMotorDriver(Node):
                     if left_ticks is not None and right_ticks is not None:
                         self.process_encoder_feedback(left_ticks, right_ticks)
                     
-                    # Parse and process battery voltage
+                    # Parse and process battery voltage & current
                     voltage_raw = data.get('v')
+                    current_raw = data.get('c')
                     if voltage_raw is not None:
-                        self.process_battery_feedback(voltage_raw)
+                        self.process_battery_feedback(voltage_raw, current_raw)
                         
                     # Parse and process IMU data (roll, pitch, yaw)
                     roll = data.get('roll') if data.get('roll') is not None else data.get('r')
@@ -1083,23 +1088,22 @@ class WaveshareMotorDriver(Node):
         q[3] = cr * cp * cy + sr * sp * sy
         return q
 
-    def process_battery_feedback(self, voltage_raw):
-        """Processes raw battery voltage and publishes BatteryState and Diagnostics."""
+    def process_battery_feedback(self, voltage_raw, current_raw=None):
+        """Processes raw battery voltage and current from INA219 / ESP32 and publishes BatteryState and Diagnostics."""
         try:
             v_val = float(voltage_raw)
-        except ValueError:
+        except (ValueError, TypeError):
             return
             
         # Normalize to Volts
-        # Waveshare ESP32 board firmware transmits a 3S accumulator value (e.g. 36300 for 12.60V full battery)
+        # INA219 provides millivolts directly (e.g. 11100 -> 11.10V, 12600 -> 12.60V, 12800 -> 12.80V)
+        # Legacy divider count fallback for > 30000 (e.g. 36300 -> 12.60V)
         scale_factor = getattr(self, 'esp32_adc_scale_factor', 2880.95)
-        if v_val > 15000:
+        if v_val > 30000.0:
             voltage = v_val / scale_factor
-        elif v_val > 1000:
+        elif v_val > 500.0:
             voltage = v_val / 1000.0
-        elif v_val > 20.0:
-            voltage = v_val / (scale_factor / 1000.0)
-        elif v_val > 100:
+        elif v_val > 50.0:
             voltage = v_val / 100.0
         else:
             voltage = v_val
@@ -1107,6 +1111,14 @@ class WaveshareMotorDriver(Node):
         self.latest_voltage = voltage
         if self.motors_stopped:
             self.idle_voltage = 0.95 * self.idle_voltage + 0.05 * voltage
+            
+        # Parse current from INA219 (mA -> Amperes)
+        current_a = float('nan')
+        if current_raw is not None:
+            try:
+                current_a = float(current_raw) / 1000.0
+            except (ValueError, TypeError):
+                pass
             
         # Calculate battery percentage (for 3S LiPo: max 12.6V, min 9.9V)
         min_v = 9.9
@@ -1117,16 +1129,25 @@ class WaveshareMotorDriver(Node):
             percentage = 0.0
         else:
             percentage = ((voltage - min_v) / (max_v - min_v)) * 100.0
+
+        # External charging detection: V >= charging_threshold_voltage (12.70V)
+        charging_thresh = getattr(self, 'charging_threshold_voltage', 12.70)
+        if voltage >= charging_thresh:
+            power_supply_status = BatteryState.POWER_SUPPLY_STATUS_CHARGING
+        else:
+            power_supply_status = BatteryState.POWER_SUPPLY_STATUS_DISCHARGING
             
         # Publish Raw topics for BatteryManager
         bat_msg = BatteryState()
         bat_msg.header.stamp = self.get_clock().now().to_msg()
         bat_msg.header.frame_id = 'base_link'
-        bat_msg.voltage = voltage
-        bat_msg.percentage = percentage / 100.0
+        bat_msg.voltage = float(voltage)
+        if not math.isnan(current_a):
+            bat_msg.current = float(current_a)
+        bat_msg.percentage = float(percentage / 100.0)
         bat_msg.present = True
         bat_msg.power_supply_technology = BatteryState.POWER_SUPPLY_TECHNOLOGY_LIPO
-        bat_msg.power_supply_status = BatteryState.POWER_SUPPLY_STATUS_DISCHARGING
+        bat_msg.power_supply_status = power_supply_status
         self.raw_battery_pub.publish(bat_msg)
         
         raw_float = Float32()
@@ -1140,16 +1161,20 @@ class WaveshareMotorDriver(Node):
         status = DiagnosticStatus()
         status.name = "battery"
         status.level = DiagnosticStatus.OK
-        if voltage < 10.0:
+        if voltage < 10.0 and power_supply_status != BatteryState.POWER_SUPPLY_STATUS_CHARGING:
             status.level = DiagnosticStatus.WARN
             self.get_logger().warn(f"🔋 Low Battery Warning: {voltage:.2f}V ({percentage:.1f}%)")
             
         status.message = f"{percentage:.1f}"
         status.hardware_id = "waveshare_esp32_driver"
-        status.values = [
+        diag_values = [
             KeyValue(key="voltage", value=f"{voltage:.2f}V"),
-            KeyValue(key="percentage", value=f"{percentage:.1f}%")
+            KeyValue(key="percentage", value=f"{percentage:.1f}%"),
+            KeyValue(key="status", value="CHARGING" if power_supply_status == BatteryState.POWER_SUPPLY_STATUS_CHARGING else "DISCHARGING"),
         ]
+        if not math.isnan(current_a):
+            diag_values.append(KeyValue(key="current", value=f"{current_a:.2f}A"))
+        status.values = diag_values
         diag_msg.status.append(status)
         
         # Publish Diagnostics Stall / Slip / Overload

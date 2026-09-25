@@ -1,7 +1,7 @@
 #!/bin/bash
 # compile_waveshare_wsl.sh - Compiles Waveshare ESP32 firmware in a clean, space-free directory in WSL.
 set -e
-export PYTHONPATH="/home/robopy/esphome_venv/lib/python3.12/site-packages"
+unset PYTHONPATH
 export IDF_MAINTAINER=1
 
 echo "=================================================="
@@ -26,10 +26,17 @@ echo "📦 Extracting factory binary..."
 mkdir -p "${BUILD_DIR}/output"
 cp .esphome/build/waveshare-motor-driver/.pioenvs/waveshare-motor-driver/firmware.factory.bin "${BUILD_DIR}/output/waveshare_driver.factory.bin"
 
-echo "📤 Copying compiled firmware to Raspberry Pi..."
-scp "${BUILD_DIR}/output/waveshare_driver.factory.bin" robopy@marcus:/tmp/waveshare_driver.factory.bin
-
-echo "=================================================="
-echo " 🎉 COMPILATION AND TRANSFER SUCCESSFUL!"
-echo "   Binary is now on Pi: /tmp/waveshare_driver.factory.bin"
-echo "=================================================="
+echo "📤 Transferring compiled firmware to Raspberry Pi (if online)..."
+if ping -c 1 -W 2 marcus >/dev/null 2>&1; then
+    scp "${BUILD_DIR}/output/waveshare_driver.factory.bin" robopy@marcus:/tmp/waveshare_driver.factory.bin
+    echo "=================================================="
+    echo " 🎉 COMPILATION AND TRANSFER SUCCESSFUL!"
+    echo "   Binary is now on Pi: /tmp/waveshare_driver.factory.bin"
+    echo "=================================================="
+else
+    echo "=================================================="
+    echo " 🎉 COMPILATION SUCCESSFUL!"
+    echo "   ⚠️ Marcus Pi 5 is offline. Binary saved locally at:"
+    echo "   ${BUILD_DIR}/output/waveshare_driver.factory.bin"
+    echo "=================================================="
+fi

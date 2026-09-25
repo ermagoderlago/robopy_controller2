@@ -1,5 +1,5 @@
 # 📊 Report Esecutivo DFMEA - Marcus AI Robot Platform
-**Data Generazione:** 2026-09-24 23:50:56  
+**Data Generazione:** 2026-09-25 16:35:16  
 **Metodologia:** AIAG-VDA FMEA Standard con Regola Override Severità ($S \ge 9 \implies$ REVISION_MANDATORY)
 
 ---
@@ -8,19 +8,19 @@
 
 | Metrica | Valore | Note / Impatto |
 | :--- | :---: | :--- |
-| **Totale Modalità di Guasto (FM)** | **129** | Copertura integrata dei sottosistemi Marcus |
+| **Totale Modalità di Guasto (FM)** | **130** | Copertura integrata dei sottosistemi Marcus |
 | **🟢 Risk Level LOW** | **95** | $RPN_{res} \le 50$ (Sotto controllo) |
 | **🟡 Risk Level MEDIUM** | **7** | $51 \le RPN_{res} \le 199$ (Monitoraggio attivo) |
 | **🟠 Risk Level HIGH** | **2** | $200 \le RPN_{res} \le 349$ (Mitigazione obbligatoria) |
 | **🔴 Risk Level CRITICAL** | **0** | $RPN_{res} \ge 350$ (Blocco rilasci) |
-| **🚨 REVISION_MANDATORY** | **25** | **Override Severità ($S \ge 9$)** - Massima Priorità Ingegneristica |
+| **🚨 REVISION_MANDATORY** | **26** | **Override Severità ($S \ge 9$)** - Massima Priorità Ingegneristica |
 
 ### Ripartizione per Sottosistema:
 - **System/DDS:** 5 failure modes
 - **Nav2:** 15 failure modes
 - **VUI Audio:** 21 failure modes
 - **Vision:** 2 failure modes
-- **Hardware/Power:** 10 failure modes
+- **Hardware/Power:** 9 failure modes
 - **ESP32:** 1 failure modes
 - **AI/LangGraph:** 7 failure modes
 - **System/Compute:** 2 failure modes
@@ -43,6 +43,7 @@
 - **Navigation/SLAM:** 2 failure modes
 - **Vision/Hailo:** 1 failure modes
 - **Memory/Resources:** 1 failure modes
+- **Nav2 & SLAM:** 2 failure modes
 - **Cloud, Memory & Orchestration:** 1 failure modes
 - **Audio & VUI:** 2 failure modes
 - **Navigation & SLAM:** 3 failure modes
@@ -53,9 +54,8 @@
 - **Actuation/MotorDriver:** 1 failure modes
 - **AI/Evolution:** 1 failure modes
 - **Actuation & Motion:** 4 failure modes
-- **Nav2 & SLAM:** 1 failure modes
 - **Voice User Interface (VUI):** 1 failure modes
-- **Hardware/Power & Compute:** 1 failure modes
+- **Hardware/Power & Compute:** 2 failure modes
 - **Actuation/Motion:** 1 failure modes
 
 ---
@@ -64,7 +64,6 @@
 
 | ID FM | Sottosistema | Componente | Modo di Guasto | S_init ➔ S_res | RPN_init ➔ RPN_res | Livello Rischio | Stato Mitigazione | ECO Ref |
 | :--- | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :--- |
-| **FM-NAV-018** | Hardware/Power | `navigation_sensors` | Cecità geometrica totale al di fuori del campo visivo primario (FOV 72.9 H) con rischio di collisione laterale o posteriore | 9 ➔ 9 | 729 ➔ **729** | `REVISION_MANDATORY` | `OPEN` | [`docs/ecos/nav2_slam_ecos.md#ECO-2026-08-28-NAV-DFMEA-FIXES`](docs/ecos/nav2_slam_ecos.md#ECO-2026-08-28-NAV-DFMEA-FIXES) |
 | **FM-LLM-004** | AI/LangGraph | `dynamic_skill_creator` | Esecuzione di codice auto-generato (Skill) pericoloso, instabile o fuori controllo (AI Code Hazard) | 9 ➔ 9 | 324 ➔ **324** | `REVISION_MANDATORY` | `OPEN` | N/A |
 | **FM-ACT-006** | Hardware/Power | `waveshare_motor_driver / IMU` | Il robot viene sollevato da terra (in volo) mentre è in movimento, le ruote continuano a girare a vuoto alla massima velocità | 8 ➔ 8 | 280 ➔ **280** | `HIGH` | `OPEN` | N/A |
 | **FM-VUI-006** | VUI Audio | `respeaker_vui_node` | Distorsione audio meccanica dell'altoparlante (Clipping fisico e saturazione) | 8 ➔ 8 | 240 ➔ **240** | `HIGH` | `OPEN` | N/A |
@@ -87,9 +86,11 @@
 | **FM-VUI-011** | VUI Audio | `local_asr_vosk` | Segmentation fault immediato dell\'interprete Python durante la chiamata a KaldiRecognizer.Reset() o allocazione di memoria cross-thread | 9 ➔ 9 | 144 ➔ **9** | `REVISION_MANDATORY` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#sentinel-pattern`](docs/lessons/audio_vui_pipeline.md#sentinel-pattern) |
 | **FM-TRI-001** | AI/Trinity | `mag_database / chroma_native_store` | Out-Of-Memory (OOM) Kill per allocazione concorrente di cache vettoriali, ChromaDB HNSW e connessioni SQLite | 9 ➔ 9 | 135 ➔ **9** | `REVISION_MANDATORY` | `CLOSED` | [`docs/ecos/orchestration_rag_ecos.md#ECO-2026-08-21-TRINITY`](docs/ecos/orchestration_rag_ecos.md#ECO-2026-08-21-TRINITY) |
 | **FM-TRI-004** | AI/Trinity | `mag_database` | Corruzione del database SQLite `mag_trinity.db` a seguito di caduta di tensione della batteria | 9 ➔ 9 | 108 ➔ **9** | `REVISION_MANDATORY` | `CLOSED` | [`docs/ecos/orchestration_rag_ecos.md#ECO-2026-08-21-TRINITY`](docs/ecos/orchestration_rag_ecos.md#ECO-2026-08-21-TRINITY) |
+| **FM-NAV-018** | Nav2 & SLAM | `navigation_sensors` | Cecità geometrica totale al di fuori del campo visivo primario (FOV 72.9 H) con rischio di collisione laterale o posteriore | 9 ➔ 9 | 729 ➔ **9** | `REVISION_MANDATORY` | `CLOSED` | [`docs/ecos/nav2_slam_ecos.md#ECO-2026-09-04-001`](docs/ecos/nav2_slam_ecos.md#ECO-2026-09-04-001) |
 | **FM-VUI-024** | Audio & VUI | `respeaker_vui_node` | Robot non risponde alla chiamata vocale 'Marcus', assenza di beep di ingaggio e blocco infinito dell'ascolto Gemini Live senza sintesi audio | 9 ➔ 9 | 504 ➔ **9** | `REVISION_MANDATORY` | `CLOSED` | [`docs/ecos/audio_vui_ecos.md#ECO-2026-09-03-002`](docs/ecos/audio_vui_ecos.md#ECO-2026-09-03-002) |
 | **FM-LLM-008** | AI/LangGraph | `curiosity_evolution_engine & security_validator` | Tentativo di aggiramento indiretto dei vincoli di sicurezza (es. reflection, setattr, comandi mascherati) | 9 ➔ 9 | 54 ➔ **9** | `REVISION_MANDATORY` | `CLOSED` | [`docs/specs/SPEC-00_antigravity_governance.md`](docs/specs/SPEC-00_antigravity_governance.md) |
 | **FM-PWR-002** | Hardware/Power & Compute | `step_down_pi5 / PMIC DA9091` | Undervoltage (<4.63V) e brownout emergency power-off (<4.50V) del PMIC durante picchi di inferenza NPU e streaming sensori | 9 ➔ 9 | 144 ➔ **9** | `REVISION_MANDATORY` | `CLOSED` | [`docs/specs/SPEC-06_power_bms_thermal_safety.md`](docs/specs/SPEC-06_power_bms_thermal_safety.md) |
+| **FM-PWR-003** | Hardware/Power & Compute | `esp32_waveshare_driver / ina219` | Blocco permanente della telemetria tensione batteria a valore fittizio (12.60V) e indicazione ingannevole costante di stato 'DISCHARGING' | 9 ➔ 9 | 243 ➔ **9** | `REVISION_MANDATORY` | `CLOSED` | [`docs/ecos/actuation_ecos.md#ECO-2026-09-25-001`](docs/ecos/actuation_ecos.md#ECO-2026-09-25-001) |
 | **FM-MOT-004** | Chassis & Motion | `waveshare_motor_driver & sllidar_node` | Inversione dinamica o collisione delle porte seriali (/dev/ttyUSB0 vs /dev/ttyUSB1) al reboot, con conseguente blocco dei motori o del LiDAR | 9 ➔ 8 | 378 ➔ **8** | `REVISION_MANDATORY` | `CLOSED` | [`docs/ecos/actuation_ecos.md#ECO-2026-09-04-013`](docs/ecos/actuation_ecos.md#ECO-2026-09-04-013) |
 
 ---
@@ -98,7 +99,6 @@
 
 | ID FM | Sottosistema | Componente | Modo di Guasto | S_res | O_res | D_res | RPN Residuo | Livello Rischio | Stato | Lesson Ref |
 | :--- | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| **FM-NAV-018** | Hardware/Power | `navigation_sensors` | Cecità geometrica totale al di fuori del campo visivo primario (FOV 72.9 H) con rischio di collisione laterale o posteriore | 9 | 9 | 9 | **729** | `REVISION_MANDATORY` | `OPEN` | [`marcus_core_rules.md`](marcus_core_rules.md) |
 | **FM-LLM-004** | AI/LangGraph | `dynamic_skill_creator` | Esecuzione di codice auto-generato (Skill) pericoloso, instabile o fuori controllo (AI Code Hazard) | 9 | 6 | 6 | **324** | `REVISION_MANDATORY` | `OPEN` | [`docs/lessons/llm_live_api.md`](docs/lessons/llm_live_api.md) |
 | **FM-ACT-006** | Hardware/Power | `waveshare_motor_driver / IMU` | Il robot viene sollevato da terra (in volo) mentre è in movimento, le ruote continuano a girare a vuoto alla massima velocità | 8 | 7 | 5 | **280** | `HIGH` | `OPEN` | [`docs/lessons/actuation_motor_driver.md`](docs/lessons/actuation_motor_driver.md) |
 | **FM-VUI-006** | VUI Audio | `respeaker_vui_node` | Distorsione audio meccanica dell'altoparlante (Clipping fisico e saturazione) | 8 | 6 | 5 | **240** | `HIGH` | `OPEN` | [`docs/lessons/telemetry_and_autotuning.md`](docs/lessons/telemetry_and_autotuning.md) |
@@ -183,9 +183,11 @@
 | **FM-VUI-011** | VUI Audio | `local_asr_vosk` | Segmentation fault immediato dell\'interprete Python durante la chiamata a KaldiRecognizer.Reset() o allocazione di memoria cross-thread | 9 | 1 | 1 | **9** | `REVISION_MANDATORY` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#sentinel-pattern`](docs/lessons/audio_vui_pipeline.md#sentinel-pattern) |
 | **FM-TRI-001** | AI/Trinity | `mag_database / chroma_native_store` | Out-Of-Memory (OOM) Kill per allocazione concorrente di cache vettoriali, ChromaDB HNSW e connessioni SQLite | 9 | 1 | 1 | **9** | `REVISION_MANDATORY` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#trinity-architecture`](docs/lessons/orchestration_and_rag.md#trinity-architecture) |
 | **FM-TRI-004** | AI/Trinity | `mag_database` | Corruzione del database SQLite `mag_trinity.db` a seguito di caduta di tensione della batteria | 9 | 1 | 1 | **9** | `REVISION_MANDATORY` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#trinity-architecture`](docs/lessons/orchestration_and_rag.md#trinity-architecture) |
+| **FM-NAV-018** | Nav2 & SLAM | `navigation_sensors` | Cecità geometrica totale al di fuori del campo visivo primario (FOV 72.9 H) con rischio di collisione laterale o posteriore | 9 | 1 | 1 | **9** | `REVISION_MANDATORY` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#FM-NAV-018`](docs/lessons/nav2_slam_tuning.md#FM-NAV-018) |
 | **FM-VUI-024** | Audio & VUI | `respeaker_vui_node` | Robot non risponde alla chiamata vocale 'Marcus', assenza di beep di ingaggio e blocco infinito dell'ascolto Gemini Live senza sintesi audio | 9 | 1 | 1 | **9** | `REVISION_MANDATORY` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#FM-VUI-024`](docs/lessons/audio_vui_pipeline.md#FM-VUI-024) |
 | **FM-LLM-008** | AI/LangGraph | `curiosity_evolution_engine & security_validator` | Tentativo di aggiramento indiretto dei vincoli di sicurezza (es. reflection, setattr, comandi mascherati) | 9 | 1 | 1 | **9** | `REVISION_MANDATORY` | `CLOSED` | [`docs/specs/SPEC-00_antigravity_governance.md`](docs/specs/SPEC-00_antigravity_governance.md) |
 | **FM-PWR-002** | Hardware/Power & Compute | `step_down_pi5 / PMIC DA9091` | Undervoltage (<4.63V) e brownout emergency power-off (<4.50V) del PMIC durante picchi di inferenza NPU e streaming sensori | 9 | 1 | 1 | **9** | `REVISION_MANDATORY` | `CLOSED` | [`docs/lessons/vision_hailo_npu.md#caduta-di-tensione-e-reset-dellssd`](docs/lessons/vision_hailo_npu.md#caduta-di-tensione-e-reset-dellssd) |
+| **FM-PWR-003** | Hardware/Power & Compute | `esp32_waveshare_driver / ina219` | Blocco permanente della telemetria tensione batteria a valore fittizio (12.60V) e indicazione ingannevole costante di stato 'DISCHARGING' | 9 | 1 | 1 | **9** | `REVISION_MANDATORY` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#39-risoluzione-telemetria-batteria-ina219`](docs/lessons/actuation_motor_driver.md#39-risoluzione-telemetria-batteria-ina219) |
 | **FM-NAV-003** | Nav2 | `lifecycle_manager_navigation` | Crash all'avvio dello stack Nav2 per mancata corrispondenza nei nomi dei nodi controllati | 8 | 1 | 1 | **8** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#lifecycle`](docs/lessons/nav2_slam_tuning.md#lifecycle) |
 | **FM-ACT-002** | ESP32 | `waveshare_motor_driver` | Blocco del parser seriale ESP32 e scarto sistematico dei pacchetti di comando di velocità | 8 | 1 | 1 | **8** | `LOW` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#esp32-protocol`](docs/lessons/actuation_motor_driver.md#esp32-protocol) |
 | **FM-ACT-004** | Hardware/Power | `waveshare_motor_driver` | Cancellazione delle velocità differenziali per inversione speculare dei tick dell'encoder destro | 8 | 1 | 1 | **8** | `LOW` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#kinematics`](docs/lessons/actuation_motor_driver.md#kinematics) |
