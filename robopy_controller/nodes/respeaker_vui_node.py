@@ -157,8 +157,8 @@ class ReSpeakerVUINode(Node):
         self.declare_parameter('diag_mode',              False)  # Diagnostica estesa VUI
         self.declare_parameter('enable_adaptive_threshold', True) # Auto-calibration threshold
         self.declare_parameter('enable_adaptive_silence',   True) # Adaptive speech duration
-        self.declare_parameter('playback_volume',           0.10) # Volume di riproduzione base
-        self.declare_parameter('enable_auto_volume',        True) # Regolazione automatica volume su rumore
+        self.declare_parameter('playback_volume',           0.85) # Volume di riproduzione base udibile (85%)
+        self.declare_parameter('enable_auto_volume',        False) # Disabilita attenuazione automatica aggressiva
 
         self._cfg_enable_vad_gate   = self.get_parameter('enable_vad_gate').get_parameter_value().bool_value
         self._cfg_enable_barge_in   = self.get_parameter('enable_barge_in').get_parameter_value().bool_value
@@ -169,6 +169,7 @@ class ReSpeakerVUINode(Node):
         self.enable_adaptive_threshold = self.get_parameter('enable_adaptive_threshold').get_parameter_value().bool_value
         self.enable_adaptive_silence   = self.get_parameter('enable_adaptive_silence').get_parameter_value().bool_value
         self.playback_volume           = self.get_parameter('playback_volume').get_parameter_value().double_value
+        self._base_playback_volume     = self.playback_volume
         self.enable_auto_volume        = self.get_parameter('enable_auto_volume').get_parameter_value().bool_value
         self.declare_parameter('enable_audio_beeps', True) # [v19.5] Beep di notifica avvio e chiusura attivi
         self.enable_audio_beeps        = self.get_parameter('enable_audio_beeps').get_parameter_value().bool_value
@@ -346,6 +347,7 @@ class ReSpeakerVUINode(Node):
         self._current_mood = 'IDLE'
         self.create_subscription(Bool,      '/ai/tts/speaking',         self._tts_speaking_cb,  10)
         self.create_subscription(AudioData, '/respeaker/speaker_audio', self._speaker_audio_cb, 10)
+        self.create_subscription(AudioData, '/ai/conversation/audio_chunk', self._speaker_audio_cb, 10)
         self.create_subscription(Bool,      '/ai/input/mic_mute',       self._mic_mute_cb,      10)
         self.create_subscription(Bool,      '/ai/music_playing',        self._music_playing_cb, 10)
         self.create_subscription(String,    '/ai/conversation/mood',    self._mood_cb,          10)
@@ -364,6 +366,12 @@ class ReSpeakerVUINode(Node):
         # Timer e loop asincroni
         # ------------------------------------------------------------------ #
         self.create_timer(1.0, self._process_pending_transcriptions)
+
+        # [FM-VUI-031] Liveness Watchdog per rilevamento stallo stream ALSA/PyAudio su USB disconnect
+        self._last_input_chunk_time = time.monotonic()
+        self._reconnecting_stream   = False
+        self._consecutive_stream_stalls = 0
+        self.create_timer(1.0, self._audio_stream_watchdog)
 
         # ------------------------------------------------------------------ #
         # PyAudio — usa CHUNK_SIZE come frames_per_buffer
@@ -704,15 +712,14 @@ class ReSpeakerVUINode(Node):
 
             # Auto-regolazione dinamica del volume in funzione del rumore ambientale
             if self.enable_auto_volume:
-                # Regola dinamicamente il volume basandosi sulla baseline di 0.10 (silenzio, EMA <= 100)
-                # fino a un massimo di 0.50 (rumoroso, EMA >= 800)
+                base_vol = getattr(self, '_base_playback_volume', self.playback_volume)
                 raw_noise = self._ambient_noise_ema
                 if raw_noise <= 100.0:
-                    self.playback_volume = 0.10
+                    self.playback_volume = base_vol
                 elif raw_noise >= 800.0:
-                    self.playback_volume = 0.50
+                    self.playback_volume = min(1.0, base_vol * 1.5)
                 else:
-                    self.playback_volume = 0.10 + (raw_noise - 100.0) * (0.40 / 700.0)
+                    self.playback_volume = min(1.0, base_vol * (1.0 + (raw_noise - 100.0) * (0.5 / 700.0)))
 
             input_rate = _NATIVE_AUDIO_RATE if is_live else _STD_AUDIO_RATE
 
@@ -1054,11 +1061,84 @@ class ReSpeakerVUINode(Node):
     # ------------------------------------------------------------------ #
     def _audio_input_callback(self, in_data, frame_count, time_info, status):
         if not self._shutdown and in_data:
+            self._last_input_chunk_time = time.monotonic()
             try:
                 self._audio_in_queue.put_nowait(in_data)
             except queue.Full:
                 pass
         return (None, pyaudio.paContinue)
+
+    def _audio_stream_watchdog(self):
+        """[FM-VUI-031] Watchdog periodico per rilevare sordità silente da disconnessione USB / ALSA stall."""
+        if self._shutdown or self._reconnecting_stream or self.in_stream is None:
+            return
+
+        elapsed = time.monotonic() - getattr(self, '_last_input_chunk_time', time.monotonic())
+        if elapsed > 3.0:
+            self.get_logger().error(
+                f"🚨 [WATCHDOG ALSA] Nessun frame audio da PyAudio da {elapsed:.1f}s (>3.0s)! "
+                f"Disconnessione USB o stallo ALSA rilevato. Avvio auto-recovery hardware..."
+            )
+            threading.Thread(target=self._recover_audio_stream, daemon=True, name="vui_alsa_recovery").start()
+
+    def _recover_audio_stream(self):
+        """[FM-VUI-031] Procedura asincrona di recupero e riapertura dello stream ALSA."""
+        if self._reconnecting_stream:
+            return
+        self._reconnecting_stream = True
+        try:
+            # 1. Chiusura sicura dello stream di ingresso bloccato
+            if self.in_stream is not None:
+                try:
+                    self.in_stream.stop_stream()
+                except Exception:
+                    pass
+                try:
+                    self.in_stream.close()
+                except Exception:
+                    pass
+                self.in_stream = None
+
+            # 2. Reset dell'istanza PyAudio
+            try:
+                self.pa.terminate()
+            except Exception:
+                pass
+            time.sleep(0.5)
+            self.pa = pyaudio.PyAudio()
+
+            # 3. Ricerca dispositivi audio aggiornati
+            in_idx, out_idx = self._find_audio_devices()
+            if in_idx is None:
+                self._consecutive_stream_stalls += 1
+                self.get_logger().warning(
+                    f"⚠️ [WATCHDOG ALSA] ReSpeaker Lite non ancora enumerato sul bus USB "
+                    f"(tentativo {self._consecutive_stream_stalls}). Attendo..."
+                )
+                if self._consecutive_stream_stalls >= 12:
+                    self.get_logger().critical("❌ [WATCHDOG ALSA] ReSpeaker assente dopo 12 tentativi. Termino il nodo per riavvio pulito da supervisor.")
+                    sys.exit(1)
+                return
+
+            # 4. Riapertura dello stream di ingresso
+            self.in_stream = self.pa.open(
+                rate=SAMPLE_RATE,
+                channels=2,
+                format=pyaudio.paInt16,
+                input=True,
+                input_device_index=in_idx,
+                frames_per_buffer=CHUNK_SIZE,
+                stream_callback=self._audio_input_callback,
+                start=True
+            )
+            self._last_input_chunk_time = time.monotonic()
+            self._consecutive_stream_stalls = 0
+            self.get_logger().info(f"✅ [WATCHDOG ALSA] Stream microfonico ReSpeaker recuperato con successo su device Idx={in_idx}!")
+        except Exception as e:
+            self.get_logger().error(f"Errore durante l'auto-recovery ALSA: {e}")
+        finally:
+            self._reconnecting_stream = False
+
 
     # ------------------------------------------------------------------ #
     # Worker thread di processamento audio in background

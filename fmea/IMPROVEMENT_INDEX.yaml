@@ -169,6 +169,19 @@ improvements:
     status: "COMPLETED"
     domain: "nav2_slam"
 
+  FM-VUI-031:
+    title: "Miglioramento VUI: Liveness Watchdog Stream Microfonico e Auto-Recovery Hardware ALSA/PyAudio su USB Disconnect"
+    file: "docs/improvements/IMP-VUI-031_pyaudio_stream_watchdog.md"
+    status: "COMPLETED"
+    domain: "audio_vui"
+
+  FM-VUI-032:
+    title: "Miglioramento VUI: WebSocket Receive Watchdog e Turn Inactivity Reconnect in LiveConnectionManager"
+    file: "docs/improvements/IMP-VUI-032_live_websocket_watchdog.md"
+    status: "COMPLETED"
+    domain: "audio_vui"
+
+
 
 
 

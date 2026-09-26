@@ -49,6 +49,7 @@ class AudioBufferManager:
         # State flags
         self._is_speaker_playing = False
         self._speaker_start_time = 0.0
+        self._last_speaker_chunk_time = 0.0
         self._barge_in_streak = 0
         self._barge_in_callback: Optional[Callable[[], None]] = None
 
@@ -67,12 +68,19 @@ class AudioBufferManager:
         with self._speaker_lock:
             self._is_speaker_playing = playing
             if playing:
-                self._speaker_start_time = time.time()
+                now = time.time()
+                self._speaker_start_time = now
+                self._last_speaker_chunk_time = now
             else:
                 self._barge_in_streak = 0
 
     def is_speaker_playing(self) -> bool:
         with self._speaker_lock:
+            if self._is_speaker_playing:
+                # Auto-decay se non arrivano nuovi chunk speaker da oltre 2.5s (previene deadlock)
+                if time.time() - getattr(self, '_last_speaker_chunk_time', 0.0) > 2.5:
+                    self._is_speaker_playing = False
+                    self._barge_in_streak = 0
             return self._is_speaker_playing
 
     @staticmethod
@@ -103,6 +111,11 @@ class AudioBufferManager:
         rms = self.calculate_rms(raw_bytes)
 
         with self._speaker_lock:
+            if self._is_speaker_playing:
+                # Auto-decay prima del controllo echo
+                if time.time() - getattr(self, '_last_speaker_chunk_time', 0.0) > 2.5:
+                    self._is_speaker_playing = False
+                    self._barge_in_streak = 0
             speaker_active = self._is_speaker_playing
 
         if speaker_active:
@@ -143,6 +156,7 @@ class AudioBufferManager:
         self._speaker_chunks_received += 1
         with self._speaker_lock:
             self._speaker_deque.append(raw_bytes)
+            self._last_speaker_chunk_time = time.time()
 
     def pop_speaker_chunk(self) -> Optional[bytes]:
         """Pops the oldest speaker chunk from the FIFO queue for physical audio playback."""
@@ -157,6 +171,8 @@ class AudioBufferManager:
         with self._speaker_lock:
             self._speaker_deque.clear()
             self._is_speaker_playing = False
+            self._barge_in_streak = 0
+            self._last_speaker_chunk_time = 0.0
 
     def clear_mic_buffer(self):
         """Flushes all queued microphone chunks."""

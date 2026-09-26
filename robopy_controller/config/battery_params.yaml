@@ -19,9 +19,9 @@ battery_manager_node:
     charging_bus_voltage: 12.80         # Tensione nominale del bus con alimentatore 24V step-down
     full_voltage: 12.60                 # 100% SoC Batteria (4.20V / cella)
     nominal_voltage: 11.10              # 3.70V / cella (Tensione di riferimento feed-forward)
-    eco_voltage: 10.20                  # <= 20% SoC (3.40V / cella) -> Limitatore dinamica al 50%
-    docking_voltage: 9.90               # <= 12% SoC (3.30V / cella) -> Trigger docking autonomo verso cuccia
-    shutdown_voltage: 9.00              # <= 0% SoC (3.00V / cella) -> Arresto motori e spegnimento controllato OS
+    eco_voltage: 10.40                  # <= 15% SoC (3.47V / cella) -> Limitatore dinamica al 50%
+    docking_voltage: 10.15              # <= 10% SoC (3.38V / cella) -> Trigger docking autonomo verso cuccia
+    shutdown_voltage: 9.80              # <= 0% SoC (3.27V / cella) -> Arresto motori e spegnimento controllato OS prima di cutoff BMS (9.74V)
 
     # --- Filtering & Anti-Sag ---
     esp32_adc_scale_factor: 2880.95     # Divisore partitore 3S ESP32 (36300 -> 12.60V @ 100% full)

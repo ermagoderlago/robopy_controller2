@@ -620,6 +620,21 @@ Con JGB37-520B a 7RPM (riduzione ~143:1), **girare la ruota manualmente è impos
 * **Miglioramento Hardware Futuro (Soluzione Professionale):**
   - Integrare un sensore di corrente I2C bidirezionale (INA219 o INA226 con shunt $10\text{ m}\Omega$) direttamente sul cavo arancione $P+$ tra il BMS e l'anodo del Diodo Ideale 2, collegato al bus I2C del Raspberry Pi 5. Questo consentirà misura hardware diretta al 100% sia della scarica complessiva del robot che della ricarica effettiva erogata dal CC-CV.
 
+---
+
+### 4.0 Risoluzione Battery Cliff da Cutoff Hardware BMS LiPo a 9.74V (FM-SYS-004)
+
+* **Problema Riscontrato sul Campo:**
+  Durante le sessioni di navigazione prolungata fino a esaurimento batteria, Marcus si è spento bruscamente a freddo (senza unmount filesystem né shutdown pulito) mentre la telemetria seriale ESP32 registrava $V = 9.74\text{ V} - 9.78\text{ V}$ (`v: 9740 mV`).
+* **Causa Radice Fisica:**
+  Il pacco 3S2P Waveshare include una scheda BMS hardware di protezione da sottoscarica (UVLO) con soglia tarata a $\approx 3.25\text{ V}$ per cella ($\approx 9.70\text{ V} - 9.75\text{ V}$ totali pack). La soglia software precedente era impostata a $9.00\text{ V}$ (3.0V/cella). Di conseguenza, sotto il picco di assorbimento combinato di CPU, Hailo NPU e motori, il crollo di tensione transitorio ha raggiunto il cutoff hardware del BMS prima che la media mobile a 5Hz raggiungesse i 9.00V software.
+* **Contromisura Software Implementata (`battery_manager_node.py` e `battery_params.yaml`):**
+  1. *Riallineamento Soglia Shutdown:* Elevata da $9.00\text{ V}$ a **$9.80\text{ V}$** (persistenza 2.0s), anticipando il cutoff BMS.
+  2. *Interblocco Immediato Hardware-Preemptive:* Introdotto spegnimento istantaneo senza ritardo se $V \le 9.72\text{ V}$ per impedire categoricamente il freeze a freddo.
+  3. *Soglia Docking Incrementata:* Elevata da $9.90\text{ V}$ a **$10.15\text{ V}$** per garantire riserva energetica sufficiente per il tragitto di rientro alla cuccia.
+  4. *Soglia ECO Anticipata:* Elevata da $10.20\text{ V}$ a **$10.40\text{ V}$** (50% speed limit) per ridurre preventivamente il sag $\Delta V = I \cdot R_{int}$.
+
+
 
 
 

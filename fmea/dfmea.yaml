@@ -1245,6 +1245,12 @@
       3s, feedforward PID scaling e OS graceful shutdown
     rpn_old: 315
     rpn_new: 9
+  - date: '2026-09-25'
+    change: Riscontrato cutoff hardware BMS LiPo a 9.74V; riallineata soglia shutdown
+      software a 9.80V e introdotto cutoff immediato a 9.72V per prevenire crash a
+      freddo
+    rpn_old: 9
+    rpn_new: 9
 - id: FM-SYS-005
   subsystem: System/Compute
   component: pi5_thermal_manager
@@ -6146,3 +6152,503 @@
     date: '2026-09-25'
     rpn_new: 9
     rpn_old: 9
+- id: FM-NOM-009
+  subsystem: Navigation/Vision
+  component: nomad_reactive_pipeline_node
+  function: Valutazione dello stallo e slittamento ruote (StallSlipDetector) durante
+    la navigazione reattiva NoMaD
+  failure_mode: Falso rilevamento di blocco ruote (WHEEL_STALL_PINNED) e aborto dell'esplorazione
+    durante le rotazioni in pivot puro sul posto
+  potential_cause: In cinematica differenziale, la rotazione sul posto (w != 0) produce
+    velocità lineare dell'odometria pari a 0.0 m/s; il confronto con il comando lineare
+    memorizzato dal ciclo precedente innescava il blocco d'emergenza
+  potential_effect: Il robot compie solo pochi centimetri, si blocca continuamente
+    in COLLISION_STOP ed esegue retromarce di sicurezza a ciclo continuo, fallendo
+    l'esplorazione autonoma
+  classification: PERFORMANCE
+  estimation_basis: measured
+  related_ids:
+  - FM-NOM-007
+  - FM-NOM-008
+  initial_scoring:
+    severity: 7
+    occurrence: 8
+    detection: 3
+    rpn: 168
+  prevention_controls: Immunità automatica ai pivot in StallSlipDetector (|cmd_w|
+    > 0.15 rad/s o |wheel_w| > 0.10 rad/s con |cmd_v| < 0.06 m/s), azzeramento stallo
+    su coda immagini vuota e aumento debounce a 0.75s
+  detection_controls: Topic /nomad/collision_event, test unitario test_stall_detector_pivot_immunity
+  residual_scoring:
+    severity: 7
+    occurrence: 1
+    detection: 1
+    rpn: 7
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Aggiornata logica StallSlipDetector con parametri cmd_w e wheel_w
+    in nomad_reactive_pipeline_node.py
+  verification_method: Test unitario pytest tests/test_field_mitigations.py superato
+    con successo
+  eco_ref: docs/ecos/navigation_ecos.md#ECO-2026-09-25-002
+  lesson_ref: docs/lessons/nomad_navigation.md#pivot-immunity
+  date_identified: '2026-09-25'
+  last_updated: '2026-09-25'
+  history:
+  - date: '2026-09-25'
+    change: Risolto falso allarme WHEEL_STALL_PINNED su pivot rotation NoMaD con cinematica
+      differenziale e debounce 0.75s
+    rpn_old: 168
+    rpn_new: 7
+- id: FM-VUI-025
+  subsystem: Voice/Audio
+  component: marcus_voice_nav
+  function: Sintesi e vocalizzazione fluida degli eventi e stati di navigazione tramite
+    streaming bidirezionale Gemini Live AI
+  failure_mode: Saturazione del buffer audio, scarto delle richieste vocali sovrapposte
+    e silenzio durante la navigazione
+  potential_cause: Burst di notifiche vocali ravvicinate generate da cicli di recovery
+    che saturano la coda speech senza cooldown né de-duplicazione, causando il drop
+    dei messaggi sul WebSocket Live Connect
+  potential_effect: Mancata emissione dei messaggi vocali (si ode solo il primo saluto
+    e poi silenzio totale), con perdita di feedback verso l'utente
+  classification: HRI_DEGRADATION
+  estimation_basis: measured
+  related_ids:
+  - FM-VUI-007
+  - FM-VUI-024
+  initial_scoring:
+    severity: 5
+    occurrence: 8
+    detection: 3
+    rpn: 120
+  prevention_controls: Filtro di de-duplicazione stringhe identiche con finestra di
+    10 secondi e cooldown minimo di 4.0 secondi tra emissioni consecutive in speak()
+  detection_controls: Topic /respeaker/speaker_audio, test unitario test_voice_speak_cooldown_and_dedup
+  residual_scoring:
+    severity: 5
+    occurrence: 1
+    detection: 1
+    rpn: 5
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Aggiornato marcus_voice_nav.py con speech pacing, rate limiting
+    e drain synchronization
+  verification_method: Test unitario pytest tests/test_field_mitigations.py superato
+    con successo
+  eco_ref: docs/ecos/audio_vui_ecos.md#ECO-2026-09-25-001
+  lesson_ref: docs/lessons/audio_vui_pipeline.md#gemini-live-pacing
+  date_identified: '2026-09-25'
+  last_updated: '2026-09-25'
+  history:
+  - date: '2026-09-25'
+    change: Introdotto cooldown vocale 4s e de-duplicazione 10s per prevenire drop
+      audio in streaming bidirezionale Gemini Live
+    rpn_old: 120
+    rpn_new: 5
+- id: FM-VUI-026
+  subsystem: Voice/Audio
+  component: respeaker_vui_node / llm_service
+  function: Instradamento dei pacchetti audio PCM generati da Gemini Live verso l'altoparlante
+    hardware
+  failure_mode: Disconnessione dei topic di playback audio tra LLM service e VUI node
+    con conseguente mutismo di Gemini Live
+  potential_cause: llm_service pubblica su /ai/conversation/audio_chunk mentre respeaker_vui_node
+    sottoscriveva solo /respeaker/speaker_audio
+  potential_effect: Marcus capisce l'utente e risponde su cloud, ma dall'altoparlante
+    non esce alcun suono
+  classification: HRI_DEGRADATION
+  estimation_basis: measured
+  related_ids:
+  - FM-VUI-001
+  - FM-VUI-025
+  initial_scoring:
+    severity: 7
+    occurrence: 9
+    detection: 2
+    rpn: 126
+  prevention_controls: Doppia sottoscrizione su respeaker_vui_node e doppio publishing
+    su llm_service
+  detection_controls: Topic /respeaker/speaker_audio e /ai/conversation/audio_chunk,
+    check_subs.py
+  residual_scoring:
+    severity: 7
+    occurrence: 1
+    detection: 1
+    rpn: 7
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Collegamento bidirezionale trasparente su entrambi i topic in
+    respeaker_vui_node e llm_service
+  verification_method: check_subs.py ha confermato subscriber attivo su entrambi i
+    topic
+  eco_ref: docs/ecos/audio_vui_ecos.md#ECO-2026-09-26-001
+  lesson_ref: docs/lessons/audio_vui_pipeline.md#gemini-live-speaker-route
+  date_identified: '2026-09-26'
+  last_updated: '2026-09-26'
+  history:
+  - date: '2026-09-26'
+    change: Risolta disconnessione topic tra Gemini Live e ReSpeaker VUI
+    rpn_old: 126
+    rpn_new: 7
+- id: FM-VUI-027
+  subsystem: Voice/Audio
+  component: llm_service / live_connection_manager
+  function: Gestione conversazione continua e discriminazione interlocutore tramite
+    prompt di sistema
+  failure_mode: Soppressione spuria delle risposte vocali sotto tag IGNORE_TURN quando
+    l'utente parla naturalmente senza prefisso Marcus
+  potential_cause: Prompt di sistema eccessivamente restrittivo che imponeva emissione
+    di IGNORE_TURN ad ogni frase priva del nome esplicito Marcus
+  potential_effect: Marcus rimane sordo e silenzioso durante normali scambi di conversazione
+  classification: HRI_DEGRADATION
+  estimation_basis: measured
+  related_ids:
+  - FM-VUI-021
+  initial_scoring:
+    severity: 6
+    occurrence: 8
+    detection: 3
+    rpn: 144
+  prevention_controls: Ricalibrazione del prompt per rispondere prontamente a qualsiasi
+    input vocale dell'utente
+  detection_controls: Log robot_ai_node_debug_TEST4.log e live_connection_manager.py
+  residual_scoring:
+    severity: 6
+    occurrence: 1
+    detection: 1
+    rpn: 6
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Rimodulato prompt in llm_service.py riservando IGNORE_TURN solo
+    al vero rumore di fondo
+  verification_method: Verifica log e test di dialogo
+  eco_ref: docs/ecos/audio_vui_ecos.md#ECO-2026-09-26-002
+  lesson_ref: docs/lessons/audio_vui_pipeline.md#ignore-turn-prompt
+  date_identified: '2026-09-26'
+  last_updated: '2026-09-26'
+  history:
+  - date: '2026-09-26'
+    change: Ricalibrato prompt di sistema per conversazione naturale e aperta
+    rpn_old: 144
+    rpn_new: 6
+- id: FM-VUI-028
+  subsystem: Voice/Audio
+  component: respeaker_vui_node
+  function: Regolazione confortevole e proporzionata del volume di emissione vocale
+  failure_mode: Volume vocale assordante da sovrascrittura incondizionata a 0.80 di
+    enable_auto_volume
+  potential_cause: respeaker_vui_node sovrascriveva playback_volume a 0.80 ignorando
+    i parametri utente se enable_auto_volume era True
+  potential_effect: Volume di risposta improvvisamente altissimo e fastidioso per
+    l'utente
+  classification: HRI_DEGRADATION
+  estimation_basis: measured
+  related_ids:
+  - FM-VUI-003
+  initial_scoring:
+    severity: 5
+    occurrence: 8
+    detection: 2
+    rpn: 80
+  prevention_controls: Salvare base_playback_volume e scalare in percentuale rispetto
+    al parametro base
+  detection_controls: Parametro playback_volume e test_voice_say.py
+  residual_scoring:
+    severity: 5
+    occurrence: 1
+    detection: 1
+    rpn: 5
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Scalatura modulata rispetto al base volume e default 0.25 in
+    launcher
+  verification_method: Test vocale test_voice_say.py a volume confortevole
+  eco_ref: docs/ecos/audio_vui_ecos.md#ECO-2026-09-26-003
+  lesson_ref: docs/lessons/audio_vui_pipeline.md#auto-volume-override
+  date_identified: '2026-09-26'
+  last_updated: '2026-09-26'
+  history:
+  - date: '2026-09-26'
+    change: Risolto override indebito del volume di riproduzione in respeaker_vui_node
+    rpn_old: 80
+    rpn_new: 5
+- id: FM-NOM-010
+  subsystem: Navigation/Vision
+  component: nomad_reactive_pipeline_node
+  function: Sincronizzazione dell'odometria ruote reale in StallSlipDetector
+  failure_mode: Falso allarme di stallo ruote (WHEEL_STALL_PINNED) e blocco esplorazione
+    dopo pochi centimetri
+  potential_cause: wheel_odom_topic configurato a /odom_wheel inesistente invece di
+    /odom, lasciando latest_wheel_speed a 0.0 m/s
+  potential_effect: Il robot avanza solo pochi centimetri, crede di incontrare ostacoli,
+    si ferma ed entra in loop di retromarcia
+  classification: PERFORMANCE
+  estimation_basis: measured
+  related_ids:
+  - FM-NOM-007
+  - FM-NOM-009
+  initial_scoring:
+    severity: 7
+    occurrence: 9
+    detection: 2
+    rpn: 126
+  prevention_controls: Impostare wheel_odom_topic su /odom di default, estrarre linear.x
+    e angular.z in _odom_callback e disabilitare VIO slip check a VIO spento
+  detection_controls: Topic /nomad/collision_event e diagnostica NoMaD
+  residual_scoring:
+    severity: 7
+    occurrence: 1
+    detection: 1
+    rpn: 7
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Allineamento wheel_odom_topic a /odom in nomad_reactive_pipeline_node.py
+    e restart_hailo.sh
+  verification_method: Test di missione di esplorazione continua NoMaD
+  eco_ref: docs/ecos/navigation_ecos.md#ECO-2026-09-26-003
+  lesson_ref: docs/lessons/nav2_slam_tuning.md#wheel-odom-wiring
+  date_identified: '2026-09-26'
+  last_updated: '2026-09-26'
+  history:
+  - date: '2026-09-26'
+    change: Risolto falso stallo ruote con aggancio diretto dell'odometria ruote su
+      /odom
+    rpn_old: 126
+    rpn_new: 7
+- id: FM-NAV-031
+  subsystem: Nav2
+  component: semantic_costmap_injector
+  function: Rilevamento differenziale gradini e scale (FM-NAV-009) senza falsi allarmi
+  failure_mode: Iniezione massiva di ostacoli negativi fittizi nella costmap (109
+    punti a semicerchio)
+  potential_cause: Trattamento della fine portata stereo della telecamera e del pitch
+    sag su pavimento liscio come se fosse un precipizio
+  potential_effect: Robot bloccato in partenza, costmap locale e globale saturata,
+    nessun percorso pianificabile
+  classification: PERFORMANCE
+  estimation_basis: measured
+  related_ids:
+  - FM-NAV-009
+  - FM-NAV-019
+  initial_scoring:
+    severity: 8
+    occurrence: 9
+    detection: 2
+    rpn: 144
+  prevention_controls: Calcolo del dislivello differenziale locale dz > 0.15m tra
+    campioni adiacenti ed eliminazione dei trigger su perdita stereo
+  detection_controls: Topic /hailo_semantic_obstacles_pc e /semantic_costmap_injector/debug
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Modifica del loop di raycasting in semantic_costmap_injector.py
+  verification_method: Ispezione PointCloud2 con zero ostacoli negativi sul pavimento
+    piano
+  eco_ref: docs/ecos/navigation_ecos.md#ECO-2026-09-26-004
+  lesson_ref: docs/lessons/nav2_slam_tuning.md#negative-obstacle-raycasting
+  date_identified: '2026-09-26'
+  last_updated: '2026-09-26'
+  history:
+  - date: '2026-09-26'
+    change: Introdotto raycasting differenziale dz > 15cm eliminando falsi ostacoli
+      negativi su pavimento
+    rpn_old: 144
+    rpn_new: 8
+- id: FM-VUI-029
+  subsystem: VUI
+  component: marcus_voice_nav
+  function: Emissione vocale immediata e continua durante navigazione autonoma NoMaD
+  failure_mode: Robot muto durante esplorazione NoMaD per hang infinito su WebSocket
+    Gemini Live
+  potential_cause: Invio testo tramite send_realtime_input senza end_of_turn che blocca
+    session.receive() all'infinito e mancata sincronizzazione DDS del publisher /respeaker/speaker_audio
+  potential_effect: Marcus esplora e rileva ostacoli in silenzio senza dare feedback
+    vocale a Luca
+  classification: PERFORMANCE
+  estimation_basis: measured
+  related_ids:
+  - FM-VUI-001
+  - FM-VUI-023
+  initial_scoring:
+    severity: 7
+    occurrence: 9
+    detection: 2
+    rpn: 126
+  prevention_controls: Motore vocale deterministico 24kHz con cache PCM (/tmp/marcus_tts_cache),
+    prewarm frasi di navigazione e wait_for_audio_subscriber esplicito
+  detection_controls: Log di riproduzione speaker_audio_cb e get_subscription_count()
+    > 0
+  residual_scoring:
+    severity: 7
+    occurrence: 1
+    detection: 1
+    rpn: 7
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Riscrivere worker vocale marcus_voice_nav con cache PCM deterministica
+    e sincronizzazione DDS
+  verification_method: Collaudo riproduzione vocale sincronizzata durante run_mission
+  eco_ref: docs/ecos/audio_vui_ecos.md#ECO-2026-09-26-005
+  lesson_ref: docs/lessons/audio_vui_pipeline.md#navigation-voice-sync
+  date_identified: '2026-09-26'
+  last_updated: '2026-09-26'
+  history:
+  - date: '2026-09-26'
+    change: Implementato motore TTS deterministico 24kHz con disk cache e DDS handshake
+      prima di muovere il robot
+    rpn_old: 126
+    rpn_new: 7
+- id: FM-VUI-030
+  subsystem: VUI
+  component: live_connection_manager
+  function: Gestione conversazione bidirezionale e ripristino ascolto dopo rilevamento
+    wake word
+  failure_mode: Deadlock conversazionale post-wakeword con mancata risposta vocale
+    e drop audio microfono
+  potential_cause: Blocco turn_in_progress infinito senza watchdog su mancato turn_complete
+    e _is_speaker_playing perenne in AudioBufferManager con soppressione eco di tutto
+    il parlato
+  potential_effect: Marcus rileva la wake word ma non ascolta né risponde all'utente
+    rimanendo sordo e muto
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-VUI-001
+  - FM-VUI-024
+  - FM-VUI-029
+  initial_scoring:
+    severity: 8
+    occurrence: 8
+    detection: 2
+    rpn: 128
+  prevention_controls: Reset esplicito turn_in_progress su on_wakeword_detected, watchdog
+    8s su gate audio in LiveConnectionManager, auto-decay 2.5s altoparlante in AudioBufferManager
+    e flush buffer in llm_service
+  detection_controls: Log di sblocco gate [LiveConnectionManager] e metriche push_mic_chunk
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Introdurre reset su wake word, watchdog temporale 8s su turn_in_progress
+    e auto-decay 2.5s su speaker playing
+  verification_method: Test unitario simulato di transizione turni e test vocale con
+    risveglio su robot
+  eco_ref: docs/ecos/audio_vui_ecos.md#ECO-2026-09-26-006
+  lesson_ref: docs/lessons/audio_vui_pipeline.md#FM-VUI-030
+  date_identified: '2026-09-26'
+  last_updated: '2026-09-26'
+  history:
+  - date: '2026-09-26'
+    change: Implementato reset wake word, watchdog 8s su turn_in_progress e auto-decay
+      2.5s su stato altoparlante
+    rpn_old: 128
+    rpn_new: 8
+- id: FM-VUI-031
+  subsystem: VUI
+  component: respeaker_vui_node
+  function: Acquisizione continua e resiliente dello stream microfonico USB ReSpeaker
+    Lite senza freeze silenzioso
+  failure_mode: Sordità totale e perenne indotta da disconnessione o riposizionamento
+    del cavo USB con thread PyAudio bloccato in ppoll timeout
+  potential_cause: Il distacco fisico del cavo USB, il cambio porta o un glitch di
+    alimentazione invalida il descrittore file ALSA (/dev/snd/pcmC0D0c). La callback
+    di cattura PyAudio smette di invocarsi e il thread C/ALSA cicla in ppoll timeout
+    senza sollevare eccezioni né terminare il processo
+  potential_effect: Marcus diventa completamente sordo senza che alcun watchdog di
+    processo o systemd rilevi l'anomalia; nessun audio raggiunge Vosk o Gemini Live
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-VUI-002
+  - FM-VUI-003
+  - FM-VUI-024
+  - FM-VUI-030
+  initial_scoring:
+    severity: 8
+    occurrence: 7
+    detection: 8
+    rpn: 448
+  prevention_controls: Watchdog timer di flusso audio (3.0s timeout su assenza callback
+    frame), teardown deterministico PyAudio e auto-reconnect hardware con reinizializzazione
+    ALSA
+  detection_controls: Verifica timestamp _last_input_chunk_time nel timer ROS 2 e
+    log di errore CRITICAL con tentativo di recupero
+  residual_scoring:
+    severity: 8
+    occurrence: 2
+    detection: 2
+    rpn: 32
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Introdurre in respeaker_vui_node un watchdog a 1.0Hz che monitora
+    il flusso di frame in ingresso da PyAudio, chiudendo e riaprendo lo stream ALSA
+    se nessun frame arriva per >3 secondi
+  verification_method: Test di disconnessione e riconnessione a caldo del cavo USB
+    durante l'esecuzione del nodo con verifica automatica del ripristino dell'acquisizione
+  eco_ref: docs/ecos/audio_vui_ecos.md#ECO-2026-09-26-007
+  lesson_ref: docs/lessons/audio_vui_pipeline.md#FM-VUI-031
+  date_identified: '2026-09-26'
+  last_updated: '2026-09-26'
+  history:
+  - date: '2026-09-26'
+    change: Identificato stallo del thread ALSA/PyAudio dopo cambio porta USB; implementato
+      watchdog di flusso e auto-reconnect hardware
+    rpn_old: 448
+    rpn_new: 32
+- id: FM-VUI-032
+  subsystem: VUI
+  component: live_connection_manager
+  function: Streaming bidirezionale robusto con Gemini Live WebSocket e recupero automatico
+    su drop della connessione
+  failure_mode: Stallo indefinito della coroutine di ricezione WebSocket e blocco
+    del nodo cognitivo a 90% CPU su mancata risposta cloud
+  potential_cause: Chiusura o drop silenzioso del socket TCP da parte del cloud senza
+    frame di chiusura esplicito o mancata emissione di turn_complete post-activity_end,
+    lasciando session.receive() sospeso all'infinito
+  potential_effect: Il cervello cognitivo smette di elaborare turni, ignora i comandi
+    vocali successivi e accumula carico CPU impedendo il corretto funzionamento del
+    sistema
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-VUI-023
+  - FM-VUI-030
+  initial_scoring:
+    severity: 8
+    occurrence: 6
+    detection: 7
+    rpn: 336
+  prevention_controls: Inactivity & Receive Timeout su session.receive() con timeout
+    di guardia a 15s post-activity_end, cancellazione della coroutine e trigger di
+    _reconnect() asincrono
+  detection_controls: Timer asincrono di sorveglianza turno e verifica liveness del
+    socket prima di ogni invio
+  residual_scoring:
+    severity: 8
+    occurrence: 2
+    detection: 2
+    rpn: 32
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Implementare un watchdog a timeout su session.receive() in LiveConnectionManager
+    e un health-check di reattività in robot_health_supervisor
+  verification_method: Simulazione di perdita pacchetti di rete / kill del socket
+    e verifica riconnessione automatica in < 3s
+  eco_ref: docs/ecos/audio_vui_ecos.md#ECO-2026-09-26-007
+  lesson_ref: docs/lessons/audio_vui_pipeline.md#FM-VUI-032
+  date_identified: '2026-09-26'
+  last_updated: '2026-09-26'
+  history:
+  - date: '2026-09-26'
+    change: Identificato blocco perenne di session.receive() a seguito di activity_end
+      senza risposta; implementato watchdog di ricezione con timeout asincrono e auto-reconnect
+    rpn_old: 336
+    rpn_new: 32

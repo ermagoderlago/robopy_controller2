@@ -1,5 +1,5 @@
 # 📊 Report Esecutivo DFMEA - Marcus AI Robot Platform
-**Data Generazione:** 2026-09-25 16:35:16  
+**Data Generazione:** 2026-09-26 23:10:43  
 **Metodologia:** AIAG-VDA FMEA Standard con Regola Override Severità ($S \ge 9 \implies$ REVISION_MANDATORY)
 
 ---
@@ -8,8 +8,8 @@
 
 | Metrica | Valore | Note / Impatto |
 | :--- | :---: | :--- |
-| **Totale Modalità di Guasto (FM)** | **130** | Copertura integrata dei sottosistemi Marcus |
-| **🟢 Risk Level LOW** | **95** | $RPN_{res} \le 50$ (Sotto controllo) |
+| **Totale Modalità di Guasto (FM)** | **141** | Copertura integrata dei sottosistemi Marcus |
+| **🟢 Risk Level LOW** | **106** | $RPN_{res} \le 50$ (Sotto controllo) |
 | **🟡 Risk Level MEDIUM** | **7** | $51 \le RPN_{res} \le 199$ (Monitoraggio attivo) |
 | **🟠 Risk Level HIGH** | **2** | $200 \le RPN_{res} \le 349$ (Mitigazione obbligatoria) |
 | **🔴 Risk Level CRITICAL** | **0** | $RPN_{res} \ge 350$ (Blocco rilasci) |
@@ -17,7 +17,7 @@
 
 ### Ripartizione per Sottosistema:
 - **System/DDS:** 5 failure modes
-- **Nav2:** 15 failure modes
+- **Nav2:** 16 failure modes
 - **VUI Audio:** 21 failure modes
 - **Vision:** 2 failure modes
 - **Hardware/Power:** 9 failure modes
@@ -32,7 +32,7 @@
 - **Vision/CPU:** 1 failure modes
 - **ROS 2 DDS / Vision:** 1 failure modes
 - **AI/Trinity:** 8 failure modes
-- **Navigation/Vision:** 4 failure modes
+- **Navigation/Vision:** 6 failure modes
 - **Voice/Orchestration:** 1 failure modes
 - **Navigation/Odometry:** 1 failure modes
 - **Actuation/Odometry:** 2 failure modes
@@ -57,6 +57,8 @@
 - **Voice User Interface (VUI):** 1 failure modes
 - **Hardware/Power & Compute:** 2 failure modes
 - **Actuation/Motion:** 1 failure modes
+- **Voice/Audio:** 4 failure modes
+- **VUI:** 4 failure modes
 
 ---
 
@@ -129,6 +131,8 @@
 | **FM-NAV-015** | Nav2 | `fast_flow_vo_cpp` | Avvelenamento permanente del fattore di scala wheel_scale_ indotto da wheel slip durante transizioni di superficie | 8 | 2 | 2 | **32** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#wheel-slip-gating`](docs/lessons/nav2_slam_tuning.md#wheel-slip-gating) |
 | **FM-NAV-019** | Nav2 | `nav2_bt_navigator` | Collisione contro ostacoli laterali o posteriori durante le manovre di recupero (Recovery Behaviors) | 8 | 2 | 2 | **32** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#safe-recovery`](docs/lessons/nav2_slam_tuning.md#safe-recovery) |
 | **FM-MOT-005** | Hardware/Power | `imu_bridge_node` | Collisione fisica del robot non rilevata dai sensori LiDAR/Visione | 8 | 2 | 2 | **32** | `LOW` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md`](docs/lessons/actuation_motor_driver.md) |
+| **FM-VUI-031** | VUI | `respeaker_vui_node` | Sordità totale e perenne indotta da disconnessione o riposizionamento del cavo USB con thread PyAudio bloccato in ppoll timeout | 8 | 2 | 2 | **32** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#FM-VUI-031`](docs/lessons/audio_vui_pipeline.md#FM-VUI-031) |
+| **FM-VUI-032** | VUI | `live_connection_manager` | Stallo indefinito della coroutine di ricezione WebSocket e blocco del nodo cognitivo a 90% CPU su mancata risposta cloud | 8 | 2 | 2 | **32** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#FM-VUI-032`](docs/lessons/audio_vui_pipeline.md#FM-VUI-032) |
 | **FM-NAV-008** | Nav2 | `local_planner_mppi` | Urti sistematici o micro-oscillazioni della traiettoria per incompatibilità parametrica di lungo termine | 5 | 3 | 2 | **30** | `LOW` | `COMPLETED` | [`docs/lessons/telemetry_and_autotuning.md`](docs/lessons/telemetry_and_autotuning.md) |
 | **FM-NOM-003** | Navigation/NoMaD | `nomad_reactive_pipeline_node` | MLP single-step produce waypoint meno espressivi del DDIM 4-step con curvatura insufficiente in corridoi stretti | 5 | 3 | 2 | **30** | `LOW` | `PLANNED` | [`docs/lessons/nav2_slam_tuning.md`](docs/lessons/nav2_slam_tuning.md) |
 | **FM-LLM-003** | AI/LangGraph | `live_connection_manager` | Stallo conversazionale e congelamento dello stato VUI (robot bloccato in 'THINKING' senza risposta) | 7 | 2 | 2 | **28** | `LOW` | `OPEN` | [`docs/lessons/llm_live_api.md`](docs/lessons/llm_live_api.md) |
@@ -202,6 +206,8 @@
 | **FM-NAV-026** | Navigation & SLAM | `restart_hailo.sh / lifecycle_manager_navigation` | Abort del bringup Nav2 e stallo dei nodi in inactive per timeout Invalid frame ID map | 8 | 1 | 1 | **8** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#prevenzione-errore-invalid-frame-id-map`](docs/lessons/nav2_slam_tuning.md#prevenzione-errore-invalid-frame-id-map) |
 | **FM-MOT-006** | Actuation & Motion | `waveshare_motor_driver` | Runaway ad alta frequenza dell'encoder a veicolo fermo (bouncing su transizione magnetica Hall) | 8 | 1 | 1 | **8** | `LOW` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#hall-standstill-jitter`](docs/lessons/actuation_motor_driver.md#hall-standstill-jitter) |
 | **FM-NAV-030** | Nav2 | `localization_amcl` | Mancato allineamento della mappa sui punti LiDAR, sdoppiamento pareti e stallo dell algoritmo SLAM/ICP deterministico a 1Hz | 8 | 1 | 1 | **8** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#opzione-a-amcl-2d`](docs/lessons/nav2_slam_tuning.md#opzione-a-amcl-2d) |
+| **FM-NAV-031** | Nav2 | `semantic_costmap_injector` | Iniezione massiva di ostacoli negativi fittizi nella costmap (109 punti a semicerchio) | 8 | 1 | 1 | **8** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#negative-obstacle-raycasting`](docs/lessons/nav2_slam_tuning.md#negative-obstacle-raycasting) |
+| **FM-VUI-030** | VUI | `live_connection_manager` | Deadlock conversazionale post-wakeword con mancata risposta vocale e drop audio microfono | 8 | 1 | 1 | **8** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#FM-VUI-030`](docs/lessons/audio_vui_pipeline.md#FM-VUI-030) |
 | **FM-COG-002** | AI/Cognitive | `conversation_manager / llm_service` | Perdita dell'acronimo di identità e mancata ricerca RAG in conversazione | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#identita-dellacronimo-e-ricerca-semantica-rag-attiva`](docs/lessons/orchestration_and_rag.md#identita-dellacronimo-e-ricerca-semantica-rag-attiva) |
 | **FM-CPU-001** | Vision/CPU | `hailo_bridge_node` | Saturazione CPU da pipeline annotazione video sincrona a 30 Hz in rgb_callback | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/vision_hailo_npu.md`](docs/lessons/vision_hailo_npu.md) |
 | **FM-TRI-005** | AI/Trinity | `metaprompt_fusion` | Saturazione del budget token con troncamento silenzioso da parte dell'LLM o errore di context length | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#trinity-architecture`](docs/lessons/orchestration_and_rag.md#trinity-architecture) |
@@ -216,12 +222,19 @@
 | **FM-NAV-029** | Nav2 | `waveshare_motor_driver` | Deriva odometrica angolare e accumulo quadratico di errore posa (x, y) indotto da micro-slittamenti differenziali delle ruote | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#scurve-jerk-and-yaw-fusion`](docs/lessons/actuation_motor_driver.md#scurve-jerk-and-yaw-fusion) |
 | **FM-MOT-008** | Actuation/Motion | `waveshare_motor_driver` | Deriva sistematica verso destra in moto rettilineo e asimmetria tra rotazione oraria e antioraria | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#34-asimmetria-motori-e-stabilizzazione-heading`](docs/lessons/actuation_motor_driver.md#34-asimmetria-motori-e-stabilizzazione-heading) |
 | **FM-NAV-031** | Nav2 | `map_optimization_and_pose_persistence` | Disallineamento sistematico all'avvio in modalità AMCL, stallo del filtro a robot fermo, e presenza di rumore speckle / buchi nei muri nella mappa 2D esportata | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#ottimizzazione-mappa-2d-e-pulizia-speckle`](docs/lessons/nav2_slam_tuning.md#ottimizzazione-mappa-2d-e-pulizia-speckle) |
+| **FM-NOM-009** | Navigation/Vision | `nomad_reactive_pipeline_node` | Falso rilevamento di blocco ruote (WHEEL_STALL_PINNED) e aborto dell'esplorazione durante le rotazioni in pivot puro sul posto | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/nomad_navigation.md#pivot-immunity`](docs/lessons/nomad_navigation.md#pivot-immunity) |
+| **FM-VUI-026** | Voice/Audio | `respeaker_vui_node / llm_service` | Disconnessione dei topic di playback audio tra LLM service e VUI node con conseguente mutismo di Gemini Live | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#gemini-live-speaker-route`](docs/lessons/audio_vui_pipeline.md#gemini-live-speaker-route) |
+| **FM-NOM-010** | Navigation/Vision | `nomad_reactive_pipeline_node` | Falso allarme di stallo ruote (WHEEL_STALL_PINNED) e blocco esplorazione dopo pochi centimetri | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#wheel-odom-wiring`](docs/lessons/nav2_slam_tuning.md#wheel-odom-wiring) |
+| **FM-VUI-029** | VUI | `marcus_voice_nav` | Robot muto durante esplorazione NoMaD per hang infinito su WebSocket Gemini Live | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#navigation-voice-sync`](docs/lessons/audio_vui_pipeline.md#navigation-voice-sync) |
 | **FM-SYS-002** | System/DDS | `system_scripts` | Errore di esecuzione script: OSError [Errno 8] Exec format error | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`marcus_core_rules.md#1-memoria-ram-e-limite-host`](marcus_core_rules.md#1-memoria-ram-e-limite-host) |
 | **FM-TRI-003** | AI/Trinity | `cag_aggregator` | Latenza eccessiva nella raccolta del contesto CAG (> 500ms) che ritarda l'invio del prompt all'LLM | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#trinity-architecture`](docs/lessons/orchestration_and_rag.md#trinity-architecture) |
 | **FM-VUI-022** | Voice/Orchestration | `nomad_exploration_skill` | Mancato riconoscimento del termine 'NOMAD' da parte dell'ASR e mancata registrazione della skill nell'AI Orchestrator | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#gestione-acronimi-stranieri-e-tolleranza-fonetica-asr`](docs/lessons/audio_vui_pipeline.md#gestione-acronimi-stranieri-e-tolleranza-fonetica-asr) |
 | **FM-ACT-009** | Actuation/Odometry | `waveshare_motor_driver` | Deriva/micro-avanzamento odometrico spurio a robot fermo per commutazione instabile dei sensori Hall su fronte magnetico | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#filtraggio-jitter-hall-a-fermo`](docs/lessons/actuation_motor_driver.md#filtraggio-jitter-hall-a-fermo) |
 | **FM-MOT-004** | Actuation/Hardware | `waveshare_motor_driver` | Stallo meccanico delle ruote su ostacoli rigidi con assorbimento eccessivo di corrente e surriscaldamento dei driver | 3 | 2 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#motor-stall-protection`](docs/lessons/actuation_motor_driver.md#motor-stall-protection) |
 | **FM-NAV-028** | Nav2 & SLAM | `rtabmap` | Sdoppiamento transitorio della mappa a ventaglio/stella durante le curve e ritardo nella chiusura d'anello | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#loop-closure-submap-matching`](docs/lessons/nav2_slam_tuning.md#loop-closure-submap-matching) |
+| **FM-VUI-027** | Voice/Audio | `llm_service / live_connection_manager` | Soppressione spuria delle risposte vocali sotto tag IGNORE_TURN quando l'utente parla naturalmente senza prefisso Marcus | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#ignore-turn-prompt`](docs/lessons/audio_vui_pipeline.md#ignore-turn-prompt) |
+| **FM-VUI-025** | Voice/Audio | `marcus_voice_nav` | Saturazione del buffer audio, scarto delle richieste vocali sovrapposte e silenzio durante la navigazione | 5 | 1 | 1 | **5** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#gemini-live-pacing`](docs/lessons/audio_vui_pipeline.md#gemini-live-pacing) |
+| **FM-VUI-028** | Voice/Audio | `respeaker_vui_node` | Volume vocale assordante da sovrascrittura incondizionata a 0.80 di enable_auto_volume | 5 | 1 | 1 | **5** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#auto-volume-override`](docs/lessons/audio_vui_pipeline.md#auto-volume-override) |
 | **FM-LLM-001** | AI/LangGraph | `respeaker_vui_node` | Effetto 'Darth Vader' / 'Chipmunk' (audio accelerato o gravemente alterato) in riproduzione | 4 | 1 | 1 | **4** | `LOW` | `CLOSED` | [`marcus_core_rules.md#3-pipeline-vui-e-audio-pcm-streaming`](marcus_core_rules.md#3-pipeline-vui-e-audio-pcm-streaming) |
 | **FM-NAV-012** | Navigation/Odometry | `waveshare_and_fast_flow_vo` | Movimento convulso e saltellante della camera in Foxglove durante le rotazioni e incoerenza mappe RTAB-Map | 4 | 1 | 1 | **4** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#stabilit-odometria--correzione-dinamica-di-rotazione`](docs/lessons/nav2_slam_tuning.md#stabilit-odometria--correzione-dinamica-di-rotazione) |
 | **FM-SEM-001** | Vision/Hailo | `semantic_costmap_injector` | Ostacoli semantici non visibili nella costmap o scartati per filtro classi restrittivo o centroid_3d mancante | 2 | 1 | 2 | **4** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#semantic-costmap-injection`](docs/lessons/nav2_slam_tuning.md#semantic-costmap-injection) |

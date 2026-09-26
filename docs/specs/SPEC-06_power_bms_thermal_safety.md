@@ -42,8 +42,8 @@ Le seguenti soglie di tensione e temperatura sono limiti fisici di sopravvivenza
 
 | Parametro / Soglia Fisica | Valore Inviolabile | Rischio Ingegneristico | DFMEA |
 | :--- | :--- | :--- | :--- |
-| **Soglia Spegnimento Critico**| **9.00 V** (Persistenza: **3.0 s**) | Scarica distruttiva LiPo e battery cliff con freeze SSD | FM-SYS-004 |
-| **Soglia Docking Batteria** | **9.90 V** (Persistenza: **3.0 s**) | Esaurimento batteria con robot bloccato lontano dalla base | FM-SYS-003 |
+| **Soglia Spegnimento Critico**| **9.80 V** (Persistenza: **2.0 s**) / istantaneo **<= 9.72 V** | Intervento hardware cutoff BMS (9.74V), battery cliff e freeze SSD | FM-SYS-004 |
+| **Soglia Docking Batteria** | **10.15 V** (Persistenza: **3.0 s**) | Esaurimento batteria con robot bloccato lontano dalla base | FM-SYS-003 |
 | **Rilevamento Alimentatore Rete**| Tensione $V \ge \mathbf{12.70\text{ V}}$ | Conflitto logico docking durante alimentazione esterna | FM-SYS-007 |
 | **Filtro Anti-Sag Motori** | Minimo **20 campioni (5Hz)** & finestra **3.0s** | Falsi spegnimenti d'emergenza su normali spunti di spinta | FM-SYS-006 |
 | **Temperatura Massima CPU** | $T_{CPU} \ge \mathbf{80^\circ\text{C}}$ innesca arresto moto | Degradazione silicio e thermal throttling incontrollato | FM-SYS-005 |

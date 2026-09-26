@@ -81,7 +81,7 @@ class LLMServiceNode(Node):
         self.declare_parameter('timeout_standard',         60.0)
         self.declare_parameter('timeout_live',             30.0)
         self.declare_parameter('system_prompt',
-            'Sei MARCUS — Modular Autonomous Robotic Control Unit System, un assistente robotico avanzato. Sei amichevole, conciso, intelligente e preciso. Parla SEMPRE e SOLO in lingua italiana. Durante la conversazione a canale aperto (sessione 3 minuti), rispondi a voce SOLO se l\'utente si rivolge DIRETTAMENTE a te (ad esempio chiamandoti "Marcus...", "Marcus dimmi...", o facendoti una domanda esplicita). Se le persone nella stanza parlano tra loro o ci sono rumori di sottofondo senza che nessuno si rivolga a te, emetti tassativamente <IGNORE_TURN> senza produrre alcun parlato né rumore.')
+            'Sei MARCUS — Modular Autonomous Robotic Control Unit System, un assistente robotico mobile amichevole, intelligente e conciso. Parla SEMPRE in lingua italiana con risposte brevi, dirette e naturali. Quando l\'utente ti parla o ti fa una domanda, rispondi sempre con cortesia e prontezza (anche senza che ripeta ogni volta il nome "Marcus"). Emetti <IGNORE_TURN> solo ed esclusivamente se senti puro rumore di fondo inintelligibile, colpi di tosse o frasi chiaramente rivolte ad altre persone al telefono.')
         self.declare_parameter('voice_name',               'Charon')
 
         # ------------------------------------------------------------------
@@ -294,6 +294,7 @@ class LLMServiceNode(Node):
     def _create_publishers(self):
         self.pub_text_response = self.create_publisher(String,    '~/text_response', 10)
         self.pub_audio_chunk   = self.create_publisher(AudioData, '/ai/conversation/audio_chunk',   10)
+        self.pub_speaker_audio = self.create_publisher(AudioData, '/respeaker/speaker_audio',       10)
         self.pub_mic_mute      = self.create_publisher(Bool,      '/ai/input/mic_mute', 10)
         self.pub_mood          = self.create_publisher(String,    '/ai/conversation/mood', 10)
         self.pub_interrupt     = self.create_publisher(Bool,      '/ai/conversation/interrupt', 10)
@@ -309,6 +310,10 @@ class LLMServiceNode(Node):
     # -----------------------------------------------------------------------
     def wakeword_callback_ros(self, msg: String):
         self.get_logger().info(f"⏰ [LLM Service] Wake word rilevato: '{msg.data}'. Resetto sessione e aggiorno timestamp.")
+        if hasattr(self, 'audio_buffer'):
+            self.audio_buffer.set_speaker_playing(False)
+            self.audio_buffer.clear_mic_buffer()
+            self.audio_buffer.clear_speaker_buffer()
         if self._live_mgr:
             self._live_mgr.on_wakeword_detected()
 
@@ -801,6 +806,7 @@ class LLMServiceNode(Node):
         audio_msg = AudioData()
         audio_msg.data = data
         self.pub_audio_chunk.publish(audio_msg)
+        self.pub_speaker_audio.publish(audio_msg)
 
     def _on_live_mic_mute(self, mute: bool):
         msg_mute = Bool()

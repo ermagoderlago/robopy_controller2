@@ -152,3 +152,36 @@ Questo documento traccia la cronologia delle modifiche ingegneristiche (ECO) app
     - Aggiornato parametro `uart_port` a `/dev/respeaker`.
   * **[TEST UNITARI]** `test/unit/test_respeaker_interface_port_resolver.py`:
     - Creato test unitario a copertura completa (5 scenari) eseguito con successo al 100%.
+
+---
+
+## 📈 ECO-2026-09-26-006: Sblocco Conversazionale Post-Wakeword & Watchdog Antistallo (FM-VUI-030)
+* **Stato:** ✅ **Completato, Testato Unitariamente e Attivo**
+* **Descrizione:** Risoluzione del doppio deadlock silente che impediva a Marcus di rispondere all'utente dopo aver rilevato la wake word "Marcus" via Vosk.
+* **Modifiche apportate:**
+  * **[RESET GATE SU WAKE WORD & WATCHDOG 8s]** `robopy_controller/robot_ai/services/live_connection_manager.py`:
+    - `on_wakeword_detected()`: reset incondizionato di `_turn_in_progress = False`, `_activity_started = False` e drenaggio immediato dei chunk stantii dalla coda audio.
+    - `_enqueue_audio()` e `_audio_sender_loop()`: introdotto watchdog a 8.0s su `_turn_in_progress` che sblocca automaticamente l'invio audio se Gemini Live non emette `turn_complete`.
+    - Gestori `sc.interrupted`, `sc.turn_complete` e `<ignore_turn>`: allineamento del timestamp di guardia.
+  * **[AUTO-DECAY 2.5s & RESET ECO SU WAKE WORD]** `robopy_controller/robot_ai/services/audio_buffer_manager.py`:
+    - `is_speaker_playing()` e `push_mic_chunk()`: implementato auto-decay temporale (2.5s senza nuovi chunk) dello stato altoparlante, prevenendo la soppressione acustica spuria del parlato a volume normale.
+  * **[HANDSHAKE WAKE WORD ROS 2]** `robopy_controller/robot_ai/services/llm_service.py`:
+    - `wakeword_callback_ros`: reset immediato di `audio_buffer.set_speaker_playing(False)` e pulizia dei buffer microfono/altoparlante all'innesco di `/wake_word`.
+  * **[FMEA & DOCUMENTAZIONE]** Failure mode `FM-VUI-030` registrato in `fmea/dfmea.yaml` e documentato in `docs/lessons/audio_vui_pipeline.md`.
+
+---
+
+## 📈 ECO-2026-09-26-007: PyAudio Stream Watchdog & Gemini Live WebSocket Receive Watchdog (FM-VUI-031 & FM-VUI-032)
+* **Stato:** ✅ **Completato, Sincronizzato e Collaudato sul Robot**
+* **Descrizione:** Risoluzione definitiva della sordità silente da disconnessione cavo USB ReSpeaker e del freeze asincrono del nodo cognitivo a 90% CPU su stallo WebSocket cloud.
+* **Modifiche apportate:**
+  * **[PYAUDIO STREAM LIVENESS WATCHDOG]** `robopy_controller/nodes/respeaker_vui_node.py`:
+    - `_audio_input_callback`: tracciamento di `_last_input_chunk_time = time.monotonic()`.
+    - `_audio_stream_watchdog`: timer a 1.0Hz per rilevare assenza di chunk audio (> 3.0s).
+    - `_recover_audio_stream`: procedura asincrona non-bloccante di auto-recovery ALSA (chiusura stream, distruzione e re-istanza PyAudio, re-discovery ReSpeaker Lite e riapertura stream).
+  * **[WEBSOCKET RECEIVE TIMEOUT & AUTO-RECONNECT]** `robopy_controller/robot_ai/services/live_connection_manager.py`:
+    - Sostituito `async for msg in session.receive():` con iteratore asincrono protetto da `asyncio.wait_for`.
+    - Timeout di guardia a 15.0s durante turno in corso (`_turn_in_progress=True`) e a 60.0s durante idle standby: se il socket si blocca, viene forzato il reset del turno e una riconnessione pulita immediata.
+  * **[DFMEA & REPORT]** Registrati `FM-VUI-031` e `FM-VUI-032` in `fmea/dfmea.yaml`, aggiornato `fmea/IMPROVEMENT_INDEX.yaml` e ricalcolati gli indici RPN esecutivi.
+
+

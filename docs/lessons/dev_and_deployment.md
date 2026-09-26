@@ -47,8 +47,20 @@ Questo documento raccoglie le linee guida operative, le ricette di build e le le
 ## 📄 Incompatibilità dei Formati e Credenziali
 
 ### Incompatibilità Fine Riga (CRLF vs LF)
-* **Problema:** Gli script shell (`.sh`) salvati su Windows falliscono l'esecuzione su Linux con errori `-bash: $'\r': command not found`.
-* **Risoluzione:** Convertire i file in formato **LF** prima del salvataggio. Su Linux, sanare con: `sed -i 's/\r$//' <file>`.
+* **Problema:** Gli script shell (`.sh`) e i file Python con shebang (`#!/usr/bin/env python3`) modificati o creati su Windows vengono salvati con fine riga `\r\n` (CRLF). All'avvio su Linux, i nodi falliscono istantaneamente con:
+  `/usr/bin/env: ‘python3\r’: No such file or directory` (exit code 127).
+* **Risoluzione:** Sanare tassativamente con `sed -i 's/\r$//' <file>` sia nei sorgenti che nei binari installati sotto `install/robopy_controller/lib/robopy_controller/`.
+
+### Limite Partecipanti CycloneDDS su Dominio 42 (FM-DDS-007)
+* **Problema:** Con oltre 30 nodi attivi sul Pi 5, i comandi CLI (`ros2 topic echo`, `ros2 topic hz`, `ros2 node info`) falliscono con:
+  `Failed to find a free participant index for domain 42` / `rmw_create_node: failed to create domain`.
+* **Causa:** Il file CycloneDDS di default limita l'allocazione automatica di porte RTPS a 32 partecipanti.
+* **Risoluzione:** Esportare sempre la configurazione estesa generata all'avvio:
+  ```bash
+  export ROS_DOMAIN_ID=42
+  export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+  export CYCLONEDDS_URI=/tmp/cyclonedds_robopy.xml
+  ```
 
 ### Credenziali Google ADC vs Gemini API Key
 * **Problema:** Errore `Your default credentials were not found` sui servizi ASR/TTS.

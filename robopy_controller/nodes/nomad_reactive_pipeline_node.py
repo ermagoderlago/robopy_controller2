@@ -103,17 +103,19 @@ class TexturelessWallDetector:
 class StallSlipDetector:
     """
     Detects:
-    1. Wheel Stall: Commanded speed > 0.08 m/s, but wheel speed < 0.02 m/s for > 0.40s.
-    2. Wheel Slip / Pinned: Commanded speed > 0.08 m/s, wheel speed > 0.05 m/s, but VIO speed < 0.015 m/s for > 0.50s.
+    1. Wheel Stall: Commanded linear speed > 0.08 m/s, but wheel speed < 0.02 m/s for > 0.75s.
+       Immunity: Ignored during in-place pivot turns (|cmd_w| > 0.15 rad/s with low linear speed).
+    2. Wheel Slip / Pinned: Commanded speed > 0.08 m/s, wheel speed > 0.05 m/s, but VIO speed < 0.015 m/s for > 0.60s.
     """
     def __init__(
         self,
-        stall_vel_cmd_thresh: float = 0.08,
+        stall_vel_cmd_thresh: float = 0.09,
         stall_wheel_vel_thresh: float = 0.02,
-        stall_duration_sec: float = 0.40,
+        stall_duration_sec: float = 1.50,
         slip_wheel_vel_thresh: float = 0.05,
         slip_vio_vel_thresh: float = 0.015,
-        slip_duration_sec: float = 0.50
+        slip_duration_sec: float = 0.60,
+        enable_vio_slip: bool = False
     ):
         self.stall_vel_cmd_thresh = float(stall_vel_cmd_thresh)
         self.stall_wheel_vel_thresh = float(stall_wheel_vel_thresh)
@@ -121,6 +123,7 @@ class StallSlipDetector:
         self.slip_wheel_vel_thresh = float(slip_wheel_vel_thresh)
         self.slip_vio_vel_thresh = float(slip_vio_vel_thresh)
         self.slip_duration_sec = float(slip_duration_sec)
+        self.enable_vio_slip = bool(enable_vio_slip)
 
         self.stall_start_time = None
         self.slip_start_time = None
@@ -133,19 +136,32 @@ class StallSlipDetector:
     def evaluate(
         self,
         cmd_v: float,
+        cmd_w: float,
         wheel_v: float,
+        wheel_w: float,
         vio_v: float,
         now_mono: float
     ) -> Tuple[bool, str]:
         """
-        Evaluates stall and slip conditions.
+        Evaluates stall and slip conditions with differential drive pivot turn immunity.
         Returns (is_triggered, trigger_reason).
         """
         abs_cmd = abs(float(cmd_v))
+        abs_cmd_w = abs(float(cmd_w))
         abs_wheel = abs(float(wheel_v))
+        abs_wheel_w = abs(float(wheel_w))
         abs_vio = abs(float(vio_v))
 
-        # 1. Stall Check (motors blocked against rigid wall/door)
+        # Pivot Turn Immunity: In differential drive kinematics, pure rotations on the spot
+        # (|cmd_w| > 0.15 rad/s or |wheel_w| > 0.10 rad/s with low commanded linear speed)
+        # naturally produce linear wheel velocity near 0.0 m/s ((v_r + v_l) / 2 = 0).
+        # This is expected and must NEVER be flagged as a wheel stall against a wall.
+        if (abs_cmd_w > 0.15 and abs_cmd < 0.06) or (abs_wheel_w > 0.10 and abs_cmd < 0.06):
+            self.stall_start_time = None
+            self.slip_start_time = None
+            return False, "NONE"
+
+        # 1. Stall Check (motors blocked against rigid wall/door during forward/backward translation)
         if abs_cmd > self.stall_vel_cmd_thresh and abs_wheel < self.stall_wheel_vel_thresh:
             if self.stall_start_time is None:
                 self.stall_start_time = now_mono
@@ -155,7 +171,8 @@ class StallSlipDetector:
             self.stall_start_time = None
 
         # 2. Slip / Pinned Check (wheels spinning against wall, VIO shows robot is stationary)
-        if abs_cmd > self.stall_vel_cmd_thresh and abs_wheel > self.slip_wheel_vel_thresh and abs_vio < self.slip_vio_vel_thresh:
+        # Only evaluate if VIO slip detection is explicitly enabled and VIO data stream is active
+        if self.enable_vio_slip and abs_cmd > self.stall_vel_cmd_thresh and abs_wheel > self.slip_wheel_vel_thresh and abs_vio < self.slip_vio_vel_thresh:
             if self.slip_start_time is None:
                 self.slip_start_time = now_mono
             elif (now_mono - self.slip_start_time) >= self.slip_duration_sec:
@@ -544,7 +561,8 @@ class NomadReactivePipelineNode(Node):
         # Ultrasonic Hardware Proximity Guard & White Wall Protection
         self.declare_parameter('ultrasonic_topic', '/ultrasonic_range')
         self.declare_parameter('ultrasonic_min_dist', 0.30)    # meters (30cm emergency distance)
-        self.declare_parameter('wheel_odom_topic', '/odom_wheel')
+        self.declare_parameter('wheel_odom_topic', '/odom')    # Default: Primary wheel odometry from waveshare_motor_driver
+        self.declare_parameter('enable_vio_slip_check', False) # Disabled when VO is inactive to prevent false slip alarms
         self.declare_parameter('laplacian_var_thresh', 18.0)   # Threshold for featureless white walls
 
         self.image_topic = self.get_parameter('image_topic').get_parameter_value().string_value
@@ -580,6 +598,7 @@ class NomadReactivePipelineNode(Node):
         self.ultrasonic_topic = self.get_parameter('ultrasonic_topic').get_parameter_value().string_value
         self.ultrasonic_min_dist = float(self.get_parameter('ultrasonic_min_dist').get_parameter_value().double_value)
         self.wheel_odom_topic = self.get_parameter('wheel_odom_topic').get_parameter_value().string_value
+        self.enable_vio_slip_check = bool(self.get_parameter('enable_vio_slip_check').get_parameter_value().bool_value)
         self.laplacian_var_thresh = float(self.get_parameter('laplacian_var_thresh').get_parameter_value().double_value)
 
         self.bridge = CvBridge()
@@ -614,13 +633,15 @@ class NomadReactivePipelineNode(Node):
             turn_duration_sec=self.backoff_turn_duration_sec
         )
         self.wall_detector = TexturelessWallDetector(laplacian_var_thresh=self.laplacian_var_thresh)
-        self.stall_detector = StallSlipDetector()
+        self.stall_detector = StallSlipDetector(enable_vio_slip=self.enable_vio_slip_check)
 
         # Telemetry & Guard States
         self.latest_ultrasonic_dist = 2.0
         self.latest_wheel_speed = 0.0
+        self.latest_wheel_yaw_rate = 0.0
         self.latest_vio_speed = 0.0
         self.last_cmd_v = 0.0
+        self.last_cmd_w = 0.0
         self.is_white_wall_detected = False
         self.is_ultrasonic_guard_active = False
 
@@ -751,9 +772,14 @@ class NomadReactivePipelineNode(Node):
             self.get_logger().error(f"Image callback error: {e}")
 
     def _odom_callback(self, msg: Odometry) -> None:
-        """Non-blocking drop-oldest odom queue insertion and VIO speed tracking."""
+        """Non-blocking drop-oldest odom queue insertion and VIO/wheel speed tracking."""
         try:
-            self.latest_vio_speed = float(msg.twist.twist.linear.x)
+            lin_x = float(msg.twist.twist.linear.x)
+            ang_z = float(msg.twist.twist.angular.z)
+            self.latest_vio_speed = lin_x
+            if self.wheel_odom_topic == self.odom_topic:
+                self.latest_wheel_speed = lin_x
+                self.latest_wheel_yaw_rate = ang_z
             try:
                 self._odom_queue.get_nowait()
             except queue.Empty:
@@ -763,9 +789,10 @@ class NomadReactivePipelineNode(Node):
             pass
 
     def _wheel_odom_callback(self, msg: Odometry) -> None:
-        """Tracks measured wheel velocity for stall and slip detection."""
+        """Tracks measured wheel linear and angular velocity for stall and slip detection."""
         try:
             self.latest_wheel_speed = float(msg.twist.twist.linear.x)
+            self.latest_wheel_yaw_rate = float(msg.twist.twist.angular.z)
         except Exception:
             pass
 
@@ -812,6 +839,7 @@ class NomadReactivePipelineNode(Node):
     def _enable_callback(self, msg: Bool) -> None:
         self.is_active = msg.data
         if not self.is_active:
+            self.mode = "STOPPED"
             self._stop_robot()
             self.last_cmd_v = 0.0
             self.ema_filter.reset()
@@ -819,7 +847,8 @@ class NomadReactivePipelineNode(Node):
             self.stall_detector.reset()
             self.get_logger().info("🛑 NoMaD reactive pipeline disabled.")
         else:
-            self.get_logger().info("▶️ NoMaD reactive pipeline enabled.")
+            self.mode = "EXPLORING"
+            self.get_logger().info("▶️ NoMaD reactive pipeline enabled in EXPLORING mode.")
 
     def _mode_callback(self, msg: String) -> None:
         req = msg.data.strip().upper()
@@ -894,24 +923,29 @@ class NomadReactivePipelineNode(Node):
                 cmd_fsm.angular.z = float(w_fsm)
                 self.pub_cmd_vel.publish(cmd_fsm)
                 self.last_cmd_v = float(v_fsm)
+                self.last_cmd_w = float(w_fsm)
 
                 # Keep safety watchdog updated during autonomous recovery
                 self.last_successful_inference_time = now_mono
                 return
 
         # ---------------------------------------------------------------------
-        # Priority 2: Evaluate Motor Stall & Wheel Slippage (FM-MOT-004 / FM-NOM-007)
+        # Priority 2: Evaluate Motor Stall & Wheel Slippage (FM-MOT-004 / FM-NOM-007 / FM-NOM-009)
         # ---------------------------------------------------------------------
         is_stall_slip, stall_reason = self.stall_detector.evaluate(
             cmd_v=self.last_cmd_v,
+            cmd_w=self.last_cmd_w,
             wheel_v=self.latest_wheel_speed,
+            wheel_w=self.latest_wheel_yaw_rate,
             vio_v=self.latest_vio_speed,
             now_mono=now_mono
         )
         if is_stall_slip and self.impact_detector.state == "IDLE":
             self.get_logger().warn(
                 f"🚨 [MOTOR-STALL/SLIP] Triggered ({stall_reason})! "
-                f"Cmd_V={self.last_cmd_v:.2f}, Wheel_V={self.latest_wheel_speed:.2f}, VIO_V={self.latest_vio_speed:.2f}. "
+                f"Cmd_V={self.last_cmd_v:.2f}, Cmd_W={self.last_cmd_w:.2f}, "
+                f"Wheel_V={self.latest_wheel_speed:.2f}, Wheel_W={self.latest_wheel_yaw_rate:.2f}, "
+                f"VIO_V={self.latest_vio_speed:.2f}. "
                 f"Engaging Emergency Stop -> Safe Backoff -> Replan."
             )
             self.impact_detector.state = "COLLISION_STOP"
@@ -920,6 +954,7 @@ class NomadReactivePipelineNode(Node):
             self.impact_detector.last_impact_magnitude = 3.0
             self._stop_robot()
             self.last_cmd_v = 0.0
+            self.last_cmd_w = 0.0
 
             evt_msg = String()
             evt_msg.data = json.dumps({
@@ -927,7 +962,9 @@ class NomadReactivePipelineNode(Node):
                 "event": "MOTOR_STALL_SLIP",
                 "reason": stall_reason,
                 "cmd_v": round(self.last_cmd_v, 3),
+                "cmd_w": round(self.last_cmd_w, 3),
                 "wheel_v": round(self.latest_wheel_speed, 3),
+                "wheel_w": round(self.latest_wheel_yaw_rate, 3),
                 "vio_v": round(self.latest_vio_speed, 3),
                 "recovery_state": "COLLISION_STOP"
             })
@@ -944,6 +981,7 @@ class NomadReactivePipelineNode(Node):
             cmd_guard.angular.z = float(self.backoff_turn_speed)
             self.pub_cmd_vel.publish(cmd_guard)
             self.last_cmd_v = 0.0
+            self.last_cmd_w = float(self.backoff_turn_speed)
             self.last_successful_inference_time = now_mono
             return
         else:
@@ -953,6 +991,8 @@ class NomadReactivePipelineNode(Node):
         try:
             frame, stamp = self._image_queue.get_nowait()
         except queue.Empty:
+            # Resetta il detector di stallo se non ci sono nuovi frame da processare
+            self.stall_detector.reset()
             return
 
         # Preprocessing: resize to 224x224 RGB and normalize
@@ -979,6 +1019,7 @@ class NomadReactivePipelineNode(Node):
         twist_cmd = self.controller.compute_cmd_vel(smoothed_waypoints, speed_limit_override=speed_limit)
         self.pub_cmd_vel.publish(twist_cmd)
         self.last_cmd_v = float(twist_cmd.linear.x)
+        self.last_cmd_w = float(twist_cmd.angular.z)
 
         # Diagnostics publication
         self._publish_diagnostics(latency_ms, t_total_ms)

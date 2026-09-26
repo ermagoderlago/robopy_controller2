@@ -64,6 +64,7 @@ class LiveConnectionManager:
         self._activity_started: bool = False
         self._current_user_text: str = ""
         self._turn_in_progress: bool = False  # True tra activity_end e turn_complete — blocca nuovi activity_start
+        self._turn_in_progress_time: float = 0.0
         
         # State timings updated by LLMService
         self.last_successful_turn_time = 0.0
@@ -98,10 +99,25 @@ class LiveConnectionManager:
         if len(words) == 2 and all(w in noise_words for w in words):
             return True
     def on_wakeword_detected(self):
-        """Triggered when wakeword 'Marcus' is detected: resets session timers and turn counter."""
+        """Triggered when wakeword 'Marcus' is detected: resets session timers, unblocks turn gate and drains queues."""
         self.last_wakeword_time = time.time()
         self.turns_since_wakeword = 0
-        self.logger.info("⏰ [LiveConnectionManager] Wake word 'Marcus' registrata. Sessione aperta per 180s (Turno 0).")
+        self._turn_in_progress = False
+        self._activity_started = False
+        self._turn_in_progress_time = 0.0
+        # Drena la coda audio per fare spazio all'audio fresco post-wake word
+        drained = 0
+        if self._audio_in_queue is not None:
+            while not self._audio_in_queue.empty():
+                try:
+                    self._audio_in_queue.get_nowait()
+                    drained += 1
+                except asyncio.QueueEmpty:
+                    break
+        self.logger.info(
+            f"⏰ [LiveConnectionManager] Wake word 'Marcus' registrata. Sessione aperta per 180s (Turno 0). "
+            f"Blocco turno resettato, drenati {drained} chunk stantii."
+        )
 
     async def start_loop(self):
         """Starts the persistent connection manager loop."""
@@ -117,6 +133,18 @@ class LiveConnectionManager:
         """Enqueues audio chunk with a sliding window drop policy to prevent OOM."""
         if chunk and len(chunk) > 0:
             self._last_mic_audio_time = time.time()
+
+        # Watchdog: se turn_in_progress è attivo da oltre 8.0s senza turn_complete dal server, forza il reset
+        if self._turn_in_progress:
+            turn_elapsed = time.time() - getattr(self, '_turn_in_progress_time', 0.0)
+            if turn_elapsed > 8.0:
+                self.logger.warning(
+                    f"⏱️ [LiveConnectionManager] Watchdog turn_in_progress scaduto ({turn_elapsed:.1f}s > 8s senza turn_complete). "
+                    "Sblocco forzato del gate audio."
+                )
+                self._turn_in_progress = False
+                self._activity_started = False
+                self._turn_in_progress_time = 0.0
 
         # Se non c'è una sessione Live attiva o se Gemini sta elaborando un turno precedente,
         # scarta subito il chunk (evita OOM, audio stantio e inutile accumulo offline)
@@ -325,6 +353,7 @@ class LiveConnectionManager:
                             self._live_connecting = False
                             self._activity_started = False
                             self._turn_in_progress = False  # reset su ogni nuova connessione
+                            self._turn_in_progress_time = 0.0
                             was_connected = True
 
                         self.logger.info("Live API connessa con successo.")
@@ -342,8 +371,22 @@ class LiveConnectionManager:
                         sender_task = asyncio.create_task(self._audio_sender_loop(session))
 
                         try:
-                            async for msg in session.receive():
-                                await self._handle_live_message(msg)
+                            receive_iter = session.receive().__aiter__()
+                            while self._live_session == session:
+                                timeout = 15.0 if self._turn_in_progress else 60.0
+                                try:
+                                    msg = await asyncio.wait_for(receive_iter.__anext__(), timeout=timeout)
+                                    await self._handle_live_message(msg)
+                                except asyncio.TimeoutError:
+                                    if self._turn_in_progress:
+                                        self.logger.warning("⏱️ Turn response timeout (>15s). Resetting turn and reconnecting session...")
+                                        self._turn_in_progress = False
+                                        self._activity_started = False
+                                        break
+                                    else:
+                                        continue
+                                except StopAsyncIteration:
+                                    break
                         finally:
                             sender_task.cancel()
                             try:
@@ -355,6 +398,8 @@ class LiveConnectionManager:
                         self._live_session = None
                         self._live_connecting = False
                         self._activity_started = False
+                        self._turn_in_progress = False
+                        self._turn_in_progress_time = 0.0
                         if self._live_response_future and not self._live_response_future.done():
                             self._live_response_future.cancel()
                         if was_connected:
@@ -433,6 +478,7 @@ class LiveConnectionManager:
                         await session.send_realtime_input(activity_end=types.ActivityEnd())
                         self._activity_started = False
                         self._turn_in_progress = True  # blocca nuovi activity_start fino a turn_complete
+                        self._turn_in_progress_time = time.time()
                         self.logger.info("✅ [Live] activity_end inviato. In attesa di turn_complete...")
                         # Drena la coda audio stantia per evitare activity_start spurii sulla sessione
                         drained = 0
@@ -451,9 +497,17 @@ class LiveConnectionManager:
                 try:
                     if not self._activity_started:
                         if self._turn_in_progress:
-                            # Gemini sta ancora processando il turno precedente: scarta il chunk
-                            self.logger.debug("⏳ [Live] activity_start bloccato: turno precedente in attesa di turn_complete.")
-                            continue
+                            turn_elapsed = time.time() - getattr(self, '_turn_in_progress_time', 0.0)
+                            if turn_elapsed > 8.0:
+                                self.logger.warning(
+                                    f"⏱️ [Live] Watchdog turn_in_progress scaduto nel sender loop ({turn_elapsed:.1f}s). Sblocco forzato."
+                                )
+                                self._turn_in_progress = False
+                                self._turn_in_progress_time = 0.0
+                            else:
+                                # Gemini sta ancora processando il turno precedente: scarta il chunk
+                                self.logger.debug("⏳ [Live] activity_start bloccato: turno precedente in attesa di turn_complete.")
+                                continue
                         await session.send_realtime_input(activity_start=types.ActivityStart())
                         self._activity_started = True
                         self.logger.info("🎤 [Live] activity_start inviato — inizio turno vocale.")
@@ -504,6 +558,7 @@ class LiveConnectionManager:
         if getattr(sc, 'interrupted', False):
             self.logger.warning("🤫 [Live] Interruzione rilevata dal server! Invio segnale di interrupt...")
             self._turn_in_progress = False  # libera il blocco su interrupt
+            self._turn_in_progress_time = 0.0
             self._current_user_text = ""
             self._current_live_response = {"text": "", "actions": []}
             if self.on_interrupt:
@@ -550,6 +605,7 @@ class LiveConnectionManager:
             if ignore_detected or "<ignore_turn>" in self._current_live_response["text"].lower():
                 self.logger.info("🤫 [Live Model] Rilevato <IGNORE_TURN> (conversazione non rivolta a Marcus). Soppressione risposta vocale ma canale mantenuto attivo.")
                 self._turn_in_progress = False  # sblocca nuovi activity_start per i prossimi turni
+                self._turn_in_progress_time = 0.0
                 self._current_user_text = ""
                 self._current_live_response = {"text": "", "actions": []}
                 return
@@ -575,6 +631,7 @@ class LiveConnectionManager:
 
         if getattr(sc, 'turn_complete', False):
             self._turn_in_progress = False  # sblocca nuovi activity_start
+            self._turn_in_progress_time = 0.0
             self.turns_since_wakeword += 1
             self.last_successful_turn_time = time.time()
             self.logger.info(f"✅ [Live] turn_complete ricevuto (Turno #{self.turns_since_wakeword}) — sblocco nuovo ascolto.")

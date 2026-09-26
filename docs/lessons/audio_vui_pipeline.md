@@ -591,3 +591,92 @@ A seguito dell'analisi incrociata tra le linee guida generiche per array ReSpeak
 3. **Debounce 2.0s su Wake Word:** Sostituito il check bloccante con un debounce temporale di 2.0s su `_last_wakeword_time`, permettendo all'utente di richiamare "Marcus" per ricevere feedback acustico immediato e riapertura forzata del turno.
 4. **Scoping `try...finally` su `_current_source`:** In `conversation.py`, `self._current_source = ""` viene ripristinato tassativamente a fine elaborazione del messaggio.
 5. **Iniezione Automatica di `sys.path` in `local_asr_vosk.py`:** Aggiunto in testa al modulo il controllo e l'aggiunta dinamica dei percorsi `site-packages` di `/home/robopy/ros2_venv/`, garantendo il caricamento nativo di Vosk indipendentemente dall'interprete (`/usr/bin/python3` o venv).
+
+---
+
+## 🎙️ Pacing Vocale e De-duplicazione Streaming Gemini Live AI (v21.3 — 2026-09-25 - FM-VUI-025)
+
+### Problema: Saturazione Buffer e Drop Audio su Burst di Eventi
+---
+
+## 🎙️ Risoluzione Mancata Risposta Vocale Gemini Live & Allineamento Topic (v21.4 — 2026-09-26 - FM-VUI-026 / FM-VUI-027 / FM-VUI-028)
+
+### Problemi Riscontrati:
+1. **Disconnessione Topic Audio Gemini Live ➔ Speaker (FM-VUI-026):**
+   * *Fenomeno:* L'utente parlava al robot, il VAD e Gemini Live rispondevano regolarmente sul cloud generando chunk audio, ma dall'altoparlante non usciva alcun suono.
+   * *Causa Radice:* In `llm_service.py`, i chunk audio in streaming da Gemini Live venivano pubblicati sul topic `/ai/conversation/audio_chunk`. In `respeaker_vui_node.py`, il sottoscrittore audio era registrato esclusivamente su `/respeaker/speaker_audio`. I pacchetti audio generati da Gemini Live non raggiungevano mai il sink PyAudio.
+   * *Risoluzione:* Registrata in `respeaker_vui_node.py` una sottoscrizione parallela a `/ai/conversation/audio_chunk` agganciata a `_speaker_audio_cb`, e in `llm_service.py` esteso `_on_live_audio_received` per pubblicare su entrambi i topic (`/ai/conversation/audio_chunk` e `/respeaker/speaker_audio`).
+
+2. **Soppressione Eccessiva del Parlato da Prompt Rigido `<IGNORE_TURN>` (FM-VUI-027):**
+   * *Fenomeno:* In diverse interazioni, Marcus non rispondeva a domande o frasi naturali, e nei log compariva: `🤫 [Live Model] Rilevato <IGNORE_TURN> (conversazione non rivolta a Marcus). Soppressione risposta vocale`.
+   * *Causa Radice:* Il prompt di sistema di `llm_service.py` istruiva Gemini a rispondere vocalmente *SOLO* se l'utente pronunciava esplicitamente "Marcus" ad ogni singola frase. Quando l'utente dialogava normalmente senza ripetere il nome, Gemini emetteva `<IGNORE_TURN>`, innescando la soppressione automatica del turno.
+   * *Risoluzione:* Ricalibrato il prompt di sistema: Marcus è istruito a rispondere con cortesia e prontezza a qualsiasi interazione vocale, riservando `<IGNORE_TURN>` unicamente a rumori inintelligibili, tosse o telefonate verso terzi.
+
+3. **Override Indebito del Volume di Riproduzione da `enable_auto_volume` (FM-VUI-028):**
+   * *Fenomeno:* Il robot parlava a volume eccessivamente alto (80%-100%), ignorando i parametri di lancio `playback_volume:=0.10` o `0.25`.
+   * *Causa Radice:* In `respeaker_vui_node.py`, `_speaker_audio_cb` sovrascriveva incondizionatamente `self.playback_volume = 0.80` se `enable_auto_volume=True`, vanificando la configurazione base.
+   * *Risoluzione:* Salvato `_base_playback_volume` all'inizializzazione e rimodulata la scalatura dinamica in percentuale rispetto al volume base, disattivando `enable_auto_volume` di default nel launcher per garantire un livello acustico confortevole e calibrato a 0.25 (25%).
+
+---
+
+## 🎙️ Risoluzione Mancata Emissione Vocale in Navigazione NoMaD & Sincronizzazione DDS (v21.5 — 2026-09-26 - FM-VUI-029)
+
+### Problema: Robot Totalmente Muto Durante l'Esplorazione Autonoma
+* **Fenomeno:** Durante l'esplorazione reattiva NoMaD, Marcus si muoveva ed evitava gli ostacoli ma non pronunciava alcun annuncio vocale ("Ciao Luca! Avvio l'esplorazione...", "Attenzione! Ho trovato un ostacolo!"), a differenza dello script `test_voice_say.py` che parlava regolarmente.
+* **Cause Radice:**
+  1. **Hang Infinito su WebSocket Gemini Live:** Nello script di navigazione `marcus_voice_nav.py`, il worker vocale apriva una connessione WebSocket a Gemini Live ed invocava `session.send_realtime_input(text=...)`. Tale metodo non include il flag `end_of_turn=True`, per cui l'API attendeva indefinitamente ulteriori dati VAD. Di conseguenza, il generatore `session.receive()` non restituiva mai turni e non andava in eccezione: il thread vocale rimaneva bloccato all'infinito sulla primissima frase ("Ciao Luca!..."), senza consumare la coda per tutte le frasi successive.
+  2. **Race Condition di Discovery DDS all'Avvio:** Il publisher `/respeaker/speaker_audio` veniva creato ed usato immediatamente a $t=0$, prima che il middleware DDS (CycloneDDS) scoprisse il subscriber su `respeaker_vui_node` ($0.5\text{-}1.5\text{ s}$).
+  3. **Mancanza di Determinismo & Latenza nei Messaggi di Manovra:** Dipendere da un handshake cloud WebSocket remoto ad ogni singolo annuncio durante la navigazione espone a jitter di rete, ritardi (1.5-3s) o fallimenti totali in caso di lag Wi-Fi durante il moto.
+* **Soluzione Implementata:**
+  1. **Motore Vocale Deterministico 24kHz con Disk Cache:** Implementato generatore TTS a 24000 Hz 16-bit mono PCM (perfettamente allineato a `_STD_AUDIO_RATE` di `respeaker_vui_node.py`) con cache persistente in `/tmp/marcus_tts_cache/`. I messaggi standard di missione vengono pre-sintetizzati in background all'avvio: la riproduzione in navigazione richiede $< 5\text{ ms}$ a latenza zero e senza carico CPU.
+  2. **Handshake DDS Esplicito (`wait_for_audio_subscriber`):** All'avvio della missione viene verificato `pub.get_subscription_count() > 0` con timeout di 3 secondi prima di trasmettere il primo chunk audio, eliminando la perdita del saluto iniziale.
+  3. **Sincronizzazione Sequenziale (`wait_for_speech_done`):** Il robot pronuncia l'annuncio iniziale e l'avviso di partenza completandoli prima di iniziare ad applicare velocità ai motori, garantendo la totale udibilità e chiarezza degli avvisi per l'utente.
+
+---
+
+## 🎙️ Risoluzione Deadlock Conversazionale Post-Wakeword & Ripristino Ascolto (v21.6 — 2026-09-26 - FM-VUI-030)
+
+### Problema: Marcus Rileva la Parola "Marcus" ma Resta Sordo e Non Risponde
+* **Sintomo:** L'utente pronuncia "Marcus", il nodo VUI emette il beep di risveglio e rileva correttamente il nome con Vosk (`WAKE WORD 'MARCUS' RILEVATA!`), ma le successive frasi dell'utente non vengono comprese, nessuna trascrizione compare e Marcus non risponde mai.
+* **Causa Radice (Doppio Deadlock Silenzioso):**
+  1. **Deadlock in `LiveConnectionManager` (`_turn_in_progress` Perenne):** All'invio di `activity_end` (fine parlato utente), `_turn_in_progress = True` veniva impostato per impedire nuovi `activity_start` durante l'elaborazione. Se Gemini Live non inviava `turn_complete` (es. risposta vuota, errore cloud, disconnessione WebSocket o timeout), `_turn_in_progress` rimaneva `True` all'infinito. In `_enqueue_audio()`, il controllo `if self._turn_in_progress: return` scartava silenziosamente **il 100% dei chunk microfonici successivi**. Inoltre, all'arrivo del messaggio `/wake_word`, `on_wakeword_detected()` aggiornava il timestamp di sessione ma **non resettava `_turn_in_progress`**, lasciando il gate chiuso.
+  2. **Deadlock in `AudioBufferManager` (`_is_speaker_playing` e Soppressione Eco):** Quando Gemini inviava audio sintetizzato, `AudioBufferManager.set_speaker_playing(True)` veniva attivato, venendo resettato solo da `_on_live_turn_complete()`. Se `turn_complete` non arrivava, `_is_speaker_playing` restava `True` in modo permanente. In `push_mic_chunk()`, durante lo stato `speaker_active`, qualsiasi segnale audio con RMS $< 0.18$ (~5900 raw RMS) veniva scartato come eco acustico: il normale parlato umano (RMS tipico 0.03–0.10) veniva completamente azzerato all'origine.
+* **Soluzione Implementata:**
+  1. **Reset Esplicito al Riconoscimento Wake Word:** In `live_connection_manager.py`, `on_wakeword_detected()` azzera incondizionatamente `_turn_in_progress = False`, `_activity_started = False` e drena la coda audio dai chunk stantii.
+  2. **Watchdog Temporale su `_turn_in_progress` (8.0s):** Sia in `_enqueue_audio()` che in `_audio_sender_loop()`, se `_turn_in_progress` rimane attivo per più di 8.0 secondi senza che il server invii `turn_complete`, il watchdog interviene e forza il ripristino a `False`, sbloccando l'ascolto.
+  3. **Auto-Decay dello Stato Altoparlante in `AudioBufferManager` (2.5s):** Se non arrivano nuovi chunk audio per l'altoparlante da oltre 2.5 secondi, `_is_speaker_playing` decade automaticamente a `False`, riaprendo immediatamente il gate del microfono al parlato a volume normale.
+  4. **Reset Acustico su Wake Word in ROS 2:** In `llm_service.py`, `wakeword_callback_ros` invoca `set_speaker_playing(False)` e svuota sia il buffer microfonico che quello dell'altoparlante, garantendo la massima pulizia del segnale per la nuova conversazione.
+
+---
+
+## 🎙️ Liveness Watchdog Stream Microfonico & Auto-Recovery ALSA su USB Disconnect (v21.7 — 2026-09-26 - FM-VUI-031)
+
+### Problema: Sordità Silenziosa Totale per Disconnessione Cavo/Porta USB ReSpeaker
+* **Sintomo:** L'utente scollega o sposta il cavo USB del ReSpeaker Lite su un'altra porta. Il nodo `respeaker_vui_node` continua a figurare tra i nodi attivi in `ps aux`, ma diventa sordo al 100%: nessun frammento vocale viene rilevato da Vosk né inoltrato al cloud.
+* **Causa Radice:**
+  * L'unplug hardware invalida il file descriptor ALSA (`/dev/snd/pcmC0D0c`).
+  * Il thread di cattura C/PortAudio entra in un loop infinito di `ppoll() = 0 (Timeout 60ms)` senza sollevare eccezioni Python e senza crashare.
+  * Il processo non termina, impedendo a systemd o ai watchdog di processo di accorgersi del guasto.
+* **Soluzione Implementata:**
+  1. **Timestamping Frame Microfonici:** In `_audio_input_callback` viene aggiornato atomicamente `self._last_input_chunk_time = time.monotonic()`.
+  2. **Watchdog Periodico (1.0 Hz):** Se `time.monotonic() - self._last_input_chunk_time > 3.0` secondi e lo stream è attivo:
+     - Viene intercettato lo stallo hardware ALSA.
+     - Un thread di recupero (`_recover_audio_stream`) distrugge in modo sicuro `self.in_stream`, ricrea l'istanza `pyaudio.PyAudio()`, riesegue `_find_audio_devices()` per scoprire la nuova enumerazione della scheda ALSA e riapre lo stream microfonico.
+     - Se dopo 10 tentativi consecutivi l'hardware USB non è reperibile, il processo esce con codice d'errore controllato affinché il supervisor o systemd lo riavviino in modo pulito.
+
+---
+
+## 🎙️ WebSocket Receive Watchdog & Turn Inactivity Reconnect in LiveConnectionManager (v21.8 — 2026-09-26 - FM-VUI-032)
+
+### Problema: Freeze del Processo Cognitivo a 90% CPU su Drop Silenzioso del WebSocket Cloud
+* **Sintomo:** Dopo una conversazione o a seguito di una disconnessione della connessione, `robot_ai_node` smette di rispondere all'utente e accumula centinaia di minuti di CPU time girando al 70%-90% su un singolo core.
+* **Causa Radice:**
+  * Il costrutto `async for msg in session.receive():` non implementava alcun timeout di guardia. Se la connessione cadeva senza un frame FIN o il server cloud non rispondeva a un `activity_end`, il generatore asincrono rimaneva congelato perennemente.
+* **Soluzione Implementata:**
+  1. **Consumo Iterativo con Timeout Asincrono:** L'iterazione asincrona viene eseguita tramite `receive_iter.__anext__()` protetto da `asyncio.wait_for`.
+  2. **Timeout Turno Dinamico:** Durante un turno in elaborazione (`_turn_in_progress=True`), se entro 15.0 secondi non perviene alcun messaggio o `turn_complete`, viene generato un timeout, resettato lo stato del turno e forzata una disconnessione pulita con riconnessione automatica immediata.
+  3. **Controllo di Inattività Stazionaria:** Durante lo standby idle, il socket viene controllato ogni 60 secondi verificando la validità della sessione e prevenendo socket orfani in `CLOSE_WAIT`.
+
+
+
+

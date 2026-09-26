@@ -61,9 +61,9 @@ class BatteryManagerNode(Node):
         self.declare_parameter('charging_bus_voltage', 12.80)
         self.declare_parameter('full_voltage', 12.60)
         self.declare_parameter('nominal_voltage', 11.10)
-        self.declare_parameter('eco_voltage', 10.20)
-        self.declare_parameter('docking_voltage', 9.90)
-        self.declare_parameter('shutdown_voltage', 9.00)
+        self.declare_parameter('eco_voltage', 10.40)
+        self.declare_parameter('docking_voltage', 10.15)
+        self.declare_parameter('shutdown_voltage', 9.80)
 
         # Parametri Batteria Panasonic NCR18650B (3S2P: 6 celle, 6800 mAh, 11.1V nominale)
         self.declare_parameter('total_capacity_ah', 6.80)            # 2x 3400 mAh = 6.8 Ah (75.5 Wh)
@@ -134,10 +134,9 @@ class BatteryManagerNode(Node):
             (11.04, 0.40),  # 3.68V/cella - 40% (Altezza tipica del plateau Li-ion)
             (10.86, 0.30),  # 3.62V/cella - 30%
             (10.65, 0.20),  # 3.55V/cella - 20%
-            (10.35, 0.15),  # 3.45V/cella - 15% (Prossimità soglia ECO 10.20V)
-            (10.05, 0.10),  # 3.35V/cella - 10% (Prossimità soglia Docking 9.90V)
-            (9.60,  0.05),  # 3.20V/cella - 5%  (Ginocchio profondo di scarica)
-            (9.00,  0.00),  # 3.00V/cella - 0%  (Soglia critica spegnimento OS)
+            (10.40, 0.15),  # 3.47V/cella - 15% (Prossimità soglia ECO 10.40V)
+            (10.15, 0.10),  # 3.38V/cella - 10% (Prossimità soglia Docking 10.15V)
+            (9.80,  0.00),  # 3.27V/cella - 0%  (Soglia critica spegnimento OS prima del cutoff hardware BMS 9.74V)
         ]
 
         self.filter_window_size = int(self.get_parameter('filter_window_size').value)
@@ -456,7 +455,7 @@ class BatteryManagerNode(Node):
                     self.current_state_str = "ECO MODE (<20%)"
 
             else:
-                # --- STATO 5: SOGLIA CRITICA / SHUTDOWN OS (V <= 9.00V / <= 0% SoC) ---
+                # --- STATO 5: SOGLIA CRITICA / SHUTDOWN OS (V <= v_shutdown / <= 0% SoC) ---
                 speed_limit_val = self.speed_limit_eco_pct
                 if self.docking_start_time is not None and (now - self.docking_start_time >= self.persistence_sec):
                     dock_trigger_val = True
@@ -465,11 +464,14 @@ class BatteryManagerNode(Node):
                     self.shutdown_start_time = now
 
                 dur = now - self.shutdown_start_time
-                if dur >= self.persistence_sec:
+                # Interblocco hardware per prevenire il distacco brutale del BMS LiPo (cutoff misurato a ~9.74V)
+                hard_cutoff_threat = (v_filt <= 9.72)
+                if dur >= self.persistence_sec or hard_cutoff_threat:
                     self.shutdown_triggered = True
                     self.current_state_str = "CRITICO SHUTDOWN"
+                    reason_msg = f"cutoff fisico BMS imminente ({v_filt:.2f}V <= 9.72V)" if hard_cutoff_threat else f"{v_filt:.2f}V per {dur:.1f}s"
                     self.get_logger().error(
-                        f"🚨 [BatteryManager] SOTTOTENSIONE CRITICA ({v_filt:.2f}V per {dur:.1f}s)! Arresto motori e spegnimento OS imminente.",
+                        f"🚨 [BatteryManager] SOTTOTENSIONE CRITICA ({reason_msg})! Arresto motori e spegnimento OS imminente.",
                         throttle_duration_sec=1.0
                     )
                     self._trigger_emergency_shutdown(v_filt)
@@ -571,11 +573,12 @@ def main(args=None):
     node = BatteryManagerNode()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException):
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':

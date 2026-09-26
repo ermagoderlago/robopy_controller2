@@ -33,6 +33,7 @@ class BatteryTopicTester(Node):
         self.create_subscription(String, '/foxglove/power_status', self.cb_status, qos_rel)
         self.create_subscription(Float32, '/foxglove/battery_pct', self.cb_pct, qos_rel)
         self.create_subscription(Bool, '/robot/docking/trigger', self.cb_dock, qos_rel)
+        self.create_subscription(Bool, '/robot/docking/undock_trigger', self.cb_undock, qos_rel)
         self.create_subscription(Float32, '/motor/battery_voltage', self.cb_volt, qos_rel)
         self.create_subscription(BatteryState, '/battery/raw', self.cb_raw, qos)
         self.create_subscription(Float32, '/battery/raw_voltage', self.cb_raw_v, qos)
@@ -45,8 +46,11 @@ class BatteryTopicTester(Node):
     def cb_batt(self, msg: BatteryState):
         self.results['/battery_state'] = {
             'voltage': round(msg.voltage, 2),
+            'current': round(msg.current, 3) if not hasattr(msg.current, '__iter__') else msg.current,
             'percentage': round(msg.percentage, 2),
-            'power_supply_status': 'CHARGING' if msg.power_supply_status == 1 else ('DISCHARGING' if msg.power_supply_status == 2 else str(msg.power_supply_status))
+            'capacity': round(msg.capacity, 2),
+            'charge': round(msg.charge, 2),
+            'power_supply_status': 'CHARGING' if msg.power_supply_status == 1 else ('DISCHARGING' if msg.power_supply_status == 2 else ('FULL' if msg.power_supply_status == 4 else str(msg.power_supply_status)))
         }
 
     def cb_status(self, msg: String):
@@ -58,11 +62,18 @@ class BatteryTopicTester(Node):
     def cb_dock(self, msg: Bool):
         self.results['/robot/docking/trigger'] = msg.data
 
+    def cb_undock(self, msg: Bool):
+        self.results['/robot/docking/undock_trigger'] = msg.data
+
     def cb_volt(self, msg: Float32):
         self.results['/motor/battery_voltage'] = round(msg.data, 2)
 
     def cb_raw(self, msg: BatteryState):
-        self.results['/battery/raw'] = {'voltage': round(msg.voltage, 2)}
+        self.results['/battery/raw'] = {
+            'voltage': round(msg.voltage, 2),
+            'current': round(msg.current, 3),
+            'status': 'CHARGING' if msg.power_supply_status == 1 else 'DISCHARGING'
+        }
 
     def cb_raw_v(self, msg: Float32):
         self.results['/battery/raw_voltage'] = round(msg.data, 2)

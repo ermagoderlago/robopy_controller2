@@ -216,6 +216,8 @@ class SemanticCostmapInjector(Node):
                         depth_est = max(0.20, float(width_est * 0.5))
 
                 # Trasformiamo nel frame della mappa/costmap (solitamente 'map' o 'odom')
+                # Use Time(0) to query latest available transform and avoid extrapolation warnings
+                pt_cam.header.stamp = rclpy.time.Time().to_msg()
                 if self.tf_buffer.can_transform(self.costmap_frame, frame_id, rclpy.time.Time()):
                     pt_map = self.tf_buffer.transform(pt_cam, self.costmap_frame)
                     
@@ -327,9 +329,6 @@ class SemanticCostmapInjector(Node):
                 last_valid_pt = None
                 for row in range(num_v):
                     if not valid_mask[row, col]:
-                        if last_valid_pt is not None:
-                            self._register_negative_obstacle(last_valid_pt, now_sec)
-                            break
                         continue
 
                     p_map = pts_map_grid[row, col]
@@ -338,11 +337,15 @@ class SemanticCostmapInjector(Node):
                     pt_map_point.y = float(p_map[1])
                     pt_map_point.z = float(p_map[2])
 
-                    if pt_map_point.z < -self.min_drop_height:
-                        if last_valid_pt is not None:
+                    # FM-NAV-009: Rilevamento vero dislivello / scala (salto relativo dz > min_drop_height)
+                    # Non segnalare il normale orizzonte visivo del sensore o il pavimento inclinato
+                    if last_valid_pt is not None:
+                        dz = last_valid_pt.z - pt_map_point.z
+                        if dz > self.min_drop_height:
                             self._register_negative_obstacle(last_valid_pt, now_sec)
-                        else:
-                            self._register_negative_obstacle(pt_map_point, now_sec)
+                            break
+                    elif pt_map_point.z < -0.30:
+                        self._register_negative_obstacle(pt_map_point, now_sec)
                         break
 
                     last_valid_pt = pt_map_point

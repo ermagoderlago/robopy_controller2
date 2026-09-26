@@ -519,5 +519,44 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
   5. *Estensione Watchdog a 500 ms:* Margine di sicurezza portato a 500 ms (pari a 2 cicli completi a 4 Hz persi e allineato al watchdog hardware di SPEC-01), eliminando il 100% degli stop spuri da jitter software.
   6. *Default Topic `/cmd_vel`:* Configurato nativamente su `/cmd_vel` per azionamento diretto e deterministico dell'hardware.
 
+---
+
+### NoMaD Reactive Pipeline: Transizione FSM su `/nomad/enable` e Forwarding Velocità (Settembre 2026 - FM-NOM-009)
+* **Sintomo:** Il nodo `nomad_reactive_pipeline_node` veniva abilitato con `/nomad/enable: true`, ma il robot rimaneva immobile e nessun comando veniva calcolato o pubblicato su `/cmd_vel_nomad`.
+* **Causa Radice:**
+  1. *FSM Stalled in STOPPED:* In `_enable_callback`, il parametro `self.is_active` veniva impostato a `True`, ma `self.mode` rimaneva a `"STOPPED"` (valore assegnato all'inizializzazione se `enable_on_startup: false`). Nel ciclo periodico a 4 Hz `_fast_loop_step`, la guardia `if not self.is_active or self.mode == "STOPPED": return` causava l'uscita immediata senza mai elaborare i frame della telecamera o generare waypoints.
+  2. *Disaccoppiamento `/cmd_vel_nomad` ➔ `/cmd_vel`:* NoMaD pubblica per architettura di sicurezza su `/cmd_vel_nomad`. Senza un orchestratore attivo o multiplexer che filtri e inoltri i comandi a `/cmd_vel`, i motori fisici non ricevevano l'attuazione.
+* **Soluzione Implementata:**
+  1. *Transizione Automatica in EXPLORING:* Aggiornato `_enable_callback` in `nomad_reactive_pipeline_node.py` in modo che all'arrivo di `data: true` la modalità passi esplicitamente a `self.mode = "EXPLORING"`, e all'arrivo di `data: false` resetti la FSM e imposti `self.mode = "STOPPED"`.
+  2. *Orchestratore Reattivo con Clamping di Sicurezza:* In `scripts/marcus_voice_nav.py` implementato il bridge asincrono multi-threaded con QoS compatibile CycloneDDS, inoltro dei comandi NoMaD con clamping SPEC-01 ($|v| \le 0.18\text{ m/s}$, $|\omega| \le 0.60\text{ rad/s}$), monitoraggio urti IMU e manovra di retromarcia di disimpegno automatica.
+
+---
+
+### NoMaD Reactive Pipeline: Allineamento Odometria Ruote `/odom` vs `/odom_wheel` (Settembre 2026 - FM-NOM-010)
+* **Sintomo:** Il robot partiva in esplorazione NoMaD, avanzava per soli 5-10 cm e si fermava bruscamente con `🚨 Collision event da NoMaD: {"event": "MOTOR_STALL_SLIP", "reason": "WHEEL_STALL_PINNED"}` e retromarcia di disimpegno, ripetendo il ciclo all'infinito senza ostacoli reali.
+* **Causa Radice:**
+  - `nomad_reactive_pipeline_node` dichiarava `wheel_odom_topic` con valore di default `/odom_wheel`.
+  - Nello stack operativo di Marcus, `waveshare_motor_driver` pubblica l'odometria delle ruote esclusivamente su `/odom` (`-p odom_topic:=/odom`). Nessun nodo pubblicava su `/odom_wheel`.
+  - La telemetria `self.latest_wheel_speed` rimaneva permanentemente a `0.0 m/s`.
+  - Appena il robot inviava un comando lineare avanti ($v > 0.08\text{ m/s}$), `StallSlipDetector` rilevava $v_{cmd} > 0.08$ e $v_{wheel} == 0.0 < 0.02$, facendo scattare dopo 0.75s incondizionatamente il falso allarme `WHEEL_STALL_PINNED`.
+  - Inoltre, poiché l'odometria visiva FastFlow (`fast_flow_vo_cpp`) era avviata con `enable_vo:=false`, $v_{vio}$ era permanentemente $0.0\text{ m/s}$, rischiando ulteriori falsi positivi di slittamento ruote (`WHEEL_SLIP_ON_WALL`).
+* **Soluzione Implementata:**
+  1. *Default Topic Allineato:* Parametro `wheel_odom_topic` impostato di default su `/odom` in `nomad_reactive_pipeline_node.py` e passato esplicitamente in `restart_hailo.sh`.
+  2. *Sincronizzazione Diretta in `_odom_callback`:* Quando `wheel_odom_topic == odom_topic`, la callback estrae direttamente `linear.x` e `angular.z` aggiornando in tempo reale `latest_wheel_speed` e `latest_wheel_yaw_rate`.
+  3. *Guardia VIO Slip Check:* Aggiunto parametro `enable_vio_slip_check` (default `False`). Il test di slittamento su VIO viene eseguito solo se il VIO è esplicitamente abilitato ed operativo, impedendo falsi allarmi a VIO spento.
+
+---
+
+### Semantic Costmap Injector: Raycasting Differenziale ΔZ e Fine Portata Sensore (Settembre 2026 - FM-NAV-031)
+* **Sintomo:** La costmap locale e globale veniva invasa da centinaia di ostacoli fittizi a semicerchio (`negative_obstacle`) a 1.0 - 2.0 m davanti al robot, bloccando qualsiasi pianificazione di traiettoria su pavimento perfettamente piano.
+* **Causa Radice:**
+  - Nel rilevamento degli ostacoli negativi (FM-NAV-009), la condizione `if not valid_mask[row, col]: self._register_negative_obstacle(last_valid_pt)` interpretava la normale perdita di profondità stereo della telecamera OAK-D Lite (superfici lisce, riflessioni del pavimento, raggio $>2\text{ m}$) come se fosse un gradino nel vuoto o un precipizio.
+  - Inoltre, la verifica di quota assoluta $z_{map} < -0.15\text{ m}$ era suscettibile al pitch sag della camera e all'inclinazione del robot, scambiando il pavimento distante per un baratro.
+* **Soluzione Implementata (`semantic_costmap_injector.py`):**
+  1. *Raycasting Differenziale Locale:* Il gradino verso il basso viene registrato solo se esiste una discontinuità fisica netta tra due punti validi consecutivi lungo lo stesso raggio: $\Delta z = z_{prev} - z_{curr} > 0.15\text{ m}$ (con $z_{curr} < -0.15\text{ m}$).
+  2. *Soppressione Falsi Allarmi su Perdita Stereo:* L'assenza di disparità alla massima portata non innesca più alcun ostacolo negativo se il pavimento precedente era regolare.
+  3. *Timestamp TF Time(0):* La trasformata `camera_optical_frame ➔ map` interroga l'ultima trasformata disponibile (`Time(0)`), azzerando le eccezioni di estrapolazione futura TF.
+
+
 
 

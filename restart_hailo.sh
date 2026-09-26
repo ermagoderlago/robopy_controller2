@@ -194,7 +194,7 @@ echo "⚙️ Starting waveshare_motor_driver..."
 # Auto-sync updated python nodes to install site-packages and lib directory for immediate deployment
 LIB_DEST="/mnt/ssd/robopy_controller_host/install/robopy_controller/lib/robopy_controller"
 SITE_DEST="/mnt/ssd/robopy_controller_host/install/robopy_controller/lib/python3.11/site-packages/robopy_controller/nodes"
-for node_file in waveshare_motor_driver.py semantic_costmap_injector.py sensor_standby_manager.py robot_health_supervisor.py; do
+for node_file in waveshare_motor_driver.py semantic_costmap_injector.py nomad_reactive_pipeline_node.py sensor_standby_manager.py robot_health_supervisor.py battery_manager_node.py; do
     src_file="/mnt/ssd/robopy_controller_host/robopy_controller/nodes/$node_file"
     if [ -f "$src_file" ]; then
         cp -u "$src_file" "$SITE_DEST/$node_file" 2>/dev/null || true
@@ -381,8 +381,8 @@ nohup ros2 run robopy_controller respeaker_vui_node --ros-args \
     -p barge_in_min_frames:=10 \
     -p enable_adaptive_threshold:=true \
     -p enable_adaptive_silence:=true \
-    -p playback_volume:=0.10 \
-    -p enable_auto_volume:=true \
+    -p playback_volume:=0.08 \
+    -p enable_auto_volume:=false \
     -p enable_audio_beeps:=true \
     -p diag_mode:=true \
     > /home/robopy/robopy/logs/respeaker_vui_node.log 2>&1 &
@@ -443,9 +443,11 @@ echo "🧱 Starting semantic_costmap_injector (Hailo 3D Obstacle & Costmap Fusio
 nohup ros2 run robopy_controller semantic_costmap_injector \
     > /home/robopy/robopy/logs/semantic_costmap_injector.log 2>&1 &
 
-# [CPU-OPT Pi 5] nomad_reactive_pipeline_node disabilitato in modalità pura Nav2:
-# risparmia ~20% CPU per timer watchdog e fast loop inattivi.
-# echo "🧭 Starting nomad_reactive_pipeline_node..."
+echo "🧭 Starting nomad_reactive_pipeline_node (NoMaD v2 Reactive Pipeline - Safety Disarmed on boot)..."
+> /home/robopy/robopy/logs/nomad_reactive_pipeline_node.log
+nohup python3 -u /mnt/ssd/robopy_controller_host/install/robopy_controller/lib/python3.11/site-packages/robopy_controller/nodes/nomad_reactive_pipeline_node.py \
+    --ros-args -p cmd_vel_topic:=/cmd_vel -p image_topic:=/rgb/image -p wheel_odom_topic:=/odom -p enable_on_startup:=false \
+    </dev/null > /home/robopy/robopy/logs/nomad_reactive_pipeline_node.log 2>&1 &
 
 echo "👥 Starting engagement_monitor (HRI Gaze/Prossemic)..."
 > /home/robopy/robopy/logs/engagement_monitor.log
