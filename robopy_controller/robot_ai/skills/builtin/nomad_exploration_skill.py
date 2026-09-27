@@ -55,28 +55,45 @@ class NomadExplorationSkill(BaseSkill):
     def get_metadata(self) -> SkillMetadata:
         return SkillMetadata(
             name="nomad_exploration",
-            description="Esplora autonomamente la stanza e crea mappe usando il modello di visione fondazionale NOMAD senza LiDAR",
-            version="1.0.0",
+            description="Avvia o ferma l'esplorazione autonoma e la navigazione nella stanza con il modello visivo fondazionale NOMAD. Usare SEMPRE questo tool per richieste come 'esplora la stanza', 'fai un giro', 'avvia esplorazione con nomad', 'ferma esplorazione'.",
+            version="1.1.0",
             keywords=["nomad", "nomade", "esplora", "esplorazione", "ricognizione", "perlustra", "mappa"],
-            priority=25,  # Highest priority for exploration intents
+            priority=30,  # Massima priorità per intenti di esplorazione
             requires_nav=True
         )
 
+    def get_parameters_schema(self) -> Dict[str, Any]:
+        """Schema per function calling LLM (Gemini Live API e REST)."""
+        return {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["start", "stop"],
+                    "description": "Azione di esplorazione con NOMAD: 'start' per avviare l'esplorazione autonoma della stanza, 'stop' per fermarsi."
+                }
+            },
+            "required": []
+        }
+
     def match(self, text: str, context: Dict[str, Any] = None) -> float:
-        score = 0.0
-        clean_text = text.lower().strip()
+        clean_text = (text or "").lower().strip()
         if any(p.search(clean_text) for p in self.STOP_EXPLORE_PATTERNS):
             return 0.99
         if any(p.search(clean_text) for p in self.EXPLORE_PATTERNS):
             return 0.98
-        return score
+        return 0.0
 
     async def execute(self, text: str, context: Dict[str, Any] = None) -> SkillResult:
-        # Check stop request
-        if any(p.search(text) for p in self.STOP_EXPLORE_PATTERNS):
+        context = context or {}
+        action = context.get("action", "").lower().strip()
+        clean_text = (text or "").lower().strip()
+
+        # Controllo richiesta di stop (via parametro strutturato o regex su testo)
+        if action == "stop" or (clean_text and any(p.search(clean_text) for p in self.STOP_EXPLORE_PATTERNS)):
             return self._stop_nomad_exploration()
 
-        # Start exploration
+        # Start exploration (default se action=="start", vuoto o pattern di explore)
         return await self._start_nomad_exploration()
 
     async def _start_nomad_exploration(self) -> SkillResult:

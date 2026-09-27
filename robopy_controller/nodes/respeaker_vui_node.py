@@ -848,12 +848,13 @@ class ReSpeakerVUINode(Node):
         rms = np.sqrt(np.mean(frame_boosted.astype(np.float32)**2))
         
         # Soglia dinamica: adattata al rumore ambientale ed elevata leggermente durante il TTS
+        # [FM-VUI-033] Deve elevarsi sopra il rumore ambientale boosted, senza venire abbattuta da min()
         current_threshold = self.noise_gate_threshold
         if getattr(self, 'enable_adaptive_threshold', True):
-            adaptive_target = max(65.0, getattr(self, '_ambient_noise_ema', 30.0) * 2.2)
-            current_threshold = min(current_threshold, adaptive_target)
+            adaptive_target = max(self.noise_gate_threshold, getattr(self, '_ambient_noise_ema', 30.0) * self.stt_gain * 1.3)
+            current_threshold = max(current_threshold, adaptive_target)
         if self._is_tts_speaking:
-            current_threshold *= 1.2
+            current_threshold *= 1.3
             
         if rms < current_threshold:
             is_voice = False
@@ -877,8 +878,8 @@ class ReSpeakerVUINode(Node):
             self._speech_frame_count  += 1
             self._silence_frame_count  = 0
             
-            # [v20.0] MIN_SPEECH_FRAMES dinamico: 2 frame (40ms) se in conversazione, altrimenti 4 frame (80ms) per evitare click spuri in idle
-            current_min_speech = 2 if self._ev_listening.is_set() else 4
+            # [FM-VUI-033] MIN_SPEECH_FRAMES dinamico: 5 frame (100ms) se in conversazione, 7 frame (140ms) in idle per evitare click spuri, soffi o rumore impulsivo
+            current_min_speech = 5 if self._ev_listening.is_set() else 7
 
             if (self._speech_frame_count >= current_min_speech
                     and not self._is_speech_active):

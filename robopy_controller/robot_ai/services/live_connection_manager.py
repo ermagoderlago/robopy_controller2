@@ -11,6 +11,7 @@ import asyncio
 import base64
 import time
 import logging
+import re
 from typing import Any, Dict, List, Optional, Callable, Awaitable
 
 from robopy_controller.robot_ai.services.llm_models import LLMResponse, types
@@ -20,6 +21,21 @@ class LiveConnectionManager:
     Manages WebSocket bidi-streaming connection to Google Gemini Live API.
     Used by LLMServiceNode via composition.
     """
+
+    @staticmethod
+    def _is_noise_transcription(text: str) -> bool:
+        """
+        [FM-VUI-033] Determina se il testo trascritto da Gemini ASR è puro rumore,
+        tosse, risate o tag non-linguistici (es. <noise>, <laughter>, <cough>, <sigh>).
+        """
+        if not text or not text.strip():
+            return True
+        cleaned = re.sub(r'<[^>]+>', '', text)
+        cleaned = re.sub(r'\[[^\]]+\]', '', cleaned)
+        cleaned = re.sub(r'\([^)]+\)', '', cleaned)
+        cleaned = re.sub(r'[\s\.,\!\?\-_:;]+', '', cleaned)
+        return len(cleaned) < 2
+
     def __init__(
         self,
         client: Any,
@@ -602,8 +618,14 @@ class LiveConnectionManager:
                         ignore_detected = True
                         break
             
-            if ignore_detected or "<ignore_turn>" in self._current_live_response["text"].lower():
-                self.logger.info("🤫 [Live Model] Rilevato <IGNORE_TURN> (conversazione non rivolta a Marcus). Soppressione risposta vocale ma canale mantenuto attivo.")
+            # [FM-VUI-033] Rilevamento rumore / non-parlato (<noise>, tosse, rumori di fondo)
+            is_noise_turn = self._is_noise_transcription(self._current_user_text)
+
+            if ignore_detected or "<ignore_turn>" in self._current_live_response["text"].lower() or is_noise_turn:
+                if is_noise_turn:
+                    self.logger.info(f"🤫 [Live Model] Soppressione risposta vocale e azioni: rilevato input di puro RUMORE ('{self._current_user_text.strip()}').")
+                else:
+                    self.logger.info("🤫 [Live Model] Rilevato <IGNORE_TURN> (conversazione non rivolta a Marcus). Soppressione risposta vocale ma canale mantenuto attivo.")
                 self._turn_in_progress = False  # sblocca nuovi activity_start per i prossimi turni
                 self._turn_in_progress_time = 0.0
                 self._current_user_text = ""
@@ -632,9 +654,20 @@ class LiveConnectionManager:
         if getattr(sc, 'turn_complete', False):
             self._turn_in_progress = False  # sblocca nuovi activity_start
             self._turn_in_progress_time = 0.0
-            self.turns_since_wakeword += 1
-            self.last_successful_turn_time = time.time()
-            self.logger.info(f"✅ [Live] turn_complete ricevuto (Turno #{self.turns_since_wakeword}) — sblocco nuovo ascolto.")
+
+            user_msg = self._current_user_text.strip()
+            # [FM-VUI-033] Solo se l'utente ha pronunciato parole reali aggiorniamo il timestamp della sessione attiva
+            is_valid_speech = bool(user_msg) and not self._is_noise_transcription(user_msg)
+
+            if is_valid_speech:
+                self.turns_since_wakeword += 1
+                self.last_successful_turn_time = time.time()
+                self.logger.info(f"✅ [Live] turn_complete valido (Turno #{self.turns_since_wakeword}) — sblocco nuovo ascolto.")
+            else:
+                self.logger.info(f"🔇 [Live] turn_complete su rumore/silenzio ('{user_msg}') — timeout sessione non rinnovato.")
+                # Azzeriamo eventuali azioni allucinate su rumore
+                self._current_live_response["actions"] = []
+
             # Drena i chunk accumulati durante la risposta (rumore ambientale stantio)
             drained = 0
             while not self._audio_in_queue.empty():
@@ -651,10 +684,9 @@ class LiveConnectionManager:
             elif fut is not None and fut.cancelled():
                 self.logger.warning("Risposta Live ricevuta su future già cancellato — scartata.")
             
-            user_msg = self._current_user_text.strip() or "[Ascolto Vocale]"
             model_msg = self._current_live_response["text"].strip()
 
-            if user_msg and user_msg != "[Ascolto Vocale]":
+            if is_valid_speech:
                 self.recent_user_transcripts.append((user_msg, time.time()))
                 self.recent_user_transcripts = [
                     (t, ts) for t, ts in self.recent_user_transcripts[-10:]
@@ -662,7 +694,7 @@ class LiveConnectionManager:
                 ]
             
             if self.on_turn_complete:
-                self.on_turn_complete(user_msg, model_msg or "[SILENZIO]")
+                self.on_turn_complete(user_msg or "[Silenzio/Rumore]", model_msg or "[SILENZIO]")
 
             self._current_live_response = {"text": "", "actions": []}
             self._current_user_text = ""

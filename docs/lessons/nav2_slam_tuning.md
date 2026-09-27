@@ -557,6 +557,19 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
   2. *Soppressione Falsi Allarmi su Perdita Stereo:* L'assenza di disparità alla massima portata non innesca più alcun ostacolo negativo se il pavimento precedente era regolare.
   3. *Timestamp TF Time(0):* La trasformata `camera_optical_frame ➔ map` interroga l'ultima trasformata disponibile (`Time(0)`), azzerando le eccezioni di estrapolazione futura TF.
 
+---
+
+### Unificazione Skill Esplorazione Reattiva NOMAD e Risoluzione Shadowing (Settembre 2026 - FM-NOM-011)
+* **Sintomo:** Alla richiesta vocale *"esplora la stanza con nomad"*, Marcus rispondeva verbalmente che avrebbe avviato l'esplorazione, ma subito dopo diceva *"Uhm... ops! Ho avuto un piccolo intoppo durante l'esplorazione."* e non si muoveva.
+* **Causa Radice:**
+  - Nel registry convivevano due skill di esplorazione: `visual_exploration` (prototipo cloud legacy che inviava singoli frame e chiedeva coordinate JSON a Gemini) e `nomad_exploration` (il controller continuo reattivo a 4 Hz).
+  - L'LLM invocava `visual_exploration`, la quale falliva per timeout della chiamata generativa REST o per assenza di frame, senza mai inviare il comando `/nomad/enable = True` a `nomad_reactive_pipeline_node`.
+* **Soluzione Implementata:**
+  1. *Consolidamento Unico Tool:* `nomad_exploration` consolidato come unico strumento di esplorazione in `orchestrator.py` con descrizione univoca.
+  2. *Schema Parametri Esplicito:* Esposto schema con `action: ["start", "stop"]` e supporto trasparente in `execute(text, context)`.
+  3. *Delega di Sicurezza:* In `visual_exploration_skill.py`, qualsiasi invocazione residua reindirizza direttamente a `NomadExplorationSkill`, garantendo l'avvio della pipeline reattiva di bordo.
+
+
 
 
 

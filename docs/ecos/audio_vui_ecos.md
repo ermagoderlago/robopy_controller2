@@ -184,4 +184,22 @@ Questo documento traccia la cronologia delle modifiche ingegneristiche (ECO) app
     - Timeout di guardia a 15.0s durante turno in corso (`_turn_in_progress=True`) e a 60.0s durante idle standby: se il socket si blocca, viene forzato il reset del turno e una riconnessione pulita immediata.
   * **[DFMEA & REPORT]** Registrati `FM-VUI-031` e `FM-VUI-032` in `fmea/dfmea.yaml`, aggiornato `fmea/IMPROVEMENT_INDEX.yaml` e ricalcolati gli indici RPN esecutivi.
 
+---
+
+## 📈 ECO-2026-09-27-001: Adaptive Noise Gate Uncapped, Filtro Non-Speech ASR e Consolidamento NOMAD Exploration (FM-VUI-033 & FM-NOM-011)
+* **Stato:** ✅ **Completato, Sincronizzato e Collaudato sul Robot**
+* **Descrizione:** Risoluzione del loop di allucinazioni vocali da rumore di fondo ("Marcus parla a vanvera") e dell'errore nell'avvio vocale dell'esplorazione autonoma reattiva NOMAD.
+* **Modifiche apportate:**
+  * **[ADAPTIVE NOISE GATE & MIN SPEECH FRAMES]** `robopy_controller/nodes/respeaker_vui_node.py`:
+    - Corretta la formula della soglia adattiva da `min(current_threshold, adaptive_target)` a `max(base_threshold, ambient_floor * 2.2)`. La soglia ora sale dinamicamente sopra il rumore ambientale della ventola (fino a 400+ RMS).
+    - Aumentato `current_min_speech` da 2 a 5 frame (100ms) durante la conversazione attiva e a 7 frame (140ms) in idle, azzerando i falsi trigger su click e rumore stazionario.
+  * **[FILTRO NON-SPEECH & ANTI-CHATTER GATING]** `robopy_controller/robot_ai/services/live_connection_manager.py`:
+    - Intercettazione dei token non-speech ASR (`<noise>`, `<laughter>`, `<cough>`, `<sigh>`) ed esclusione dal buffer conversazionale.
+    - Soppressione totale dell'output audio sintetizzato e delle tool calls quando l'utente non ha pronunciato parole reali.
+    - Aggiornamento di `last_successful_turn_time` vincolato alla presenza di parole umane intelligibili, evitando che le risposte allucinate azzerino perennemente il timeout di 180 secondi.
+  * **[UNIFICAZIONE SKILL NOMAD EXPLORATION]** `robopy_controller/robot_ai/skills/builtin/nomad_exploration_skill.py` & `visual_exploration_skill.py`:
+    - Definito schema parametri esplicito `{"action": "start"|"stop"}` per `nomad_exploration`.
+    - Rimosso lo shadowing di `visual_exploration` in `orchestrator.py` e introdotta delega trasparente verso NOMAD.
+
+
 

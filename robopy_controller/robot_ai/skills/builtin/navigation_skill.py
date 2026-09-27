@@ -581,38 +581,41 @@ class NavigationSkill(BaseSkill):
         )
         
     async def _handle_explore(self) -> SkillResult:
-        """Handle explore command."""
+        """Handle explore command - [FM-NOM-011] delegates to NOMAD vision exploration."""
         action = {
-            "action_type": "nav_explore"
+            "action_type": "nomad_exploration",
+            "args": {"action": "start"}
         }
         
-        if self.nav_client:
+        if self.nav_client and hasattr(self.nav_client, '_node') and self.nav_client._node:
             try:
-                success = await self.nav_client.start_exploration(radius=2.0, max_points=15)
-                if success:
-                    return SkillResult(
-                        success=True,
-                        message="Esplorazione avviata",
-                        speak="Ok, cancello la mappa e comincio a esplorare la stanza.",
-                        actions=[action]
-                    )
-                else:
-                    return SkillResult.failure_result(
-                        "Esplorazione già in corso",
-                        SkillErrorCode.INVALID_PARAMETERS,
-                        speak="Sto già esplorando!"
-                    )
-            except Exception as e:
-                return SkillResult.failure_result(
-                    f"Errore avvio esplorazione: {str(e)}",
-                    SkillErrorCode.EXTERNAL_SERVICE_ERROR,
-                    speak="Ho avuto un problema ad avviare l'esplorazione"
+                from std_msgs.msg import Bool, String
+                node = self.nav_client._node
+                if not hasattr(self, '_pub_nomad_enable') or self._pub_nomad_enable is None:
+                    self._pub_nomad_enable = node.create_publisher(Bool, '/nomad/enable', 10)
+                    self._pub_nomad_mode = node.create_publisher(String, '/nomad/set_mode', 10)
+                
+                mode_msg = String()
+                mode_msg.data = "EXPLORE"
+                self._pub_nomad_mode.publish(mode_msg)
+                
+                enable_msg = Bool()
+                enable_msg.data = True
+                self._pub_nomad_enable.publish(enable_msg)
+                
+                return SkillResult(
+                    success=True,
+                    message="Esplorazione NOMAD avviata con successo.",
+                    speak="Avvio l'esplorazione autonoma della stanza con il modello visivo NOMAD.",
+                    actions=[action]
                 )
+            except Exception as e:
+                self.logger.error(f"Errore attivazione NOMAD da navigation_skill: {e}")
                 
         return SkillResult(
             success=True,
-            message="Esplorazione simulata avviata",
-            speak="Ok, comincio a esplorare.",
+            message="Esplorazione NOMAD avviata.",
+            speak="Avvio l'esplorazione autonoma con il modello visivo NOMAD.",
             actions=[action]
         )
     
@@ -708,7 +711,7 @@ class NavigationSkill(BaseSkill):
                 "action": {
                     "type": "string",
                     "enum": ["goto", "come", "follow", "stop", "return", "move_relative", "explore"],
-                    "description": "Navigation action. Use 'move_relative' for directional commands like 'vai avanti di 30cm', 'gira a sinistra di 90 gradi'"
+                    "description": "Navigation action. Use 'move_relative' for directional commands. NOTA: Per esplorare la stanza o fare un giro libero, preferire SEMPRE il tool 'nomad_exploration'."
                 },
                 "destination": {
                     "type": "string",

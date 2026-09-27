@@ -31,20 +31,45 @@ class VisualExplorationSkill(BaseSkill):
     def get_metadata(self) -> SkillMetadata:
         return SkillMetadata(
             name="visual_exploration",
-            description="Esplora la stanza analizzando le immagini con Gemini per decidere dove muoversi in sicurezza",
-            version="1.0.0",
-            keywords=["esplora", "vista", "guarda", "mappa"],
-            priority=10, # Higher priority than generic explore from NavigationSkill
+            description="Analisi visiva sperimentale a scatto singolo (NOTA: Per esplorare la stanza o muoversi, usa SEMPRE nomad_exploration).",
+            version="1.0.1",
+            keywords=["vista", "guarda"],
+            priority=5,  # Priorità minima rispetto a nomad_exploration (30)
+            enabled=False,  # Disabilitata per evitare collisioni di tool con nomad_exploration
             requires_nav=True
         )
         
     def match(self, text: str, context: Dict[str, Any] = None) -> float:
         score = 0.0
         if any(p.search(text) for p in self.EXPLORE_PATTERNS):
-            score = 0.95
+            score = 0.50
         return score
         
     async def execute(self, text: str, context: Dict[str, Any] = None) -> SkillResult:
+        # [FM-NOM-011] Delega di sicurezza a NOMAD se invocata per errore durante l'esplorazione
+        if self.nav_client and hasattr(self.nav_client, '_node') and self.nav_client._node:
+            try:
+                from std_msgs.msg import Bool, String
+                node = self.nav_client._node
+                pub_mode = node.create_publisher(String, '/nomad/set_mode', 10)
+                pub_enable = node.create_publisher(Bool, '/nomad/enable', 10)
+                
+                m = String()
+                m.data = "EXPLORE"
+                pub_mode.publish(m)
+                
+                b = Bool()
+                b.data = True
+                pub_enable.publish(b)
+                
+                return SkillResult(
+                    success=True,
+                    message="Esplorazione visiva NOMAD avviata tramite fallback.",
+                    speak="Avvio l'esplorazione della stanza con il modello visivo NOMAD."
+                )
+            except Exception:
+                pass
+
         if not self.llm_service or not self.camera_provider or not self.move_handler:
             return SkillResult.failure_result("Servizi mancanti per esplorazione visiva", SkillErrorCode.EXTERNAL_SERVICE_ERROR)
             

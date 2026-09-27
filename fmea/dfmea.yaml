@@ -6652,3 +6652,101 @@
       senza risposta; implementato watchdog di ricezione con timeout asincrono e auto-reconnect
     rpn_old: 336
     rpn_new: 32
+- id: FM-VUI-033
+  subsystem: VUI
+  component: respeaker_vui_node / live_connection_manager
+  function: Gating affidabile della voce ed eliminazione di allucinazioni vocali auto-indotte
+    da rumore ambientale
+  failure_mode: Loop auto-alimentato di allucinazioni verbali e risposte a vanvera
+    su rumore di fondo
+  potential_cause: Adaptive threshold limitata verso l'alto da min() anziché max()
+    rispetto al rumore medio (180-220 RMS), unita a mancato filtraggio dei token <noise>
+    in input_transcription e continuo reset del timer di inattività turno (180s) su
+    frasi hallucinate
+  potential_effect: Marcus parla continuamente da solo, interpreta rumore come comandi
+    (es. accensione luci), consuma quota API e disturba l'utente
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-VUI-003
+  - FM-VUI-015
+  - FM-VUI-032
+  initial_scoring:
+    severity: 7
+    occurrence: 8
+    detection: 6
+    rpn: 336
+  prevention_controls: Adaptive threshold vincolata a max(base, ambient * 2.2), aumento
+    MIN_SPEECH_FRAMES a 5 (100ms), soppressione output/tools se input_transcription
+    è <noise> o puro rumore, e aggiornamento di last_successful_turn_time solo su
+    parole umane reali (> 1 parola, non-rumore)
+  detection_controls: Log ASR con filtraggio tag <noise> e diagnostica RMS gate
+  residual_scoring:
+    severity: 7
+    occurrence: 2
+    detection: 2
+    rpn: 28
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Correggere formula adaptive threshold in respeaker_vui_node,
+    filtrare non-speech in LiveConnectionManager e non rinnovare la sessione attiva
+    su turni di rumore
+  verification_method: Test di silenzio ambientale prolungato (> 5 minuti) con rumore
+    ventola Pi 5 al 100% e verifica assenza totale di risposte spurie o tool calls
+  eco_ref: docs/ecos/audio_vui_ecos.md#ECO-2026-09-27-001
+  lesson_ref: docs/lessons/audio_vui_pipeline.md#FM-VUI-033
+  date_identified: '2026-09-27'
+  last_updated: '2026-09-27'
+  history:
+  - date: '2026-09-27'
+    change: Risolto bug adaptive threshold capped da min(), aggiunto filtro token
+      <noise> in LiveConnectionManager e bloccato il loop infinito di rinnovo turno
+    rpn_old: 336
+    rpn_new: 28
+- id: FM-NOM-011
+  subsystem: Navigation / AI
+  component: nomad_exploration_skill / visual_exploration_skill
+  function: Avvio deterministico dell'esplorazione autonoma reattiva NOMAD su richiesta
+    vocale dell'utente
+  failure_mode: Fallimento avvio esplorazione con errore ("ho avuto un piccolo intoppo")
+    e mancata attivazione del nodo NOMAD
+  potential_cause: Collisione e shadowing tra visual_exploration (prototipo cloud
+    legacy basato su snapshot camera) e nomad_exploration; l'LLM invocava visual_exploration
+    che falliva su formattazione JSON o frame camera
+  potential_effect: Impossibilità per l'utente di avviare l'esplorazione reattiva
+    della stanza vocalmente, robot fermo
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-NOM-001
+  - FM-NOM-010
+  initial_scoring:
+    severity: 7
+    occurrence: 7
+    detection: 6
+    rpn: 294
+  prevention_controls: Unificazione delle skill di esplorazione, rimozione dell'ambiguità
+    per l'LLM, get_parameters_schema esplicito per nomad_exploration con azione start/stop
+    e fallback/delega trasparente da visual_exploration verso NOMAD
+  detection_controls: Verifica pubblicazione su /nomad/enable e /nomad/set_mode
+  residual_scoring:
+    severity: 7
+    occurrence: 1
+    detection: 2
+    rpn: 14
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Consolidare nomad_exploration come unico tool di esplorazione
+    in skill_registry e delegare qualsiasi chiamata esplorativa al nodo reattivo NOMAD
+  verification_method: Test vocale 'esplora la stanza con nomad' e verifica attivazione
+    di /nomad/enable e inizio movimento
+  eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-09-27-001
+  lesson_ref: docs/lessons/nav2_slam_tuning.md#FM-NOM-011
+  date_identified: '2026-09-27'
+  last_updated: '2026-09-27'
+  history:
+  - date: '2026-09-27'
+    change: Risolto shadowing tra visual_exploration e nomad_exploration, aggiunti
+      parametri espliciti a nomad_exploration e delega sicura verso NOMAD reattivo
+    rpn_old: 294
+    rpn_new: 14

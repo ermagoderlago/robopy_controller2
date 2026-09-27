@@ -1,5 +1,5 @@
 # 📊 Report Esecutivo DFMEA - Marcus AI Robot Platform
-**Data Generazione:** 2026-09-26 23:10:43  
+**Data Generazione:** 2026-09-27 11:40:06  
 **Metodologia:** AIAG-VDA FMEA Standard con Regola Override Severità ($S \ge 9 \implies$ REVISION_MANDATORY)
 
 ---
@@ -8,8 +8,8 @@
 
 | Metrica | Valore | Note / Impatto |
 | :--- | :---: | :--- |
-| **Totale Modalità di Guasto (FM)** | **141** | Copertura integrata dei sottosistemi Marcus |
-| **🟢 Risk Level LOW** | **106** | $RPN_{res} \le 50$ (Sotto controllo) |
+| **Totale Modalità di Guasto (FM)** | **143** | Copertura integrata dei sottosistemi Marcus |
+| **🟢 Risk Level LOW** | **108** | $RPN_{res} \le 50$ (Sotto controllo) |
 | **🟡 Risk Level MEDIUM** | **7** | $51 \le RPN_{res} \le 199$ (Monitoraggio attivo) |
 | **🟠 Risk Level HIGH** | **2** | $200 \le RPN_{res} \le 349$ (Mitigazione obbligatoria) |
 | **🔴 Risk Level CRITICAL** | **0** | $RPN_{res} \ge 350$ (Blocco rilasci) |
@@ -58,7 +58,8 @@
 - **Hardware/Power & Compute:** 2 failure modes
 - **Actuation/Motion:** 1 failure modes
 - **Voice/Audio:** 4 failure modes
-- **VUI:** 4 failure modes
+- **VUI:** 5 failure modes
+- **Navigation / AI:** 1 failure modes
 
 ---
 
@@ -145,6 +146,7 @@
 | **FM-NAV-017** | Nav2 | `fast_flow_vo_cpp` | Drift angolare continuo dell'angolo di Yaw indotto dal riscaldamento di Raspberry Pi 5 e Hailo-10H | 7 | 2 | 2 | **28** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#imu-bias-zupt`](docs/lessons/nav2_slam_tuning.md#imu-bias-zupt) |
 | **FM-LLM-006** | AI/LangGraph | `dynamic_skill_creator / curiosity_evolution_engine` | Loop ricorsivo o continuo di auto-modifica (AI Recursion Trap) con saturazione token API e blocco CPU | 7 | 2 | 2 | **28** | `LOW` | `IN_PROGRESS` | [`docs/lessons/orchestration_and_rag.md`](docs/lessons/orchestration_and_rag.md) |
 | **FM-EVO-001** | AI/Evolution | `marcus_data_miner` | Runaway I/O o saturazione RAM per raccolta dati indiscriminata a navigazione inattiva e robot fermo | 7 | 2 | 2 | **28** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#auto-miglioramento-e-data-mining`](docs/lessons/orchestration_and_rag.md#auto-miglioramento-e-data-mining) |
+| **FM-VUI-033** | VUI | `respeaker_vui_node / live_connection_manager` | Loop auto-alimentato di allucinazioni verbali e risposte a vanvera su rumore di fondo | 7 | 2 | 2 | **28** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#FM-VUI-033`](docs/lessons/audio_vui_pipeline.md#FM-VUI-033) |
 | **FM-VUI-003** | VUI Audio | `respeaker_vui_node` | Falsi rilevamenti di presenza vocale (VAD) ed invio continuo di rumore di fondo a Gemini Live | 6 | 2 | 2 | **24** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#hpf-filter`](docs/lessons/audio_vui_pipeline.md#hpf-filter) |
 | **FM-VUI-004** | VUI Audio | `respeaker_vui_node` | Acoustic Echo Leakage ed auto-interruzione continua della sintesi vocale del robot | 6 | 2 | 2 | **24** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#barge-in`](docs/lessons/audio_vui_pipeline.md#barge-in) |
 | **FM-VUI-005** | VUI Audio | `respeaker_vui_node` | Trascrizione ASR incomprensibile o allucinata ('Voce Distorta / Sorgente Lontana') | 6 | 2 | 2 | **24** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#dynamic-agc`](docs/lessons/audio_vui_pipeline.md#dynamic-agc) |
@@ -171,6 +173,7 @@
 | **FM-VUI-021** | VUI Audio | `respeaker_vui_node / live_connection_manager` | Chiusura prematura della sessione conversazionale dopo pochi secondi o intromissione del robot in dialoghi e conversazioni tra terzi in sottofondo | 7 | 2 | 1 | **14** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#gestione-sessione-conversazionale-a-3-minuti`](docs/lessons/audio_vui_pipeline.md#gestione-sessione-conversazionale-a-3-minuti) |
 | **FM-TRI-002** | AI/Trinity | `rag_document_indexer` | Freeze temporaneo o blocco dell'Event Loop asyncio durante il chunking e embedding di file voluminosi | 7 | 1 | 2 | **14** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#trinity-architecture`](docs/lessons/orchestration_and_rag.md#trinity-architecture) |
 | **FM-VUI-023** | Audio & VUI | `live_connection_bridge_node` | Latenza audio elevata, audio glitches e mancata cancellazione di skill dovuta a monolite llm_service.py (>46KB) | 7 | 2 | 1 | **14** | `LOW` | `CLOSED` | [`docs/lessons/llm_live_api.md#cognitive-pipeline-modularization`](docs/lessons/llm_live_api.md#cognitive-pipeline-modularization) |
+| **FM-NOM-011** | Navigation / AI | `nomad_exploration_skill / visual_exploration_skill` | Fallimento avvio esplorazione con errore ("ho avuto un piccolo intoppo") e mancata attivazione del nodo NOMAD | 7 | 1 | 2 | **14** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#FM-NOM-011`](docs/lessons/nav2_slam_tuning.md#FM-NOM-011) |
 | **FM-NOM-007** | Navigation/Vision | `nomad_reactive_pipeline_node` | Cecità ottica su pareti bianche o porte monocromatiche con proiezione di waypoints dritti e slittamento ruote su ostacolo | 3 | 2 | 2 | **12** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#white-wall-protection`](docs/lessons/nav2_slam_tuning.md#white-wall-protection) |
 | **FM-NOM-008** | Navigation/NoMaD | `PurePursuitController & nomad_reactive_pipeline_node` | Stallo a bassa velocità (0.036-0.04 m/s), pivot violenti sul posto (1.50 rad/s) e scatti robotici a 4 Hz | 3 | 2 | 2 | **12** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#nomad-smooth-motion`](docs/lessons/nav2_slam_tuning.md#nomad-smooth-motion) |
 | **FM-COG-003** | Orchestration & RAG | `orchestrator & conversation` | Triplice ricezione ed elaborazione dei messaggi inviati su /robopy/conversation_rx, con conseguente scatto del prompt di insistenza ripetuta dell'LLM (repeat_count >= 2) | 6 | 2 | 1 | **12** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#FM-COG-003`](docs/lessons/orchestration_and_rag.md#FM-COG-003) |

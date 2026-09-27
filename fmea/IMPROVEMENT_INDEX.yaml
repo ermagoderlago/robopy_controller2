@@ -181,6 +181,18 @@ improvements:
     status: "COMPLETED"
     domain: "audio_vui"
 
+  FM-VUI-033:
+    title: "Miglioramento VUI: Calibrazione Adaptive Noise Gate, Filtro Non-Speech e Anti-Chatter Turn Gating"
+    file: "docs/improvements/IMP-VUI-033_noise_gate_and_hallucination_filter.md"
+    status: "COMPLETED"
+    domain: "audio_vui"
+
+  FM-NOM-011:
+    title: "Miglioramento Navigazione: Risoluzione Tool Shadowing ed Esecuzione Deterministica Skill NOMAD Exploration"
+    file: "docs/improvements/IMP-NOM-011_nomad_exploration_skill_routing.md"
+    status: "COMPLETED"
+    domain: "nav2_slam"
+
 
 
 

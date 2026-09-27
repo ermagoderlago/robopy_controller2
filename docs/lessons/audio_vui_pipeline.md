@@ -668,14 +668,23 @@ A seguito dell'analisi incrociata tra le linee guida generiche per array ReSpeak
 
 ## 🎙️ WebSocket Receive Watchdog & Turn Inactivity Reconnect in LiveConnectionManager (v21.8 — 2026-09-26 - FM-VUI-032)
 
-### Problema: Freeze del Processo Cognitivo a 90% CPU su Drop Silenzioso del WebSocket Cloud
-* **Sintomo:** Dopo una conversazione o a seguito di una disconnessione della connessione, `robot_ai_node` smette di rispondere all'utente e accumula centinaia di minuti di CPU time girando al 70%-90% su un singolo core.
-* **Causa Radice:**
-  * Il costrutto `async for msg in session.receive():` non implementava alcun timeout di guardia. Se la connessione cadeva senza un frame FIN o il server cloud non rispondeva a un `activity_end`, il generatore asincrono rimaneva congelato perennemente.
+---
+
+## 🎙️ Adaptive Noise Gate Uncapped, Filtro Non-Speech & Anti-Chatter Turn Gating (v21.9 — 2026-09-27 - FM-VUI-033)
+
+### Problema: Marcus Parla a Vanvera e Risponde al Rumore di Fondo in Loop Infinito
+* **Sintomo:** In presenza di normale rumore domestico o ventola del Pi 5, Marcus inizia a pronunciare frasi a caso ("Che bello! Accendo le luci in cucina!"), esegue comandi inventati su Home Assistant e continua a parlare da solo senza sosta.
+* **Cause Radici Identificate:**
+  1. **Bug Capping Adaptive Threshold:** In `respeaker_vui_node.py`, il calcolo della soglia adattiva usava `min(current_threshold, adaptive_target)`. Poiché la soglia base era 120, il valore non poteva mai salire oltre 120 neppure quando il rumore della ventola era a 180-220 RMS! Il rumore superava perennemente la soglia, aprendo il VAD per errore continuo.
+  2. **Min Speech Frames troppo basso:** Era impostato a soli 2 frame (40ms), scattando su transienti o scatti di corrente.
+  3. **Mancato Filtraggio ASR `<noise>` in `LiveConnectionManager`:** Gemini inviava `<noise>` come trascrizione utente, ma il manager processava ugualmente la risposta del modello e le relative tool calls.
+  4. **Loop Perpetuo del Timer di Sessione Attiva:** Ogni risposta parlata del robot (anche allucinata) chiamava `self.last_successful_turn_time = time.time()`, azzerando `last_turn_ago` e mantenendo aperta la sessione attiva per altri 180 secondi.
 * **Soluzione Implementata:**
-  1. **Consumo Iterativo con Timeout Asincrono:** L'iterazione asincrona viene eseguita tramite `receive_iter.__anext__()` protetto da `asyncio.wait_for`.
-  2. **Timeout Turno Dinamico:** Durante un turno in elaborazione (`_turn_in_progress=True`), se entro 15.0 secondi non perviene alcun messaggio o `turn_complete`, viene generato un timeout, resettato lo stato del turno e forzata una disconnessione pulita con riconnessione automatica immediata.
-  3. **Controllo di Inattività Stazionaria:** Durante lo standby idle, il socket viene controllato ogni 60 secondi verificando la validità della sessione e prevenendo socket orfani in `CLOSE_WAIT`.
+  1. **Adaptive Gate Uncapped:** Formula corretta in `current_threshold = max(base_threshold, ambient_floor * 2.2)`. Se il rumore ambientale è a 180 RMS, il gate sale automaticamente a ~400 RMS.
+  2. **MIN_SPEECH_FRAMES a 5 (100ms):** Richiede 100ms continui di voce umana per aprire il gate di registrazione.
+  3. **Filtro Rigido Token Rumore:** Se `input_transcription` contiene solo tag di rumore (`<noise>`, `<laughter>`, `<cough>`, `<sigh>`) o nessun carattere reale, la risposta del modello viene intercettata e mutata, i tool bloccati e il canale azzerato.
+  4. **Aggiornamento Selettivo di `last_successful_turn_time`:** Il timestamp di attività viene aggiornato solo ed esclusivamente se l'utente ha pronunciato parole umane reali ($> 1$ carattere non-tag).
+
 
 
 
