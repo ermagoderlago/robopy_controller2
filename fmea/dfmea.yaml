@@ -6750,3 +6750,93 @@
       parametri espliciti a nomad_exploration e delega sicura verso NOMAD reattivo
     rpn_old: 294
     rpn_new: 14
+- id: FM-VUI-034
+  subsystem: VUI Audio
+  component: respeaker_vui_node
+  function: Apertura dinamica del gate VAD al parlato umano e soppressione rumore
+  failure_mode: Taglio immediato del turno (beep immediato) per mancata apertura del
+    gate vocale VAD
+  potential_cause: Soglia dinamica del noise gate calibrata troppo in alto (offset
+    +250, multiplier 1.3x) per mitigare FM-VUI-033, rendendo il microfono sordo alla
+    voce umana a distanza
+  potential_effect: Impossibilità di interagire con il robot dopo la wake word, scarto
+    di qualsiasi frase
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-VUI-033
+  initial_scoring:
+    severity: 8
+    occurrence: 10
+    detection: 2
+    rpn: 160
+  prevention_controls: Riduzione offset a +50.0 e multiplier a 1.05/1.10 per riattivare
+    la sensibilità umana; filtraggio rumore delegato al livello logico di LiveConnectionManager
+    (_is_noise_transcription)
+  detection_controls: Diagnostica RMS logs mostrano 'rms < current_threshold' sistematico
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 2
+    rpn: 16
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Mantenere le soglie VAD fisiche permissive e affidarsi a Gemini
+    per scartare le trascrizioni di puro rumore
+  verification_method: Pronunciare comandi post-wake word a varie distanze
+  eco_ref: docs/ecos/audio_vui_ecos.md#ECO-2026-09-27-002
+  lesson_ref: docs/lessons/audio_vui_pipeline.md#FM-VUI-034
+  date_identified: '2026-09-27'
+  last_updated: '2026-09-27'
+  history:
+  - date: '2026-09-27'
+    change: Ridotte soglie VAD dopo l'introduzione del filtro rumore _is_noise_transcription
+    rpn_old: 160
+    rpn_new: 16
+- id: FM-EXP-001
+  subsystem: Navigation / Exploration
+  component: frontier_explorer_node / collision_monitor / trinity_engine
+  function: Esplorazione autonoma e caccia semantica ad alta velocità senza collisioni
+    e senza deadlock
+  failure_mode: Collisioni ad alta velocità o loop/oscillazione infinita tra frontiere
+    irraggiungibili
+  potential_cause: Incremento velocità di crociera MPPI (+30%) senza envelope di sicurezza
+    hardware e assenza di watchdog/blacklist sulle frontiere
+  potential_effect: Collisione violenta dello chassis contro ostacoli imprevisti,
+    blocco del robot in loop su goal irraggiungibile
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-NAV-001
+  - FM-NAV-019
+  initial_scoring:
+    severity: 8
+    occurrence: 7
+    detection: 4
+    rpn: 224
+  prevention_controls: Collision monitor a due zone (Stop [-0.18, 0.22]x[-0.18, 0.18]m,
+    Slowdown [-0.18, 0.35]x[-0.25, 0.25]m a 0.70x > stiction floor); watchdog a 45s
+    con blacklisting circolare R=0.20m e isteresi
+  detection_controls: Topic /frontier_exploration/status, log diagnostici Nav2 e telemetria
+    CAG
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 2
+    rpn: 16
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Mantenere attivi i poligoni del collision monitor e la blacklist
+    automatica delle frontiere
+  verification_method: Suite test unitari e d'integrazione tests/test_m3_mapping_exploration.py
+    e tests/test_frontier_exploration_trinity.py
+  eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-09-28-001
+  lesson_ref: docs/lessons/nav2_slam_tuning.md#FM-EXP-001
+  date_identified: '2026-09-28'
+  last_updated: '2026-09-28'
+  history:
+  - date: '2026-09-28'
+    change: Implementazione collision_monitor 2-zone, frontier_explorer_node con anti-loop
+      e TRINITY loop decisionale
+    rpn_old: 224
+    rpn_new: 16

@@ -1,5 +1,5 @@
 # 📊 Report Esecutivo DFMEA - Marcus AI Robot Platform
-**Data Generazione:** 2026-09-27 11:40:06  
+**Data Generazione:** 2026-09-28 23:32:53  
 **Metodologia:** AIAG-VDA FMEA Standard con Regola Override Severità ($S \ge 9 \implies$ REVISION_MANDATORY)
 
 ---
@@ -8,8 +8,8 @@
 
 | Metrica | Valore | Note / Impatto |
 | :--- | :---: | :--- |
-| **Totale Modalità di Guasto (FM)** | **143** | Copertura integrata dei sottosistemi Marcus |
-| **🟢 Risk Level LOW** | **108** | $RPN_{res} \le 50$ (Sotto controllo) |
+| **Totale Modalità di Guasto (FM)** | **145** | Copertura integrata dei sottosistemi Marcus |
+| **🟢 Risk Level LOW** | **110** | $RPN_{res} \le 50$ (Sotto controllo) |
 | **🟡 Risk Level MEDIUM** | **7** | $51 \le RPN_{res} \le 199$ (Monitoraggio attivo) |
 | **🟠 Risk Level HIGH** | **2** | $200 \le RPN_{res} \le 349$ (Mitigazione obbligatoria) |
 | **🔴 Risk Level CRITICAL** | **0** | $RPN_{res} \ge 350$ (Blocco rilasci) |
@@ -18,7 +18,7 @@
 ### Ripartizione per Sottosistema:
 - **System/DDS:** 5 failure modes
 - **Nav2:** 16 failure modes
-- **VUI Audio:** 21 failure modes
+- **VUI Audio:** 22 failure modes
 - **Vision:** 2 failure modes
 - **Hardware/Power:** 9 failure modes
 - **ESP32:** 1 failure modes
@@ -60,6 +60,7 @@
 - **Voice/Audio:** 4 failure modes
 - **VUI:** 5 failure modes
 - **Navigation / AI:** 1 failure modes
+- **Navigation / Exploration:** 1 failure modes
 
 ---
 
@@ -169,6 +170,8 @@
 | **FM-NOM-006** | Navigation/Vision | `nomad_reactive_pipeline_node` | Mancato rilevamento visivo di ostacolo basso, specchiato o trasparente con urto meccanico e stallo motori | 4 | 2 | 2 | **16** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#nomad-collision-recovery`](docs/lessons/nav2_slam_tuning.md#nomad-collision-recovery) |
 | **FM-SYS-008** | Cloud, Memory & Orchestration | `system_lifecycle_coordinator_node` | OOM Crash da saturazione progressiva della memoria RAM (DDS creep, RAG embeddings) e riavvio distruttivo da watchdog | 8 | 2 | 1 | **16** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#memory-pressure-sentinel`](docs/lessons/orchestration_and_rag.md#memory-pressure-sentinel) |
 | **FM-NAV-020** | Navigation & SLAM | `rtabmap` | Saturazione MicroSD al 100% (0 byte liberi), runaway log da 4.1GB e Load Average 18.10 dovuto a loop continuo VWDictionary.cpp:741 su database da 16GB | 8 | 2 | 1 | **16** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#FM-NAV-020`](docs/lessons/nav2_slam_tuning.md#FM-NAV-020) |
+| **FM-VUI-034** | VUI Audio | `respeaker_vui_node` | Taglio immediato del turno (beep immediato) per mancata apertura del gate vocale VAD | 8 | 1 | 2 | **16** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#FM-VUI-034`](docs/lessons/audio_vui_pipeline.md#FM-VUI-034) |
+| **FM-EXP-001** | Navigation / Exploration | `frontier_explorer_node / collision_monitor / trinity_engine` | Collisioni ad alta velocità o loop/oscillazione infinita tra frontiere irraggiungibili | 8 | 1 | 2 | **16** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#FM-EXP-001`](docs/lessons/nav2_slam_tuning.md#FM-EXP-001) |
 | **FM-VUI-001** | VUI Audio | `respeaker_vui_node` | Microfono completamente silenzioso (RMS ~40) indotto dal routing errato su PipeWire | 7 | 1 | 2 | **14** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#hardware-capture`](docs/lessons/audio_vui_pipeline.md#hardware-capture) |
 | **FM-VUI-021** | VUI Audio | `respeaker_vui_node / live_connection_manager` | Chiusura prematura della sessione conversazionale dopo pochi secondi o intromissione del robot in dialoghi e conversazioni tra terzi in sottofondo | 7 | 2 | 1 | **14** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#gestione-sessione-conversazionale-a-3-minuti`](docs/lessons/audio_vui_pipeline.md#gestione-sessione-conversazionale-a-3-minuti) |
 | **FM-TRI-002** | AI/Trinity | `rag_document_indexer` | Freeze temporaneo o blocco dell'Event Loop asyncio durante il chunking e embedding di file voluminosi | 7 | 1 | 2 | **14** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#trinity-architecture`](docs/lessons/orchestration_and_rag.md#trinity-architecture) |

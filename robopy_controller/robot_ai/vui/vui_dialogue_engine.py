@@ -35,6 +35,7 @@ try:
     from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
     from std_msgs.msg import String, Bool
     from geometry_msgs.msg import PoseWithCovarianceStamped
+    from sensor_msgs.msg import BatteryState
     HAS_ROS2 = True
 except ImportError:
     HAS_ROS2 = False
@@ -65,6 +66,10 @@ class VUIDialogueEngine:
         r'\b(cosa vedi|cosa stai vedendo|cosa c\s*[eè]\s*davanti|cosa c\'\s*[eè]\s*davanti)\b',
         re.IGNORECASE
     )
+    RE_BATTERY = re.compile(
+        r'\b(batteria|carica\s+della\s+batteria|livello\s+batteria|autonomia|livello\s+di\s+carica)\b',
+        re.IGNORECASE
+    )
 
     def __init__(
         self,
@@ -82,6 +87,7 @@ class VUIDialogueEngine:
             "nearest_dist": 1.2,
             "amcl_covariance_trace": 0.055,
             "last_visual_detections": ["tavolo", "sedia"],
+            "battery_percentage": None,
         }
         self.audio_in_rate: int = 16000
         self.audio_out_hw_rate: int = 48000
@@ -202,8 +208,15 @@ class VUIDialogueEngine:
             items = ", ".join(detections)
             return f"Nel mio campo visivo riconosco: {items}."
 
-        # 4. Fallback
-        return "Non ho compreso la domanda. Puoi chiedermi dove mi trovo, in che mappa navigo o cosa vedo."
+        # 4. Battery Intent
+        if self.RE_BATTERY.search(cleaned):
+            batt = self.cag_snapshot.get("battery_percentage")
+            if batt is not None:
+                return f"Il livello della batteria è al {batt:.1f} percento."
+            return "Al momento non ho accesso ai dati della batteria."
+
+        # 5. Fallback
+        return "Non ho compreso la domanda. Puoi chiedermi dove mi trovo, la percentuale della batteria, in che mappa navigo o cosa vedo."
 
     def set_tts_active(self, is_speaking: bool) -> None:
         """
@@ -270,6 +283,9 @@ class VUIDialogueNode(Node):
         self.sub_tts = self.create_subscription(
             Bool, "/ai/tts/speaking", self._on_tts_speaking, qos_reliable
         )
+        self.sub_battery = self.create_subscription(
+            BatteryState, "/battery_state", self._on_battery_state, qos_sensor
+        )
 
         # Periodic 1 Hz Telemetry broadcast timer
         self.create_timer(1.0, self._broadcast_telemetry)
@@ -292,6 +308,9 @@ class VUIDialogueNode(Node):
             map_name=self.engine.cag_snapshot["map_name"],
             covariance_trace=trace,
         )
+
+    def _on_battery_state(self, msg: Any) -> None:
+        self.engine.cag_snapshot["battery_percentage"] = msg.percentage * 100.0
 
     def _on_tts_speaking(self, msg: Any) -> None:
         self.engine.set_tts_active(msg.data)

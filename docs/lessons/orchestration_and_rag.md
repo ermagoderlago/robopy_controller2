@@ -230,3 +230,22 @@ L'architettura TRINITY integra i tre paradigmi di memoria e contesto operando a 
 * **Specializzazione dei Ruoli Multi-Modello:**
   - **Orchestratore (Gemini 3.1 Pro):** Si attiva di notte per sviscerare a fondo la causa radice, consultare le schede tecniche SPEC e scomporre il lavoro in micro-task (max 50-100 righe di codice).
   - **Coder (Gemini 3.8 Flash):** Riceve i micro-task ed esegue la scrittura del codice, la compilazione e la validazione in Sandbox AST/Pytest ad altissima velocità e con consumo minimo di token.
+
+---
+
+## 🗺️ Loop Decisionale Esplorazione & Memoria TRINITY (Fase 4 - Milestone 2.5)
+
+* **Contesto:** Integrazione dello stack di navigazione autonoma a frontiere (`frontier_explorer_node.py` / `explore_lite`) con il Cervello Triadico TRINITY (CAG, MAG, RAG) per decisioni contestuali, grounding vocale e dismissione completa di NoMaD.
+* **Componenti Integrate:**
+  1. **CAG Aggregator (`cag_environment.py`):**
+     - Aggiunta della telemetria in tempo reale dello stato dell'esploratore: `exploration_active`, `exploration_mode: EXPLORE | HUNT`, `exploration_target`, `remaining_frontiers`.
+     - Output compatto per metaprompt fusion in `EnvironmentSnapshot.to_text()`: stringa token-efficient ($\le 15$ token, es. `[ENV] ... | Exploration: HUNT(persona, frontiers=3)`), che consente a Gemini Live o LLM locale di sapere esattamente cosa sta facendo Marcus senza polling ROS asincrono o allucinazioni.
+  2. **MAG Memory & Eventi Target (`trinity_engine.py` / `mag_zettelkasten.py`):**
+     - Sottoscrizione asincrona agli eventi `/frontier_exploration/status` e `/exploration/target_event`.
+     - All'avvenuto aggancio bersaglio (`event == "TARGET_ACQUIRED"`), archiviazione automatica di un fatto semantico in SQLite WAL (`semantic_facts` con `fact_type = "SEMANTIC_LANDMARK"`): es. `Bersaglio 'chiavi' individuato a coordinate (2.45, -1.30) nella stanza 'salotto'`.
+     - Metodo di interrogazione rapida `TrinityEngine.find_target_location(target_name)` via ricerca full-text (FTS5) e parsing regex delle coordinate $(x, y)$.
+  3. **FrontierExplorationSkill & Dismissione NoMaD (`frontier_exploration_skill.py` / `nomad_exploration_skill.py`):**
+     - Nuova skill `FrontierExplorationSkill` con gestione vocale di intenti multipli: esplorazione pura (`EXPLORE`), caccia guidata da semantica (`HUNT`), stop immediato.
+     - Nel flusso `HUNT` ("trova le chiavi", "cerca Marco"), la skill interroga preventivamente MAG: se la posizione è nota e recente, invia Nav2 direttamente su quelle coordinate; se non nota, attiva l'esplorazione autonoma a frontiere con bias semantico.
+     - `NomadExplorationSkill` è stata rifattorizzata come wrapper di retrocompatibilità che eredita da `FrontierExplorationSkill`, eliminando ogni dipendenza dal modello pesante NoMaD senza rompere registrazioni o chiamate preesistenti.
+

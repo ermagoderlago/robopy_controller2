@@ -190,6 +190,7 @@ install(PROGRAMS
   scripts/localization_fuser_node
   scripts/robot_health_supervisor
   scripts/sensor_standby_manager
+  scripts/frontier_explorer_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

@@ -93,6 +93,12 @@ class TrinityEngine:
             self.logger.warning(f"MAG initialization error: {e}")
             self.mag_episodic = None
 
+        # 6. ROS 2 Subscriptions for Exploration & Semantic Events
+        self.sub_explore_status = None
+        self.sub_target_event = None
+        if self.node is not None:
+            self._setup_ros_exploration_subs()
+
         self.logger.info(f"🧠 TrinityEngine initialized successfully. Enabled: {self.enabled}")
 
     async def _retrieve_rag_conversational(self, clean_text: str, top_k: int = 3) -> str:
@@ -321,3 +327,96 @@ class TrinityEngine:
             self.logger.debug("✅ Interaction stored successfully in MAG database.")
         except Exception as e:
             self.logger.error(f"Failed to record interaction in MAG: {e}")
+
+    def _setup_ros_exploration_subs(self):
+        """Sets up ROS 2 subscribers for exploration status and target discovery events."""
+        try:
+            from std_msgs.msg import String
+            self.sub_explore_status = self.node.create_subscription(
+                String,
+                "/frontier_exploration/status",
+                self._on_exploration_status,
+                10
+            )
+            self.sub_target_event = self.node.create_subscription(
+                String,
+                "/exploration/target_event",
+                self._on_exploration_target_event,
+                10
+            )
+            self.logger.info("📡 TrinityEngine: sottoscrizione a /frontier_exploration/status e /exploration/target_event completata.")
+        except Exception as e:
+            self.logger.warning(f"Errore inizializzazione subscription ROS in TrinityEngine: {e}")
+
+    def _on_exploration_status(self, msg):
+        """Aggiorna la telemetria di esplorazione in tempo reale nel CAG."""
+        try:
+            import json
+            data = json.loads(msg.data)
+            is_active = bool(data.get("is_active", False))
+            mode = data.get("mode", "IDLE")
+            target = data.get("search_target")
+            n_frontiers = data.get("cluster_count", 0)
+            if self.cag and hasattr(self.cag, 'environment'):
+                self.cag.environment.update_exploration(
+                    active=is_active,
+                    mode=mode,
+                    target=target,
+                    remaining_frontiers=n_frontiers
+                )
+        except Exception as e:
+            self.logger.debug(f"Errore parsing status esplorazione: {e}")
+
+    def _on_exploration_target_event(self, msg):
+        """Registra eventi di scoperta bersaglio nella memoria autobiografica MAG (SQLite WAL)."""
+        try:
+            import json
+            data = json.loads(msg.data)
+            event_type = data.get("event")
+            if event_type == "TARGET_ACQUIRED":
+                target = data.get("target", "sconosciuto")
+                coords = data.get("target_coordinates", [0.0, 0.0])
+                tx, ty = float(coords[0]), float(coords[1])
+                room = "sconosciuta"
+                if self.cag and hasattr(self.cag, 'environment'):
+                    room = self.cag.environment.room_name
+
+                fact_text = f"Bersaglio '{target}' individuato a coordinate ({tx:.2f}, {ty:.2f}) nella stanza '{room}'"
+                if self.fact_store:
+                    self.fact_store.add_fact(
+                        fact_text=fact_text,
+                        fact_type="SEMANTIC_LANDMARK",
+                        confidence=0.90
+                    )
+                    self.logger.info(f"🧠 Memoria MAG aggiornata: {fact_text}")
+        except Exception as e:
+            self.logger.warning(f"Errore gestione evento target in MAG: {e}")
+
+    def find_target_location(self, target_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Interroga la memoria MAG (Full-Text Search) per coordinate note del target.
+        Ritorna dizionario con coordinate (x, y), stanza e confidenza se trovato.
+        """
+        if not self.mag_db:
+            return None
+        try:
+            import re
+            facts = self.mag_db.search_facts(target_name, limit=5)
+            for fact in facts:
+                text = fact.get("fact_text", "")
+                fact_type = fact.get("fact_type", "")
+                if target_name.lower() in text.lower() or fact_type == "SEMANTIC_LANDMARK":
+                    match = re.search(r'\(?\s*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)\s*\)?', text)
+                    if match:
+                        x = float(match.group(1))
+                        y = float(match.group(2))
+                        return {
+                            "target": target_name,
+                            "coordinates": (x, y),
+                            "confidence": fact.get("confidence", 0.8),
+                            "fact_text": text
+                        }
+        except Exception as e:
+            self.logger.warning(f"Errore ricerca target in MAG per '{target_name}': {e}")
+        return None
+

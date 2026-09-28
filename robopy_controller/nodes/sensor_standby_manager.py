@@ -33,7 +33,7 @@ class SensorStandbyManager(Node):
         super().__init__('sensor_standby_manager')
         
         # --- Parameter Declarations ---
-        self.declare_parameter('idle_timeout_sec', 1800.0)         # Inactivity period to trigger standby (30 mins for testing)
+        self.declare_parameter('idle_timeout_sec', 120.0)          # [v2.0] Ridotto da 1800s a 120s: spegni lidar dopo 2 min di inattività
         self.declare_parameter('imu_accel_threshold', 0.35)        # m/s^2 deviation from gravity (|norm(a) - g|)
         self.declare_parameter('imu_gyro_threshold', 0.15)         # rad/s angular velocity norm (~8.6 deg/s)
         self.declare_parameter('nominal_gravity', 9.81)            # Nominal gravity m/s^2
@@ -75,6 +75,8 @@ class SensorStandbyManager(Node):
         self.create_subscription(Twist, '/cmd_vel', self.cmd_vel_callback, 10, callback_group=self.callback_group)
         self.create_subscription(Odometry, '/odom_wheel', self.odom_callback, 10, callback_group=self.callback_group)
         self.create_subscription(LaserScan, '/scan', self.scan_callback, 10, callback_group=self.callback_group)
+        # [v2.0] Docking trigger: ferma lidar IMMEDIATAMENTE al rientro alla base di ricarica
+        self.create_subscription(Bool, '/robot/docking/trigger', self.docking_trigger_callback, 10, callback_group=self.callback_group)
         
         # --- Service Clients ---
         self.stop_motor_cli = self.create_client(Empty, '/stop_motor', callback_group=self.callback_group)
@@ -95,8 +97,9 @@ class SensorStandbyManager(Node):
         self.publish_power_state("ACTIVE")
         
         self.get_logger().info(
-            f"⚡ SensorStandbyManager initialized. Idle Timeout={self.idle_timeout_sec}s, "
-            f"IMU Accel Threshold={self.imu_accel_threshold} m/s^2, Gyro Threshold={self.imu_gyro_threshold} rad/s"
+            f"⚡ SensorStandbyManager v2.0 initialized. Idle Timeout={self.idle_timeout_sec}s, "
+            f"IMU Accel Threshold={self.imu_accel_threshold} m/s^2, Gyro Threshold={self.imu_gyro_threshold} rad/s. "
+            f"LIDAR auto-stop: {self.idle_timeout_sec:.0f}s inattività o docking trigger."
         )
 
     def publish_motion_gate(self, gate_open: bool, force: bool = False):
@@ -212,6 +215,15 @@ class SensorStandbyManager(Node):
             except Exception as e:
                 self.get_logger().warn(f"Service call {srv_name} failed: {e}")
         future.add_done_callback(_done_cb)
+
+    def docking_trigger_callback(self, msg: Bool):
+        """[v2.0] Ferma il LIDAR immediatamente quando il BMS segnala rientro alla base di ricarica."""
+        if msg.data and self.state == 'ACTIVE':
+            self.get_logger().info(
+                "🔌 [DOCKING] Trigger di rientro alla base ricevuto: "
+                "arresto immediato del LIDAR e standby."
+            )
+            self.trigger_standby()
 
     def trigger_standby(self):
         """Enters power-saving STANDBY state."""

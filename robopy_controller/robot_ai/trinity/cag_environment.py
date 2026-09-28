@@ -19,6 +19,11 @@ class EnvironmentSnapshot:
         self.recognized_humans: List[str] = []
         self.visual_objects: List[str] = []
         self.smart_home_states: Dict[str, Any] = {}
+        # Exploration State Tracking (Frontier Explorer & Hunt Mode)
+        self.exploration_active: bool = False
+        self.exploration_mode: str = "IDLE"  # IDLE, EXPLORE, HUNT
+        self.exploration_target: Optional[str] = None
+        self.remaining_frontiers: int = 0
         self.last_update: float = time.time()
 
     def update_location(
@@ -49,10 +54,24 @@ class EnvironmentSnapshot:
         self.smart_home_states = states
         self.last_update = time.time()
 
+    def update_exploration(
+        self,
+        active: bool,
+        mode: str = "IDLE",
+        target: Optional[str] = None,
+        remaining_frontiers: int = 0
+    ) -> None:
+        """Updates autonomous exploration status for CAG LLM grounding."""
+        self.exploration_active = bool(active)
+        self.exploration_mode = str(mode).upper()
+        self.exploration_target = target if target else None
+        self.remaining_frontiers = max(0, int(remaining_frontiers))
+        self.last_update = time.time()
+
     def to_text(self) -> str:
         """
         Returns a concise, token-efficient environmental summary for LLM CAG.
-        Example: [ENV] Room: salotto (near centroid 0.4m) | Map: casa_piano1 | AMCL cov: 0.042
+        Example: [ENV] Room: salotto (near centroid 0.4m) | Map: casa_piano1 | AMCL cov: 0.042 | Exploration: HUNT(persona, frontiers=3)
         """
         if self.dist_to_centroid is not None:
             room_desc = f"{self.room_name} (near centroid {self.dist_to_centroid:.1f}m)"
@@ -73,5 +92,11 @@ class EnvironmentSnapshot:
             if len(self.visual_objects) > 3:
                 objs += f" (+{len(self.visual_objects)-3} more)"
             parts.append(f"Objs: {objs}")
+
+        if self.exploration_active:
+            if self.exploration_mode == "HUNT" and self.exploration_target:
+                parts.append(f"Exploration: HUNT({self.exploration_target}, frontiers={self.remaining_frontiers})")
+            else:
+                parts.append(f"Exploration: ACTIVE({self.exploration_mode}, frontiers={self.remaining_frontiers})")
             
         return f"[ENV] {' | '.join(parts)}"

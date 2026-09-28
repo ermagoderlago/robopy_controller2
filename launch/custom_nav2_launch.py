@@ -47,6 +47,7 @@ def generate_launch_description():
         'planner_server',
         'behavior_server',
         'bt_navigator',
+        'collision_monitor',
     ]
 
     # Map fully qualified names to relative ones so the node's namespace can be prepended.
@@ -182,6 +183,17 @@ def generate_launch_description():
                 package='nav2_controller',
                 executable='controller_server',
                 name='controller_server',
+                output='screen',
+                respawn=use_respawn,
+                respawn_delay=2.0,
+                parameters=[configured_params],
+                arguments=['--ros-args', '--log-level', log_level],
+                remappings=remappings + [('cmd_vel', 'cmd_vel_nav')],
+            ),
+            Node(
+                package='nav2_collision_monitor',
+                executable='collision_monitor',
+                name='collision_monitor',
                 output='screen',
                 respawn=use_respawn,
                 respawn_delay=2.0,

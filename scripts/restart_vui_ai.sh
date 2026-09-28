@@ -19,7 +19,7 @@ nohup ros2 run robopy_controller respeaker_vui_node --ros-args \
     -p use_sim_time:=False \
     -p stt_gain:=1.8 \
     -p noise_gate_threshold:=120.0 \
-    -p listen_timeout_sec:=180.0 \
+    -p listen_timeout_sec:=8.0 \
     -p wakeword_sensitivity:=0.95 \
     -p enable_barge_in:=true \
     -p barge_in_min_tts_ms:=2500.0 \

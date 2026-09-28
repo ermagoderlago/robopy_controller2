@@ -369,6 +369,33 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
     - Disabilitato `set_initial_pose: false` per evitare reset arbitrario a $(0,0,0)$.
     - Aumentati `max_beams: 120` e `laser_likelihood_max_dist: 2.5` per massimizzare la sensibilità ToF 360°.
 
+---
+
+## 📈 ECO-2026-09-28-001: Nav2 Collision Monitor a 2 Zone, Boost Velocità (+30%), Esplorazione a Frontiere Multi-Criterio (explore_lite) e Integrazione TRINITY (CAG/MAG) con Dismissione NoMaD
+* **Stato:** ✅ **Completato, Testato e Integrato nel Workspace**
+* **Autore:** 🤖 **Antigravity Engine**
+* **DFMEA Correlati:** `FM-EXP-001`, `FM-NAV-001`, `FM-TRI-001`, `FM-NAV-019`
+* **Descrizione:** Riprogettazione complessiva dello stack di navigazione ed esplorazione autonoma:
+  1. Risolte le collisioni frequenti e la lentezza di crociera tramite l'integrazione di `nav2_collision_monitor` (poligoni `Stop` a $[-0.18, 0.22] \times [-0.18, 0.18]\text{ m}$ e `Slowdown` a $[-0.18, 0.35] \times [-0.25, 0.25]\text{ m}$ con ratio $0.70$ rigorosamente superiore alla stiction floor $\approx 0.10\text{ m/s}$) e incremento della velocità massima MPPI da $0.20$ a $0.26\text{ m/s}$ (+30%).
+  2. Implementazione del nodo `frontier_explorer_node.py` (ispirato ad `explore_lite`), con funzione di utilità multi-criterio bilanciata (dimensione, distanza, bias semantico), watchdog anti-stuck a 45s, blacklist circolare $R=0.20\text{ m}$ e Dual Mode (`EXPLORE` vs `HUNT`).
+  3. Integrazione con la memoria triadica TRINITY: telemetria istantanea in CAG Aggregator ($< 15$ token), archiviazione landmark semantici in SQLite WAL (MAG) al rilevamento target, e lookup preventivo delle posizioni note.
+  4. Dismissione completa di NoMaD: `NomadExplorationSkill` migrata come wrapper di retrocompatibilità che eredita da `FrontierExplorationSkill`, con rimozione di NoMaD da `restart_hailo.sh`.
+* **File Coinvolti:**
+  - `robopy_controller/config/nav2_params_jazzy.yaml`
+  - `launch/custom_nav2_launch.py`
+  - `robopy_controller/nodes/semantic_costmap_injector.py`
+  - `robopy_controller/nodes/frontier_explorer_node.py`
+  - `robopy_controller/robot_ai/skills/builtin/frontier_exploration_skill.py`
+  - `robopy_controller/robot_ai/skills/builtin/nomad_exploration_skill.py`
+  - `robopy_controller/robot_ai/trinity/cag_environment.py`
+  - `robopy_controller/robot_ai/trinity/mag_zettelkasten.py`
+  - `robopy_controller/robot_ai/trinity/trinity_engine.py`
+  - `scripts/frontier_explorer_node`
+  - `CMakeLists.txt`
+  - `restart_hailo.sh`
+  - `marcus_robot_guide.md`
+
+
 
 
 

@@ -146,7 +146,7 @@ class ReSpeakerVUINode(Node):
         self.declare_parameter('noise_gate_threshold',  1500.0)
         self.declare_parameter('wakeword_sensitivity',  0.92)  # default alzato
         self.declare_parameter('playback_prebuffer',    2)
-        self.declare_parameter('listen_timeout_sec',    180.0)  # [v21.0] Finestra conversazione estesa 180s (3 min) dopo parola chiave
+        self.declare_parameter('listen_timeout_sec',    8.0)    # [v22.0] Finestra conversazione 8s (5-10s) dopo parola chiave, poi standby
         self.declare_parameter('max_silence_frames',    35)     # 35 * 20ms = 700ms di pausa naturale
         self.declare_parameter('device_name',            'ReSpeaker')
         self.declare_parameter('sample_rate',            16000)
@@ -798,7 +798,10 @@ class ReSpeakerVUINode(Node):
         """
         Pubblica i PRE_ROLL_FRAMES frame come un singolo messaggio ROS 2.
         Usa memoryview su _preroll_ba per evitare copie intermedie.
+        Pubblica solo se Marcus è in stato di ascolto attivo (_ev_listening).
         """
+        if not self._ev_listening.is_set():
+            return
         mv = memoryview(self._preroll_ba)
         for i in range(PRE_ROLL_FRAMES):
             idx   = (self._ring_write_idx - PRE_ROLL_FRAMES + i) % MAX_RING_FRAMES
@@ -810,13 +813,18 @@ class ReSpeakerVUINode(Node):
         self._pub_speech.publish(msg)
 
     def _publish_audio_frame(self, frame_int16: np.ndarray) -> None:
+        """Pubblica frame audio a Gemini solo se Marcus è in ascolto attivo."""
+        if not self._ev_listening.is_set():
+            return
         msg      = AudioData()
         msg.data = frame_int16.tobytes()     # [DSP-HOT] tobytes() su view 320 campioni
         self._pub_speech.publish(msg)
 
     def _publish_end_of_speech(self) -> None:
+        """Invia frame EOS solo se Marcus era in ascolto attivo."""
+        if not self._ev_listening.is_set():
+            return
         # [v19.6 BUG-1] Forza Vosk a emettere qualsiasi testo ancora in buffer interno
-        # CRITICO: senza questo, frasi brevi o wake word rapide spariscono nel buffer Vosk
         if hasattr(self, 'vosk_mgr') and self.vosk_mgr:
             try:
                 self.vosk_mgr.force_flush()
@@ -828,7 +836,7 @@ class ReSpeakerVUINode(Node):
         self.get_logger().info("[VAD] <<< VOICE END: Segnale End-of-Speech inviato a Gemini.")
         # [v14.1] LED THINKING (blu flicker) = stiamo aspettando la risposta di Gemini
         self.set_led('THINKING')
-        # [v6.1] Reset del timer di ascolto: i 3 minuti ripartono dall'ultima parola pronunciata
+        # [v22.0] Reset del timer di ascolto (8s)
         self._start_listen_timer()
 
     # ------------------------------------------------------------------ #
@@ -851,10 +859,11 @@ class ReSpeakerVUINode(Node):
         # [FM-VUI-033] Deve elevarsi sopra il rumore ambientale boosted, senza venire abbattuta da min()
         current_threshold = self.noise_gate_threshold
         if getattr(self, 'enable_adaptive_threshold', True):
-            adaptive_target = max(self.noise_gate_threshold, getattr(self, '_ambient_noise_ema', 30.0) * self.stt_gain * 1.3)
+            # [FM-VUI-033] Ridotto multiplier da 1.3 a 1.1 per VAD più permissivo
+            adaptive_target = max(self.noise_gate_threshold, getattr(self, '_ambient_noise_ema', 30.0) * self.stt_gain * 1.1)
             current_threshold = max(current_threshold, adaptive_target)
         if self._is_tts_speaking:
-            current_threshold *= 1.3
+            current_threshold *= 1.2
             
         if rms < current_threshold:
             is_voice = False
@@ -1007,9 +1016,20 @@ class ReSpeakerVUINode(Node):
                 msg_enroll.data = target_name
                 self._speaker_enroll_pub.publish(msg_enroll)
 
-        wakeword_tokens = ["marcus", "marco", "marcos", "markus", "robot", "ascolta", "plauso"]
-        if any(w in text_lower for w in wakeword_tokens) and not is_speaker_active:
-            self._on_wakeword_detected()
+        # [v21.0] Solo token strettamente uguali a "marcus"/"markus" per evitare falsi positivi su
+        # parole comuni italiane come "marco", "robot", "ascolta". Aggiunto guard: se siamo
+        # già in sessione di ascolto attiva (_ev_listening), NON riattivare un secondo wake word
+        # perché l'utente sta già parlando con Marcus e potrebbe dire frasi come "ascolta..."
+        wakeword_tokens = ["marcus", "markus"]
+        already_listening = self._ev_listening.is_set()
+
+        # [v22.0] Rilevamento Wake Word: token strettamente "marcus" / "markus"
+        wakeword_tokens = ["marcus", "markus"]
+        already_listening = self._ev_listening.is_set()
+
+        if any(w in text_lower for w in wakeword_tokens):
+            if not is_speaker_active and not already_listening:
+                self._on_wakeword_detected()
 
     def _on_wakeword_detected(self):
         """Gestisce le azioni da compiere quando viene rilevata la wake word."""
@@ -1018,7 +1038,7 @@ class ReSpeakerVUINode(Node):
             return  # Debounce anti-doppio beep ravvicinato (2s)
         self._last_wakeword_time = now
 
-        self.get_logger().info("WAKE WORD 'MARCUS' RILEVATA!")
+        self.get_logger().info("WAKE WORD 'MARCUS' RILEVATA! Avvio finestra conversazione (8s)...")
         self._ev_listening.set()
         self.set_led('LISTENING')
 
@@ -1054,10 +1074,6 @@ class ReSpeakerVUINode(Node):
                 if not hasattr(self, 'inherited_context_pub'):
                     self.inherited_context_pub = self.create_publisher(String, '/ai/conversation/context_inherited', 10)
                 self.inherited_context_pub.publish(ctx_msg)
-
-
-    # ------------------------------------------------------------------ #
-    # Callback audio di input — eseguita dal thread interno PyAudio
     # Si limita ad accodare i byte raw nella coda thread-safe
     # ------------------------------------------------------------------ #
     def _audio_input_callback(self, in_data, frame_count, time_info, status):
@@ -1218,10 +1234,11 @@ class ReSpeakerVUINode(Node):
                 # A. Auto-regolazione soglia noise gate (se abilitata) calibrata su HPF per far-field
                 if self.enable_adaptive_threshold:
                     boosted_ambient = self._ambient_noise_ema * self.stt_gain
-                    # [v20.0] Soglia del gate dinamica (isteresi). Meno aggressiva (1.15x) e clamp più basso (350) se attento.
-                    ambient_multiplier = 1.15 if is_attentive else 1.30
-                    base_clamp = 350.0 if is_attentive else 400.0
-                    self.noise_gate_threshold = float(np.clip(boosted_ambient * ambient_multiplier + 250.0, base_clamp, 4000.0))
+                    # [v20.0] Soglia del gate dinamica (isteresi).
+                    # [FM-VUI-033] Multiplier e offset ridotti drasticamente dato che Gemini filtra le trascrizioni rumorose.
+                    ambient_multiplier = 1.05 if is_attentive else 1.10
+                    base_clamp = 150.0 if is_attentive else 250.0
+                    self.noise_gate_threshold = float(np.clip(boosted_ambient * ambient_multiplier + 50.0, base_clamp, 4000.0))
 
                 # B. Taratura adattiva del timeout silenzio (se abilitato)
                 if self.enable_adaptive_silence:

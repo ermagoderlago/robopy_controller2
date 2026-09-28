@@ -61,7 +61,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
 
-from sensor_msgs.msg import Image, CompressedImage, Imu, Range
+from sensor_msgs.msg import Image, CompressedImage, Imu, Range, LaserScan
 from nav_msgs.msg import Odometry, Path
 from geometry_msgs.msg import Twist, PoseStamped
 from std_msgs.msg import String, Float32, Bool
@@ -111,10 +111,10 @@ class StallSlipDetector:
         self,
         stall_vel_cmd_thresh: float = 0.09,
         stall_wheel_vel_thresh: float = 0.02,
-        stall_duration_sec: float = 1.50,
+        stall_duration_sec: float = 2.00,
         slip_wheel_vel_thresh: float = 0.05,
         slip_vio_vel_thresh: float = 0.015,
-        slip_duration_sec: float = 0.60,
+        slip_duration_sec: float = 0.80,
         enable_vio_slip: bool = False
     ):
         self.stall_vel_cmd_thresh = float(stall_vel_cmd_thresh)
@@ -362,10 +362,10 @@ class IMUImpactDetector:
         impact_accel_threshold: float = 2.5,
         impact_jerk_threshold: float = 28.0,
         stop_duration_sec: float = 0.20,
-        backoff_speed: float = 0.10,
-        backoff_duration_sec: float = 0.80,
-        turn_speed: float = 0.35,
-        turn_duration_sec: float = 0.50,
+        backoff_speed: float = 0.14,
+        backoff_duration_sec: float = 1.80,
+        turn_speed: float = 0.70,
+        turn_duration_sec: float = 1.60,
         bias_alpha: float = 0.02,
         lpf_alpha: float = 0.25,
         warmup_duration_sec: float = 1.00,
@@ -395,6 +395,7 @@ class IMUImpactDetector:
         self.cooldown_until = 0.0
         self.state = "IDLE"  # "IDLE", "COLLISION_STOP", "COLLISION_BACKOFF", "REPLAN_RECOVERY"
         self.state_start_time = 0.0
+        self.turn_direction = 1.0  # +1.0 for Left, -1.0 for Right (steered toward maximum LiDAR clearance)
         self.total_impacts = 0
         self.last_impact_magnitude = 0.0
         self.debounce_counter = 0
@@ -403,6 +404,7 @@ class IMUImpactDetector:
         """Resets the detector and FSM to IDLE state."""
         self.state = "IDLE"
         self.state_start_time = 0.0
+        self.turn_direction = 1.0
         self.debounce_counter = 0
         self.cooldown_until = 0.0
 
@@ -475,10 +477,12 @@ class IMUImpactDetector:
 
         return False
 
-    def update_fsm(self, current_time: float) -> Tuple[str, float, float, bool]:
+    def update_fsm(self, current_time: float, rear_blocked: bool = False) -> Tuple[str, float, float, bool]:
         """
         Updates the recovery FSM and returns:
         (current_state, linear_v, angular_w, should_reset_pipeline)
+        If rear_blocked is True, the reverse backoff maneuver is terminated immediately
+        to avoid colliding with obstacles/walls behind the robot.
         """
         if self.state == "IDLE":
             return ("IDLE", 0.0, 0.0, False)
@@ -489,23 +493,31 @@ class IMUImpactDetector:
             if elapsed < self.stop_duration_sec:
                 return ("COLLISION_STOP", 0.0, 0.0, False)
             else:
-                # Transition to BACKOFF
+                # Transition to BACKOFF (unless already blocked at the rear)
+                if rear_blocked:
+                    self.state = "REPLAN_RECOVERY"
+                    self.state_start_time = current_time
+                    w_turn = self.turn_direction * self.turn_speed
+                    return ("REPLAN_RECOVERY", 0.0, w_turn, True)
                 self.state = "COLLISION_BACKOFF"
                 self.state_start_time = current_time
                 return ("COLLISION_BACKOFF", -self.backoff_speed, 0.0, False)
 
         elif self.state == "COLLISION_BACKOFF":
-            if elapsed < self.backoff_duration_sec:
-                return ("COLLISION_BACKOFF", -self.backoff_speed, 0.0, False)
-            else:
+            # If rear becomes blocked (< 0.20m) or backoff duration elapsed, switch to turn
+            if rear_blocked or elapsed >= self.backoff_duration_sec:
                 # Transition to REPLAN_RECOVERY
                 self.state = "REPLAN_RECOVERY"
                 self.state_start_time = current_time
-                return ("REPLAN_RECOVERY", 0.0, self.turn_speed, True)
+                w_turn = self.turn_direction * self.turn_speed
+                return ("REPLAN_RECOVERY", 0.0, w_turn, True)
+            else:
+                return ("COLLISION_BACKOFF", -self.backoff_speed, 0.0, False)
 
         elif self.state == "REPLAN_RECOVERY":
+            w_turn = self.turn_direction * self.turn_speed
             if elapsed < self.turn_duration_sec:
-                return ("REPLAN_RECOVERY", 0.0, self.turn_speed, False)
+                return ("REPLAN_RECOVERY", 0.0, w_turn, False)
             else:
                 # Recovery completed! Return to IDLE
                 self.state = "IDLE"
@@ -553,10 +565,10 @@ class NomadReactivePipelineNode(Node):
         self.declare_parameter('enable_impact_recovery', True)
         self.declare_parameter('impact_accel_threshold', 2.5)  # m/s² (calibrated for low-speed impacts)
         self.declare_parameter('impact_jerk_threshold', 28.0)  # m/s³ (calibrated with LPF)
-        self.declare_parameter('backoff_speed', 0.10)          # m/s
-        self.declare_parameter('backoff_duration_sec', 0.80)   # seconds (arretramento ~8cm)
-        self.declare_parameter('backoff_turn_speed', 0.35)     # rad/s
-        self.declare_parameter('backoff_turn_duration_sec', 0.50) # seconds
+        self.declare_parameter('backoff_speed', 0.14)          # m/s
+        self.declare_parameter('backoff_duration_sec', 1.80)   # seconds (arretramento ~25cm)
+        self.declare_parameter('backoff_turn_speed', 0.70)     # rad/s
+        self.declare_parameter('backoff_turn_duration_sec', 1.60) # seconds (rotazione ~64-90 deg)
 
         # Ultrasonic Hardware Proximity Guard & White Wall Protection
         self.declare_parameter('ultrasonic_topic', '/ultrasonic_range')
@@ -564,6 +576,13 @@ class NomadReactivePipelineNode(Node):
         self.declare_parameter('wheel_odom_topic', '/odom')    # Default: Primary wheel odometry from waveshare_motor_driver
         self.declare_parameter('enable_vio_slip_check', False) # Disabled when VO is inactive to prevent false slip alarms
         self.declare_parameter('laplacian_var_thresh', 18.0)   # Threshold for featureless white walls
+
+        # 360° RPLIDAR C1 Safety Shield & Virtual Bumper Parameters (/scan)
+        self.declare_parameter('scan_topic', '/scan')
+        self.declare_parameter('enable_lidar_safety', True)
+        self.declare_parameter('lidar_critical_stop_dist', 0.38) # meters (23cm clearance from front bumper)
+        self.declare_parameter('lidar_slowdown_dist', 0.75)      # meters (initiate proactive deceleration)
+        self.declare_parameter('lidar_repulsion_gain', 0.35)     # APF lateral repulsion gain
 
         self.image_topic = self.get_parameter('image_topic').get_parameter_value().string_value
         self.odom_topic = self.get_parameter('odom_topic').get_parameter_value().string_value
@@ -600,6 +619,12 @@ class NomadReactivePipelineNode(Node):
         self.wheel_odom_topic = self.get_parameter('wheel_odom_topic').get_parameter_value().string_value
         self.enable_vio_slip_check = bool(self.get_parameter('enable_vio_slip_check').get_parameter_value().bool_value)
         self.laplacian_var_thresh = float(self.get_parameter('laplacian_var_thresh').get_parameter_value().double_value)
+
+        self.scan_topic = self.get_parameter('scan_topic').get_parameter_value().string_value
+        self.enable_lidar_safety = self.get_parameter('enable_lidar_safety').get_parameter_value().bool_value
+        self.lidar_critical_stop_dist = float(self.get_parameter('lidar_critical_stop_dist').get_parameter_value().double_value)
+        self.lidar_slowdown_dist = float(self.get_parameter('lidar_slowdown_dist').get_parameter_value().double_value)
+        self.lidar_repulsion_gain = float(self.get_parameter('lidar_repulsion_gain').get_parameter_value().double_value)
 
         self.bridge = CvBridge()
 
@@ -644,6 +669,13 @@ class NomadReactivePipelineNode(Node):
         self.last_cmd_w = 0.0
         self.is_white_wall_detected = False
         self.is_ultrasonic_guard_active = False
+        # LiDAR 360° Safety Shield Clearances (RPLIDAR C1 on /scan, base_link frame)
+        self.lidar_front_dist = 5.0
+        self.lidar_front_left_dist = 5.0
+        self.lidar_front_right_dist = 5.0
+        self.lidar_rear_dist = 5.0
+        self.last_scan_time = 0.0
+        self.is_lidar_guard_active = False
 
         self.declare_parameter('enable_on_startup', False)     # Safety interlock: start disarmed by default
         self.enable_on_startup = self.get_parameter('enable_on_startup').get_parameter_value().bool_value
@@ -706,6 +738,13 @@ class NomadReactivePipelineNode(Node):
         self.sub_wheel_odom = self.create_subscription(Odometry, self.wheel_odom_topic, self._wheel_odom_callback, qos_reliable)
         self.sub_ultrasonic = self.create_subscription(Range, self.ultrasonic_topic, self._ultrasonic_callback, qos_sensor)
         self.sub_imu = self.create_subscription(Imu, self.imu_topic, self._imu_callback, qos_sensor)
+        qos_scan = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            durability=DurabilityPolicy.VOLATILE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=10
+        )
+        self.sub_scan = self.create_subscription(LaserScan, self.scan_topic, self._scan_callback, qos_scan)
         self.sub_enable = self.create_subscription(Bool, '/nomad/enable', self._enable_callback, qos_reliable)
         self.sub_mode = self.create_subscription(String, '/nomad/set_mode', self._mode_callback, qos_reliable)
 
@@ -802,6 +841,60 @@ class NomadReactivePipelineNode(Node):
             dist = float(msg.range)
             if not math.isnan(dist) and dist > 0.0:
                 self.latest_ultrasonic_dist = dist
+        except Exception:
+            pass
+
+    def _scan_callback(self, msg: LaserScan) -> None:
+        """
+        Processes 360° RPLIDAR C1 laser scan into sector clearances in base_link frame.
+        LiDAR mounting: x=0.08m, yaw=pi (180°) relative to base_link.
+        Transformation:
+            x_base = 0.08 - r * math.cos(th_laser)
+            y_base = -r * math.sin(th_laser)
+        """
+        try:
+            ranges = msg.ranges
+            n_rays = len(ranges)
+            if n_rays == 0:
+                return
+
+            angle_min = msg.angle_min
+            angle_inc = msg.angle_increment
+            
+            front_dists = []
+            fl_dists = []
+            fr_dists = []
+            rear_dists = []
+
+            for i in range(n_rays):
+                r = ranges[i]
+                if math.isnan(r) or math.isinf(r) or r < 0.06 or r > 8.0:
+                    continue
+
+                th_laser = angle_min + i * angle_inc
+                x_base = 0.08 - r * math.cos(th_laser)
+                y_base = -r * math.sin(th_laser)
+
+                # Front collision corridor (chassis width ~0.28m, monitor +/-0.22m corridor)
+                if x_base > 0.0 and abs(y_base) <= 0.22:
+                    front_dists.append(x_base)
+                
+                # Front-left and Front-right quadrants (x > 0.05m)
+                if x_base > 0.05:
+                    if y_base > 0.10:
+                        fl_dists.append(math.hypot(x_base, y_base))
+                    elif y_base < -0.10:
+                        fr_dists.append(math.hypot(x_base, y_base))
+                
+                # Rear corridor
+                if x_base < -0.05 and abs(y_base) <= 0.22:
+                    rear_dists.append(abs(x_base))
+
+            self.lidar_front_dist = min(front_dists) if front_dists else 5.0
+            self.lidar_front_left_dist = min(fl_dists) if fl_dists else 5.0
+            self.lidar_front_right_dist = min(fr_dists) if fr_dists else 5.0
+            self.lidar_rear_dist = min(rear_dists) if rear_dists else 5.0
+            self.last_scan_time = time.monotonic()
         except Exception:
             pass
 
@@ -906,8 +999,9 @@ class NomadReactivePipelineNode(Node):
         # ---------------------------------------------------------------------
         # Priority 1: Evaluate IMU Collision Recovery FSM
         # ---------------------------------------------------------------------
+        rear_blocked = (self.lidar_rear_dist < 0.20)
         if self.enable_impact_recovery:
-            fsm_state, v_fsm, w_fsm, should_reset = self.impact_detector.update_fsm(now_mono)
+            fsm_state, v_fsm, w_fsm, should_reset = self.impact_detector.update_fsm(now_mono, rear_blocked=rear_blocked)
             if fsm_state != "IDLE":
                 if should_reset:
                     self.ema_filter.reset()
@@ -941,13 +1035,15 @@ class NomadReactivePipelineNode(Node):
             now_mono=now_mono
         )
         if is_stall_slip and self.impact_detector.state == "IDLE":
+            turn_dir = 1.0 if self.lidar_front_left_dist >= self.lidar_front_right_dist else -1.0
             self.get_logger().warn(
                 f"🚨 [MOTOR-STALL/SLIP] Triggered ({stall_reason})! "
                 f"Cmd_V={self.last_cmd_v:.2f}, Cmd_W={self.last_cmd_w:.2f}, "
                 f"Wheel_V={self.latest_wheel_speed:.2f}, Wheel_W={self.latest_wheel_yaw_rate:.2f}, "
                 f"VIO_V={self.latest_vio_speed:.2f}. "
-                f"Engaging Emergency Stop -> Safe Backoff -> Replan."
+                f"Engaging Emergency Stop -> Safe Backoff -> Turn {'LEFT' if turn_dir > 0 else 'RIGHT'}."
             )
+            self.impact_detector.turn_direction = turn_dir
             self.impact_detector.state = "COLLISION_STOP"
             self.impact_detector.state_start_time = now_mono
             self.impact_detector.total_impacts += 1
@@ -966,10 +1062,47 @@ class NomadReactivePipelineNode(Node):
                 "wheel_v": round(self.latest_wheel_speed, 3),
                 "wheel_w": round(self.latest_wheel_yaw_rate, 3),
                 "vio_v": round(self.latest_vio_speed, 3),
+                "turn_direction": "LEFT" if turn_dir > 0 else "RIGHT",
                 "recovery_state": "COLLISION_STOP"
             })
             self.pub_collision_event.publish(evt_msg)
             return
+
+        # ---------------------------------------------------------------------
+        # Priority 2.5: 360° RPLIDAR C1 Virtual Bumper & Proximity Guard (/scan)
+        # ---------------------------------------------------------------------
+        scan_fresh = (now_mono - self.last_scan_time) < 0.50
+        if self.enable_lidar_safety and scan_fresh and self.lidar_front_dist < self.lidar_critical_stop_dist:
+            self.is_lidar_guard_active = True
+            turn_dir = 1.0 if self.lidar_front_left_dist >= self.lidar_front_right_dist else -1.0
+            self.get_logger().warn(
+                f"🚨 [LIDAR-COLLISION-GUARD] Obstacle at {self.lidar_front_dist:.2f}m in front corridor! "
+                f"Engaging Emergency Stop -> Safe Backoff -> Turn {'LEFT' if turn_dir > 0 else 'RIGHT'}."
+            )
+            self.impact_detector.turn_direction = turn_dir
+            self.impact_detector.state = "COLLISION_STOP"
+            self.impact_detector.state_start_time = now_mono
+            self.impact_detector.total_impacts += 1
+            self.impact_detector.last_impact_magnitude = 2.5
+            self._stop_robot()
+            self.last_cmd_v = 0.0
+            self.last_cmd_w = 0.0
+            self.last_successful_inference_time = now_mono
+
+            evt_msg = String()
+            evt_msg.data = json.dumps({
+                "timestamp": now_mono,
+                "event": "LIDAR_PROXIMITY_GUARD",
+                "front_dist": round(self.lidar_front_dist, 3),
+                "front_left_dist": round(self.lidar_front_left_dist, 3),
+                "front_right_dist": round(self.lidar_front_right_dist, 3),
+                "turn_direction": "LEFT" if turn_dir > 0 else "RIGHT",
+                "recovery_state": "COLLISION_STOP"
+            })
+            self.pub_collision_event.publish(evt_msg)
+            return
+        else:
+            self.is_lidar_guard_active = False
 
         # ---------------------------------------------------------------------
         # Priority 3: Hardware Ultrasonic Proximity Guard (/ultrasonic_range)
@@ -1017,6 +1150,25 @@ class NomadReactivePipelineNode(Node):
         # Kinetic Control via Pure Pursuit
         speed_limit = self.fallback_linear_speed if self.pipeline_mode == "ACTION_CHUNKING" else self.max_linear_speed
         twist_cmd = self.controller.compute_cmd_vel(smoothed_waypoints, speed_limit_override=speed_limit)
+
+        # Proactive LiDAR Obstacle Repulsion & Speed Scaling
+        if self.enable_lidar_safety and scan_fresh:
+            if self.lidar_front_dist < self.lidar_slowdown_dist:
+                # Decelerate smoothly as we approach obstacles
+                dist_factor = max(0.15, (self.lidar_front_dist - self.lidar_critical_stop_dist) / max(0.05, self.lidar_slowdown_dist - self.lidar_critical_stop_dist))
+                twist_cmd.linear.x *= dist_factor
+            
+            # Artificial Potential Field (APF) repulsive steering away from encroaching side walls
+            fl = max(0.20, self.lidar_front_left_dist)
+            fr = max(0.20, self.lidar_front_right_dist)
+            if fl < 0.65 or fr < 0.65:
+                repulsion_w = (1.0 / fr - 1.0 / fl) * self.lidar_repulsion_gain
+                twist_cmd.angular.z = float(np.clip(
+                    twist_cmd.angular.z + repulsion_w,
+                    -self.max_angular_speed,
+                    self.max_angular_speed
+                ))
+
         self.pub_cmd_vel.publish(twist_cmd)
         self.last_cmd_v = float(twist_cmd.linear.x)
         self.last_cmd_w = float(twist_cmd.angular.z)
@@ -1169,6 +1321,11 @@ class NomadReactivePipelineNode(Node):
             "white_wall_detected": self.is_white_wall_detected,
             "ultrasonic_dist_m": round(self.latest_ultrasonic_dist, 2),
             "ultrasonic_guard_active": self.is_ultrasonic_guard_active,
+            "lidar_front_dist_m": round(self.lidar_front_dist, 2),
+            "lidar_rear_dist_m": round(self.lidar_rear_dist, 2),
+            "lidar_front_left_dist_m": round(self.lidar_front_left_dist, 2),
+            "lidar_front_right_dist_m": round(self.lidar_front_right_dist, 2),
+            "lidar_guard_active": self.is_lidar_guard_active,
             "wheel_speed_mps": round(self.latest_wheel_speed, 3),
             "vio_speed_mps": round(self.latest_vio_speed, 3),
             "status": "HEALTHY" if self.watchdog_trips == 0 and self.impact_detector.state == "IDLE" else "RECOVERY"

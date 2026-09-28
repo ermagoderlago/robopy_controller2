@@ -147,6 +147,7 @@ pkill -9 -f foxglove_bridge || true
 pkill -9 -f foxglove_nav2_bridge || true
 pkill -9 -f nomad_navigator_node || true
 pkill -9 -f nomad_reactive_pipeline_node || true
+pkill -9 -f frontier_explorer_node || true
 pkill -9 -f vpr_topological_graph_node || true
 pkill -9 -f sensor_standby_manager || true
 
@@ -194,7 +195,7 @@ echo "⚙️ Starting waveshare_motor_driver..."
 # Auto-sync updated python nodes to install site-packages and lib directory for immediate deployment
 LIB_DEST="/mnt/ssd/robopy_controller_host/install/robopy_controller/lib/robopy_controller"
 SITE_DEST="/mnt/ssd/robopy_controller_host/install/robopy_controller/lib/python3.11/site-packages/robopy_controller/nodes"
-for node_file in waveshare_motor_driver.py semantic_costmap_injector.py nomad_reactive_pipeline_node.py sensor_standby_manager.py robot_health_supervisor.py battery_manager_node.py; do
+for node_file in waveshare_motor_driver.py semantic_costmap_injector.py frontier_explorer_node.py sensor_standby_manager.py robot_health_supervisor.py battery_manager_node.py; do
     src_file="/mnt/ssd/robopy_controller_host/robopy_controller/nodes/$node_file"
     if [ -f "$src_file" ]; then
         cp -u "$src_file" "$SITE_DEST/$node_file" 2>/dev/null || true
@@ -374,7 +375,7 @@ nohup ros2 run robopy_controller respeaker_vui_node --ros-args \
     -p use_sim_time:=False \
     -p stt_gain:=1.8 \
     -p noise_gate_threshold:=120.0 \
-    -p listen_timeout_sec:=180.0 \
+    -p listen_timeout_sec:=8.0 \
     -p wakeword_sensitivity:=0.95 \
     -p enable_barge_in:=true \
     -p barge_in_min_tts_ms:=2500.0 \
@@ -443,11 +444,11 @@ echo "🧱 Starting semantic_costmap_injector (Hailo 3D Obstacle & Costmap Fusio
 nohup ros2 run robopy_controller semantic_costmap_injector \
     > /home/robopy/robopy/logs/semantic_costmap_injector.log 2>&1 &
 
-echo "🧭 Starting nomad_reactive_pipeline_node (NoMaD v2 Reactive Pipeline - Safety Disarmed on boot)..."
-> /home/robopy/robopy/logs/nomad_reactive_pipeline_node.log
-nohup python3 -u /mnt/ssd/robopy_controller_host/install/robopy_controller/lib/python3.11/site-packages/robopy_controller/nodes/nomad_reactive_pipeline_node.py \
-    --ros-args -p cmd_vel_topic:=/cmd_vel -p image_topic:=/rgb/image -p wheel_odom_topic:=/odom -p enable_on_startup:=false \
-    </dev/null > /home/robopy/robopy/logs/nomad_reactive_pipeline_node.log 2>&1 &
+echo "🗺️ Starting frontier_explorer_node (Autonomous Frontier Exploration with Semantic Bias & Anti-Loop)..."
+> /home/robopy/robopy/logs/frontier_explorer_node.log
+nohup python3 -u /mnt/ssd/robopy_controller_host/install/robopy_controller/lib/python3.11/site-packages/robopy_controller/nodes/frontier_explorer_node.py \
+    --ros-args -p map_topic:=/map -p cmd_vel_topic:=/cmd_vel \
+    </dev/null > /home/robopy/robopy/logs/frontier_explorer_node.log 2>&1 &
 
 echo "👥 Starting engagement_monitor (HRI Gaze/Prossemic)..."
 > /home/robopy/robopy/logs/engagement_monitor.log

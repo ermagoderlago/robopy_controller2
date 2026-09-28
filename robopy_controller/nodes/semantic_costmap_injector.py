@@ -19,7 +19,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 
-from std_msgs.msg import Header
+from std_msgs.msg import Header, String, Bool
 from sensor_msgs.msg import PointCloud2, PointField, Image
 import sensor_msgs_py.point_cloud2 as pc2
 from geometry_msgs.msg import Point, PointStamped
@@ -60,18 +60,27 @@ class SemanticCostmapInjector(Node):
             'door', 'wall', 'muro', 'ostacolo', 'persona', 'mobile'
         ])
 
+        # Semantic Social Navigation & Target margins
+        self.declare_parameter('social_margin_m', 0.55)  # Raggio di rispetto sociale attorno a persone
+        self.declare_parameter('target_margin_m', 0.10)  # Margine ridotto per il target cercato per consentire avvicinamento
+
         self.decay_time = float(self.get_parameter('decay_time_sec').value)
         self.min_confidence = float(self.get_parameter('min_obstacle_confidence').value)
         self.inflation_radius = float(self.get_parameter('inflation_radius_m').value)
         self.costmap_frame = self.get_parameter('costmap_frame').value
         self.grid_res = float(self.get_parameter('grid_resolution').value)
         self.max_obstacles = int(self.get_parameter('max_active_obstacles').value)
+        self.social_margin = float(self.get_parameter('social_margin_m').value)
+        self.target_margin = float(self.get_parameter('target_margin_m').value)
 
         self.enable_negative_obstacles = bool(self.get_parameter('enable_negative_obstacles').value)
         self.depth_topic = self.get_parameter('depth_topic').value
         self.min_drop_height = float(self.get_parameter('min_drop_height_m').value)
         self.max_floor_dist = float(self.get_parameter('max_floor_distance_m').value)
         self.allowed_classes = set(c.lower() for c in self.get_parameter('obstacle_classes').value)
+
+        # Active search target for semantic biased exploration and goal reaching
+        self.current_search_target = ""
 
         # Depth cache for 2D bbox deprojection
         self.latest_depth_map = None
@@ -102,7 +111,10 @@ class SemanticCostmapInjector(Node):
             SemanticObjectArray, '/hailo/vlm/semantic_objects', self.objects_callback, qos_reliable
         )
 
-        from std_msgs.msg import Bool
+        self.sub_target = self.create_subscription(
+            String, '/exploration/search_target', self.target_callback, qos_reliable
+        )
+
         self.sub_clear = self.create_subscription(
             Bool, '/semantic_costmap/clear', self.clear_obstacles_callback, qos_reliable
         )
@@ -138,6 +150,22 @@ class SemanticCostmapInjector(Node):
             self.active_obstacles.clear()
             self.get_logger().info(f"Costmap Flush: rimossi {count} ostacoli attivi per ricalibrazione fotocamera.")
 
+    def target_callback(self, msg: String):
+        """Riceve l'obiettivo attivo di ricerca semantica da TRINITY / explore_lite"""
+        target_name = msg.data.strip().lower()
+        with self.lock:
+            self.current_search_target = target_name
+        self.get_logger().info(f"🎯 Target semantico di ricerca impostato: '{target_name}'")
+
+    def _categorize_object(self, label: str, sem_class: str) -> str:
+        """Categorizza l'oggetto semantico in LETHAL, SOCIAL o DYNAMIC per modulare il costo"""
+        l_str = f"{label} {sem_class}".lower()
+        if any(k in l_str for k in ['negative_obstacle', 'wall', 'muro', 'door', 'porta', 'scale', 'stairs', 'cliff', 'gradino']):
+            return 'LETHAL'
+        if any(k in l_str for k in ['person', 'persona', 'human', 'uomo', 'donna', 'bambino']):
+            return 'SOCIAL'
+        return 'DYNAMIC'
+
     def _is_allowed_class(self, sem_class: str, label: str) -> bool:
         """Verifica se la classe o la label dell'oggetto fa parte della whitelist ostacoli."""
         if 'all' in self.allowed_classes:
@@ -156,6 +184,12 @@ class SemanticCostmapInjector(Node):
 
             if not self._is_allowed_class(obj.semantic_class, obj.label):
                 continue
+
+            cat = self._categorize_object(obj.label, obj.semantic_class)
+            is_target = bool(self.current_search_target and (
+                self.current_search_target in obj.label.lower() or
+                self.current_search_target in obj.semantic_class.lower()
+            ))
 
             try:
                 frame_id = msg.header.frame_id if msg.header.frame_id else 'camera_optical_frame'
@@ -245,7 +279,9 @@ class SemanticCostmapInjector(Node):
                             'timestamp': time.time(),
                             'label': obj.label,
                             'width': width_est,
-                            'depth': depth_est
+                            'depth': depth_est,
+                            'category': cat,
+                            'is_target': is_target,
                         }
                 else:
                     self.get_logger().warn(f"TF: Impossibile trasformare da {frame_id} a {self.costmap_frame}", throttle_duration_sec=5.0)
@@ -380,11 +416,13 @@ class SemanticCostmapInjector(Node):
                 'timestamp': timestamp,
                 'label': 'negative_obstacle',
                 'width': 0.25,
-                'depth': 0.25
+                'depth': 0.25,
+                'category': 'LETHAL',
+                'is_target': False,
             }
 
     def update_and_publish(self):
-        """Pulisce gli ostacoli scaduti e pubblica i GridCells ed i marker debug"""
+        """Pulisce gli ostacoli scaduti e pubblica i PointCloud2 ed i marker debug"""
         now = time.time()
         expired_keys = []
 
@@ -398,38 +436,56 @@ class SemanticCostmapInjector(Node):
             for key in expired_keys:
                 del self.active_obstacles[key]
 
-            # Costruiamo la lista di punti PointCloud2
+            # Costruiamo la lista di punti PointCloud2 con modulazione semantica dei costi
             pc_points = []
             
-            # Per ogni ostacolo attivo, aggiungiamo il centro e i punti dell'ingombro
             for obs in self.active_obstacles.values():
                 center_pt = obs['point']
                 px, py = center_pt.x, center_pt.y
-                # Aggiungi il centro a z = 0.1
-                pc_points.append([px, py, 0.1])
-                
-                # Aggiungi i punti di delimitazione basati su larghezza e profondità (bounding box semplificata)
-                dw = obs.get('width', 0.2) / 2.0
-                dd = obs.get('depth', 0.2) / 2.0
-                for dx in [-dd, dd]:
-                    for dy in [-dw, dw]:
+                cat = obs.get('category', 'DYNAMIC')
+                is_target = obs.get('is_target', False)
+
+                if is_target:
+                    # Bersaglio semantico attivo: footprint minimo per consentire l'avvicinamento a ~0.8m
+                    tm = self.target_margin
+                    pc_points.append([px, py, 0.1])
+                    for dx, dy in [(-tm, -tm), (-tm, tm), (tm, -tm), (tm, tm)]:
                         pc_points.append([px + dx, py + dy, 0.1])
+                elif cat == 'SOCIAL':
+                    # Zona di rispetto sociale attorno a persone (8 campioni ad anello a raggio social_margin)
+                    pc_points.append([px, py, 0.1])
+                    r = self.social_margin
+                    for angle_deg in range(0, 360, 45):
+                        rad = math.radians(angle_deg)
+                        pc_points.append([px + r * math.cos(rad), py + r * math.sin(rad), 0.1])
+                elif cat == 'LETHAL':
+                    # Ostacoli letali / scale / dislivelli / muri: griglia densa 3x3 per blocco invalicabile
+                    dw = max(obs.get('width', 0.25), 0.20) / 2.0
+                    dd = max(obs.get('depth', 0.25), 0.20) / 2.0
+                    for dx in [-dd, 0.0, dd]:
+                        for dy in [-dw, 0.0, dw]:
+                            pc_points.append([px + dx, py + dy, 0.1])
+                else:
+                    # Ostacoli dinamici standard (sedie, tavoli, ecc.): centro + 4 vertici bounding box
+                    dw = max(obs.get('width', 0.20), 0.15) / 2.0
+                    dd = max(obs.get('depth', 0.20), 0.15) / 2.0
+                    pc_points.append([px, py, 0.1])
+                    for dx in [-dd, dd]:
+                        for dy in [-dw, dw]:
+                            pc_points.append([px + dx, py + dy, 0.1])
 
             if pc_points:
-                # Creiamo l'header per il PointCloud2
                 header = Header()
                 header.stamp = self.get_clock().now().to_msg()
                 header.frame_id = self.costmap_frame
-                
-                # Pubblichiamo PointCloud2 per Nav2
                 pc_msg = pc2.create_cloud_xyz32(header, pc_points)
                 self.pub_point_cloud.publish(pc_msg)
 
-            # Pubblica MarkerArray per visualizzazione in RViz (Foxglove Studio)
+            # Pubblica MarkerArray per visualizzazione in RViz / Foxglove Studio
             self.publish_debug_markers()
 
     def publish_debug_markers(self):
-        """Pubblica marker cilindrici per visualizzare gli ostacoli su Foxglove/RViz"""
+        """Pubblica marker cilindrici colorati per categoria su Foxglove/RViz"""
         marker_array = MarkerArray()
         idx = 0
         
@@ -442,27 +498,35 @@ class SemanticCostmapInjector(Node):
             marker.type = Marker.CYLINDER
             marker.action = Marker.ADD
             marker.pose.position = obs['point']
-            # Altezza fittizia per visualizzazione 3D
             marker.pose.position.z = 0.5 
             marker.pose.orientation.w = 1.0
             
-            # Dimensioni
-            marker.scale.x = max(obs['width'], self.inflation_radius * 2.0)
-            marker.scale.y = max(obs['depth'], self.inflation_radius * 2.0)
-            marker.scale.z = 1.0 # Altezza 1m
-            
-            if obs.get('label') == 'negative_obstacle':
-                marker.ns = "negative_obstacles"
-                marker.color.r = 1.0
-                marker.color.g = 0.5
-                marker.color.b = 0.0
-                marker.color.a = 0.8
+            cat = obs.get('category', 'DYNAMIC')
+            is_target = obs.get('is_target', False)
+
+            if is_target:
+                # Verde brillante per target di ricerca
+                marker.scale.x = max(obs['width'], 0.30)
+                marker.scale.y = max(obs['depth'], 0.30)
+                marker.color.r, marker.color.g, marker.color.b, marker.color.a = 0.0, 1.0, 0.1, 0.85
+            elif cat == 'SOCIAL':
+                # Ciano per social navigation (persone) con raggio esteso
+                marker.scale.x = self.social_margin * 2.0
+                marker.scale.y = self.social_margin * 2.0
+                marker.color.r, marker.color.g, marker.color.b, marker.color.a = 0.1, 0.8, 1.0, 0.50
+            elif cat == 'LETHAL' or obs.get('label') == 'negative_obstacle':
+                # Rosso vivo per dislivelli, scale o ostacoli letali
+                marker.ns = "negative_obstacles" if obs.get('label') == 'negative_obstacle' else "lethal_obstacles"
+                marker.scale.x = max(obs['width'], self.inflation_radius * 2.0)
+                marker.scale.y = max(obs['depth'], self.inflation_radius * 2.0)
+                marker.color.r, marker.color.g, marker.color.b, marker.color.a = 1.0, 0.1, 0.1, 0.85
             else:
-                marker.color.r = 1.0
-                marker.color.g = 0.0
-                marker.color.b = 0.0
-                marker.color.a = 0.6
+                # Ambra / Arancio per ostacoli mobili generici
+                marker.scale.x = max(obs['width'], self.inflation_radius * 2.0)
+                marker.scale.y = max(obs['depth'], self.inflation_radius * 2.0)
+                marker.color.r, marker.color.g, marker.color.b, marker.color.a = 1.0, 0.7, 0.0, 0.65
             
+            marker.scale.z = 1.0
             marker.lifetime = rclpy.duration.Duration(seconds=self.decay_time).to_msg()
             
             # Testo label sopra l'ostacolo
@@ -475,13 +539,11 @@ class SemanticCostmapInjector(Node):
             text_marker.pose.position = Point()
             text_marker.pose.position.x = obs['point'].x
             text_marker.pose.position.y = obs['point'].y
-            text_marker.pose.position.z = 1.1 # Sopra il cilindro
-            text_marker.scale.z = 0.2 # Altezza testo
-            text_marker.color.r = 1.0
-            text_marker.color.g = 1.0
-            text_marker.color.b = 1.0
-            text_marker.color.a = 1.0
-            text_marker.text = f"{obs['label']}"
+            text_marker.pose.position.z = 1.15
+            text_marker.scale.z = 0.22
+            text_marker.color.r, text_marker.color.g, text_marker.color.b, text_marker.color.a = 1.0, 1.0, 1.0, 1.0
+            target_badge = " [TARGET]" if is_target else ""
+            text_marker.text = f"{obs['label']}{target_badge}"
             text_marker.lifetime = marker.lifetime
             
             marker_array.markers.append(marker)

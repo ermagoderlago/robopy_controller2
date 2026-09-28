@@ -18,7 +18,8 @@ class SemanticFactStore:
             "API_DETAIL",
             "BUG_RESOLUTION",
             "CAPABILITY",
-            "RELATIONSHIP"
+            "RELATIONSHIP",
+            "SEMANTIC_LANDMARK"
         ]
 
     def add_fact(self, fact_text: str, fact_type: str, source_episode_id: Optional[str] = None, 

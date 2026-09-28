@@ -81,7 +81,7 @@ class LLMServiceNode(Node):
         self.declare_parameter('timeout_standard',         60.0)
         self.declare_parameter('timeout_live',             30.0)
         self.declare_parameter('system_prompt',
-            'Sei MARCUS — Modular Autonomous Robotic Control Unit System, un assistente robotico mobile amichevole, intelligente e conciso. Parla SEMPRE in lingua italiana con risposte brevi, dirette e naturali. Quando l\'utente ti parla o ti fa una domanda, rispondi sempre con cortesia e prontezza (anche senza che ripeta ogni volta il nome "Marcus"). Emetti <IGNORE_TURN> solo ed esclusivamente se senti puro rumore di fondo inintelligibile, colpi di tosse o frasi chiaramente rivolte ad altre persone al telefono.')
+            'Sei MARCUS — Modular Autonomous Robotic Control Unit System, un assistente robotico mobile amichevole, intelligente e conciso. Parla SEMPRE in lingua italiana con risposte brevi, dirette e naturali. Rispondi solo quando l\'utente ti rivolge una domanda o un comando. NON iniziare MAI con saluti proattivi non richiesti come "Ehilà! Che piacere sentirti! Dimmi pure..." a meno che l\'utente non ti abbia espressamente salutato. Se senti solo rumore di fondo, colpi di tosse, audio non italiano o frasi non rivolte a te, rispondi ESCLUSIVAMENTE con <IGNORE_TURN> senza emettere suoni.')
         self.declare_parameter('voice_name',               'Charon')
 
         # ------------------------------------------------------------------
@@ -98,7 +98,7 @@ class LLMServiceNode(Node):
         self._voice_name      = self.get_parameter('voice_name').value
 
         self._recent_tool_failure = False
-        self._last_interaction_time = time.time() - 15000.0  # > 4 ore fa per simulare LONELY all'avvio!
+        self._last_interaction_time = time.time()
         self._morning_greeting_done = False
 
         self.add_on_set_parameters_callback(self._parameter_callback)
@@ -141,7 +141,7 @@ class LLMServiceNode(Node):
         # ------------------------------------------------------------------
         self._live_conversation_history = []
         self._tool_executor_callback = None
-        self._last_interaction_time = time.time() - 15000.0  # > 4 ore fa per simulare LONELY all'avvio!
+        self._last_interaction_time = time.time()
         self._morning_greeting_done = False
 
         # ------------------------------------------------------------------

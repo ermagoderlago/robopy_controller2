@@ -24,9 +24,15 @@ try:
 except ImportError:
     NomadExplorationSkill = None
 
+try:
+    from .frontier_exploration_skill import FrontierExplorationSkill
+except ImportError:
+    FrontierExplorationSkill = None
+
 __all__ = [
     "HomeAssistantSkill",
     "NavigationSkill",
     "NightlyDreamSkill",
     "NomadExplorationSkill",
+    "FrontierExplorationSkill",
 ]

@@ -569,6 +569,20 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
   2. *Schema Parametri Esplicito:* Esposto schema con `action: ["start", "stop"]` e supporto trasparente in `execute(text, context)`.
   3. *Delega di Sicurezza:* In `visual_exploration_skill.py`, qualsiasi invocazione residua reindirizza direttamente a `NomadExplorationSkill`, garantendo l'avvio della pipeline reattiva di bordo.
 
+---
+
+### Nav2 Collision Monitor a 2 Zone, Boost Velocità (+30%) ed Esplorazione a Frontiere Multi-Criterio (Settembre 2026 - FM-EXP-001)
+* **Sintomo:** Collisioni ricorrenti durante le manovre veloci in corridoio e lentezza eccessiva nelle aree aperte; l'esplorazione NoMaD accumulava latenze elevate e rischiava loop su ostacoli non compresi dalla sola camera RGB.
+* **Causa Radice:**
+  - MPPI era limitato a $0.20\text{ m/s}$ per timore di urti; la costmap locale da sola non interveniva abbastanza in fretta per fermare il moto in caso di comparsa improvvisa di ostacoli nel corridoio o dislivelli.
+  - NoMaD non aveva garanzie di convergenza metrica e mancava di un modello topologico a frontiere con anti-loop/stuck detection.
+* **Soluzione Implementata:**
+  1. *Nav2 Collision Monitor:* Inserito `collision_monitor` a valle di `controller_server` (`cmd_vel_nav` ➔ `/cmd_vel`). Configurato con poligono `Stop` ($[-0.18, 0.22] \times [-0.18, 0.18]\text{ m}$) e poligono `Slowdown` ($[-0.18, 0.35] \times [-0.25, 0.25]\text{ m}$, ratio $0.70$). La velocità minima ridotta rimane $\approx 0.182\text{ m/s}$, rigorosamente al di sopra della stiction floor dei motori ESP32 ($\approx 0.10\text{ m/s}$).
+  2. *Incremento Velocità MPPI (+30%):* Alzato `vx_max` a $0.26\text{ m/s}$ in `nav2_params_jazzy.yaml`.
+  3. *Frontier Exploration Engine (`frontier_explorer_node.py`):* Algoritmo ispirato ad `explore_lite` con clustering BFS, raggio minimo frontiera $0.40\text{ m}$, scoring normalizzato (dimensione, distanza, bias semantico), watchdog anti-stuck a 45s, blacklist circolare $R=0.20\text{ m}$ e modalità Dual (`EXPLORE` vs `HUNT` verso target con standoff a $0.85\text{ m}$).
+  4. *Dismissione NoMaD:* Eliminato NoMaD dall'avvio e preservata la retrocompatibilità tramite `NomadExplorationSkill` che eredita da `FrontierExplorationSkill`.
+
+
 
 
 

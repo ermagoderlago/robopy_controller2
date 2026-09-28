@@ -41,11 +41,18 @@ try:
     from std_srvs.srv import Trigger
     from nav2_msgs.action import NavigateToPose
     from action_msgs.msg import GoalStatus
+    try:
+        from robopy_controller.msg import SemanticObjectArray, SemanticObject
+    except ImportError:
+        SemanticObjectArray = None
+        SemanticObject = None
     HAS_ROS2 = True
 except ImportError:
     HAS_ROS2 = False
     Node = object
     GoalStatus = None
+    SemanticObjectArray = None
+    SemanticObject = None
 
     class _MockMsg:
         def __init__(self, *args, **kwargs):
@@ -88,14 +95,20 @@ class FrontierExplorationEngine:
         min_frontier_size: float = 0.40,
         robot_radius: float = 0.18,
         clearance_radius: float = 0.20,
-        selection_strategy: str = "largest"
+        selection_strategy: str = "largest",
+        w_size: float = 1.0,
+        w_dist: float = 0.7,
+        w_semantic: float = 1.5
     ):
         self.resolution = float(resolution)
         self.origin = origin
         self.min_frontier_size = float(min_frontier_size)
         self.robot_radius = float(robot_radius)
         self.clearance_radius = float(clearance_radius)
-        self.selection_strategy = selection_strategy  # "largest", "nearest", "hybrid"
+        self.selection_strategy = selection_strategy  # "largest", "nearest", "hybrid", "semantic"
+        self.w_size = float(w_size)
+        self.w_dist = float(w_dist)
+        self.w_semantic = float(w_semantic)
         self.blacklisted_centroids: List[Tuple[float, float]] = []
         self.dispatched_goals: List[Tuple[float, float]] = []
         self.failed_goal_counts: Dict[Tuple[float, float], int] = {}
@@ -239,14 +252,16 @@ class FrontierExplorationEngine:
     def evaluate_frontiers(
         self,
         grid: np.ndarray,
-        robot_pose: Optional[Tuple[float, float]] = None
+        robot_pose: Optional[Tuple[float, float]] = None,
+        semantic_landmarks: Optional[List[Dict[str, Any]]] = None,
+        search_target: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Executes complete exploration evaluation cycle:
           - Detects and clusters frontier cells.
           - Filters out blacklisted clusters.
           - Evaluates stopping threshold (MIN_FRONTIER_SIZE_METERS = 0.40m).
-          - Selects next goal according to strategy.
+          - Selects next goal according to strategy (largest, nearest, hybrid, or semantic biased).
         """
         frontier_cells = self.detect_frontier_cells(grid)
         clusters = self.cluster_frontiers(frontier_cells)
@@ -292,7 +307,38 @@ class FrontierExplorationEngine:
             }
 
         # Condition 3: Valid frontiers exist -> Select optimal goal
-        if self.selection_strategy == "nearest" and robot_pose is not None:
+        if (self.selection_strategy == "semantic" or search_target or semantic_landmarks) and robot_pose is not None:
+            rx, ry = robot_pose
+            max_s = max(c["size_meters"] for c in valid_frontiers) if valid_frontiers else 1.0
+            dists = [math.hypot(c["centroid"][0] - rx, c["centroid"][1] - ry) for c in valid_frontiers]
+            max_d = max(dists) if dists and max(dists) > 0 else 1.0
+
+            for i, c in enumerate(valid_frontiers):
+                s_norm = c["size_meters"] / max_s
+                d_norm = dists[i] / max_d
+                sem_bonus = 0.0
+
+                if semantic_landmarks:
+                    cx, cy = c["centroid"]
+                    for lm in semantic_landmarks:
+                        lx = lm.get("x", 0.0)
+                        ly = lm.get("y", 0.0)
+                        label = lm.get("label", "").lower()
+                        d_lm = math.hypot(cx - lx, cy - ly)
+                        if search_target and search_target.lower() in label:
+                            # Target relevance: strong directional attraction
+                            target_bonus = 3.0 / (d_lm + 0.5)
+                            sem_bonus = max(sem_bonus, target_bonus)
+                        else:
+                            # General exploration landmark/portal proximity
+                            if d_lm < 1.5:
+                                sem_bonus += 0.25
+
+                score = (self.w_size * s_norm) - (self.w_dist * d_norm) + (self.w_semantic * sem_bonus)
+                c["score"] = round(score, 3)
+
+            selected = max(valid_frontiers, key=lambda c: c.get("score", 0.0))
+        elif self.selection_strategy == "nearest" and robot_pose is not None:
             rx, ry = robot_pose
             selected = min(valid_frontiers, key=lambda c: math.hypot(c["centroid"][0] - rx, c["centroid"][1] - ry))
         elif self.selection_strategy == "hybrid" and robot_pose is not None:
@@ -340,31 +386,55 @@ class FrontierExplorerNode(Node):
 
         # Parameters
         self.declare_parameter("min_frontier_size", 0.40)
-        self.declare_parameter("selection_strategy", "largest")
+        self.declare_parameter("selection_strategy", "semantic")
         self.declare_parameter("robot_radius", 0.18)
         self.declare_parameter("clearance_radius", 0.20)
         self.declare_parameter("max_retries", 3)
         self.declare_parameter("map_topic", "/map")
         self.declare_parameter("cmd_vel_topic", "/cmd_vel")
+        self.declare_parameter("w_size", 1.0)
+        self.declare_parameter("w_dist", 0.7)
+        self.declare_parameter("w_semantic", 1.5)
+        self.declare_parameter("max_goal_duration_sec", 45.0)
+        self.declare_parameter("min_target_confidence", 0.60)
+        self.declare_parameter("approach_standoff_m", 0.85)
 
         min_size = self.get_parameter("min_frontier_size").value
         strategy = self.get_parameter("selection_strategy").value
         radius = self.get_parameter("robot_radius").value
         clearance = self.get_parameter("clearance_radius").value
+        w_size = float(self.get_parameter("w_size").value)
+        w_dist = float(self.get_parameter("w_dist").value)
+        w_semantic = float(self.get_parameter("w_semantic").value)
+        self.max_goal_duration = float(self.get_parameter("max_goal_duration_sec").value)
+        self.min_target_confidence = float(self.get_parameter("min_target_confidence").value)
+        self.approach_standoff_m = float(self.get_parameter("approach_standoff_m").value)
 
         # Instantiate pure engine
         self.engine = FrontierExplorationEngine(
             min_frontier_size=min_size,
             selection_strategy=strategy,
             robot_radius=radius,
-            clearance_radius=clearance
+            clearance_radius=clearance,
+            w_size=w_size,
+            w_dist=w_dist,
+            w_semantic=w_semantic
         )
 
         self.is_active = False
         self.motors_allowed = True
         self.current_goal_handle = None
+        self.goal_start_time = None
         self.latest_grid = None
         self.robot_pose = (0.0, 0.0)
+
+        # Dual Mode & Target Search Tracking
+        self.mode = "EXPLORE"  # "EXPLORE" or "HUNT"
+        self.search_target = ""
+        self.target_acquired = False
+        self.target_reached = False
+        self.target_position = None
+        self.semantic_landmarks: List[Dict[str, Any]] = []
 
         # QoS Profiles
         map_qos = QoSProfile(
@@ -393,10 +463,37 @@ class FrontierExplorerNode(Node):
             self.motors_allowed_callback,
             10
         )
+        self.target_sub = self.create_subscription(
+            String,
+            "/exploration/search_target",
+            self.search_target_callback,
+            10
+        )
+        self.enable_sub = self.create_subscription(
+            Bool,
+            "/exploration/enable",
+            self.enable_callback,
+            10
+        )
+
+        if SemanticObjectArray is not None:
+            self.hailo_sub = self.create_subscription(
+                SemanticObjectArray,
+                "/hailo/semantic_objects",
+                self.semantic_objects_callback,
+                10
+            )
+            self.vlm_sub = self.create_subscription(
+                SemanticObjectArray,
+                "/hailo/vlm/semantic_objects",
+                self.semantic_objects_callback,
+                10
+            )
 
         # Publishers
         self.cmd_vel_pub = self.create_publisher(Twist, self.get_parameter("cmd_vel_topic").value, 10)
         self.status_pub = self.create_publisher(String, "/frontier_exploration/status", 10)
+        self.target_event_pub = self.create_publisher(String, "/exploration/target_event", 10)
 
         # Nav2 Action Client
         self.nav_client = ActionClient(self, NavigateToPose, "/navigate_to_pose")
@@ -410,7 +507,170 @@ class FrontierExplorerNode(Node):
         # Throttled evaluation timer (0.5 Hz = every 2.0s)
         self.eval_timer = self.create_timer(2.0, self.timer_evaluation_loop)
 
-        self.get_logger().info("✅ FrontierExplorerNode successfully initialized.")
+        self.get_logger().info("✅ FrontierExplorerNode con Bias Semantico & Anti-Loop inizializzato con successo.")
+
+    def enable_callback(self, msg: Bool):
+        """Attiva o disattiva l'esplorazione autonoma tramite topic /exploration/enable."""
+        if msg.data:
+            if not self.motors_allowed:
+                self.get_logger().warn("Impossibile avviare esplorazione: /mapping/motors_allowed è False!")
+                return
+            self.is_active = True
+            self.get_logger().info("▶️ Frontier exploration attivata via /exploration/enable.")
+            self._execute_evaluation_step()
+        else:
+            self.is_active = False
+            if self.current_goal_handle is not None:
+                self.current_goal_handle.cancel_goal_async()
+                self.current_goal_handle = None
+            self.stop_robot_motors()
+            self.get_logger().info("⏹️ Frontier exploration fermata via /exploration/enable.")
+
+    def search_target_callback(self, msg: String):
+        """Riceve target semantico di ricerca (es. 'persona', 'sedia', 'bottiglia')."""
+        target = msg.data.strip().lower()
+        self.search_target = target
+        if target:
+            self.mode = "HUNT"
+            self.target_acquired = False
+            self.target_reached = False
+            self.target_position = None
+            self.get_logger().info(f"🎯 Modalità HUNT attivata! Bersaglio cercato: '{target}'")
+        else:
+            self.mode = "EXPLORE"
+            self.get_logger().info("🗺️ Modalità EXPLORE ripristinata (esplorazione autonoma pura).")
+
+    def semantic_objects_callback(self, msg):
+        """Raccoglie i landmark semantici recenti e innesca l'aggancio bersaglio in modalità HUNT."""
+        now = time.time()
+        # Pulizia landmark vecchi (> 30s)
+        self.semantic_landmarks = [lm for lm in self.semantic_landmarks if now - lm.get("time", 0.0) < 30.0]
+
+        for obj in getattr(msg, "objects", []):
+            conf = float(getattr(obj, "confidence", 0.0))
+            label = str(getattr(obj, "label", "")).lower()
+            sem_class = str(getattr(obj, "semantic_class", "")).lower()
+
+            pt2d = getattr(obj, "centroid_2d", None)
+            pt3d = getattr(obj, "centroid_3d", None)
+
+            ox, oy = 0.0, 0.0
+            if pt2d and (abs(pt2d.x) > 1e-3 or abs(pt2d.y) > 1e-3):
+                ox, oy = float(pt2d.x), float(pt2d.y)
+            elif pt3d and (abs(pt3d.x) > 1e-3 or abs(pt3d.y) > 1e-3 or pt3d.z > 0.05):
+                rx, ry = self.robot_pose
+                ox, oy = rx + float(pt3d.z), ry - float(pt3d.x)
+            else:
+                continue
+
+            self.semantic_landmarks.append({
+                "x": round(ox, 3),
+                "y": round(oy, 3),
+                "label": label,
+                "class": sem_class,
+                "confidence": round(conf, 3),
+                "time": now
+            })
+
+            # Verifica aggancio target in modalità HUNT
+            if self.mode == "HUNT" and self.search_target and not self.target_acquired:
+                if (self.search_target in label or self.search_target in sem_class) and conf >= self.min_target_confidence:
+                    rx, ry = self.robot_pose
+                    d = math.hypot(ox - rx, oy - ry)
+                    if d <= 4.0:
+                        self.acquire_and_approach_target((ox, oy), label)
+                        break
+
+    def acquire_and_approach_target(self, target_xy: Tuple[float, float], label: str):
+        """Sospende l'esplorazione delle frontiere e guida Marcus verso il bersaglio a distanza di standoff."""
+        tx, ty = target_xy
+        rx, ry = self.robot_pose
+        dx = tx - rx
+        dy = ty - ry
+        dist = math.hypot(dx, dy)
+
+        if dist > self.approach_standoff_m:
+            ratio = (dist - self.approach_standoff_m) / dist
+            approach_x = rx + dx * ratio
+            approach_y = ry + dy * ratio
+        else:
+            approach_x, approach_y = rx, ry
+
+        yaw = math.atan2(dy, dx)
+        approach_goal = (round(approach_x, 3), round(approach_y, 3))
+
+        self.get_logger().info(f"🎯 TARGET ACQUIRED! Rilevato '{label}' a ({tx:.2f}, {ty:.2f}). Avvicinamento a ({approach_x:.2f}, {approach_y:.2f}) [standoff {self.approach_standoff_m}m]...")
+
+        # Cancella eventuale goal frontiera attivo
+        if self.current_goal_handle is not None:
+            self.current_goal_handle.cancel_goal_async()
+            self.current_goal_handle = None
+
+        self.target_acquired = True
+        self.target_position = (tx, ty)
+
+        event_msg = String()
+        event_msg.data = json.dumps({
+            "event": "TARGET_ACQUIRED",
+            "target": label,
+            "target_coordinates": [tx, ty],
+            "approach_coordinates": [approach_x, approach_y],
+            "timestamp": time.time()
+        })
+        self.target_event_pub.publish(event_msg)
+
+        if not self.nav_client.wait_for_server(timeout_sec=2.0):
+            self.get_logger().error("Nav2 Action Server non disponibile per l'avvicinamento al target!")
+            return
+
+        goal_msg = NavigateToPose.Goal()
+        goal_msg.pose.header.frame_id = "map"
+        goal_msg.pose.header.stamp = self.get_clock().now().to_msg()
+        goal_msg.pose.pose.position.x = float(approach_x)
+        goal_msg.pose.pose.position.y = float(approach_y)
+        goal_msg.pose.pose.orientation.z = math.sin(yaw / 2.0)
+        goal_msg.pose.pose.orientation.w = math.cos(yaw / 2.0)
+
+        self.goal_start_time = time.time()
+        send_future = self.nav_client.send_goal_async(goal_msg)
+        send_future.add_done_callback(lambda f: self.approach_goal_response_callback(f, approach_goal, label))
+
+    def approach_goal_response_callback(self, future, goal_xy: Tuple[float, float], label: str):
+        goal_handle = future.result()
+        if not goal_handle.accepted:
+            self.get_logger().warn(f"Goal di avvicinamento al target {goal_xy} rifiutato da Nav2.")
+            self.target_acquired = False
+            self.current_goal_handle = None
+            return
+        self.current_goal_handle = goal_handle
+        result_future = goal_handle.get_result_async()
+        result_future.add_done_callback(lambda f: self.approach_goal_result_callback(f, goal_xy, label))
+
+    def approach_goal_result_callback(self, future, goal_xy: Tuple[float, float], label: str):
+        self.current_goal_handle = None
+        self.goal_start_time = None
+        result = future.result()
+        status = result.status
+
+        if status == GoalStatus.STATUS_SUCCEEDED:
+            self.target_reached = True
+            self.get_logger().info(f"🏆 TARGET REACHED! Marcus ha raggiunto con successo '{label}' a ({goal_xy[0]:.2f}, {goal_xy[1]:.2f})!")
+            self.stop_robot_motors()
+            self.is_active = False
+
+            event_msg = String()
+            event_msg.data = json.dumps({
+                "event": "TARGET_REACHED",
+                "target": label,
+                "coordinates": list(goal_xy),
+                "timestamp": time.time()
+            })
+            self.target_event_pub.publish(event_msg)
+        else:
+            self.get_logger().warn(f"⚠️ Avvicinamento al target {goal_xy} terminato con stato {status}. Ripresa esplorazione...")
+            self.target_acquired = False
+            if self.is_active:
+                self._execute_evaluation_step()
 
     def motors_allowed_callback(self, msg: Bool):
         """Monitors physical motion safety interlock from MappingStateMachine."""
@@ -437,26 +697,50 @@ class FrontierExplorerNode(Node):
         if not self.is_active or self.latest_grid is None or not self.motors_allowed:
             return
 
-        # If a goal is actively being pursued, let Nav2 continue
+        # In modalità HUNT con bersaglio agganciato, non inviare altre frontiere
+        if self.mode == "HUNT" and self.target_acquired:
+            return
+
+        # Watchdog anti-stallo su goal attivo
         if self.current_goal_handle is not None:
+            if self.goal_start_time and (time.time() - self.goal_start_time > self.max_goal_duration):
+                self.get_logger().warn(f"⚠️ Watchdog Nav2 Goal Timeout ({self.max_goal_duration}s superati)! Preempting goal e blacklist...")
+                self.current_goal_handle.cancel_goal_async()
+                if self.engine.dispatched_goals:
+                    last_g = self.engine.dispatched_goals[-1]
+                    self.engine.blacklist_frontier(last_g, reason="GOAL_TIMEOUT")
+                self.current_goal_handle = None
+                self.goal_start_time = None
+                self._execute_evaluation_step()
             return
 
         self._execute_evaluation_step()
 
     def _execute_evaluation_step(self) -> Dict[str, Any]:
-        """Runs one evaluation step and acts on the decision."""
-        eval_res = self.engine.evaluate_frontiers(self.latest_grid, self.robot_pose)
+        """Runs one evaluation step with semantic bias and acts on the decision."""
+        eval_res = self.engine.evaluate_frontiers(
+            self.latest_grid,
+            self.robot_pose,
+            semantic_landmarks=self.semantic_landmarks,
+            search_target=self.search_target
+        )
 
-        # Publish status JSON
-        status_msg = String()
-        status_msg.data = json.dumps({
+        status_payload = {
+            "timestamp": time.time(),
             "status": eval_res["status"],
+            "is_active": self.is_active,
             "reason": eval_res["reason"],
             "max_size_meters": eval_res["max_size_meters"],
             "cluster_count": eval_res["cluster_count"],
             "selected_goal": eval_res["selected_goal"],
-            "motor_stop_required": eval_res["motor_stop_required"]
-        })
+            "motor_stop_required": eval_res["motor_stop_required"],
+            "mode": self.mode,
+            "search_target": self.search_target,
+            "target_acquired": self.target_acquired,
+            "target_reached": self.target_reached,
+        }
+        status_msg = String()
+        status_msg.data = json.dumps(status_payload)
         self.status_pub.publish(status_msg)
 
         if eval_res["status"] == "COMPLETED":
@@ -489,7 +773,8 @@ class FrontierExplorerNode(Node):
         goal_msg.pose.pose.orientation.z = math.sin(yaw / 2.0)
         goal_msg.pose.pose.orientation.w = math.cos(yaw / 2.0)
 
-        self.get_logger().info(f"🚀 Dispatching frontier goal to ({goal_xy[0]:.2f}, {goal_xy[1]:.2f})")
+        self.get_logger().info(f"🚀 Dispatching frontier goal to ({goal_xy[0]:.2f}, {goal_xy[1]:.2f}) [Mode: {self.mode}]")
+        self.goal_start_time = time.time()
         send_future = self.nav_client.send_goal_async(goal_msg)
         send_future.add_done_callback(lambda f: self.goal_response_callback(f, goal_xy))
 
@@ -500,6 +785,7 @@ class FrontierExplorerNode(Node):
             self.get_logger().warn(f"Goal to {goal_xy} rejected by Nav2. Blacklisting...")
             self.engine.blacklist_frontier(goal_xy)
             self.current_goal_handle = None
+            self.goal_start_time = None
             self._execute_evaluation_step()
             return
 
@@ -510,6 +796,7 @@ class FrontierExplorerNode(Node):
     def goal_result_callback(self, future, goal_xy: Tuple[float, float]):
         """Handles completion of Nav2 goal."""
         self.current_goal_handle = None
+        self.goal_start_time = None
         result = future.result()
         status = result.status
 

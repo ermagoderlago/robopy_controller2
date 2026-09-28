@@ -689,3 +689,21 @@ A seguito dell'analisi incrociata tra le linee guida generiche per array ReSpeak
 
 
 
+
+### FM-VUI-034: Soglia VAD Sorda per Gating Eccessivo
+* **Problema:** Dopo l'aggiornamento per mitigare i falsi positivi (FM-VUI-033), il robot non rispondeva più alla voce umana (taglio immediato del turno).
+* **Causa Radice:** La soglia adattiva per il VAD era troppo alta (offset +250.0 e multiplier 1.3x), portando il gate oltre 400.0 RMS per silenzio, che è più alto della normale voce umana a distanza.
+* **Soluzione:** Abbassamento delle soglie dinamiche (offset +50.0, multiplier 1.05-1.10x). Dato che Gemini filtra le trascrizioni di rumore (_is_noise_transcription), possiamo permetterci di avere un VAD molto più permissivo senza rischiare loop infiniti, garantendo l'ascolto della voce umana.
+
+---
+
+### FM-VUI-035: Finestra di Ascolto Estesa (180s) e Saluti Proattivi su Rumore / TV
+* **Problema:** Marcus interveniva spontaneamente con saluti non richiesti come *"Ehilà! Che piacere sentirti! Dimmi pure, come posso esserti utile oggi?"* reagendo a voci della televisione, discussioni in stanza o mormorii di sottofondo.
+* **Causa Radice:**
+  1. `listen_timeout_sec` e `active_session_timeout` erano impostati a 180s (3 minuti interamente aperti), per cui qualunque suono della TV veniva inviato a Gemini Live.
+  2. All'avvio, `llm_service.py` forzava `_last_interaction_time = time.time() - 15000.0`, inducendo lo stato d'animo fittizio `LONELY`, che istruiva il prompt a salutare proattivamente con entusiasmo l'utente non appena veniva captato un minimo rumore.
+  3. In `live_connection_manager.py`, `last_wakeword_time == 0.0` considerava la sessione sempre attiva fin dall'accensione.
+* **Soluzione:**
+  1. Finestra di ascolto ridotta rigorosamente a **8.0 secondi** (`listen_timeout_sec:=8.0`, `active_session_timeout = 8.0`): dopo la wakeword "Marcus", l'utente ha 8 secondi per interagire. Se non parla, il microfono si silenzia (`mic_mute = True`, segnale acustico di chiusura) e Marcus torna in Standby totale.
+  2. In Standby, nessun audio viene inviato a Gemini Live: la televisione e le chiacchiere altrui vengono ignorate. Per riattivarlo, l'utente deve chiamarlo per nome ("Marcus...", "Marcus dimmi...").
+  3. Rimosso il falso stato `LONELY` al boot in `llm_service.py` e rafforzato il system prompt con divieto di saluti proattivi non richiesti e obbligo di `<IGNORE_TURN>`.

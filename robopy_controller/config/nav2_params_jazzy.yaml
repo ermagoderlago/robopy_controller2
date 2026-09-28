@@ -141,7 +141,7 @@ controller_server:
       vx_std: 0.08      # Campionamento allargato per esplorare velocità operative (era 0.03)
       vy_std: 0.0
       wz_std: 0.12      # Reattività proporzionale in sterzata (era 0.08)
-      vx_max: 0.20      # Velocità lineare di crociera fluida (limite max SPEC-01: 0.40 m/s)
+      vx_max: 0.26      # Velocità lineare di crociera fluida (+30% per spazi liberi; vincolo max SPEC-01: 0.40 m/s)
       vx_min: 0.0       # Zero: NESSUNA RETROMARCIA AMMESSA cieca
       wz_max: 0.8       # Velocità angolare max REALE del robot
       kinematics:
@@ -353,4 +353,44 @@ waypoint_follower:
       enabled: true
       waypoint_pause_duration: 200
 
-# BT NAVIGATOR block moved to top
+# ============================================================
+# COLLISION MONITOR (Protezione Hardware Anti-Collisione)
+# Intercetta cmd_vel_nav ed emette cmd_vel filtrato
+# ============================================================
+collision_monitor:
+  ros__parameters:
+    use_sim_time: false
+    base_frame_id: "base_link"
+    odom_frame_id: "odom"
+    cmd_vel_in_topic: "cmd_vel_nav"
+    cmd_vel_out_topic: "cmd_vel"
+    transform_tolerance: 0.5
+    source_timeout: 2.0
+    base_shift_correction: true
+    stop_pub_timeout: 1.0
+    polygons: ["PolygonStop", "PolygonSlowdown"]
+    PolygonStop:
+      type: "polygon"
+      points: "[[0.22, 0.18], [0.22, -0.18], [-0.18, -0.18], [-0.18, 0.18]]"
+      action_type: "stop"
+      min_points: 3
+      visualize: true
+      polygon_sub_topic: "polygon_stop"
+    PolygonSlowdown:
+      type: "polygon"
+      points: "[[0.35, 0.25], [0.35, -0.25], [-0.18, -0.25], [-0.18, 0.25]]"
+      action_type: "slowdown"
+      max_points: 3
+      slowdown_ratio: 0.70  # Mantiene vel ~0.18 m/s, sopra la soglia minima di stallo motore
+      visualize: true
+      polygon_sub_topic: "polygon_slowdown"
+    observation_sources: ["scan", "pointcloud"]
+    scan:
+      type: "scan"
+      topic: "/scan"
+    pointcloud:
+      type: "pointcloud"
+      topic: "/hailo_semantic_obstacles_pc"
+      min_height: 0.05
+      max_height: 1.5
+

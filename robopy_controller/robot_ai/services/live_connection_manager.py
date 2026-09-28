@@ -86,7 +86,7 @@ class LiveConnectionManager:
         self.last_successful_turn_time = 0.0
         self.last_wakeword_time = 0.0
         self.turns_since_wakeword = 0
-        self.active_session_timeout = 180.0
+        self.active_session_timeout = 8.0
         self.recent_user_transcripts = []
         self._last_mic_audio_time = 0.0
 
@@ -131,7 +131,7 @@ class LiveConnectionManager:
                 except asyncio.QueueEmpty:
                     break
         self.logger.info(
-            f"⏰ [LiveConnectionManager] Wake word 'Marcus' registrata. Sessione aperta per 180s (Turno 0). "
+            f"⏰ [LiveConnectionManager] Wake word 'Marcus' registrata. Sessione aperta per {self.active_session_timeout:.0f}s (Turno 0). "
             f"Blocco turno resettato, drenati {drained} chunk stantii."
         )
 
@@ -466,11 +466,12 @@ class LiveConnectionManager:
 
                     last_turn_ago = time.time() - self.last_successful_turn_time if self.last_successful_turn_time > 0 else 9999.0
                     last_wakeword_ago = time.time() - self.last_wakeword_time if self.last_wakeword_time > 0 else 9999.0
-                    # [v21.0] Finestra di conversazione attiva estesa a 180s (3 minuti)
+                    # [v22.0] Finestra di conversazione attiva (8s dopo wakeword o turno)
                     is_active = (
-                        self.last_wakeword_time == 0.0 or  # Continuous VAD Mode
-                        last_wakeword_ago < self.active_session_timeout or
-                        last_turn_ago < self.active_session_timeout
+                        self.last_wakeword_time > 0.0 and (
+                            last_wakeword_ago < self.active_session_timeout or
+                            last_turn_ago < self.active_session_timeout
+                        )
                     )
 
                     self.logger.info(
@@ -480,7 +481,7 @@ class LiveConnectionManager:
 
                     if not is_active:
                         # Fuori finestra conversazione: scarta silenziosamente
-                        self.logger.info("🔇 [Live] Turno ignorato: fuori dalla finestra di conversazione attiva (180s).")
+                        self.logger.info(f"🔇 [Live] Turno ignorato: fuori dalla finestra di conversazione attiva ({self.active_session_timeout:.0f}s).")
                         if self.on_mic_mute:
                             self.on_mic_mute(True)
                         self._current_user_text = ""
