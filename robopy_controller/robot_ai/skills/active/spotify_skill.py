@@ -340,4 +340,4 @@ class SpotifySkill(BaseSkill):
         except spotipy.SpotifyException as e:
             return SkillResult.failure_result(f"Errore API Spotify: controlla che Spotify sia aperto su un dispositivo. Dettagli: {e.msg}")
         except Exception as e:
-            return SkillResult.failure_result(f"Errore inatteso: {str(e)}")
+            return SkillResult.failure_result(f"Errore inatteso: {str(e)}")

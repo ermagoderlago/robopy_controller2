@@ -41,8 +41,9 @@ from robot_ai.skills.builtin.crea_skill import CreaSkill
 from robot_ai.skills.builtin.consult_documentation_skill import ConsultDocumentationSkill
 from robot_ai.skills.builtin.consult_antigravity_skill import ConsultAntigravitySkill
 from robot_ai.skills.builtin.memory_info_skill import MemoryInfoSkill
+from robot_ai.skills.builtin.query_memory_skill import QueryMemorySkill
 from robot_ai.skills.builtin.timer_skill import TimerSkill
-from robot_ai.skills.builtin.nomad_exploration_skill import NomadExplorationSkill
+from robot_ai.skills.builtin.frontier_exploration_skill import FrontierExplorationSkill
 
 from robot_ai.core.camera_frame import CameraFrame
 
@@ -148,11 +149,16 @@ class AIOrchestrator(Node):
         self.skill_registry.register(ConsultDocumentationSkill())
         self.skill_registry.register(ConsultAntigravitySkill())
         self.skill_registry.register(MemoryInfoSkill(self.memory_manager))
+        self.query_memory_skill = QueryMemorySkill(
+            memory_manager=self.memory_manager,
+            trinity_engine=lambda: getattr(self.conversation_manager, 'trinity_engine', None)
+        )
+        self.skill_registry.register(self.query_memory_skill)
         self.skill_registry.register(TimerSkill())
-        self.skill_registry.register(NomadExplorationSkill(
+        self.skill_registry.register(FrontierExplorationSkill(
             ros_node=self,
             memory_store=self.memory_store,
-            visual_memory=self.visual_memory_service
+            nav_client=self.nav_client
         ))
 
         # Caricamento dinamico delle skill attive (Spotify, Terminale, Web Search, ecc.)

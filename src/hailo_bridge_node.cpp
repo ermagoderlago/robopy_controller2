@@ -102,13 +102,16 @@ public:
         this->declare_parameter<bool>("sim_mode", false);
         this->declare_parameter<std::string>("rgb_topic", "/rgb/image");
         this->declare_parameter<double>("vlm_rate_hz", 5.0);
+        this->declare_parameter<double>("conf_threshold", 0.55);
 
         hef_path_ = this->get_parameter("hef_path").as_string();
         sim_mode_ = this->get_parameter("sim_mode").as_bool();
         rgb_topic_ = this->get_parameter("rgb_topic").as_string();
         vlm_rate_hz_ = this->get_parameter("vlm_rate_hz").as_double();
+        conf_threshold_ = static_cast<float>(this->get_parameter("conf_threshold").as_double());
 
-        RCLCPP_INFO(this->get_logger(), "🚀 Starting Hailo Bridge Node C++ (HEF: %s, Rate: %.1f Hz)", hef_path_.c_str(), vlm_rate_hz_);
+        RCLCPP_INFO(this->get_logger(), "🚀 Starting Hailo Bridge Node C++ (HEF: %s, Rate: %.1f Hz, ConfThresh: %.2f)",
+                    hef_path_.c_str(), vlm_rate_hz_, conf_threshold_);
 
         // Initialize Hailo NPU Device if available
         init_hailo_npu();
@@ -256,12 +259,25 @@ private:
                 }
             }
 
-            // Define YOLOv8 Multi-scale heads
+            // Dynamically detect YOLO layer prefix (e.g. "yolo/" or "yolov8s_seg/")
+            std::string yolo_prefix = "yolo/";
+            for (const auto &outp : infer_model_->outputs()) {
+                std::string n = outp.name();
+                size_t p = n.find("conv44");
+                if (p != std::string::npos) {
+                    yolo_prefix = n.substr(0, p);
+                    break;
+                }
+            }
+
+            // Define YOLOv8 Multi-scale heads with resolved prefix
             scales_ = {
-                {8,  80, 80, "yolo/conv44", "yolo/conv45"},
-                {16, 40, 40, "yolo/conv60", "yolo/conv61"},
-                {32, 20, 20, "yolo/conv73", "yolo/conv74"}
+                {8,  80, 80, yolo_prefix + "conv44", yolo_prefix + "conv45"},
+                {16, 40, 40, yolo_prefix + "conv60", yolo_prefix + "conv61"},
+                {32, 20, 20, yolo_prefix + "conv73", yolo_prefix + "conv74"}
             };
+            RCLCPP_INFO(this->get_logger(), "🔍 YOLO Head Layers: %s (stride 8), %s (stride 16), %s (stride 32)",
+                        scales_[0].cls_layer.c_str(), scales_[1].cls_layer.c_str(), scales_[2].cls_layer.c_str());
 
             RCLCPP_INFO(this->get_logger(), "🧠 Hailo-10H NPU Hardware & InferModel configured successfully C++!");
             hailo_ready_ = true;
@@ -302,11 +318,26 @@ private:
         std::vector<DetectionBBox> detections;
         if (hailo_ready_) {
 #if HAILO_CPP_AVAILABLE
-            // Pre-process: Resize and BGR -> RGB directly into pre-allocated input buffer
+            // Pre-process: Letterbox 1:1 aspect ratio preserving resize with padding 114 (FM-VIS-009)
+            float scale = std::min(static_cast<float>(yolo_input_w_) / frame.cols,
+                                   static_cast<float>(yolo_input_h_) / frame.rows);
+            int new_unpad_w = std::clamp(static_cast<int>(std::round(frame.cols * scale)), 1, yolo_input_w_);
+            int new_unpad_h = std::clamp(static_cast<int>(std::round(frame.rows * scale)), 1, yolo_input_h_);
+            int pad_x = (yolo_input_w_ - new_unpad_w) / 2;
+            int pad_y = (yolo_input_h_ - new_unpad_h) / 2;
+
+            last_scale_ = scale;
+            last_pad_x_ = pad_x;
+            last_pad_y_ = pad_y;
+            last_img_w_ = frame.cols;
+            last_img_h_ = frame.rows;
+
+            cv::Mat letterbox_rgb(yolo_input_h_, yolo_input_w_, CV_8UC3, input_buffers_[yolo_input_name_].data());
+            letterbox_rgb.setTo(cv::Scalar(114, 114, 114)); // YOLO standard letterbox fill
             cv::Mat resized;
-            cv::resize(frame, resized, cv::Size(yolo_input_w_, yolo_input_h_));
-            cv::Mat rgb_view(yolo_input_h_, yolo_input_w_, CV_8UC3, input_buffers_[yolo_input_name_].data());
-            cv::cvtColor(resized, rgb_view, cv::COLOR_BGR2RGB);
+            cv::resize(frame, resized, cv::Size(new_unpad_w, new_unpad_h));
+            cv::Mat roi = letterbox_rgb(cv::Rect(pad_x, pad_y, new_unpad_w, new_unpad_h));
+            cv::cvtColor(resized, roi, cv::COLOR_BGR2RGB);
 
             // Execute Synchronous NPU Inference
             hailo_status status = configured_infer_model_->run(*bindings_, std::chrono::milliseconds(1000));
@@ -384,7 +415,7 @@ private:
 
     std::vector<DetectionBBox> decode_yolo_outputs() {
         std::vector<DetectionBBox> candidates;
-        const float conf_thresh = 0.35f;
+        const float conf_thresh = conf_threshold_;
 
         for (const auto &scale : scales_) {
             auto bbox_it = output_buffers_.find(scale.bbox_layer);
@@ -447,14 +478,28 @@ private:
                     float x2 = (gx + 0.5f + dfl[2]) * stride;
                     float y2 = (gy + 0.5f + dfl[3]) * stride;
 
-                    float xmin = std::clamp(x1 / 640.0f, 0.0f, 1.0f);
-                    float ymin = std::clamp(y1 / 640.0f, 0.0f, 1.0f);
-                    float xmax = std::clamp(x2 / 640.0f, 0.0f, 1.0f);
-                    float ymax = std::clamp(y2 / 640.0f, 0.0f, 1.0f);
+                    float orig_w = (last_scale_ > 0.0f && last_img_w_ > 0) ? static_cast<float>(last_img_w_) : 640.0f;
+                    float orig_h = (last_scale_ > 0.0f && last_img_h_ > 0) ? static_cast<float>(last_img_h_) : 480.0f;
+
+                    // Inverse letterbox mapping to original image coordinate frame [0.0, 1.0]
+                    float xmin = std::clamp((x1 - last_pad_x_) / (last_scale_ * orig_w), 0.0f, 1.0f);
+                    float ymin = std::clamp((y1 - last_pad_y_) / (last_scale_ * orig_h), 0.0f, 1.0f);
+                    float xmax = std::clamp((x2 - last_pad_x_) / (last_scale_ * orig_w), 0.0f, 1.0f);
+                    float ymax = std::clamp((y2 - last_pad_y_) / (last_scale_ * orig_h), 0.0f, 1.0f);
 
                     if (xmax > xmin && ymax > ymin) {
                         std::string label = (best_cls >= 0 && best_cls < static_cast<int>(COCO_CLASSES.size()))
                                             ? COCO_CLASSES[best_cls] : "obstacle";
+
+                        // Filter out spurious horizontal person detections on wide furniture (FM-VIS-009)
+                        if (label == "person") {
+                            float box_w = (xmax - xmin) * orig_w;
+                            float box_h = (ymax - ymin) * orig_h;
+                            if (box_w > 1.8f * box_h) {
+                                continue; // Reject wide horizontal person false positives
+                            }
+                        }
+
                         candidates.push_back({xmin, ymin, xmax, ymax, best_score, best_cls, label});
                     }
                 }
@@ -546,8 +591,15 @@ private:
     bool sim_mode_;
     std::string rgb_topic_;
     double vlm_rate_hz_;
+    float conf_threshold_{0.55f};
     bool hailo_ready_{false};
     uint64_t num_frames_processed_{0};
+
+    float last_scale_{1.0f};
+    int last_pad_x_{0};
+    int last_pad_y_{0};
+    int last_img_w_{640};
+    int last_img_h_{400};
 
     std::string yolo_input_name_;
     int yolo_input_h_{640};

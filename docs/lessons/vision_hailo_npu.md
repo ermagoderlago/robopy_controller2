@@ -269,3 +269,41 @@ Questo documento descrive le lezioni apprese su OAK-D Lite, l'acceleratore NPU H
   - Proiezione sulle coordinate immagine 640x640 e scaling alla risoluzione RGB nativa della camera.
   - Applicazione di Non-Maximum Suppression (NMS) veloce con soglia IoU 0.45.
   - Pubblicazione sincrona dei topic `/hailo/detections` e `/hailo/semantic_objects` (etichette COCO tradotte in italiano: persona, sedia, tavolo, ecc.).
+
+---
+
+## ⚡ Esecuzione Ament Isolata, Risoluzione Shared Libraries e DDS Multi-Domain (Settembre 2026)
+
+### Esecuzione Nodi C++ tramite `ros2 run` vs Esecuzione Diretta del Binario
+* **Problema:** Quando `hailo_bridge_node_cpp` veniva eseguito invocando direttamente il path del binario (`nohup taskset -c 2,3 /mnt/ssd/.../hailo_bridge_node_cpp`), l'eseguibile falliva immediatamente con:
+  `error while loading shared libraries: libservice_msgs__rosidl_generator_py.so: cannot open shared object file: No such file or directory`.
+* **Causa:** Nelle installazioni colcon a pacchetti isolati (come Jazzy su Pi 5), i pacchetti ROS 2 generano directory `lib` individuali (es. `/home/robopy/ros2_jazzy/install/service_msgs/lib`). Il comando `source setup.bash` in shell non interattive o script parziali non esporta tutte le cartelle in `LD_LIBRARY_PATH`. Al contrario, `ros2 run` interroga l'Ament Index ed espande a runtime l'intero `LD_LIBRARY_PATH` con tutte le dipendenze condivise.
+* **Risoluzione:** Invocare sempre il nodo tramite `ros2 run`:
+  ```bash
+  nohup taskset -c 2,3 ros2 run robopy_controller hailo_bridge_node_cpp --ros-args ...
+  ```
+
+### Allineamento Dominio DDS 42 e Visibilità Foxglove
+* **Problema:** I topic della telecamera e dell'NPU Hailo (`/hailo/annotated_image/compressed`, `/hailo/semantic_objects`) non apparivano nell'interfaccia Foxglove Studio né nelle liste topic globali.
+* **Causa:** Il nodo C++ e gli script di test erano stati avviati senza ereditare esplicitamente le variabili `ROS_DOMAIN_ID=42`, `RMW_IMPLEMENTATION=rmw_cyclonedds_cpp` e `CYCLONEDDS_URI=/tmp/cyclonedds_robopy.xml`. Inoltre, `ENABLE_HAILO` nello script `restart_hailo.sh` era impostato di default a `false`.
+* **Risoluzione:**
+  1. Impostato `ENABLE_HAILO="${ENABLE_HAILO:-true}"` come default in `restart_hailo.sh` per garantire l'avvio della percezione Hailo al boot standard di Marcus.
+  2. Esportato `RMW_IMPLEMENTATION=rmw_cyclonedds_cpp` in `restart_hailo.sh`.
+  3. Aggiunta la sanitizzazione automatica dei terminatori di linea (`sed -i 's/\r$//'`) durante la copia a caldo dei nodi Python per prevenire crash `/usr/bin/env: 'python3\r': No such file or directory`.
+
+---
+
+## 🎯 Discriminazione Semantica YOLOv8, Stream RGB e Letterbox 1:1 (FM-VIS-009 - Settembre 2026)
+
+### Scambio Sistematico di Divani/Arredi per Persone
+* **Problema:** Il robot, pur iniettando correttamente gli ostacoli semantici nella mappa Nav2, rilevava continuamente `persona` in corrispondenza di divani, cuscini e tavoli lunghi, attivando impropriamente la prossemica vocale dell'engagement monitor.
+* **Diagnosi delle Cause Radice:**
+  1. **Stream Monocromatico (Zero Crominanza):** Il driver DepthAI C++ `fast_flow_vo_node.cpp` aveva disattivato `camRgb` per vecchi vincoli di banda USB 2.0 (`FM-VIS-001`), trasmettendo sul topic `/rgb/image` il fotogramma monocromatico sinistro `rect_left` replicato sui 3 canali (`cv::COLOR_GRAY2BGR`). I filtri convoluzionali di YOLOv8, addestrati su COCO RGB, venivano privati dell'informazione cromatica fondamentale (tonalità pelle, tessuti dei vestiti vs cuoio/stoffa dell'arredo).
+  2. **Quantizzazione INT8 Sintetica (`--use-random-calib-set`):** L'archivio unificato `marcus_unified.hef` era stato compilato con dataset di calibrazione sintetico a rumore bianco e senza file `.alls` di normalizzazione, causando la saturazione e il degrado dei logit sigmoidei. In condizioni di rumore, il prior dominante della classe 0 (`persona`) in COCO prevaricava sistematicamente le classi secondarie.
+  3. **Distorsione Anamorfica dell'Aspect Ratio:** L'immagine 640x400 veniva ridimensionata brutalmente a 640x640 con `cv::resize` semplice in `hailo_bridge_node.cpp`, stirando verticalmente la sagoma orizzontale di un divano del 160% e facendola coincidere geometricamente con il bounding box di una persona in piedi.
+  4. **Soglia Confidenza Permissiva:** La costante `conf_thresh` in C++ era impostata a 0.35, facendo passare tutte le oscillazioni spurie dovute al rumore INT8.
+* **Risoluzione Definitiva:**
+  1. **Letterbox 1:1:** Implementato il preprocessing con scala isotropa e padding grigio 114, con rimappatura inversa corretta dei bounding box.
+  2. **Allineamento SPEC-03:** Innalzata la soglia `conf_thresh` al valore nominale di specifica (`0.55f`) ed inserito un filtro di plausibilità d'aspetto ($W/H \le 1.8$ per la classe persona).
+  3. **Guida HEF Ufficiale:** Redatta la documentazione completa in `docs/guides/HAILO_HEF_COMPILATION_GUIDE.md` per la ricompilazione ad alta fedeltà con dataset COCO reale in WSL 2.
+

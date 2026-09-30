@@ -581,41 +581,36 @@ class NavigationSkill(BaseSkill):
         )
         
     async def _handle_explore(self) -> SkillResult:
-        """Handle explore command - [FM-NOM-011] delegates to NOMAD vision exploration."""
+        """Handle explore command - delegates to autonomous frontier exploration."""
         action = {
-            "action_type": "nomad_exploration",
-            "args": {"action": "start"}
+            "action_type": "frontier_exploration",
+            "args": {"action": "start_explore"}
         }
         
         if self.nav_client and hasattr(self.nav_client, '_node') and self.nav_client._node:
             try:
                 from std_msgs.msg import Bool, String
                 node = self.nav_client._node
-                if not hasattr(self, '_pub_nomad_enable') or self._pub_nomad_enable is None:
-                    self._pub_nomad_enable = node.create_publisher(Bool, '/nomad/enable', 10)
-                    self._pub_nomad_mode = node.create_publisher(String, '/nomad/set_mode', 10)
-                
-                mode_msg = String()
-                mode_msg.data = "EXPLORE"
-                self._pub_nomad_mode.publish(mode_msg)
+                if not hasattr(self, '_pub_explore_enable') or self._pub_explore_enable is None:
+                    self._pub_explore_enable = node.create_publisher(Bool, '/exploration/enable', 10)
                 
                 enable_msg = Bool()
                 enable_msg.data = True
-                self._pub_nomad_enable.publish(enable_msg)
+                self._pub_explore_enable.publish(enable_msg)
                 
                 return SkillResult(
                     success=True,
-                    message="Esplorazione NOMAD avviata con successo.",
-                    speak="Avvio l'esplorazione autonoma della stanza con il modello visivo NOMAD.",
+                    message="Esplorazione a frontiere avviata con successo.",
+                    speak="Avvio l'esplorazione autonoma dell'ambiente basata su frontiere.",
                     actions=[action]
                 )
             except Exception as e:
-                self.logger.error(f"Errore attivazione NOMAD da navigation_skill: {e}")
+                self.logger.error(f"Errore attivazione frontiere da navigation_skill: {e}")
                 
         return SkillResult(
             success=True,
-            message="Esplorazione NOMAD avviata.",
-            speak="Avvio l'esplorazione autonoma con il modello visivo NOMAD.",
+            message="Esplorazione a frontiere avviata.",
+            speak="Avvio l'esplorazione autonoma con il motore a frontiere.",
             actions=[action]
         )
     
@@ -711,7 +706,7 @@ class NavigationSkill(BaseSkill):
                 "action": {
                     "type": "string",
                     "enum": ["goto", "come", "follow", "stop", "return", "move_relative", "explore"],
-                    "description": "Navigation action. Use 'move_relative' for directional commands. NOTA: Per esplorare la stanza o fare un giro libero, preferire SEMPRE il tool 'nomad_exploration'."
+                    "description": "Navigation action. Use 'move_relative' for directional commands. NOTA: Per esplorare la stanza o fare un giro libero, preferire SEMPRE il tool 'frontier_exploration'."
                 },
                 "destination": {
                     "type": "string",

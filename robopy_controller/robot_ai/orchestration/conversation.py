@@ -156,6 +156,24 @@ class ConversationManager:
         # Se la sorgente è testo (chat remota / Foxglove), rispondi SOLO via chat senza azionare lo speaker.
         should_speak = (source == "audio")
 
+        # Conversational Barge-in: Pause active exploration while listening/talking
+        frontier_skill = self.skill_executor.registry.get("frontier_exploration")
+        was_exploring_at_barge_in = False
+        if frontier_skill and getattr(frontier_skill, "is_exploring", False):
+            was_exploring_at_barge_in = True
+            frontier_skill.pause_for_dialogue()
+            self._logger.info("🛑 [Barge-in] Active exploration paused during user dialogue turn.")
+
+        exploration_prompt_note = ""
+        if was_exploring_at_barge_in:
+            exploration_prompt_note = (
+                "\n[NOTE COGNITIVA TRINITY: Il robot era in esplorazione attiva dell'ambiente quando l'utente gli ha parlato. "
+                "Il moto ruote è stato temporaneamente messo in pausa per ascoltare e dialogare. "
+                "Sii consapevole della tua attività di esplorazione, rispondi con naturalezza contestualizzando cosa stavi facendo "
+                "se l'utente te lo chiede, e ricorda che riprenderai automaticamente ad esplorare al termine della conversazione, "
+                "a meno che l'utente non ti dica esplicitamente di fermarti o annullare l'esplorazione.]\n"
+            )
+
         # --- Voice-triggered Face Enrollment ---
         enroll_match = re.search(r'\b(?:quest[ao]\s+è|ti\s+presento|lui\s+è|lei\s+è)\s+([a-zA-Z]+)', clean_text, re.IGNORECASE)
         if enroll_match:
@@ -224,7 +242,12 @@ class ConversationManager:
             )
 
         # Fast-path skill execution (e.g direct commands)
+        # CRITICAL: Navigation and exploration skills MUST NEVER bypass the TRINITY LLM!
         skill = self.skill_executor.find_best_match(clean_text, min_confidence=0.95)
+        if skill and skill.name in ("navigation", "frontier_exploration", "visual_exploration"):
+            self._logger.info(f"Routing navigation/exploration command '{clean_text}' to TRINITY LLM (fast-path bypassed).")
+            skill = None
+
         if skill:
             self._logger.info(f"Fast-path skill match: {skill.name}")
             try:
@@ -257,6 +280,15 @@ class ConversationManager:
                     success=False,
                     error_message=str(e)
                 )
+
+            # Auto-resume exploration after fast-path execution if paused
+            if was_exploring_at_barge_in and frontier_skill:
+                user_requested_stop = any(w in clean_text.lower() for w in ["fermati", "stop", "basta", "annulla", "interrompi"])
+                if user_requested_stop:
+                    frontier_skill.stop_exploration()
+                elif getattr(frontier_skill, "_paused_for_dialogue", False):
+                    frontier_skill.resume_after_dialogue()
+
             return True
 
         # Offline fallback
@@ -305,6 +337,63 @@ class ConversationManager:
                 "required": ["question"]
             }
         })
+        functions.extend([
+            {
+                "name": "start_frontier_exploration",
+                "description": "Avvia l'esplorazione autonoma e la mappatura a frontiere dell'ambiente domestico con Nav2.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "mode": {
+                            "type": "STRING",
+                            "description": "Modalità di esplorazione: 'all_frontiers' (esplora tutto), 'quick_scan' (perlustrazione rapida)."
+                        }
+                    },
+                    "required": []
+                }
+            },
+            {
+                "name": "stop_navigation",
+                "description": "Arresta immediatamente qualsiasi navigazione o esplorazione in corso, azzerando le velocità delle ruote.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "reason": {
+                            "type": "STRING",
+                            "description": "Motivo opzionale dell'arresto (es. 'richiesta utente', 'ostacolo')."
+                        }
+                    },
+                    "required": []
+                }
+            },
+            {
+                "name": "get_navigation_status",
+                "description": "Restituisce lo stato attuale della navigazione ed esplorazione: se attiva, modalità (EXPLORE/HUNT/IDLE), bersaglio cercato, frontiere residue e stanza attuale.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {},
+                    "required": []
+                }
+            },
+            {
+                "name": "search_target",
+                "description": "Avvia la ricerca visiva e semantica di un target specifico (oggetto o persona) muovendosi verso le ultime coordinate note o esplorando le aree sconosciute.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "target": {
+                            "type": "STRING",
+                            "description": "Nome dell'oggetto o persona da cercare (es. 'chiavi', 'Marco', 'sedia', 'bottiglia')."
+                        },
+                        "room": {
+                            "type": "STRING",
+                            "description": "Stanza opzionale in cui concentrare la ricerca."
+                        }
+                    },
+                    "required": ["target"]
+                }
+            }
+        ])
 
         # Active RAG Semantic Memory Retrieval & TRINITY Augmentation
         rag_memories = []
@@ -317,6 +406,8 @@ class ConversationManager:
         if email_skill and hasattr(email_skill, 'consume_notifications'):
             email_ctx = email_skill.consume_notifications() or ""
 
+        combined_notes = (repeated_prompt_note + exploration_prompt_note).strip()
+
         if self.trinity_engine and self.trinity_engine.enabled:
             augmented_prompt = await self.trinity_engine.build_augmented_prompt(
                 user_text=clean_text,
@@ -324,7 +415,7 @@ class ConversationManager:
                 user_identity=user_id,
                 system_prompt=self.llm._system_prompt,
                 dopaminergic_override=getattr(self.agent_state, 'system_prompt_override', ''),
-                repeated_note=repeated_prompt_note,
+                repeated_note=combined_notes,
                 email_context=f"\n[NOTIFICHE EMAIL RECENTI]\n{email_ctx}" if email_ctx else ""
             )
         else:
@@ -339,7 +430,7 @@ class ConversationManager:
             except Exception as e:
                 self._logger.warning(f"Errore durante il recupero RAG in conversazione: {e}")
 
-            augmented_prompt = self._build_prompt(clean_text, ha_context, repeated_prompt_note, rag_memories)
+            augmented_prompt = self._build_prompt(clean_text, ha_context, combined_notes, rag_memories)
 
         # Timeout dall'oggetto config.llm.timeout (di base accesskey)
         llm_timeout = 20.0
@@ -436,6 +527,7 @@ class ConversationManager:
         # Remove implicit tools before sending to standard skill executor
         explicit_actions = [a for a in response_actions if a.get("action_type", a.get("name", "")) not in ["generate_formatted_document", "ask_visual_question"]]
 
+        actions_spoken_count = 0
         if explicit_actions:
             self._logger.debug(f"LLM suggested actions: {explicit_actions}")
             for act in explicit_actions:
@@ -446,10 +538,12 @@ class ConversationManager:
 
             try:
                 async for t in self.skill_executor.execute_actions_stream(explicit_actions):
-                      if should_speak and not is_live:
-                           await self.tts.speak(t)
-                      if self.response_callback:
-                           self.response_callback(t)
+                      if t:
+                          actions_spoken_count += 1
+                          if should_speak and not is_live:
+                               await self.tts.speak(t)
+                          if self.response_callback:
+                               self.response_callback(t)
                 
                 # Critic evaluation on successful skill executions
                 for act in explicit_actions:
@@ -480,6 +574,15 @@ class ConversationManager:
                  
         if not response_text and (formatted_doc or any(a.get("action_type", a.get("name", "")) == "ask_visual_question" for a in response_actions)):
             response_text = "Ho analizzato l'hardware visivamente e prodotto un report a schermo."
+
+        # Safety Fallback: Se sono state richieste azioni esplicite ma nessuna ha prodotto parlato e response_text è vuoto
+        if not response_text and explicit_actions and actions_spoken_count == 0:
+            self._logger.warning("Nessun feedback vocale emesso dalle skill eseguite, applico fallback anti-silenzio.")
+            has_memory_action = any("memory" in a.get("action_type", a.get("name", "")) for a in explicit_actions)
+            if has_memory_action:
+                response_text = "Ho controllato la mia memoria, ma non ho trovato informazioni specifiche corrispondenti."
+            else:
+                response_text = "Ho eseguito l'operazione richiesta."
 
         if response_text:
             if should_speak and not is_live:
@@ -513,6 +616,16 @@ class ConversationManager:
                 )
             except Exception as e:
                 self._logger.debug(f"TRINITY background recording skipped: {e}")
+
+        # Auto-resume exploration after dialogue turn (unless user commanded stop)
+        if was_exploring_at_barge_in and frontier_skill:
+            user_requested_stop = any(w in clean_text.lower() for w in ["fermati", "stop", "basta", "annulla", "interrompi"])
+            if user_requested_stop:
+                frontier_skill.stop_exploration()
+                self._logger.info("🛑 Exploration stopped per user utterance command.")
+            elif getattr(frontier_skill, "_paused_for_dialogue", False):
+                frontier_skill.resume_after_dialogue()
+                self._logger.info("▶️ Exploration automatically resumed after dialogue turn.")
 
         return True
 

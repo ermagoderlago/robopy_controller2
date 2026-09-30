@@ -41,9 +41,7 @@ class MemoryInfoSkill(BaseSkill):
             return 0.96
         return 0.0
 
-    async def execute(self, text: str, context: Dict[str, Any] = None) -> AsyncGenerator[SkillResult, None]:
-        yield SkillResult(success=True, message="Interrogazione del database di memoria...", speak="Certamente, controllo subito cosa ho in memoria.")
-
+    async def execute(self, text: str, context: Dict[str, Any] = None) -> SkillResult:
         try:
             stats = await self.memory_manager.get_stats()
             docs = await self.memory_manager.list_loaded_documents()
@@ -58,13 +56,13 @@ class MemoryInfoSkill(BaseSkill):
                 else:
                     msg = "Al momento non ho documenti tecnici caricati nel mio database RAG."
                     speak = "Al momento non ho documenti tecnici caricati nella mia memoria a lungo termine."
-                yield SkillResult.success_result(message=msg, speak=speak)
+                return SkillResult.success_result(message=msg, speak=speak, data={"stats": stats, "documents": []})
             else:
                 doc_list_str = "\n".join([f"- {d}" for d in docs])
                 msg = f"Ho caricato **{doc_count}** documenti tecnici (per un totale di {total_chunks} frammenti di conoscenza):\n\n{doc_list_str}"
                 
-                # Creiamo una versione Markdown più bella per il documento
-                markdown = f"# Archivio Documentale Severus\n\n"
+                # Creiamo una versione Markdown per il documento
+                markdown = f"# Archivio Documentale MARCUS\n\n"
                 markdown += f"Stato della memoria RAG al: {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
                 markdown += f"| Documento | Stato | Note |\n"
                 markdown += f"| :--- | :--- | :--- |\n"
@@ -76,15 +74,14 @@ class MemoryInfoSkill(BaseSkill):
                 
                 speak = f"Ho caricato {doc_count} documenti tecnici nel mio database."
                 
-                yield SkillResult.success_result(
+                return SkillResult.success_result(
                     message=msg,
                     speak=speak,
-                    data={"stats": stats, "documents": docs},
-                    formatted_document=markdown
+                    data={"stats": stats, "documents": docs, "formatted_document": markdown}
                 )
         except Exception as e:
             logger.error(f"Error in MemoryInfoSkill: {e}")
-            yield SkillResult.failure_result("Errore durante il recupero delle informazioni di memoria.", speak="Mi dispiace, ho avuto un problema tecnico nel consultare il mio indice di memoria.")
+            return SkillResult.failure_result("Errore durante il recupero delle informazioni di memoria.", speak="Mi dispiace, ho avuto un problema tecnico nel consultare il mio indice di memoria.")
 
     def get_parameters_schema(self) -> Dict[str, Any]:
         return {

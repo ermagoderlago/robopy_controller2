@@ -318,6 +318,19 @@ class MAGDatabase:
                 logger.error(f"Failed to insert fact: {e}")
                 raise
 
+    def get_all_facts(self) -> List[Dict[str, Any]]:
+        """Retrieve all semantic facts ordered by creation time."""
+        with self._lock:
+            try:
+                conn = self._get_connection()
+                cursor = conn.execute("SELECT * FROM semantic_facts ORDER BY created_at ASC")
+                rows = [dict(row) for row in cursor.fetchall()]
+                conn.close()
+                return rows
+            except Exception as e:
+                logger.error(f"Failed to get all facts: {e}")
+                return []
+
     def update_fact_confidence(self, fact_id: str, new_confidence: float) -> None:
         """Updates the confidence of an existing fact."""
         with self._lock:
@@ -432,8 +445,28 @@ class MAGDatabase:
         return self.search_facts_fts(query, limit=limit)
 
     def search_similar_facts(self, fact_text: str, threshold: float = 0.85) -> List[Dict[str, Any]]:
-        """Searches for existing similar facts via FTS keyword overlap."""
-        return self.search_facts_fts(fact_text, limit=3)
+        """Searches for existing similar facts via FTS candidates and verified token similarity."""
+        candidates = self.search_facts_fts(fact_text, limit=3)
+        if not candidates:
+            return []
+
+        import re
+        tokens1 = set(re.findall(r'\w+', fact_text.lower()))
+        if not tokens1:
+            return []
+
+        similar = []
+        for cand in candidates:
+            cand_text = cand.get('fact_text', '').lower()
+            tokens2 = set(re.findall(r'\w+', cand_text))
+            if not tokens2:
+                continue
+            intersection = tokens1.intersection(tokens2)
+            union = tokens1.union(tokens2)
+            sim = len(intersection) / len(union) if union else 0.0
+            if sim >= threshold:
+                similar.append(cand)
+        return similar
 
     def get_user_profile(self, user_name: str) -> Dict[str, Any]:
         """Get all preferences for a given user."""

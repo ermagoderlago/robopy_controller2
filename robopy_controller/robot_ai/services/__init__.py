@@ -60,10 +60,37 @@ try:
 except ImportError:
     DeepSeekService = None
 
-from robopy_controller.robot_ai.services.audio_buffer_manager import AudioBufferManager
-from robopy_controller.robot_ai.services.curiosity_evolution_engine import CuriosityEvolutionEngine
-from robopy_controller.robot_ai.services.robot_documentation_service import RobotDocumentationService
-from robopy_controller.robot_ai.services.marcus_data_miner import MarcusDataMiner
+try:
+    from robopy_controller.robot_ai.services.audio_buffer_manager import AudioBufferManager
+except ImportError:
+    try:
+        from robot_ai.services.audio_buffer_manager import AudioBufferManager
+    except ImportError:
+        AudioBufferManager = None
+
+try:
+    from robopy_controller.robot_ai.services.curiosity_evolution_engine import CuriosityEvolutionEngine
+except ImportError:
+    try:
+        from robot_ai.services.curiosity_evolution_engine import CuriosityEvolutionEngine
+    except ImportError:
+        CuriosityEvolutionEngine = None
+
+try:
+    from robopy_controller.robot_ai.services.robot_documentation_service import RobotDocumentationService
+except ImportError:
+    try:
+        from robot_ai.services.robot_documentation_service import RobotDocumentationService
+    except ImportError:
+        RobotDocumentationService = None
+
+try:
+    from robopy_controller.robot_ai.services.marcus_data_miner import MarcusDataMiner
+except ImportError:
+    try:
+        from robot_ai.services.marcus_data_miner import MarcusDataMiner
+    except ImportError:
+        MarcusDataMiner = None
 
 __all__ = [
     "LLMService",

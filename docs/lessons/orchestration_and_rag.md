@@ -244,8 +244,57 @@ L'architettura TRINITY integra i tre paradigmi di memoria e contesto operando a 
      - Sottoscrizione asincrona agli eventi `/frontier_exploration/status` e `/exploration/target_event`.
      - All'avvenuto aggancio bersaglio (`event == "TARGET_ACQUIRED"`), archiviazione automatica di un fatto semantico in SQLite WAL (`semantic_facts` con `fact_type = "SEMANTIC_LANDMARK"`): es. `Bersaglio 'chiavi' individuato a coordinate (2.45, -1.30) nella stanza 'salotto'`.
      - Metodo di interrogazione rapida `TrinityEngine.find_target_location(target_name)` via ricerca full-text (FTS5) e parsing regex delle coordinate $(x, y)$.
-  3. **FrontierExplorationSkill & Dismissione NoMaD (`frontier_exploration_skill.py` / `nomad_exploration_skill.py`):**
+  3. **FrontierExplorationSkill & Epurazione Definitiva NoMaD:**
      - Nuova skill `FrontierExplorationSkill` con gestione vocale di intenti multipli: esplorazione pura (`EXPLORE`), caccia guidata da semantica (`HUNT`), stop immediato.
      - Nel flusso `HUNT` ("trova le chiavi", "cerca Marco"), la skill interroga preventivamente MAG: se la posizione è nota e recente, invia Nav2 direttamente su quelle coordinate; se non nota, attiva l'esplorazione autonoma a frontiere con bias semantico.
-     - `NomadExplorationSkill` è stata rifattorizzata come wrapper di retrocompatibilità che eredita da `FrontierExplorationSkill`, eliminando ogni dipendenza dal modello pesante NoMaD senza rompere registrazioni o chiamate preesistenti.
+     - **Epurazione Radicale NoMaD:** Il modello e tutti i file/pacchetti associati a NoMaD sono stati fisicamente eliminati dal workspace (inclusi `nomad_navigator_node.py`, `nomad_reactive_pipeline_node.py`, `nomad_exploration_skill.py`, launch script e test dedicati). `FrontierExplorationSkill` è ora l'unico oracolo di esplorazione autonoma di Marcus.
+
+---
+
+## 🗣️ Controllo Cognitivo TRINITY della Navigazione & Conversational Barge-In (Milestone 2.5)
+
+### 1. Eliminazione del Fast-Path Regex per Comandi di Moto
+* **Problema:** In precedenza, parole d'ordine come "esplora", "naviga" o "fermati" venivano intercettate da un regex fast-path (`find_best_match >= 0.95`) in `conversation.py`. Questo causava false attivazioni su frasi ordinarie, bypassava completamente l'LLM e privava Marcus della consapevolezza contestuale.
+* **Soluzione:** Bypassati i match ad alta confidenza per le skill di navigazione (`navigation`, `frontier_exploration`, `visual_exploration`). Tutti i comandi verbali di moto vengono ora instradati al TRINITY LLM (Gemini Live API e standard API) tramite **Function Calling nativo** (`start_frontier_exploration`, `stop_navigation`, `get_navigation_status`, `search_target`).
+* **Vantaggio:** L'LLM decide intenzionalmente se, come e dove navigare, può motivare le sue scelte ("Parto subito a esplorare il salotto"), monitorare le prestazioni e adottare strategie di problem-solving.
+
+### 2. Conversational Barge-In con Sospensione/Ripresa dell'Esplorazione
+* **Problema:** Quando Marcus era in movimento durante l'esplorazione e l'utente gli rivolgeva la parola, il robot continuava a marciare, generando rumore meccanico nei microfoni ReSpeaker e distraendosi dal dialogo.
+* **Soluzione:** Implementata la logica di **Conversational Barge-In** in `ConversationManager`:
+  1. All'inizio del turno vocale, se `frontier_skill.is_exploring == True`, viene invocato `pause_for_dialogue()`, azzerando istantaneamente `/cmd_vel` e sospendendo l'invio di goal di frontiera.
+  2. Nel prompt viene iniettata una nota contestuale esplicita: il robot sa di essere in pausa e spiega cosa stava facendo se interrogato ("Mi sono fermato per ascoltarti; stavo esplorando il corridoio").
+  3. Al termine della risposta vocale (o dell'elaborazione), se l'utente non ha esplicitamente richiesto di fermarsi (es. "fermati", "annulla esplorazione"), il sistema invoca automaticamente `resume_after_dialogue()`, riattivando l'esplorazione a frontiere dal punto in cui era stata sospesa.
+
+### 3. Persistenza Autobiografica degli Eventi di Navigazione in MAG (SQLite WAL)
+* **Tracciamento Fatti:** Ogni avvio di missione esplorativa e ogni scoperta di landmark semantico viene registrato nella tabella `semantic_facts` con categoria `NAVIGATION_EVENT`.
+* **Fix Deduplicazione Semantica FTS5:** Risolto un bug critico in `MAGDatabase.search_similar_facts`: in precedenza, qualsiasi query FTS5 restituiva corrispondenze generiche che venivano scartate a priori come duplicati. È stata introdotta la verifica di similarità metrica Jaccard sui token ($\ge 0.85$), consentendo la persistenza affidabile di eventi distinti anche se condividono parole chiave (es. "stanza", "esplorazione").
+
+---
+
+## 🧠 Risoluzione Ricerche in Memoria, QueryMemorySkill e Prevenzione Silenzio (FM-COG-004)
+
+### 1. Il Problema Rilevato
+* **Sintomo:** Chiedendo al robot di accedere ai dati della memoria ("accedi ai dati della memoria", "fai una ricerca nella memoria", "cosa c'è nella memoria?") o ponendo domande che richiedevano l'interrogazione dei ricordi, Marcus non riusciva a recuperare le informazioni e non produceva alcuna risposta vocale o testuale (rimaneva completamente muto).
+* **Cause Radice Identificate:**
+  1. **Mancata implementazione del tool `query_memory`:** In `tool_declarations.py` era dichiarato lo strumento `query_memory`, ma nessuna classe `QueryMemorySkill` era stata implementata in `robot_ai/skills/builtin/` né registrata nel `SkillRegistry` di `orchestrator.py`. Quando Gemini function-calling invocava `query_memory`, `skill_executor` non trovava il tool, loggava un warning e restituiva una lista vuota.
+  2. **Crash runtime in `MemoryInfoSkill`:** Nel metodo `execute()` veniva invocato `SkillResult.success_result(..., formatted_document=markdown)`. Poiché la factory `SkillResult.success_result` in `base_skill.py` non accetta `formatted_document` come parametro esplicito, veniva sollevata un'eccezione non gestita `TypeError: unexpected keyword argument 'formatted_document'`. Inoltre, essendo un generatore asincrono con un primo yield vuoto di attesa, `_execute_tool_live` scartava il risultato effettivo.
+  3. **Fallimento FTS su query meta/esplorative:** Frasi come *"accedi ai dati della memoria"* venivano tokenizzate e cercate tramite FTS5 su `episodes_fts` e `facts_fts`. Poiché gli episodi storici contengono eventi specifici (es. "Ho acceso la luce", "Mi chiamo Luca") e non le parole "accedi" o "memoria", FTS restituiva 0 righe. In assenza di fallback, `HybridSearchEngine` ritornava liste vuote.
+  4. **Vuoto conversazionale su Function Calling muto:** In `ConversationManager._process_locked`, quando Gemini produceva una function call, `response.text` era vuoto (`""`). Se il tool invocato non emetteva testo parlato o falliva silenziosamente, né `self.tts.speak()` né `self.response_callback()` venivano invocati, lasciando il robot in totale silenzio.
+
+### 2. Risoluzioni Implementate
+1. **Creazione di `QueryMemorySkill` (`robot_ai.skills.builtin.query_memory_skill`):**
+   - Implementa l'interfaccia `BaseSkill` con nome `"query_memory"`, priority 6, e parametri `query`, `limit`, `type`/`memory_type`.
+   - Matching ad alta confidenza ($\ge 0.95$) su trigger diretti in italiano (*"accedi ai dati della memoria"*, *"cosa c'è nella memoria"*, *"cosa ti ricordi"*, *"fatti appresi"*).
+   - Interrogazione sinergica del database autobiografico MAG (SQLite WAL: episodi recenti, fatti Zettelkasten, profili utente) e del vector store ChromaDB (memorie semantiche recenti).
+   - Generazione di un resoconto vocale fluido e sintetico in lingua italiana (`speak`), unitamente a un documento Markdown strutturato per l'interfaccia Foxglove (`message` e `data`).
+2. **Hardening di `MemoryInfoSkill`:**
+   - Rimozione del parametro illegale `formatted_document` dalla factory `SkillResult.success_result`; il documento Markdown viene ora veicolato correttamente all'interno del dizionario `data={"formatted_document": markdown, ...}`.
+   - Conversione da generatore asincrono a coroutine diretta (`async def execute(...) -> SkillResult`), garantendo che `_execute_tool_live` riceva immediatamente il report completo.
+3. **Fallback per Query Esplorative in `HybridSearchEngine`:**
+   - In `mag_hybrid_search.py`, se una query è esplorativa o se la ricerca FTS/vettoriale produce 0 risultati, il motore ricade deterministicamente su `get_recent_episodes(limit=top_k)` e `get_all_facts()[:top_k]`.
+4. **Protezione Anti-Silenzio in `ConversationManager` e `SkillExecutor`:**
+   - In `skill_executor.py`: supporto all'estrazione di `query` in fallback su `execution_text`, e fallback automatico su `result.message` se `result.speak` è assente.
+   - In `conversation.py`: aggiunta della guardia anti-silenzio. Se sono state eseguite azioni esplicative ma nessun parlato è stato emesso e `response_text` è vuoto, viene pronunciata una risposta di stato gentile (*"Ho controllato la mia memoria, ma non ho trovato informazioni specifiche a riguardo"*), garantendo che Marcus fornisca sempre un riscontro all'interlocutore.
+
+
 

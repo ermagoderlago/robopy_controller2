@@ -193,6 +193,13 @@ improvements:
     status: "COMPLETED"
     domain: "nav2_slam"
 
+  FM-VIS-009:
+    title: "Miglioramento Visione: Risoluzione Falsi Riconoscimenti YOLOv8 su Hailo-10H, Ripristino RGB e Letterbox 1:1"
+    file: "docs/improvements/IMP-VIS-009_hailo_yolo_accuracy_fix.md"
+    status: "IN_PROGRESS"
+    domain: "vision_hailo"
+
+
 
 
 

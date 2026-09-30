@@ -143,7 +143,8 @@ private:
         // Debug
         bool publish_debug = false;
         
-        // YOLO
+        // YOLO & RGB Camera (FM-VIS-009)
+        bool enable_rgb_cam = false;
         bool enable_yolo = true;
         std::string yolo_blob_path = "";
         float yolo_conf_threshold = 0.5f;
@@ -201,7 +202,7 @@ private:
     void publishOdometry(const rclcpp::Time& stamp);
     void publishGuess(const rclcpp::Time& stamp);  // Guess for RTAB-Map
     void publishDiagnostics(const rclcpp::Time& stamp);
-    void publishImages(const cv::Mat& gray, const cv::Mat& depth, const rclcpp::Time& stamp);
+    void publishImages(const cv::Mat& gray, const cv::Mat& depth, const rclcpp::Time& stamp, const cv::Mat& color_img = cv::Mat());
     void publishDebugView(const cv::Mat& gray, 
                          const std::vector<cv::Point2f>& prev_pts,
                          const std::vector<cv::Point2f>& curr_pts,

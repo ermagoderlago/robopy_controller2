@@ -88,7 +88,8 @@ FastFlowVONode::FastFlowVONode(const rclcpp::NodeOptions& options)
     // Debug
     config_.publish_debug = declare_parameter<bool>("publish_debug", false);
     
-    // YOLO
+    // YOLO & RGB Camera (FM-VIS-009)
+    config_.enable_rgb_cam = declare_parameter<bool>("enable_rgb_cam", false);
     config_.enable_yolo = declare_parameter<bool>("enable_yolo", true);
     config_.yolo_blob_path = declare_parameter<std::string>("yolo_blob_path", "");
     config_.yolo_conf_threshold = declare_parameter<float>("yolo_conf_threshold", 0.5f);
@@ -293,8 +294,39 @@ bool FastFlowVONode::initializeDepthAI() {
             manip->out.link(xoutRgb->input); // Output the resized frame for preview
             */
         }
+
+        // --- Color Camera (CAM_A) for Native RGB Perception (FM-VIS-009) ---
+        if (config_.enable_rgb_cam) {
+            auto camRgb = pipeline_->create<dai::node::ColorCamera>();
+            camRgb->setBoardSocket(dai::CameraBoardSocket::CAM_A);
+            camRgb->setResolution(dai::ColorCameraProperties::SensorResolution::THE_1080_P);
+            camRgb->setFps(config_.camera_fps);
+            camRgb->setInterleaved(false);
+            camRgb->setColorOrder(dai::ColorCameraProperties::ColorOrder::BGR);
+            camRgb->setPreviewSize(640, 400);
+            camRgb->setPreviewKeepAspectRatio(false);
+
+            auto xoutRgb = pipeline_->create<dai::node::XLinkOut>();
+            xoutRgb->setStreamName("color");
+            xoutRgb->input.setBlocking(false);
+            xoutRgb->input.setQueueSize(2);
+            camRgb->preview.link(xoutRgb->input);
+            RCLCPP_INFO(get_logger(), "🎨 OAK-D Lite Native ColorCamera (RGB) ENABLED on CAM_A (640x400)");
+        }
         
         device_ = std::make_unique<dai::Device>(*pipeline_);
+        
+        // Log negotiated USB connection speed (FM-VIS-001)
+        auto usb_speed = device_->getUsbSpeed();
+        std::string speed_str = "UNKNOWN";
+        if (usb_speed == dai::UsbSpeed::SUPER || usb_speed == dai::UsbSpeed::SUPER_PLUS) {
+            speed_str = "🟢 SUPER_SPEED (USB 3.0/3.1 - Full 5Gbps Bandwidth, Zero Drop)";
+        } else if (usb_speed == dai::UsbSpeed::HIGH) {
+            speed_str = "🟡 HIGH_SPEED (USB 2.0 - 480Mbps Bandwidth)";
+        } else {
+            speed_str = "🔴 LOW/FULL_SPEED (USB 1.1 - Warning)";
+        }
+        RCLCPP_INFO(get_logger(), "🔌 OAK-D Lite USB Connection: %s", speed_str.c_str());
         
         auto calib = device_->readCalibration();
         auto intrinsics = calib.getCameraIntrinsics(dai::CameraBoardSocket::CAM_B, 640, 400);
@@ -344,11 +376,9 @@ void FastFlowVONode::processLoop() {
     auto qDepth = device_->getOutputQueue("depth", 4, false);
     auto qImu = device_->getOutputQueue("imu", 50, false); // IMU queue (Restored)
     
-    // Optional YOLO queues
-    std::shared_ptr<dai::DataOutputQueue> qYolo;
-    if (config_.enable_yolo && !config_.yolo_blob_path.empty()) {
-        qYolo = device_->getOutputQueue("yolo", 4, false);
-        // qColor disabled to save bandwidth
+    std::shared_ptr<dai::DataOutputQueue> qColor;
+    if (config_.enable_rgb_cam) {
+        qColor = device_->getOutputQueue("color", 2, false);
     }
     
     int frame_counter = 0;
@@ -490,6 +520,13 @@ void FastFlowVONode::processLoop() {
             if (config_.skip_frames <= 1 || frame_counter % config_.skip_frames == 0) {
                 cv::Mat gray = rectFrame->getCvFrame();
                 cv::Mat depth = depthFrame->getCvFrame();
+                cv::Mat color_mat;
+                if (qColor) {
+                    auto colorFrame = qColor->tryGet<dai::ImgFrame>();
+                    if (colorFrame) {
+                        color_mat = colorFrame->getCvFrame();
+                    }
+                }
                 
                 // [OPT 1] Timestamp: this->now() per i messaggi ROS (epoch Unix).
                 // I timestamp HW DepthAI usano il clock monotono del dispositivo
@@ -514,7 +551,7 @@ void FastFlowVONode::processLoop() {
                         frame_dt, config_.max_frame_dt_ms);
                 }
                 
-                publishImages(gray, depth, stamp);
+                publishImages(gray, depth, stamp, color_mat);
                 if (config_.enable_vo) {
                     processFrame(gray, depth, stamp);
                 }
@@ -1537,10 +1574,14 @@ std::string FastFlowVONode::stateToString(TrackingState state) const {
 // ===================== Image Publishing for RTAB-Map =====================
 
 void FastFlowVONode::publishImages(const cv::Mat& gray, const cv::Mat& depth, 
-                                    const rclcpp::Time& stamp) {
+                                    const rclcpp::Time& stamp, const cv::Mat& color_img) {
     // Always publish RGB, Depth and CameraInfo so subscribers (RTAB-Map & depthimage_to_laserscan) get data immediately
     cv::Mat rgb;
-    cv::cvtColor(gray, rgb, cv::COLOR_GRAY2BGR);
+    if (!color_img.empty()) {
+        rgb = color_img;
+    } else {
+        cv::cvtColor(gray, rgb, cv::COLOR_GRAY2BGR);
+    }
     
     auto rgb_msg = cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", rgb).toImageMsg();
     rgb_msg->header.stamp = stamp;
@@ -1605,14 +1646,13 @@ void FastFlowVONode::publishImages(const cv::Mat& gray, const cv::Mat& depth,
     camera_info_scan_msg.p[6] = cy_scan;
     camera_info_scan_pub_->publish(camera_info_scan_msg);
     
-    // RGB -> JPG (Conditional: Only if subscribers exist to save CPU)
+    // RGB -> JPG (Conditional: Only if subscribers exist to save CPU - SPEC-03 Lazy Publishing)
     if (rgb_compressed_pub_->get_subscription_count() > 0) {
         if (!config_.enable_yolo || config_.yolo_blob_path.empty()) {
             std::vector<uchar> buf_rgb;
             try {
-                cv::Mat rgb_comp_frame;
-                cv::cvtColor(gray, rgb_comp_frame, cv::COLOR_GRAY2BGR);
-                cv::imencode(".jpg", rgb_comp_frame, buf_rgb, {cv::IMWRITE_JPEG_QUALITY, 50}); 
+                const cv::Mat& src_frame = (!color_img.empty()) ? color_img : rgb;
+                cv::imencode(".jpg", src_frame, buf_rgb, {cv::IMWRITE_JPEG_QUALITY, 60}); 
                 
                 sensor_msgs::msg::CompressedImage rgb_comp;
                 rgb_comp.header.stamp = stamp;

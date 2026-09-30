@@ -111,7 +111,7 @@ controller_server:
   ros__parameters:
     use_sim_time: false
     controller_frequency: 5.0  # 5Hz — motori open-loop lenti, 10Hz era eccessivo
-    min_x_velocity_threshold: 0.05  # Evita comandi di micro-strisciamento sotto soglia fisica (era 0.001)
+    min_x_velocity_threshold: 0.02  # [R1 FIX] Ridotto da 0.05 a 0.02 per sbloccare comandi a bassa velocità controllata
     min_y_velocity_threshold: 0.5
     min_theta_velocity_threshold: 0.02
     failure_tolerance: 0.3
@@ -137,15 +137,15 @@ controller_server:
       plugin: "nav2_mppi_controller::MPPIController"
       time_steps: 20    # [CPU-OPT Pi 5] Orizzonte ridotto (robot lento, non serve guardare lontano)
       model_dt: 0.2     # Passo temporale doppio (coerente con robot lento)
-      batch_size: 150   # [CPU-OPT Pi 5] Ridotto da 300 a 150: identica curvatura continua a 0.2m/s, -50% CPU
-      vx_std: 0.08      # Campionamento allargato per esplorare velocità operative (era 0.03)
+      batch_size: 200   # [R1 FIX] Incrementato da 150 a 200 per generare traiettorie fluide e consistenti
+      vx_std: 0.12      # [R1 FIX] Incrementato a 0.12 per esplorazione velocità operative
       vy_std: 0.0
-      wz_std: 0.12      # Reattività proporzionale in sterzata (era 0.08)
+      wz_std: 0.25      # [R1 FIX] Incrementato a 0.25 per reattività proporzionale in sterzata e rotazione
       vx_max: 0.26      # Velocità lineare di crociera fluida (+30% per spazi liberi; vincolo max SPEC-01: 0.40 m/s)
       vx_min: 0.0       # Zero: NESSUNA RETROMARCIA AMMESSA cieca
       wz_max: 0.8       # Velocità angolare max REALE del robot
       kinematics:
-        base_min_turning_radius: 0.18  # ENFORCE: il robot non può fermarsi a ruotare sul posto, deve fare curve continue ad arco
+        base_min_turning_radius: 0.0  # [R1 FIX] 0.0 per sbloccare rotazione sul posto robot differenziale
       critics: ["ConstraintCritic", "GoalCritic", "GoalAngleCritic", "ObstaclesCritic", "PathAlignCritic", "PathFollowCritic", "PathAngleCritic", "PreferForwardCritic"]
       ConstraintCritic:
         cost_power: 1
@@ -365,13 +365,13 @@ collision_monitor:
     cmd_vel_in_topic: "cmd_vel_nav"
     cmd_vel_out_topic: "cmd_vel"
     transform_tolerance: 0.5
-    source_timeout: 2.0
+    source_timeout: 5.0  # [R1 FIX] Incrementato a 5.0s per tollerare latenze inferenza Hailo
     base_shift_correction: true
     stop_pub_timeout: 1.0
     polygons: ["PolygonStop", "PolygonSlowdown"]
     PolygonStop:
       type: "polygon"
-      points: "[[0.22, 0.18], [0.22, -0.18], [-0.18, -0.18], [-0.18, 0.18]]"
+      points: "[[0.20, 0.14], [0.20, -0.14], [-0.14, -0.14], [-0.14, 0.14]]"  # [R1 FIX] Rimodellato ingombro chassis
       action_type: "stop"
       min_points: 3
       visualize: true
@@ -388,9 +388,11 @@ collision_monitor:
     scan:
       type: "scan"
       topic: "/scan"
+      min_range: 0.06  # [R1 FIX] Filtra riflessi interni asta camera / chassis
     pointcloud:
       type: "pointcloud"
       topic: "/hailo_semantic_obstacles_pc"
+      min_range: 0.06  # [R1 FIX] Filtra riflessi interni ed artefatti ravvicinati
       min_height: 0.05
       max_height: 1.5
 

@@ -93,6 +93,7 @@ class DummyNode:
 
 if 'rclpy' not in sys.modules:
     sys.modules['rclpy'] = MagicMock()
+if 'rclpy.node' not in sys.modules or getattr(sys.modules.get('rclpy.node'), 'Node', None) is not DummyNode:
     sys.modules['rclpy.node'] = MagicMock(Node=DummyNode)
 if 'geometry_msgs' not in sys.modules:
     sys.modules['geometry_msgs'] = MagicMock()

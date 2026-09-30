@@ -50,6 +50,12 @@ class HybridSearchEngine:
             vec_res = self._db.search_episodes_vector(query) if hasattr(self._db, 'search_episodes_vector') else []
             
             merged = self.compute_rrf(fts_res, vec_res)
+            # If search returns no results, check if broad/exploratory query or fallback to recent
+            if not merged and hasattr(self._db, 'get_recent_episodes'):
+                query_lower = query.lower()
+                broad_keywords = ["memoria", "ricord", "recent", "tutto", "interazion", "passat", "cosa sai", "dati", "accedi"]
+                if any(k in query_lower for k in broad_keywords) or len(query.strip().split()) <= 4:
+                    return self._db.get_recent_episodes(limit=top_k)
             return merged[:top_k]
 
     def search_facts(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
@@ -58,4 +64,12 @@ class HybridSearchEngine:
             vec_res = self._db.search_facts_vector(query) if hasattr(self._db, 'search_facts_vector') else []
             
             merged = self.compute_rrf(fts_res, vec_res)
+            # If search returns no results, check if broad/exploratory query or fallback to all facts
+            if not merged and hasattr(self._db, 'get_all_facts'):
+                query_lower = query.lower()
+                broad_keywords = ["memoria", "ricord", "fatti", "sai", "imparat", "appres", "tutto", "dati", "accedi", "profilo"]
+                if any(k in query_lower for k in broad_keywords) or len(query.strip().split()) <= 4:
+                    facts = self._db.get_all_facts()
+                    return facts[:top_k]
             return merged[:top_k]
+

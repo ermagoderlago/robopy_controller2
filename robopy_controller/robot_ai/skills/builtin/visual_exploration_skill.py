@@ -31,11 +31,11 @@ class VisualExplorationSkill(BaseSkill):
     def get_metadata(self) -> SkillMetadata:
         return SkillMetadata(
             name="visual_exploration",
-            description="Analisi visiva sperimentale a scatto singolo (NOTA: Per esplorare la stanza o muoversi, usa SEMPRE nomad_exploration).",
+            description="Analisi visiva sperimentale a scatto singolo (NOTA: Per esplorare la stanza o muoversi, usa SEMPRE frontier_exploration).",
             version="1.0.1",
             keywords=["vista", "guarda"],
-            priority=5,  # Priorità minima rispetto a nomad_exploration (30)
-            enabled=False,  # Disabilitata per evitare collisioni di tool con nomad_exploration
+            priority=5,  # Priorità minima rispetto a frontier_exploration (35)
+            enabled=False,  # Disabilitata per evitare collisioni di tool con frontier_exploration
             requires_nav=True
         )
         

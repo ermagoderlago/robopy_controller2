@@ -199,24 +199,25 @@ class TestNav2JazzyMotionParameters(unittest.TestCase):
             self.config = yaml.safe_load(f)
 
     def test_controller_velocity_thresholds(self):
-        """Velocity threshold must not allow micro-crawls below 0.04 m/s"""
+        """Velocity threshold must be 0.02 m/s to unlock low-speed commands"""
         params = self.config['controller_server']['ros__parameters']
-        self.assertGreaterEqual(params['min_x_velocity_threshold'], 0.04)
+        self.assertEqual(params['min_x_velocity_threshold'], 0.02)
 
     def test_mppi_continuous_curvature_kinematics(self):
-        """MPPI must enforce minimum turning radius to eliminate robotic stop-and-spin in place"""
+        """MPPI must allow zero turning radius for differential in-place rotation"""
         mppi = self.config['controller_server']['ros__parameters']['FollowPath']
         self.assertIn('kinematics', mppi)
         radius = mppi['kinematics']['base_min_turning_radius']
-        self.assertGreaterEqual(radius, 0.15, "base_min_turning_radius must be >= 0.15m for smooth arc curves")
-        self.assertLessEqual(radius, 0.30, "base_min_turning_radius must be <= 0.30m to stay maneuverable")
+        self.assertEqual(radius, 0.0, "base_min_turning_radius must be 0.0 for differential in-place rotation")
 
     def test_mppi_speed_limits_and_sampling(self):
         """MPPI velocity limits must adhere to SPEC-01 Red Zone limits and have proper exploration variance"""
         mppi = self.config['controller_server']['ros__parameters']['FollowPath']
         self.assertLessEqual(mppi['vx_max'], 0.40, "SPEC-01 RED ZONE: max linear speed must be <= 0.40 m/s")
         self.assertLessEqual(mppi['wz_max'], 1.80, "SPEC-01 RED ZONE: max angular speed must be <= 1.80 rad/s")
-        self.assertGreaterEqual(mppi['vx_std'], 0.06, "vx_std must be >= 0.06 for effective forward exploration")
+        self.assertEqual(mppi['batch_size'], 200, "batch_size must be 200 for rich trajectory sampling")
+        self.assertEqual(mppi['vx_std'], 0.12, "vx_std must be 0.12 for forward exploration")
+        self.assertEqual(mppi['wz_std'], 0.25, "wz_std must be 0.25 for agile turning rollouts")
 
     def test_mppi_critics_balance(self):
         """Critics must balance path following against forward progress to eliminate stops"""
@@ -225,6 +226,15 @@ class TestNav2JazzyMotionParameters(unittest.TestCase):
         follow_weight = mppi['PathFollowCritic']['cost_weight']
         self.assertLessEqual(align_weight, 10.0, "PathAlignCritic weight must be <= 10.0 to prevent freeze on angular deviation")
         self.assertGreaterEqual(follow_weight, 8.0, "PathFollowCritic weight must be >= 8.0 to prioritize forward progress")
+
+    def test_collision_monitor_parameters(self):
+        """Collision monitor parameters must filter reflections and tolerate sensor latencies"""
+        cm = self.config['collision_monitor']['ros__parameters']
+        self.assertEqual(cm['source_timeout'], 5.0, "source_timeout must be 5.0s to tolerate pointcloud latency")
+        self.assertIn("[[0.20, 0.14], [0.20, -0.14], [-0.14, -0.14], [-0.14, 0.14]]", cm['PolygonStop']['points'],
+                      "PolygonStop must be reshaped to match chassis footprint")
+        self.assertEqual(cm['scan']['min_range'], 0.06, "scan min_range must be 0.06m to filter mast reflections")
+        self.assertEqual(cm['pointcloud']['min_range'], 0.06, "pointcloud min_range must be 0.06m to filter chassis artifacts")
 
 
 if __name__ == '__main__':

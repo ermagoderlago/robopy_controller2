@@ -138,3 +138,38 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
     - Applicato il core pinning forzato sui core CPU 2 e 3 (`pthread_setaffinity_np`) e Lazy Publishing per l'immagine compressa annotata.
   * **Compilazione**: Compilato in Release con `-O3 -mcpu=cortex-a76+crypto` e `MAKEFLAGS="-j1"` su Raspberry Pi 5.
   * **Script di avvio**: Aggiornato `restart_hailo.sh` per avviare `hailo_bridge_node_cpp` nativo.
+
+---
+
+## 📈 ECO-2026-09-29-001: Hailo NPU Dynamic Ament Execution, DDS Multi-Domain Alignment & CRLF Sanitization
+* **Stato:** ✅ **Completato, Testato e Distribuito su Raspberry Pi 5**
+* **Descrizione:** Risoluzione del Failure Mode `FM-VIS-008` (mancata scoperta topic `/hailo/...` in Foxglove ed errore di caricamento librerie dinamiche `libservice_msgs__rosidl_generator_py.so` all'avvio del driver Hailo NPU C++).
+* **Modifiche apportate:**
+  * **Launcher `restart_hailo.sh`**:
+    - Aggiornata la modalità di lancio di `hailo_bridge_node_cpp` impiegando `taskset -c 2,3 ros2 run robopy_controller hailo_bridge_node_cpp` anziché l'invocazione diretta del binario. Questo assicura che il runtime Ament Index espanda e fornisca tutte le directory `lib` dei pacchetti isolati colcon a `LD_LIBRARY_PATH`.
+    - Impostato `ENABLE_HAILO="${ENABLE_HAILO:-true}"` come default per garantire l'avvio della percezione NPU ad ogni riavvio standard di Marcus.
+    - Esportato esplicitamente `RMW_IMPLEMENTATION=rmw_cyclonedds_cpp` in combinazione con `ROS_DOMAIN_ID=42` e `CYCLONEDDS_URI=/tmp/cyclonedds_robopy.xml` per la totale convergenza di rete con Nav2 e Foxglove Studio.
+    - Aggiunta la sanitizzazione automatica dei caratteri CRLF (`sed -i 's/\r$//'`) nel ciclo di copia a caldo dei nodi Python per prevenire errori di interprete `/usr/bin/env: 'python3\r': No such file or directory` (risolto crash di `semantic_costmap_injector`).
+  * **Verifica a runtime**:
+    - Topic `/hailo/annotated_image/compressed` attivo e visibile in Foxglove (Publisher count: 2).
+    - Topic `/hailo/semantic_objects` attivo (Publisher count: 1, Subscription count: 3).
+    - Topic `/hailo_semantic_obstacles_pc` attivo e iniettato nelle costmap Nav2 (Publisher count: 1, Subscription count: 4).
+
+---
+
+## 📈 ECO-2026-09-30-001: Hailo YOLO Perception Accuracy & RGB Color Pipeline Restoration (FM-VIS-009)
+* **Stato:** 🟡 **In Corso (Software implementato, HEF compilato e pronto al test)**
+* **Descrizione:** Risoluzione sistematica delle anomalie di classificazione oggetti su Hailo-10H (scambio sistematico di divani e arredi voluminosi per la classe persona).
+* **Modifiche apportate:**
+  * **`src/hailo_bridge_node.cpp`**:
+    - Implementato il preprocessing con **Letterbox 1:1** isotropo e padding simmetrico con valore 114, eliminando la distorsione verticale anamorfica del 160% tra 640x400 e 640x640.
+    - Aggiornata la rimappatura inversa dei bounding box (`det.xmin`, `det.ymin`, `det.xmax`, `det.ymax`) per riflettere con precisione euclidea l'area utile dell'immagine prima del letterbox.
+    - Innalzata la soglia di confidenza `conf_thresh` al valore nominale di specifica (`0.55f`) come stabilito in `SPEC-03` Zona Verde.
+    - Introdotto filtro geometrico sull'aspect ratio della classe persona ($W/H \le 1.8$) per respingere falsi positivi orizzontali.
+  * **`src/fast_flow_vo_node.cpp`**:
+    - Configurato il supporto per il sensore a colori nativo `ColorCamera` (`camRgb`) a 640x400 BGR per alimentare la NPU con vero spettro cromatico anziché fotogrammi monocromatici duplicati.
+  * **Documentazione & FMEA**:
+    - Redatta la guida tecnica esaustiva `docs/guides/HAILO_HEF_COMPILATION_GUIDE.md`.
+    - Aperto `FM-VIS-009` in `fmea/dfmea.yaml` e creato il progetto di miglioramento `docs/improvements/IMP-VIS-009_hailo_yolo_accuracy_fix.md`.
+
+

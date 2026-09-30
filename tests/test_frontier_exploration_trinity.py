@@ -15,7 +15,6 @@ import asyncio
 from unittest.mock import MagicMock
 
 from robot_ai.skills.builtin.frontier_exploration_skill import FrontierExplorationSkill
-from robot_ai.skills.builtin.nomad_exploration_skill import NomadExplorationSkill
 from robot_ai.trinity.cag_environment import EnvironmentSnapshot
 from robot_ai.trinity.cag_aggregator import ContextAggregator
 from robot_ai.trinity.mag_database import MAGDatabase
@@ -177,12 +176,3 @@ def test_trinity_engine_exploration_events(temp_db):
     assert found["target"] == "sedia"
     assert found["coordinates"] == (1.85, 3.20)
     assert found["confidence"] >= 0.80
-
-
-def test_nomad_exploration_skill_backward_compatibility(mock_ros_node):
-    node, pub_enable, pub_target = mock_ros_node
-    legacy_skill = NomadExplorationSkill(ros_node=node)
-
-    assert legacy_skill.get_metadata().name == "nomad_exploration"
-    assert legacy_skill.match("avvia nomad") > 0.8
-    assert legacy_skill.match("esplora la casa") > 0.8

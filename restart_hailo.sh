@@ -22,7 +22,7 @@ export ROS_DOMAIN_ID=42
 
 # --- Configurazione Hardware & Power-Saving ---
 # Se ENABLE_HAILO=false, la NPU Hailo-10H non viene avviata per azzerare il carico di corrente PCIe (previene brownout)
-ENABLE_HAILO="${ENABLE_HAILO:-false}"
+ENABLE_HAILO="${ENABLE_HAILO:-true}"
 USE_AMCL="${USE_AMCL:-false}"
 ENABLE_WATCHDOG="${ENABLE_WATCHDOG:-false}"
 SOFT_START="${SOFT_START:-true}"
@@ -123,6 +123,7 @@ cat << 'EOF' > /tmp/cyclonedds_robopy.xml
 </CycloneDDS>
 EOF
 export CYCLONEDDS_URI=/tmp/cyclonedds_robopy.xml
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 export PYTHONUNBUFFERED=1
 
 # --- Kill nodi precedenti (AI, Hailo NPU, Camera e Navigazione) ---
@@ -145,8 +146,6 @@ pkill -9 -f cloud_watchdog_node || true
 pkill -9 -f speaker_id_node || true
 pkill -9 -f foxglove_bridge || true
 pkill -9 -f foxglove_nav2_bridge || true
-pkill -9 -f nomad_navigator_node || true
-pkill -9 -f nomad_reactive_pipeline_node || true
 pkill -9 -f frontier_explorer_node || true
 pkill -9 -f vpr_topological_graph_node || true
 pkill -9 -f sensor_standby_manager || true
@@ -202,6 +201,7 @@ for node_file in waveshare_motor_driver.py semantic_costmap_injector.py frontier
         node_base="${node_file%.py}"
         cp -u "$src_file" "$LIB_DEST/$node_base" 2>/dev/null || true
         chmod +x "$LIB_DEST/$node_base" 2>/dev/null || true
+        sed -i 's/\r$//' "$LIB_DEST/$node_base" "$SITE_DEST/$node_file" 2>/dev/null || true
     fi
 done
 if [ -d "/mnt/ssd/robopy_controller_host/robopy_controller/robot_ai" ]; then
@@ -277,6 +277,7 @@ echo "👁️ Starting FastFlow C++ VIO Node..."
 nohup taskset -c 2,3 ros2 run robopy_controller fast_flow_vo_cpp --ros-args \
     -p camera_fps:=12.0 \
     -p enable_vo:=false \
+    -p enable_rgb_cam:=true \
     -p max_features:=150 \
     -p klt_win_size:=15 \
     -p klt_max_level:=2 \
@@ -391,11 +392,12 @@ nohup ros2 run robopy_controller respeaker_vui_node --ros-args \
 if [ "$ENABLE_HAILO" = "true" ]; then
     echo "🧠 Starting hailo_bridge_node_cpp (NPU C++ Driver)..."
     > /home/robopy/robopy/logs/hailo_bridge_node.log
-    nohup taskset -c 2,3 /mnt/ssd/robopy_controller_host/install/robopy_controller/lib/robopy_controller/hailo_bridge_node_cpp --ros-args \
+    nohup taskset -c 2,3 ros2 run robopy_controller hailo_bridge_node_cpp --ros-args \
         -p hef_path:=/mnt/ssd/models/marcus_unified.hef \
         -p sim_mode:=False \
         -p rgb_topic:=/rgb/image \
         -p vlm_rate_hz:=5.0 \
+        -p conf_threshold:=0.55 \
         > /home/robopy/robopy/logs/hailo_bridge_node.log 2>&1 &
 else
     echo "💤 [POWER-SAFE] Salto avvio hailo_bridge_node_cpp (ENABLE_HAILO=false)."

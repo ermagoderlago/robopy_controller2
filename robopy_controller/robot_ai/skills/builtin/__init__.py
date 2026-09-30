@@ -20,19 +20,26 @@ except ImportError:
     NightlyDreamSkill = None
 
 try:
-    from .nomad_exploration_skill import NomadExplorationSkill
-except ImportError:
-    NomadExplorationSkill = None
-
-try:
     from .frontier_exploration_skill import FrontierExplorationSkill
 except ImportError:
     FrontierExplorationSkill = None
+
+try:
+    from .memory_info_skill import MemoryInfoSkill
+except ImportError:
+    MemoryInfoSkill = None
+
+try:
+    from .query_memory_skill import QueryMemorySkill
+except ImportError:
+    QueryMemorySkill = None
 
 __all__ = [
     "HomeAssistantSkill",
     "NavigationSkill",
     "NightlyDreamSkill",
-    "NomadExplorationSkill",
     "FrontierExplorationSkill",
+    "MemoryInfoSkill",
+    "QueryMemorySkill",
 ]
+

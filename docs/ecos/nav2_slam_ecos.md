@@ -395,6 +395,37 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
   - `restart_hailo.sh`
   - `marcus_robot_guide.md`
 
+---
+
+## 📈 ECO-2026-09-30-001: Risoluzione Blocco Nav2 Frontier Motion, Rebalancing Trims Motori, Host 20Hz Anti-Stall PI ed Epurazione Radicale NoMaD
+* **Stato:** ✅ **Completato, Testato e Integrato nel Workspace**
+* **Autore:** 🤖 **Antigravity Engine**
+* **DFMEA Correlati:** `FM-NAV-001`, `FM-MOT-001`, `FM-MOT-002`, `FM-EXP-001`, `FM-TRI-001`
+* **Descrizione dell'intervento:**
+  1. **Sblocco Movimento Nav2 Frontier (`nav2_params_jazzy.yaml`):**
+     - Impostato `base_min_turning_radius: 0.0` nel controller MPPI (in precedenza vincolato ad Ackermann `0.18m`), sbloccando le rotazioni sul posto indispensabili per orientarsi verso i centroidi delle frontiere libere.
+     - Abbassata `min_x_velocity_threshold: 0.02 m/s` e aumentata la dinamica campionaria con `batch_size: 200`, `vx_std: 0.12`, `wz_std: 0.25`.
+     - Ridimensionato il poligono `PolygonStop` del Collision Monitor a `[[0.20, 0.14], [0.20, -0.14], [-0.14, -0.14], [-0.14, 0.14]]` con `min_range: 0.06m` e aumentato `source_timeout: 5.0s`, eliminando falsi allarmi da auto-riflessione della camera/laser e drop-out dei pointcloud semantici.
+  2. **Rebalancing Trims Motori & Host 20Hz Anti-Stall PI (`waveshare_motor_driver.py`):**
+     - Corretta la deviazione verso sinistra dovuta a trim asimmetrici storici: impostati `left_motor_trim = 0.88`, `right_motor_trim = 0.88` e duty floor simmetrici a `0.13` in marcia avanti (`0.85` sx / `1.05` dx in retromarcia).
+     - Implementato anello chiuso di boost anti-stallo su Host Pi 5 a 20 Hz (`host_control_loop_20hz`): se $v_{actual} < 0.5 \cdot v_{cmd}$, accumula un boost integrativo $\Delta duty \le 0.30$ per vincere l'attrito statico del riduttore JGB37-520B (~143:1); decade gradualmente quando $v_{actual} \ge 0.8 \cdot v_{cmd}$. Se lo stallo perdura $> 1.0\text{s}$, interviene il trip di protezione FM-MOT-002 arrestando i motori per prevenire surriscaldamento o danni all'H-bridge.
+  3. **Epurazione Radicale NoMaD:**
+     - Eliminazione fisica e permanente di tutti i nodi e script NoMaD (`nomad_navigator_node.py`, `nomad_reactive_pipeline_node.py`, `nomad_exploration_skill.py`, `scripts/start_nomad_vpr.sh`, `scripts/nomad_navigator_node`, `scripts/test_inject_nomad.py` e suite di test unitari/integrazione `test_nomad_*.py`).
+     - Rimossa l'ereditarietà di compatibilità in `builtin/__init__.py`; `FrontierExplorationSkill` è l'unico motore di esplorazione autonomo.
+  4. **Autorità Cognitiva TRINITY & Conversational Barge-In:**
+     - Eliminato il bypass regex fast-path per la navigazione: ogni comando vocale viene valutato e deliberato da TRINITY LLM (Gemini Live) tramite Function Calling.
+     - Conversational Barge-In con sospensione automatica del moto (`pause_for_dialogue()`, `/cmd_vel = 0`) durante l'ascolto/parlato e ripresa automatica (`resume_after_dialogue()`).
+* **File Modificati / Eliminati:**
+  - `robopy_controller/config/nav2_params_jazzy.yaml`
+  - `robopy_controller/nodes/waveshare_motor_driver.py`
+  - `robopy_controller/robot_ai/orchestration/conversation.py`
+  - `robopy_controller/robot_ai/orchestration/skill_executor.py`
+  - `robopy_controller/robot_ai/skills/builtin/frontier_exploration_skill.py`
+  - `robopy_controller/robot_ai/trinity/mag_database.py`
+  - `robopy_controller/robot_ai/trinity/mag_zettelkasten.py`
+  - [ELIMINATI] nodi, script e test `nomad_*`
+
+
 
 
 

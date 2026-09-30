@@ -51,6 +51,7 @@ class FrontierExplorationSkill(BaseSkill):
         self.trinity_engine = trinity_engine
         self.nav_client = nav_client
         self.is_exploring = False
+        self._paused_for_dialogue = False
         self.current_target: Optional[str] = None
 
         self.pub_enable = None
@@ -66,6 +67,46 @@ class FrontierExplorationSkill(BaseSkill):
                 self.pub_target = self.ros_node.create_publisher(String, '/exploration/search_target', 10)
         except Exception:
             pass
+
+    def pause_for_dialogue(self) -> None:
+        """Pausa temporanea dell'esplorazione durante una conversazione utente (barge-in).
+        Arresta il movimento ruote per garantire silenzio acustico e massima attenzione."""
+        if self.is_exploring:
+            self._paused_for_dialogue = True
+            if self.pub_enable is not None:
+                e_msg = Bool()
+                e_msg.data = False
+                self.pub_enable.publish(e_msg)
+            if self.ros_node is not None and hasattr(self.ros_node, 'cmd_vel_pub'):
+                try:
+                    from geometry_msgs.msg import Twist
+                    stop_cmd = Twist()
+                    self.ros_node.cmd_vel_pub.publish(stop_cmd)
+                except Exception:
+                    pass
+
+    def resume_after_dialogue(self) -> bool:
+        """Riprende l'esplorazione al termine del turno conversazionale se non è stato ordinato lo stop."""
+        if self.is_exploring and self._paused_for_dialogue:
+            self._paused_for_dialogue = False
+            if self.pub_enable is not None:
+                e_msg = Bool()
+                e_msg.data = True
+                self.pub_enable.publish(e_msg)
+            return True
+        return False
+
+    def get_navigation_status(self) -> Dict[str, Any]:
+        """Restituisce lo stato attuale della navigazione ed esplorazione."""
+        mode = "IDLE"
+        if self.is_exploring:
+            mode = "HUNT" if self.current_target else "EXPLORE"
+        return {
+            "is_exploring": self.is_exploring,
+            "mode": mode,
+            "paused_for_dialogue": self._paused_for_dialogue,
+            "current_target": self.current_target
+        }
 
     def get_metadata(self) -> SkillMetadata:
         return SkillMetadata(
@@ -85,12 +126,16 @@ class FrontierExplorationSkill(BaseSkill):
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["start_explore", "search_target", "stop"],
-                    "description": "Azione: 'start_explore' per mappatura autonoma, 'search_target' per cercare un oggetto/persona specifica, 'stop' per interrompere il moto."
+                    "enum": ["start_explore", "search_target", "stop", "get_status"],
+                    "description": "Azione: 'start_explore' per mappatura autonoma frontiere, 'search_target' per cercare un oggetto/persona specifica, 'stop' per interrompere il moto, 'get_status' per interrogare lo stato di avanzamento."
                 },
                 "target": {
                     "type": "string",
                     "description": "Nome dell'oggetto o persona da cercare (solo per action='search_target', es. 'chiavi', 'Marco', 'persona', 'sedia')."
+                },
+                "mode": {
+                    "type": "string",
+                    "description": "Modalità opzionale: 'all_frontiers' (esplora tutto) o 'quick_scan'."
                 }
             },
             "required": ["action"]
@@ -123,6 +168,15 @@ class FrontierExplorationSkill(BaseSkill):
         action = context.get("action", "").lower().strip()
         target = context.get("target", "").lower().strip()
         clean_text = (text or "").lower().strip()
+
+        # 0. Navigation / exploration status query
+        if action == "get_status" or (clean_text and any(w in clean_text for w in ["stato", "cosa stai facendo", "dove stai andando"])):
+            status = self.get_navigation_status()
+            if status["is_exploring"]:
+                msg = f"Sono attualmente in esplorazione attiva ({status['mode']}). Bersaglio: {status['current_target'] or 'tutta la casa'}."
+            else:
+                msg = "Al momento sono fermo e non sto esplorando."
+            return SkillResult(success=True, message="Stato navigazione recuperato.", speak=msg, data=status)
 
         # 1. Stop exploration
         if action == "stop" or (clean_text and any(p.search(clean_text) for p in self.STOP_PATTERNS)):
@@ -157,8 +211,20 @@ class FrontierExplorationSkill(BaseSkill):
                 self.pub_enable.publish(e_msg)
 
         self.is_exploring = True
+        self._paused_for_dialogue = False
         self.current_target = None
         speak_msg = "Avvio l'esplorazione autonoma con il motore a frontiere. Mappo l'ambiente ed evito le zone già visitate."
+
+        # Log event to TRINITY MAG
+        if self.trinity_engine and hasattr(self.trinity_engine, "mag_database"):
+            try:
+                self.trinity_engine.mag_database.insert_fact(
+                    fact_text="Avviata esplorazione a frontiere delle stanze sconosciute",
+                    fact_type="NAVIGATION_EVENT",
+                    confidence=0.95
+                )
+            except Exception:
+                pass
 
         return SkillResult(
             success=True,
@@ -215,7 +281,19 @@ class FrontierExplorationSkill(BaseSkill):
                 self.pub_enable.publish(e_msg)
 
         self.is_exploring = True
+        self._paused_for_dialogue = False
         speak_msg = f"Avvio la ricerca attiva di '{target_clean}'. Esploro le aree sconosciute e monitoro con la visione semantica."
+
+        # Log event to TRINITY MAG
+        if self.trinity_engine and hasattr(self.trinity_engine, "mag_database"):
+            try:
+                self.trinity_engine.mag_database.insert_fact(
+                    fact_text=f"Avviata ricerca attiva bersaglio '{target_clean}' nell'ambiente",
+                    fact_type="NAVIGATION_EVENT",
+                    confidence=0.95
+                )
+            except Exception:
+                pass
 
         return SkillResult(
             success=True,
@@ -244,6 +322,7 @@ class FrontierExplorationSkill(BaseSkill):
                 self.pub_target.publish(t_msg)
 
         self.is_exploring = False
+        self._paused_for_dialogue = False
         self.current_target = None
         speak_msg = "Esplorazione e ricerca interrotte. Mi fermo qui."
 

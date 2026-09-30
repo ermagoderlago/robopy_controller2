@@ -718,11 +718,18 @@ class HailoBridgeNode(Node):
         """
         boxes, scores, class_ids = [], [], []
 
+        # Trova prefisso dinamico delle teste YOLO (es. "yolo/" o "yolov8s_seg/")
+        yolo_prefix = "yolo/"
+        for k in raw_outputs.keys():
+            if "conv44" in k:
+                yolo_prefix = k[:k.find("conv44")]
+                break
+
         # Controlliamo se sono presenti gli head separati di YOLOv8 (bbox, cls per 3 scale)
         scales = [
-            {'stride': 8,  'bbox': 'yolo/conv44', 'cls': 'yolo/conv45'},
-            {'stride': 16, 'bbox': 'yolo/conv60', 'cls': 'yolo/conv61'},
-            {'stride': 32, 'bbox': 'yolo/conv73', 'cls': 'yolo/conv74'},
+            {'stride': 8,  'bbox': f'{yolo_prefix}conv44', 'cls': f'{yolo_prefix}conv45'},
+            {'stride': 16, 'bbox': f'{yolo_prefix}conv60', 'cls': f'{yolo_prefix}conv61'},
+            {'stride': 32, 'bbox': f'{yolo_prefix}conv73', 'cls': f'{yolo_prefix}conv74'},
         ]
 
         has_yolov8_heads = all(s['bbox'] in raw_outputs and s['cls'] in raw_outputs for s in scales)

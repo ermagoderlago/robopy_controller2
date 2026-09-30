@@ -1,5 +1,5 @@
 # 📊 Report Esecutivo DFMEA - Marcus AI Robot Platform
-**Data Generazione:** 2026-09-28 23:32:53  
+**Data Generazione:** 2026-09-30 17:07:11  
 **Metodologia:** AIAG-VDA FMEA Standard con Regola Override Severità ($S \ge 9 \implies$ REVISION_MANDATORY)
 
 ---
@@ -8,8 +8,8 @@
 
 | Metrica | Valore | Note / Impatto |
 | :--- | :---: | :--- |
-| **Totale Modalità di Guasto (FM)** | **145** | Copertura integrata dei sottosistemi Marcus |
-| **🟢 Risk Level LOW** | **110** | $RPN_{res} \le 50$ (Sotto controllo) |
+| **Totale Modalità di Guasto (FM)** | **147** | Copertura integrata dei sottosistemi Marcus |
+| **🟢 Risk Level LOW** | **112** | $RPN_{res} \le 50$ (Sotto controllo) |
 | **🟡 Risk Level MEDIUM** | **7** | $51 \le RPN_{res} \le 199$ (Monitoraggio attivo) |
 | **🟠 Risk Level HIGH** | **2** | $200 \le RPN_{res} \le 349$ (Mitigazione obbligatoria) |
 | **🔴 Risk Level CRITICAL** | **0** | $RPN_{res} \ge 350$ (Blocco rilasci) |
@@ -19,7 +19,7 @@
 - **System/DDS:** 5 failure modes
 - **Nav2:** 16 failure modes
 - **VUI Audio:** 22 failure modes
-- **Vision:** 2 failure modes
+- **Vision:** 4 failure modes
 - **Hardware/Power:** 9 failure modes
 - **ESP32:** 1 failure modes
 - **AI/LangGraph:** 7 failure modes
@@ -148,6 +148,7 @@
 | **FM-LLM-006** | AI/LangGraph | `dynamic_skill_creator / curiosity_evolution_engine` | Loop ricorsivo o continuo di auto-modifica (AI Recursion Trap) con saturazione token API e blocco CPU | 7 | 2 | 2 | **28** | `LOW` | `IN_PROGRESS` | [`docs/lessons/orchestration_and_rag.md`](docs/lessons/orchestration_and_rag.md) |
 | **FM-EVO-001** | AI/Evolution | `marcus_data_miner` | Runaway I/O o saturazione RAM per raccolta dati indiscriminata a navigazione inattiva e robot fermo | 7 | 2 | 2 | **28** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#auto-miglioramento-e-data-mining`](docs/lessons/orchestration_and_rag.md#auto-miglioramento-e-data-mining) |
 | **FM-VUI-033** | VUI | `respeaker_vui_node / live_connection_manager` | Loop auto-alimentato di allucinazioni verbali e risposte a vanvera su rumore di fondo | 7 | 2 | 2 | **28** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#FM-VUI-033`](docs/lessons/audio_vui_pipeline.md#FM-VUI-033) |
+| **FM-VIS-009** | Vision | `hailo_bridge_node_cpp` | Degrado accuratezza YOLOv8 e scambio sistematico di arredi/divani per persone | 7 | 2 | 2 | **28** | `LOW` | `IN_PROGRESS` | [`docs/lessons/vision_hailo_npu.md#FM-VIS-009`](docs/lessons/vision_hailo_npu.md#FM-VIS-009) |
 | **FM-VUI-003** | VUI Audio | `respeaker_vui_node` | Falsi rilevamenti di presenza vocale (VAD) ed invio continuo di rumore di fondo a Gemini Live | 6 | 2 | 2 | **24** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#hpf-filter`](docs/lessons/audio_vui_pipeline.md#hpf-filter) |
 | **FM-VUI-004** | VUI Audio | `respeaker_vui_node` | Acoustic Echo Leakage ed auto-interruzione continua della sintesi vocale del robot | 6 | 2 | 2 | **24** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#barge-in`](docs/lessons/audio_vui_pipeline.md#barge-in) |
 | **FM-VUI-005** | VUI Audio | `respeaker_vui_node` | Trascrizione ASR incomprensibile o allucinata ('Voce Distorta / Sorgente Lontana') | 6 | 2 | 2 | **24** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#dynamic-agc`](docs/lessons/audio_vui_pipeline.md#dynamic-agc) |
@@ -172,6 +173,7 @@
 | **FM-NAV-020** | Navigation & SLAM | `rtabmap` | Saturazione MicroSD al 100% (0 byte liberi), runaway log da 4.1GB e Load Average 18.10 dovuto a loop continuo VWDictionary.cpp:741 su database da 16GB | 8 | 2 | 1 | **16** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#FM-NAV-020`](docs/lessons/nav2_slam_tuning.md#FM-NAV-020) |
 | **FM-VUI-034** | VUI Audio | `respeaker_vui_node` | Taglio immediato del turno (beep immediato) per mancata apertura del gate vocale VAD | 8 | 1 | 2 | **16** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#FM-VUI-034`](docs/lessons/audio_vui_pipeline.md#FM-VUI-034) |
 | **FM-EXP-001** | Navigation / Exploration | `frontier_explorer_node / collision_monitor / trinity_engine` | Collisioni ad alta velocità o loop/oscillazione infinita tra frontiere irraggiungibili | 8 | 1 | 2 | **16** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#FM-EXP-001`](docs/lessons/nav2_slam_tuning.md#FM-EXP-001) |
+| **FM-VIS-008** | Vision | `hailo_bridge_node_cpp` | Mancato caricamento librerie dinamiche Ament e mancata visibilità DDS su Foxglove Studio | 8 | 1 | 2 | **16** | `LOW` | `CLOSED` | [`docs/lessons/vision_hailo_npu.md#FM-VIS-008`](docs/lessons/vision_hailo_npu.md#FM-VIS-008) |
 | **FM-VUI-001** | VUI Audio | `respeaker_vui_node` | Microfono completamente silenzioso (RMS ~40) indotto dal routing errato su PipeWire | 7 | 1 | 2 | **14** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#hardware-capture`](docs/lessons/audio_vui_pipeline.md#hardware-capture) |
 | **FM-VUI-021** | VUI Audio | `respeaker_vui_node / live_connection_manager` | Chiusura prematura della sessione conversazionale dopo pochi secondi o intromissione del robot in dialoghi e conversazioni tra terzi in sottofondo | 7 | 2 | 1 | **14** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#gestione-sessione-conversazionale-a-3-minuti`](docs/lessons/audio_vui_pipeline.md#gestione-sessione-conversazionale-a-3-minuti) |
 | **FM-TRI-002** | AI/Trinity | `rag_document_indexer` | Freeze temporaneo o blocco dell'Event Loop asyncio durante il chunking e embedding di file voluminosi | 7 | 1 | 2 | **14** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#trinity-architecture`](docs/lessons/orchestration_and_rag.md#trinity-architecture) |
@@ -180,7 +182,6 @@
 | **FM-NOM-007** | Navigation/Vision | `nomad_reactive_pipeline_node` | Cecità ottica su pareti bianche o porte monocromatiche con proiezione di waypoints dritti e slittamento ruote su ostacolo | 3 | 2 | 2 | **12** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#white-wall-protection`](docs/lessons/nav2_slam_tuning.md#white-wall-protection) |
 | **FM-NOM-008** | Navigation/NoMaD | `PurePursuitController & nomad_reactive_pipeline_node` | Stallo a bassa velocità (0.036-0.04 m/s), pivot violenti sul posto (1.50 rad/s) e scatti robotici a 4 Hz | 3 | 2 | 2 | **12** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#nomad-smooth-motion`](docs/lessons/nav2_slam_tuning.md#nomad-smooth-motion) |
 | **FM-COG-003** | Orchestration & RAG | `orchestrator & conversation` | Triplice ricezione ed elaborazione dei messaggi inviati su /robopy/conversation_rx, con conseguente scatto del prompt di insistenza ripetuta dell'LLM (repeat_count >= 2) | 6 | 2 | 1 | **12** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#FM-COG-003`](docs/lessons/orchestration_and_rag.md#FM-COG-003) |
-| **FM-COG-004** | Orchestration & RAG | `conversation, metaprompt_fusion, memory_manager & memory_info_skill` | Mancato recupero fatti appresi (echo loop su 'non ho visto nulla di nuovo'), allucinazione etimologica latina/dio Marte sul nome MARCUS, crash MemoryInfoSkill (AttributeError get_stats) e muting vocale su chat | 6 | 2 | 1 | **12** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#FM-COG-004`](docs/lessons/orchestration_and_rag.md#FM-COG-004) |
 | **FM-LLM-002** | AI/LangGraph | `llm_live_api` | Risposte multiple e sovrapposte ('doppia voce') ad una singola frase dell'utente | 5 | 1 | 2 | **10** | `LOW` | `CLOSED` | [`docs/lessons/llm_live_api.md`](docs/lessons/llm_live_api.md) |
 | **FM-SYS-001** | System/DDS | `build_system` | Out-Of-Memory (OOM) Kill indotto dal compilatore C++ clang++ durante la build | 9 | 1 | 1 | **9** | `REVISION_MANDATORY` | `CLOSED` | [`marcus_core_rules.md#1-memoria-ram-e-limite-host`](marcus_core_rules.md#1-memoria-ram-e-limite-host) |
 | **FM-NAV-001** | Nav2 | `nav2_costmap_2d` | Saturazione CPU indotta da STVL 3D (Spatiotemporal Voxel Layer) con freeze del sistema | 9 | 1 | 1 | **9** | `REVISION_MANDATORY` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#25d-costmap`](docs/lessons/nav2_slam_tuning.md#25d-costmap) |
@@ -237,6 +238,7 @@
 | **FM-VUI-022** | Voice/Orchestration | `nomad_exploration_skill` | Mancato riconoscimento del termine 'NOMAD' da parte dell'ASR e mancata registrazione della skill nell'AI Orchestrator | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#gestione-acronimi-stranieri-e-tolleranza-fonetica-asr`](docs/lessons/audio_vui_pipeline.md#gestione-acronimi-stranieri-e-tolleranza-fonetica-asr) |
 | **FM-ACT-009** | Actuation/Odometry | `waveshare_motor_driver` | Deriva/micro-avanzamento odometrico spurio a robot fermo per commutazione instabile dei sensori Hall su fronte magnetico | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#filtraggio-jitter-hall-a-fermo`](docs/lessons/actuation_motor_driver.md#filtraggio-jitter-hall-a-fermo) |
 | **FM-MOT-004** | Actuation/Hardware | `waveshare_motor_driver` | Stallo meccanico delle ruote su ostacoli rigidi con assorbimento eccessivo di corrente e surriscaldamento dei driver | 3 | 2 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#motor-stall-protection`](docs/lessons/actuation_motor_driver.md#motor-stall-protection) |
+| **FM-COG-004** | Orchestration & RAG | `conversation, metaprompt_fusion, memory_manager & memory_info_skill` | Mancato recupero fatti appresi (echo loop su 'non ho visto nulla di nuovo'), allucinazione etimologica latina/dio Marte sul nome MARCUS, crash MemoryInfoSkill (AttributeError get_stats) e muting vocale su chat | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#FM-COG-004`](docs/lessons/orchestration_and_rag.md#FM-COG-004) |
 | **FM-NAV-028** | Nav2 & SLAM | `rtabmap` | Sdoppiamento transitorio della mappa a ventaglio/stella durante le curve e ritardo nella chiusura d'anello | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#loop-closure-submap-matching`](docs/lessons/nav2_slam_tuning.md#loop-closure-submap-matching) |
 | **FM-VUI-027** | Voice/Audio | `llm_service / live_connection_manager` | Soppressione spuria delle risposte vocali sotto tag IGNORE_TURN quando l'utente parla naturalmente senza prefisso Marcus | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#ignore-turn-prompt`](docs/lessons/audio_vui_pipeline.md#ignore-turn-prompt) |
 | **FM-VUI-025** | Voice/Audio | `marcus_voice_nav` | Saturazione del buffer audio, scarto delle richieste vocali sovrapposte e silenzio durante la navigazione | 5 | 1 | 1 | **5** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#gemini-live-pacing`](docs/lessons/audio_vui_pipeline.md#gemini-live-pacing) |

@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import time
+from typing import Any
 from robot_ai.utils import get_logger
 from robot_ai.rag.memory_store import MemoryStore, Memory, MemoryType
 from robot_ai.services.embedding_service import EmbeddingService
@@ -134,3 +135,30 @@ class MemoryManager:
         except Exception as e:
             self._logger.warning(f"Error listing documents: {e}")
         return []
+
+    async def search(self, query: str, top_k: int = 5) -> list:
+        """Searches memory store using semantic similarity."""
+        if not self.memory_store:
+            return []
+        try:
+            if hasattr(self.memory_store, 'search'):
+                import inspect
+                res = self.memory_store.search(query, top_k=top_k)
+                if inspect.iscoroutine(res):
+                    return await res
+                return res
+        except Exception as e:
+            self._logger.warning(f"Error during memory_manager.search: {e}")
+        return []
+
+    def get_recent(self, limit: int = 5, memory_type: Any = None) -> list:
+        """Retrieves most recent memories from memory store."""
+        if not self.memory_store:
+            return []
+        try:
+            if hasattr(self.memory_store, 'get_recent'):
+                return self.memory_store.get_recent(limit=limit, memory_type=memory_type)
+        except Exception as e:
+            self._logger.warning(f"Error during memory_manager.get_recent: {e}")
+        return []
+

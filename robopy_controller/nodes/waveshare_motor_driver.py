@@ -19,6 +19,9 @@ import json
 import threading
 import time
 import math
+from robopy_controller.robot_corpo.stall_detector import StallSlipDetector
+
+__all__ = ['WaveshareMotorDriver', 'StallSlipDetector', 'main']
 
 class WaveshareMotorDriver(Node):
     def __init__(self):
@@ -56,19 +59,23 @@ class WaveshareMotorDriver(Node):
         self.declare_parameter('yaw_fusion_alpha', 0.88)            # Gyro transient weight (0.88 gyro, 0.12 wheel baseline)
         self.declare_parameter('max_duty_accel', 5.0)               # Max duty acceleration (duty/s) for S-Curve
         self.declare_parameter('max_duty_jerk', 25.0)               # Max duty jerk (duty/s^2) for S-Curve
-        self.declare_parameter('left_motor_trim', 0.73)             # Left motor forward duty multiplier (calibrated: compensates for ~35% lower friction)
-        self.declare_parameter('left_motor_trim_rev', 0.65)         # Left motor reverse duty multiplier (calibrated: compensates for faster reverse)
-        self.declare_parameter('right_motor_trim_rev', 1.25)        # Right motor reverse duty boost (calibrated: overcomes high reverse stiction)
+        self.declare_parameter('left_motor_trim', 0.88)             # Left motor forward duty multiplier (rebalanced 0.88)
+        self.declare_parameter('left_motor_trim_rev', 0.85)         # Left motor reverse duty multiplier (rebalanced 0.85)
+        self.declare_parameter('right_motor_trim_rev', 1.05)        # Right motor reverse duty boost (rebalanced 1.05)
         self.declare_parameter('enable_heading_stabilizer', True)  # Active IMU gyro heading lock for straight line and symmetric turns
         self.declare_parameter('heading_stabilizer_kp', 0.12)       # Proportional gyro gain for heading correction
         self.declare_parameter('heading_stabilizer_ki', 0.04)       # Integral gyro gain for persistent lateral drift elimination
         self.declare_parameter('open_loop_min_duty', 0.12)        # Calibrated minimum duty to break static stiction on Right motor
         self.declare_parameter('open_loop_spin_min_duty', 0.18)   # Minimum duty for in-place rotation to overcome tire scrub
         self.declare_parameter('open_loop_max_duty', 0.28)         # Calibrated duty corresponding to nominal max speed 0.40 m/s
-        self.declare_parameter('linear_min_duty_left', 0.12)      # Minimum operational duty floor for Left motor to overcome stiction
-        self.declare_parameter('linear_min_duty_right', 0.14)     # Minimum operational duty floor for Right motor to overcome stiction
+        self.declare_parameter('linear_min_duty_left', 0.13)      # Minimum operational duty floor for Left motor (rebalanced 0.13)
+        self.declare_parameter('linear_min_duty_right', 0.13)     # Minimum operational duty floor for Right motor (rebalanced 0.13)
         self.declare_parameter('stiction_kick_duty', 0.18)        # Initial torque kick duty to overcome static friction on start
         self.declare_parameter('stiction_kick_duration', 0.12)    # Duration of stiction kick in seconds
+        self.declare_parameter('enable_host_anti_stall', True)    # Host-side 20 Hz Closed-Loop Speed & Anti-Stall PI Boost on Pi 5
+        self.declare_parameter('anti_stall_ki', 1.00)             # Integral gain for anti-stall torque boost
+        self.declare_parameter('anti_stall_max_boost', 0.30)      # Maximum anti-stall duty boost (SPEC-01 thermal limit 0.30)
+        self.declare_parameter('anti_stall_decay_rate', 0.40)     # Decay rate for anti-stall boost (duty/s)
         
         # --- Retrieve Parameters ---
         self.serial_port = self.get_parameter('serial_port').value
@@ -117,11 +124,25 @@ class WaveshareMotorDriver(Node):
         self.linear_min_duty_right = float(self.get_parameter('linear_min_duty_right').value)
         self.stiction_kick_duty = float(self.get_parameter('stiction_kick_duty').value)
         self.stiction_kick_duration = float(self.get_parameter('stiction_kick_duration').value)
+        self.enable_host_anti_stall = bool(self.get_parameter('enable_host_anti_stall').value)
+        self.anti_stall_ki = float(self.get_parameter('anti_stall_ki').value)
+        self.anti_stall_max_boost = float(self.get_parameter('anti_stall_max_boost').value)
+        self.anti_stall_decay_rate = float(self.get_parameter('anti_stall_decay_rate').value)
         self.stiction_kick_start_time = 0.0
         self.was_stopped = True
         self.heading_err_integral = 0.0
         self.last_heading_stabilizer_time = None
         self.esp32_pid_active = False
+
+        # Host 20 Hz Closed-Loop Speed & Anti-Stall PI Boost State
+        self.stall_boost_left = 0.0
+        self.stall_boost_right = 0.0
+        self.max_boost_start_time = None
+        self.v_actual_left = 0.0
+        self.v_actual_right = 0.0
+        self.target_v_L = 0.0
+        self.target_v_R = 0.0
+        self.last_control_loop_time = None
         
         # Register dynamic parameter callback (if supported by node runtime/mock)
         if hasattr(self, 'add_on_set_parameters_callback'):
@@ -218,8 +239,9 @@ class WaveshareMotorDriver(Node):
         self.reader_thread = threading.Thread(target=self.serial_loop, daemon=True)
         self.reader_thread.start()
         
-        # --- Watchdog Timer (10Hz) ---
-        self.watchdog_timer = self.create_timer(0.1, self.watchdog_callback)
+        # --- Host Control & Watchdog Timers (20 Hz) ---
+        self.control_timer_20hz = self.create_timer(0.05, self.host_control_loop_20hz)
+        self.watchdog_timer = self.create_timer(0.05, self.watchdog_callback)
         
         self.get_logger().info("Waveshare Motor Driver initialized and running.")
         
@@ -408,6 +430,9 @@ class WaveshareMotorDriver(Node):
         v_L = v - (w * self.wheel_separation / 2.0)
         v_R = v + (w * self.wheel_separation / 2.0)
 
+        self.target_v_L = v_L
+        self.target_v_R = v_R
+
         self.send_speeds(v_L, v_R)
         
         # Feed watchdog
@@ -415,6 +440,9 @@ class WaveshareMotorDriver(Node):
         if abs(v) < 0.005 and abs(w) < 0.005:
             self.is_commanded_stop = True
             self.motors_stopped = True
+            self.stall_boost_left = 0.0
+            self.stall_boost_right = 0.0
+            self.max_boost_start_time = None
         else:
             self.is_commanded_stop = False
             self.motors_stopped = False
@@ -444,8 +472,8 @@ class WaveshareMotorDriver(Node):
             self.last_imu_time = now
             return
 
-        # Rate limit to max 40 Hz (0.025s) to prevent high-frequency callback starvation
-        if self.last_imu_time is not None and (now - self.last_imu_time) < 0.025:
+        # Rate limit to max ~50 Hz (0.020s) to permit full 42 Hz OAK IMU streaming without callback starvation
+        if self.last_imu_time is not None and (now - self.last_imu_time) < 0.020:
             return
 
         raw_w = msg.angular_velocity.z
@@ -513,6 +541,9 @@ class WaveshareMotorDriver(Node):
             self.last_heading_stabilizer_time = None
             self.was_stopped = True
             self.stiction_kick_start_time = 0.0
+            self.stall_boost_left = 0.0
+            self.stall_boost_right = 0.0
+            self.max_boost_start_time = None
             cmd = {"T": 1, "L": 0.0, "R": 0.0}
             cmd_str = json.dumps(cmd, separators=(',', ':')) + "\n"
             with self.serial_lock:
@@ -550,26 +581,40 @@ class WaveshareMotorDriver(Node):
         # 1. Hardware Motor Trims (eliminates directional friction discrepancies between wheels during linear driving)
         if not is_in_place_spin:
             if target_duty_left > 0:
-                target_duty_left *= getattr(self, 'left_motor_trim', 0.73)
+                target_duty_left *= getattr(self, 'left_motor_trim', 0.88)
             else:
-                target_duty_left *= getattr(self, 'left_motor_trim_rev', 0.65)
+                target_duty_left *= getattr(self, 'left_motor_trim_rev', 0.85)
 
             if target_duty_right < 0:
-                target_duty_right *= getattr(self, 'right_motor_trim_rev', 1.25)
+                target_duty_right *= getattr(self, 'right_motor_trim_rev', 1.05)
 
             # Minimum operational duty floor for linear/curved driving to overcome gearbox stiction
             if not getattr(self, 'enable_esp32_pid', False):
-                floor_l = getattr(self, 'linear_min_duty_left', 0.12)
-                floor_r = getattr(self, 'linear_min_duty_right', 0.14)
+                floor_l = getattr(self, 'linear_min_duty_left', 0.13)
+                floor_r = getattr(self, 'linear_min_duty_right', 0.13)
                 if is_kicking:
                     kick_d = getattr(self, 'stiction_kick_duty', 0.18)
-                    floor_l = max(floor_l, kick_d * getattr(self, 'left_motor_trim', 0.73))
-                    floor_r = max(floor_r, kick_d)
+                    trim_l = getattr(self, 'left_motor_trim', 0.88) if left > 0 else getattr(self, 'left_motor_trim_rev', 0.85)
+                    floor_l = max(floor_l, kick_d * trim_l)
+                    trim_r = 1.0 if right > 0 else getattr(self, 'right_motor_trim_rev', 1.05)
+                    floor_r = max(floor_r, kick_d * trim_r)
+
+                if left < 0:
+                    floor_l *= (getattr(self, 'left_motor_trim_rev', 0.85) / max(getattr(self, 'left_motor_trim', 0.88), 0.01))
+                if right < 0:
+                    floor_r *= getattr(self, 'right_motor_trim_rev', 1.05)
 
                 if abs(left) >= 0.003 and abs(target_duty_left) < floor_l:
                     target_duty_left = math.copysign(floor_l, target_duty_left) if target_duty_left != 0.0 else math.copysign(floor_l, left)
                 if abs(right) >= 0.003 and abs(target_duty_right) < floor_r:
                     target_duty_right = math.copysign(floor_r, target_duty_right) if target_duty_right != 0.0 else math.copysign(floor_r, right)
+
+            # Host Adaptive Anti-Stall PI Boost on Raspberry Pi 5
+            if getattr(self, 'enable_host_anti_stall', True) and not getattr(self, 'enable_esp32_pid', False):
+                if abs(left) >= 0.003 and self.stall_boost_left > 0.0:
+                    target_duty_left += math.copysign(self.stall_boost_left, target_duty_left if target_duty_left != 0.0 else left)
+                if abs(right) >= 0.003 and self.stall_boost_right > 0.0:
+                    target_duty_right += math.copysign(self.stall_boost_right, target_duty_right if target_duty_right != 0.0 else right)
         else:
             # Dedicated spin torque floor for in-place turning to overcome floor/carpet tire scrub
             if not getattr(self, 'enable_esp32_pid', False):
@@ -659,8 +704,10 @@ class WaveshareMotorDriver(Node):
 
                 # Ensure post-scale duty does not drop below stiction threshold for active wheels
                 if not is_in_place_spin:
-                    floor_l = getattr(self, 'linear_min_duty_left', 0.12)
-                    floor_r = getattr(self, 'linear_min_duty_right', 0.14)
+                    floor_l_base = getattr(self, 'linear_min_duty_left', 0.13)
+                    floor_r_base = getattr(self, 'linear_min_duty_right', 0.13)
+                    floor_l = floor_l_base * (getattr(self, 'left_motor_trim_rev', 0.85) / max(getattr(self, 'left_motor_trim', 0.88), 0.01)) if left < 0 else floor_l_base
+                    floor_r = floor_r_base * getattr(self, 'right_motor_trim_rev', 1.05) if right < 0 else floor_r_base
                     if abs(left) >= 0.003 and abs(duty_left) < floor_l:
                         duty_left = math.copysign(floor_l, duty_left)
                     if abs(right) >= 0.003 and abs(duty_right) < floor_r:
@@ -694,7 +741,65 @@ class WaveshareMotorDriver(Node):
                     self.serial_conn.write(cmd_str.encode('utf-8'))
                 except Exception as e:
                     self.get_logger().error(f"Failed to write to serial port: {e}")
-                    
+
+    def host_control_loop_20hz(self):
+        """20 Hz adaptive anti-stall and closed-loop speed supervisor on Raspberry Pi 5.
+        Monitors commanded vs actual wheel velocities. If commanded speed >= 0.03 m/s
+        and actual speed is stalled (< 50% commanded), accumulates an integrative boost
+        up to max 0.30 duty (SPEC-01 thermal clamp) to overcome stiction. Decays smoothly
+        once wheels rotate at >= 80% commanded.
+        """
+        if getattr(self, 'motors_stopped', True) or getattr(self, 'is_system_shutdown', False):
+            self.stall_boost_left = 0.0
+            self.stall_boost_right = 0.0
+            self.max_boost_start_time = None
+            return
+
+        dt = 0.05
+        now = time.time()
+        v_cmd_l = getattr(self, 'target_v_L', 0.0)
+        v_cmd_r = getattr(self, 'target_v_R', 0.0)
+        v_act_l = getattr(self, 'v_actual_left', 0.0)
+        v_act_r = getattr(self, 'v_actual_right', 0.0)
+
+        # Anti-stall boost on left wheel
+        abs_cmd_l = abs(v_cmd_l)
+        if abs_cmd_l >= 0.03:
+            if abs(v_act_l) < 0.5 * abs_cmd_l:
+                err_l = abs_cmd_l - abs(v_act_l)
+                self.stall_boost_left = min(0.30, self.stall_boost_left + self.anti_stall_ki * err_l * dt)
+            elif abs(v_act_l) >= 0.8 * abs_cmd_l:
+                self.stall_boost_left = max(0.0, self.stall_boost_left - 0.40 * dt)
+        else:
+            self.stall_boost_left = max(0.0, self.stall_boost_left - 0.60 * dt)
+
+        # Anti-stall boost on right wheel
+        abs_cmd_r = abs(v_cmd_r)
+        if abs_cmd_r >= 0.03:
+            if abs(v_act_r) < 0.5 * abs_cmd_r:
+                err_r = abs_cmd_r - abs(v_act_r)
+                self.stall_boost_right = min(0.30, self.stall_boost_right + self.anti_stall_ki * err_r * dt)
+            elif abs(v_act_r) >= 0.8 * abs_cmd_r:
+                self.stall_boost_right = max(0.0, self.stall_boost_right - 0.40 * dt)
+        else:
+            self.stall_boost_right = max(0.0, self.stall_boost_right - 0.60 * dt)
+
+        # If boost active, re-push updated duties to serial
+        if (self.stall_boost_left > 0.0 or self.stall_boost_right > 0.0) and not self.motors_stopped:
+            self.send_speeds(v_cmd_l, v_cmd_r)
+
+        # Protective stall diagnostic trip (FM-MOT-002)
+        if (self.stall_boost_left >= 0.299 or self.stall_boost_right >= 0.299) and (abs(v_act_l) < 0.005 and abs(v_act_r) < 0.005):
+            if self.max_boost_start_time is None:
+                self.max_boost_start_time = now
+            elif now - self.max_boost_start_time >= 1.0:
+                self.is_stalled = True
+                self.get_logger().error("🛑 [FM-MOT-002] Sustained stall detected at max boost > 1.0s! Tripping protective stop.")
+                self.send_speeds(0.0, 0.0)
+                self.motors_stopped = True
+        else:
+            self.max_boost_start_time = None
+
     def watchdog_callback(self):
         """Stops the motors if no /cmd_vel messages have been received for more than 500ms."""
         if time.time() - self.last_cmd_vel_time > 0.5:
@@ -918,6 +1023,10 @@ class WaveshareMotorDriver(Node):
         self.prev_left_ticks = left_ticks
         self.prev_right_ticks = right_ticks
         self.last_odom_time = current_time
+        
+        # Track actual wheel speeds for Host 20Hz anti-stall closed-loop control
+        self.v_actual_left = (delta_ticks_left * meters_per_tick) / safe_dt
+        self.v_actual_right = (delta_ticks_right * meters_per_tick) / safe_dt
         
         if getattr(self, 'use_cmd_vel_odometry', False):
             # PURE THEORETICAL KINEMATIC ODOMETRY (from /cmd_vel)

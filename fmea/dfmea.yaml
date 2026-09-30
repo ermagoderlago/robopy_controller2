@@ -4935,9 +4935,9 @@
     conversations.jsonl e log di emissione audio gTTS
   residual_scoring:
     severity: 6
-    occurrence: 2
+    occurrence: 1
     detection: 1
-    rpn: 12
+    rpn: 6
   risk_level: LOW
   mitigation_status: CLOSED
   recommended_action: Mantenere sincronizzati il metaprompt e i filtri di memoria
@@ -4948,13 +4948,19 @@
   eco_ref: docs/ecos/orchestration_rag_ecos.md#ECO-2026-09-04-001
   lesson_ref: docs/lessons/orchestration_and_rag.md#FM-COG-004
   date_identified: '2026-09-04'
-  last_updated: '2026-09-04'
+  last_updated: '2026-09-30'
   history:
   - date: '2026-09-04'
     change: Risolto azzeramento prompt, bug troncamento, arricchito intent router,
       implementati metodi memory manager e sbloccato TTS
     rpn_old: 336
     rpn_new: 12
+  - date: '2026-09-30'
+    change: Implementata QueryMemorySkill per tool query_memory, fix TypeError formatted_document
+      in MemoryInfoSkill, fallback esplorativo in HybridSearchEngine e protezione
+      anti-silenzio in ConversationManager
+    rpn_old: 12
+    rpn_new: 6
 - id: FM-MOT-004
   subsystem: Chassis & Motion
   component: waveshare_motor_driver & sllidar_node
@@ -6840,3 +6846,98 @@
       e TRINITY loop decisionale
     rpn_old: 224
     rpn_new: 16
+- id: FM-VIS-008
+  subsystem: Vision
+  component: hailo_bridge_node_cpp
+  function: Inizializzare ed eseguire il driver NPU C++ e pubblicare topic di visione
+    e semantica
+  failure_mode: Mancato caricamento librerie dinamiche Ament e mancata visibilità
+    DDS su Foxglove Studio
+  potential_cause: Invocazione diretta del path del binario ELF senza passare da ros2
+    run ed avvio con ENABLE_HAILO=false
+  potential_effect: Blackout totale della pipeline di percezione NPU, assenza dei
+    topic /hailo/... e della costmap semantica
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-VIS-005
+  - FM-VIS-006
+  initial_scoring:
+    severity: 8
+    occurrence: 8
+    detection: 6
+    rpn: 384
+  prevention_controls: Avvio tramite 'ros2 run robopy_controller hailo_bridge_node_cpp',
+    default ENABLE_HAILO=true ed export esplicito di RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+    con ROS_DOMAIN_ID=42
+  detection_controls: Topic discovery su /hailo/annotated_image/compressed, /hailo/semantic_objects
+    e verifica publisher count > 0
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 2
+    rpn: 16
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Garantire sempre il lancio via ros2 run e mantenere CycloneDDS
+    configurato a 200 partecipanti
+  verification_method: Ispezione ros2 topic list e ros2 topic info su Domain 42 con
+    ricezione frame confermata
+  eco_ref: docs/ecos/vision_hailo_ecos.md#ECO-2026-09-29-001
+  lesson_ref: docs/lessons/vision_hailo_npu.md#FM-VIS-008
+  date_identified: '2026-09-29'
+  last_updated: '2026-09-29'
+  history:
+  - date: '2026-09-29'
+    change: Risolto caricamento dinamico librerie colcon isolate via ros2 run e allineato
+      dominio CycloneDDS 42
+    rpn_old: 384
+    rpn_new: 16
+- id: FM-VIS-009
+  subsystem: Vision
+  component: hailo_bridge_node_cpp
+  function: Riconoscimento accurato e discriminativo degli oggetti su NPU Hailo-10H
+    senza falsi positivi persona
+  failure_mode: Degrado accuratezza YOLOv8 e scambio sistematico di arredi/divani
+    per persone
+  potential_cause: Input monocromatico B/N, calibrazione INT8 sintetica (--use-random-calib-set),
+    distorsione aspect ratio 1.6x senza letterbox, soglia permissiva 0.35
+  potential_effect: Iniezione di falsi ostacoli dinamici persona nella costmap Nav2
+    e attivazione spuria dell'engagement HRI
+  classification: PERFORMANCE
+  estimation_basis: measured
+  related_ids:
+  - FM-VIS-001
+  - FM-VIS-005
+  initial_scoring:
+    severity: 7
+    occurrence: 8
+    detection: 3
+    rpn: 168
+  prevention_controls: Preprocessing con Letterbox isotropo 1:1 e padding 114; innalzamento
+    conf_thresh a 0.55 come da SPEC-03; filtro aspect-ratio orizzontale; ripristino
+    stream RGB da OAK-D Lite e ricompilazione HEF con calibrazione reale COCO
+  detection_controls: Monitoraggio del topic /hailo/annotated_image/compressed e verifica
+    etichette semantiche su /hailo/semantic_objects
+  residual_scoring:
+    severity: 7
+    occurrence: 2
+    detection: 2
+    rpn: 28
+  risk_level: LOW
+  mitigation_status: IN_PROGRESS
+  recommended_action: Integrare letterbox 1:1 e conf_thresh=0.55 in hailo_bridge_node.cpp,
+    riabilitare ColorCamera RGB in fast_flow_vo_node.cpp e ricompilare marcus_unified.hef
+    via WSL 2
+  verification_method: Test con arredi e divani inquadrati senza generare rilevamenti
+    persona spuri
+  eco_ref: docs/ecos/vision_hailo_ecos.md#ECO-2026-09-30-001
+  lesson_ref: docs/lessons/vision_hailo_npu.md#FM-VIS-009
+  date_identified: '2026-09-30'
+  last_updated: '2026-09-30'
+  history:
+  - date: '2026-09-30'
+    change: Identificate 5 cause radice concorrenti; implementate mitigazioni software
+      e creata guida HEF
+    rpn_old: 168
+    rpn_new: 28

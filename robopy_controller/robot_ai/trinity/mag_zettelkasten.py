@@ -19,7 +19,8 @@ class SemanticFactStore:
             "BUG_RESOLUTION",
             "CAPABILITY",
             "RELATIONSHIP",
-            "SEMANTIC_LANDMARK"
+            "SEMANTIC_LANDMARK",
+            "NAVIGATION_EVENT"
         ]
 
     def add_fact(self, fact_text: str, fact_type: str, source_episode_id: Optional[str] = None, 
@@ -47,6 +48,12 @@ class SemanticFactStore:
         with self._lock:
             if hasattr(self._db, 'search_facts'):
                 return self._db.search_facts(query, top_k)
+            return []
+
+    def get_all_facts(self) -> List[Dict[str, Any]]:
+        with self._lock:
+            if hasattr(self._db, 'get_all_facts'):
+                return self._db.get_all_facts()
             return []
 
     def to_prompt_section(self, facts: List[Dict[str, Any]], max_tokens: int = 250) -> str:

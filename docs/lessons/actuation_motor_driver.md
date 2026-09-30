@@ -634,6 +634,29 @@ Con JGB37-520B a 7RPM (riduzione ~143:1), **girare la ruota manualmente è impos
   3. *Soglia Docking Incrementata:* Elevata da $9.90\text{ V}$ a **$10.15\text{ V}$** per garantire riserva energetica sufficiente per il tragitto di rientro alla cuccia.
   4. *Soglia ECO Anticipata:* Elevata da $10.20\text{ V}$ a **$10.40\text{ V}$** (50% speed limit) per ridurre preventivamente il sag $\Delta V = I \cdot R_{int}$.
 
+---
+
+### 4.1 Rettilineità di Marcia, Diagnosi PID e Chiusura Anello di Coppia Host 20Hz (FM-MOT-002, FM-MOT-008)
+
+* **Problema Riscontrato:**
+  Il robot curvava leggermente a sinistra durante la marcia in linea retta (avanti/indietro) e mostrava arresti inspiegabili a scatti (stop-and-go) seguiti da ripartenze. Inoltre, l'impulso iniziale di movimento era talvolta insufficiente a vincere l'attrito statico del riduttore (143:1 JGB37-520B) o di piccoli dislivelli/tappeti.
+* **Diagnosi e Causa Radice:**
+  1. *Asimmetria Trim Eccessiva:* Una precedente calibrazione per compensare una deriva a destra aveva impostato `left_motor_trim = 0.73` e `linear_min_duty_right = 0.14` vs `left = 0.12`. Questo sovra-alimentava la ruota destra facendola girare più velocemente della sinistra, provocando la curvatura a sinistra.
+  2. *Status PID Hardware ESP32:* Il PID hardware interno all'ESP32 (`enable_esp32_pid`) era disabilitato (`False`) perché l'encoder del motore 1 su GPIO 35 è privo di pull-up hardware e corrompe il conteggio di direzione in retromarcia. Il controllo ad anello chiuso deve risiedere sull'host Raspberry Pi 5.
+  3. *Mancanza di Boost di Coppia Integrativo ad Anello Chiuso:* In anello aperto feedforward, comandi a bassa velocità erogavano un duty floor insufficiente a rompere l'attrito statico di riduttori e ruote.
+* **Contromisure Adottate in `waveshare_motor_driver.py`:**
+  1. *Ribilanciamento Trim Simmetrici:*
+     - Marcia avanti: `left_motor_trim = 0.88`, `linear_min_duty_left = 0.13`, `linear_min_duty_right = 0.13` (piano di calibrazione simmetrico).
+     - Retromarcia: `left_motor_trim_rev = 0.85`, `right_motor_trim_rev = 1.05`.
+  2. *Anello Chiuso Software di Velocità e Anti-Stall a 20 Hz (`host_control_loop_20hz`):*
+     - Quando $|v_{cmd}| \ge 0.03\text{ m/s}$ e la velocità misurata da encoder è $< 50\% \cdot |v_{cmd}|$, viene accumulato un boost integrativo di coppia:
+       $$\Delta duty_{stall} += K_{I,stall} \cdot (|v_{cmd}| - |v_{actual}|) \cdot \Delta t$$
+       con tetto termico clampato a $0.30$ duty (SPEC-01).
+     - Quando le ruote raggiungono l'80% della velocità comandata, il boost decade dolcemente ($0.40 \cdot \Delta t$).
+     - Se il robot rimane a stallo con boost massimo per oltre $1.0\text{ s}$ continui, scatta l'allarme diagnostico di protezione motore `FM-MOT-002` e i motori vengono disattivati.
+  3. *Stabilizzatore di Rotta OAK-D Lite:* Giroscopio a 42 Hz attivo per correggere derive dinamiche residue in marcia retta.
+
+
 
 
 
