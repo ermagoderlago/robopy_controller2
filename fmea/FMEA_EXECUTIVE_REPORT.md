@@ -1,5 +1,5 @@
 # 📊 Report Esecutivo DFMEA - Marcus AI Robot Platform
-**Data Generazione:** 2026-09-30 22:29:51  
+**Data Generazione:** 2026-09-30 22:40:20  
 **Metodologia:** AIAG-VDA FMEA Standard con Regola Override Severità ($S \ge 9 \implies$ REVISION_MANDATORY)
 
 ---
@@ -8,8 +8,8 @@
 
 | Metrica | Valore | Note / Impatto |
 | :--- | :---: | :--- |
-| **Totale Modalità di Guasto (FM)** | **150** | Copertura integrata dei sottosistemi Marcus |
-| **🟢 Risk Level LOW** | **115** | $RPN_{res} \le 50$ (Sotto controllo) |
+| **Totale Modalità di Guasto (FM)** | **151** | Copertura integrata dei sottosistemi Marcus |
+| **🟢 Risk Level LOW** | **116** | $RPN_{res} \le 50$ (Sotto controllo) |
 | **🟡 Risk Level MEDIUM** | **7** | $51 \le RPN_{res} \le 199$ (Monitoraggio attivo) |
 | **🟠 Risk Level HIGH** | **2** | $200 \le RPN_{res} \le 349$ (Mitigazione obbligatoria) |
 | **🔴 Risk Level CRITICAL** | **0** | $RPN_{res} \ge 350$ (Blocco rilasci) |
@@ -61,6 +61,7 @@
 - **VUI:** 5 failure modes
 - **Navigation / AI:** 1 failure modes
 - **Navigation / Exploration:** 1 failure modes
+- **Nav2 / AIOrchestrator:** 1 failure modes
 
 ---
 
@@ -218,6 +219,7 @@
 | **FM-NAV-032** | Nav2 | `costmap_and_progress_checker` | Stallo di calcolo MPPI indotto da raytracing fuori mappa per pointcloud semantiche e aborto continuo del goal da parte del SimpleProgressChecker | 8 | 1 | 1 | **8** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#FM-NAV-032`](docs/lessons/nav2_slam_tuning.md#FM-NAV-032) |
 | **FM-NAV-033** | Nav2 | `collision_monitor_and_amcl_alignment` | Disallineamento della posa AMCL iniettata da file stale rispetto alle pareti reali con collisione contro muri, aggravato da footprint/PolygonStop sottodimensionati rispetto ai 33.5cm dei cingoli e critic ostacoli permissivo. | 8 | 1 | 1 | **8** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#FM-NAV-033`](docs/lessons/nav2_slam_tuning.md#FM-NAV-033) |
 | **FM-NAV-034** | Nav2 | `robot_ai / conversation / frontier_exploration_skill / navigation_skill` | Mancato o ritardato arresto del robot su comandi vocali come "fermati", "ferma la navigazione", "basta", con ripresa automatica del moto (barge-in resume trap) | 8 | 1 | 1 | **8** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#FM-NAV-034`](docs/lessons/nav2_slam_tuning.md#FM-NAV-034) |
+| **FM-NAV-035** | Nav2 / AIOrchestrator | `frontier_exploration_skill / auto_relocalize / conversation` | Avvio dell'esplorazione autonoma senza allineamento del robot alla mappa statica, con conseguente navigazione su posa disallineata e collisione contro pareti o tentativi di rotazione su docking station/spazi ristretti. | 8 | 1 | 1 | **8** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#FM-NAV-035`](docs/lessons/nav2_slam_tuning.md#FM-NAV-035) |
 | **FM-COG-002** | AI/Cognitive | `conversation_manager / llm_service` | Perdita dell'acronimo di identità e mancata ricerca RAG in conversazione | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#identita-dellacronimo-e-ricerca-semantica-rag-attiva`](docs/lessons/orchestration_and_rag.md#identita-dellacronimo-e-ricerca-semantica-rag-attiva) |
 | **FM-CPU-001** | Vision/CPU | `hailo_bridge_node` | Saturazione CPU da pipeline annotazione video sincrona a 30 Hz in rgb_callback | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/vision_hailo_npu.md`](docs/lessons/vision_hailo_npu.md) |
 | **FM-TRI-005** | AI/Trinity | `metaprompt_fusion` | Saturazione del budget token con troncamento silenzioso da parte dell'LLM o errore di context length | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#trinity-architecture`](docs/lessons/orchestration_and_rag.md#trinity-architecture) |

@@ -241,9 +241,14 @@ class FrontierExplorationSkill(BaseSkill):
             )
             try:
                 stdout, stderr = await asyncio.wait_for(spin_proc.communicate(), timeout=35.0)
+                out_str = (stdout.decode(errors='ignore') if stdout else "") + " " + (stderr.decode(errors='ignore') if stderr else "")
                 if spin_proc.returncode == 0:
-                    return True, "Allineamento completato dopo giro a 360°."
+                    return True, "Allineamento completato dopo giro a 360° su spazio libero."
                 else:
+                    if "IN CARICA" in out_str:
+                        return False, "Robot attualmente in carica sulla base: allineamento e rotazione 360° inibiti per salvaguardia dock."
+                    if "Spazio libero insufficiente" in out_str or "Ostacolo rilevato" in out_str:
+                        return False, "Ostacolo troppo vicino per eseguire lo spin a 360° in sicurezza."
                     return False, "Impossibile allineare i raggi laser con la mappa."
             except asyncio.TimeoutError:
                 try:

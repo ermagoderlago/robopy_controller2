@@ -13,7 +13,7 @@
   - `rtabmap_slam`, `nav2_bt_navigator`, `nav2_controller`
 - **File di Configurazione Chiave:**
   - `config/nav2_params.yaml`, `config/nav2_survival_bt.xml`, `config/rtabmap.yaml`
-- **DFMEA Correlati:** `FM-NAV-001` (Overhead STVL 3D), `FM-NAV-005` (Eliminazione blind-spot 360° con LiDAR), `FM-NAV-009` (Ostacoli negativi e caduta scale), `FM-NAV-010` (NOMAD con LiDAR), `FM-NAV-016` (Aliasing percettivo RTAB-Map), `FM-NAV-017` (Deriva termica BMI270 ZUPT), `FM-NAV-019` (Recovery BT cieca), `FM-NAV-020` (Persistenza DB SLAM su SSD), `FM-PWR-001` (Smart Standby & Sensor Power-Save Manager), `FM-VIS-003` (Camera pitch sag), `FM-MOT-007` (Odometria reale metrica da encoder PCNT ruote per contrastare drift di heading e scala prima dei vincoli ICP RTAB-Map).
+- **DFMEA Correlati:** `FM-NAV-001` (Overhead STVL 3D), `FM-NAV-005` (Eliminazione blind-spot 360° con LiDAR), `FM-NAV-009` (Ostacoli negativi e caduta scale), `FM-NAV-010` (NOMAD con LiDAR), `FM-NAV-016` (Aliasing percettivo RTAB-Map), `FM-NAV-017` (Deriva termica BMI270 ZUPT), `FM-NAV-019` (Recovery BT cieca), `FM-NAV-020` (Persistenza DB SLAM su SSD), `FM-PWR-001` (Smart Standby & Sensor Power-Save Manager), `FM-VIS-003` (Camera pitch sag), `FM-MOT-007` (Odometria reale metrica da encoder PCNT ruote per contrastare drift di heading e scala prima dei vincoli ICP RTAB-Map), `FM-NAV-033` (Scan-to-Map Matching e convergenza AMCL 360°), `FM-NAV-034` (Fast-path stop e barge-in resume trap), `FM-NAV-035` (Preflight Scan-to-Map, guardie di non-carica/clearance e primato LLM).
 
 ---
 
@@ -64,6 +64,8 @@ Le seguenti prescrizioni sono categoriche. La loro violazione comporta il crash 
 | **Encoding Immagine di Profondità** | Forzare `"16UC1"` in C++ (non usare `"mono16"`) | Rifiuto dello stream da `depthimage_to_laserscan` | FM-VIS-002 |
 | **Percorso File Behavior Tree** | `nav2_survival_bt.xml` nel path installato | Fallimento attivazione `bt_navigator` all'avvio | FM-NAV-004 |
 | **Allocazione Database SLAM su SSD** | `database_path: "/mnt/ssd/rtabmap.db"` obbligatorio | Saturazione 100% MicroSD, runaway log e crash I/O irreversibile | FM-NAV-020 |
+| **Divieto Spin 360° in Carica** | **Vietato ruotare a 360° se robot in carica** ($V \ge 12.70\text{V}$) | Trazione e rottura contatti docking station / cavi alimentazione | FM-NAV-035 |
+| **Deliberazione Azioni di Moto** | **Solo LLM (Function Calling)**; vietato keyword scripting (eccetto stop immediato) | Moti involontari distruttivi da falsi positivi regex | FM-NAV-035 |
 
 ---
 

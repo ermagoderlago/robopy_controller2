@@ -535,19 +535,17 @@ class ConversationManager:
         # Remove implicit tools before sending to standard skill executor
         explicit_actions = [a for a in response_actions if a.get("action_type", a.get("name", "")) not in ["generate_formatted_document", "ask_visual_question"]]
 
-        # Heuristic intent auto-dispatch for navigation/exploration if LLM returned text-only response without tool call
-        if not explicit_actions and frontier_skill:
-            match_score = frontier_skill.match(clean_text)
-            if match_score >= 0.90:
-                self._logger.info(f"🧭 [Auto-Dispatch] Heuristic intent exploration/navigation triggered (score={match_score}) for '{clean_text}'")
-                if any(p.search(clean_text.lower()) for p in frontier_skill.STOP_PATTERNS) or bool(re.search(r'\b(ferma|fermati|stop|alt|basta|arrestati|blocca)\b', clean_text, re.IGNORECASE)):
-                    explicit_actions.append({"action_type": "frontier_exploration", "args": {"action": "stop"}})
-                    explicit_actions.append({"action_type": "navigation", "args": {"action": "stop"}})
-                elif any(p.search(clean_text.lower()) for p in frontier_skill.HUNT_PATTERNS):
-                    target = frontier_skill._extract_target(clean_text) or ""
-                    explicit_actions.append({"action_type": "frontier_exploration", "args": {"action": "search_target", "target": target}})
-                elif any(p.search(clean_text.lower()) for p in frontier_skill.EXPLORE_PATTERNS):
-                    explicit_actions.append({"action_type": "frontier_exploration", "args": {"action": "start_explore"}})
+        # CRITICAL SAFETY & COGNITIVE RULE (FM-NAV-035):
+        # All actions and physical motions (navigation, exploration, hunt) MUST be deliberated by the LLM
+        # via structured Function Calling and NEVER triggered by keyword-matching scripts (dangerous false positives).
+        # TANTAMOUNT EXCEPTION: Emergency STOP commands ("fermati", "stop", "alt", "basta") which MUST be immediate!
+        if not explicit_actions and (
+            bool(re.search(r'\b(ferma|fermati|stop|alt|basta|arrestati|blocca)\b', clean_text, re.IGNORECASE)) or
+            (frontier_skill and any(p.search(clean_text.lower()) for p in frontier_skill.STOP_PATTERNS))
+        ):
+            self._logger.info(f"🛑 [SAFETY STOP EXCEPTION] Emergency stop command recognized in conversation turn: '{clean_text}'")
+            explicit_actions.append({"action_type": "frontier_exploration", "args": {"action": "stop"}})
+            explicit_actions.append({"action_type": "navigation", "args": {"action": "stop"}})
 
         actions_spoken_count = 0
         if explicit_actions:

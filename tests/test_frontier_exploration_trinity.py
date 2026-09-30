@@ -180,3 +180,56 @@ def test_trinity_engine_exploration_events(temp_db):
     assert found["target"] == "sedia"
     assert found["coordinates"] == (1.85, 3.20)
     assert found["confidence"] >= 0.80
+
+
+def test_auto_relocalize_charging_guard_and_clearance():
+    """Verifica guardie di sicurezza FM-NAV-035 in AutoLocalizerNode."""
+    import sys
+    import os
+    from unittest.mock import MagicMock, patch
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
+    from auto_relocalize import AutoLocalizerNode
+    from sensor_msgs.msg import BatteryState, LaserScan
+
+    with patch.object(AutoLocalizerNode, '__init__', return_value=None):
+        node = AutoLocalizerNode()
+        node.is_charging = False
+        node.latest_battery = None
+        node.latest_scan = None
+        node.map_grid = MagicMock()
+        node.is_empty_map = False
+        node.check_only = False
+        node.inject_only = False
+        node.force_global = False
+        node.call_global_localization = MagicMock(return_value=True)
+        node.get_logger = MagicMock(return_value=MagicMock())
+
+        # 1. Test Guardia di Carica
+        bat_msg = MagicMock(spec=BatteryState)
+        bat_msg.power_supply_status = BatteryState.POWER_SUPPLY_STATUS_CHARGING
+        bat_msg.voltage = 12.80
+        node.battery_callback(bat_msg)
+        assert node.is_charging is True
+
+        # In carica: run_routine deve inibire lo spin a 360°
+        node.compute_alignment_quality = MagicMock(return_value=(0.20, 0.50, 100))  # disallineato
+        with patch.object(node, 'inject_pose_from_file', return_value=True):
+            success = node.run_routine()
+            assert success is False, "La rotazione a 360° deve essere inibita quando il robot è in carica!"
+
+        # 2. Test Guardia Spazio Libero (Clearance < 0.28m)
+        node.is_charging = False
+        scan_msg = MagicMock(spec=LaserScan)
+        scan_msg.ranges = [0.15, 0.20, 0.22, 1.5, 2.0]  # Ostacolo a 0.20m (< 0.28m)
+        node.latest_scan = scan_msg
+        with patch.object(node, 'inject_pose_from_file', return_value=True):
+            success = node.run_routine()
+            assert success is False, "La rotazione a 360° deve essere annullata se c'è un ostacolo a < 0.28m!"
+
+        # 3. Test Allineamento Già Valido (Nessuno spin)
+        node.compute_alignment_quality = MagicMock(return_value=(0.75, 0.04, 100))
+        with patch.object(node, 'inject_pose_from_file', return_value=True):
+            success = node.run_routine()
+            assert success is True, "Se già allineato, run_routine deve terminare con successo senza spin!"
+
+

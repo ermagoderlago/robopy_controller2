@@ -7107,3 +7107,62 @@
       fast-path bypass con stop fisico istantaneo e cancellazione Nav2 ed esplorazione.
     rpn_old: 192
     rpn_new: 8
+- id: FM-NAV-035
+  subsystem: Nav2 / AIOrchestrator
+  component: frontier_exploration_skill / auto_relocalize / conversation
+  function: Verifica preventiva dell'allineamento Scan-to-Map e covarianza laser prima
+    dell'avvio dell'esplorazione, con delibera esclusiva dell'azione da parte dell'LLM
+    (salvo arresto d'emergenza fast-path).
+  failure_mode: Avvio dell'esplorazione autonoma senza allineamento del robot alla
+    mappa statica, con conseguente navigazione su posa disallineata e collisione contro
+    pareti o tentativi di rotazione su docking station/spazi ristretti.
+  potential_cause: Assenza di controllo covarianza e scan-to-map preflight; esecuzione
+    di spin a 360° senza verifica dello stato di carica (rischio danneggiamento dock/cavi)
+    o senza verifica di clearance spazio libero (ostacoli < 28cm); triggering di azioni
+    di movimento da script a parole chiave anziché da delibera cognitiva LLM.
+  potential_effect: Danneggiamento meccanico della docking station/contatti se in
+    carica, collisione dello chassis con muri o ostacoli in rotazione, e azioni di
+    moto incontrollate provocate da falsi positivi su keyword script.
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-NAV-033
+  - FM-NAV-034
+  - FM-TRI-001
+  initial_scoring:
+    severity: 8
+    occurrence: 8
+    detection: 3
+    rpn: 192
+  prevention_controls: 'Preflight check Scan-to-Map matching (Match >= 65%) e covarianza
+    AMCL (trace < 0.08) in auto_relocalize.py e frontier_exploration_skill.py; inibizione
+    assoluta dello spin a 360° se il robot è in carica (/battery_state: power_supply_status
+    == CHARGING o V >= 12.70V); controllo clearance laser con rotazione consentita
+    solo se lo spazio libero circostante a 360° è >= 0.28m; primato cognitivo LLM
+    con divieto di keyword scripting per azioni attive di moto ed esplorazione; eccezione
+    tassativa di sicurezza con fast-path immediato (<10ms) per i soli comandi di arresto
+    d''emergenza.'
+  detection_controls: AutoLocalizerNode --check-only preflight test in frontier_exploration_skill,
+    unit test test_auto_relocalize_charging_guard_and_clearance in test_frontier_exploration_trinity.py.
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Mantenere sempre la verifica congiunta scan-to-map e le guardie
+    di carica e spazio libero prima di qualsiasi movimento su mappa, affidando le
+    azioni alla LLM e salvaguardando il fast-path per lo stop.
+  verification_method: Test unitari pytest (33/33 passati) e verifica runtime su Marcus.
+  eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-09-30-005
+  lesson_ref: docs/lessons/nav2_slam_tuning.md#FM-NAV-035
+  date_identified: '2026-09-30'
+  last_updated: '2026-09-30'
+  history:
+  - date: '2026-09-30'
+    change: Implementato preflight scan-to-map con guardia di non-carica e clearance
+      spazio libero per spin 360°, e stabilito il principio del primato cognitivo
+      LLM sulle azioni (eccetto fast-path safety stop).
+    rpn_old: 192
+    rpn_new: 8

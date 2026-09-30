@@ -644,6 +644,24 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
   4. *Implementazione `stop_exploration()` in `NavigationClient`:*
      Aggiunto metodo asincrono e sincrono in `NavigationClient` che pubblica `data: False` su `/exploration/enable`, ripulisce `/exploration/search_target`, invia `cancel_navigation()` a Nav2 e pubblica un comando `Twist()` nullo su `/cmd_vel`.
 
+---
+
+### Preflight Scan-to-Map, Rotazione 360° Condizionata a Non-Carica/Clearance, e Primato Cognitivo LLM (Settembre 2026 - FM-NAV-035)
+* **Sintomo:** Se l'esplorazione autonoma veniva avviata mentre il robot si trovava sulla stazione di ricarica (docking station) o con posa iniziale disallineata rispetto ai muri, il robot poteva tentare rotazioni sul posto strappando contatti/cavi di alimentazione, oppure urtare ostacoli ravvicinati. Inoltre, l'avvio del moto rischiava di essere innescato da mere parole chiave anziché dalla piena comprensione dell'intento da parte dell'LLM.
+* **Causa Radice:**
+  1. *Assenza di Guardia di Carica nello Script di Allineamento (`auto_relocalize.py`):*
+     La routine di allineamento e convergenza non monitorava il topic `/battery_state`: se invocata mentre il robot era alimentato da rete ($V \ge 12.70\text{V}$), inviava comunque comandi di velocità angolare a `/cmd_vel`, rischiando danni fisici alla dock.
+  2. *Assenza di Clearance Check Pre-Rotazione:*
+     Lo spin a 360° veniva tentato senza verificare se vi fosse spazio sufficiente attorno allo chassis cingolato (larghezza 33.5 cm), provocando strisciamenti contro muri o mobili vicini.
+  3. *Keyword Scripting Pericoloso:*
+     L'attivazione di movimenti complessi ed esplorazioni basata su euristiche regex (keyword matching) è intrinsecamente fragile e pericolosa, potendo fraintendere frasi ipotetiche o conversazioni generali e muovere fisicamente il robot senza la supervisione di sicurezza dell'LLM.
+* **Soluzione Implementata:**
+  1. *Guardia di Sicurezza Non-Carica:* `auto_relocalize.py` sottoscrive `/battery_state`. Se rileva `power_supply_status == CHARGING` o tensione $\ge 12.70\text{V}$, lo spin a 360° viene rigorosamente inibito e i motori rimangono disarmati.
+  2. *Clearance Check Laser:* Prima di autorizzare la rotazione sul posto, il LiDAR C1 analizza la distanza minima a 360°: se un ostacolo è presente a meno di 28 cm ($< 0.28\text{ m}$), lo spin viene annullato per evitare urti.
+  3. *Primato Cognitivo Assoluto dell'LLM:* Rimosso qualsiasi auto-dispatch regex di azioni attive (`start_explore`, `search_target`). Ogni manovra deve originare da una Function Call strutturata deliberata da Gemini Live / TRINITY.
+  4. *Eccezione Tassativa Fast-Path Safety Stop:* I comandi di arresto immediato ("fermati", "stop", "alt", "basta") mantengono il bypass locale ultrarapido (<10ms) per azzerare istantaneamente la velocità del robot sul posto.
+
+
 
 
 

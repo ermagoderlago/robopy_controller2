@@ -509,6 +509,36 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
   - `tests/test_nav2_motion_e2e.py`
   - `fmea/dfmea.yaml` (Aggiunto `FM-NAV-034`)
 
+---
+
+## 📈 ECO-2026-09-30-005: Preflight Scan-to-Map con Check Carica e Clearance Spazio Libero, e Primato Cognitivo LLM su Azioni di Moto (FM-NAV-035)
+* **Stato:** ✅ **Completato, Testato e Integrato nel Workspace**
+* **Autore:** 🤖 **Antigravity Engine**
+* **DFMEA Correlati:** `FM-NAV-035`, `FM-NAV-033`, `FM-NAV-034`, `FM-TRI-001`
+* **Descrizione dell'intervento:**
+  1. **Guardia di Sicurezza Non-Carica su Spin 360° (`scripts/auto_relocalize.py`):**
+     - Sottoscrizione al topic `/battery_state` (`sensor_msgs/msg/BatteryState`).
+     - Se `power_supply_status == CHARGING` o la tensione del bus fisso è $\ge 12.70\text{V}$, il robot si trova sulla docking station o connesso a cavo: qualsiasi rotazione a 360° viene bloccata e inibita istantaneamente per evitare di strappare i cavi di ricarica o danneggiare i contatti pogo-pin.
+  2. **Clearance Check Spazio Libero per Spin 360° (`scripts/auto_relocalize.py`):**
+     - Analisi dei raggi laser validi nel LiDAR ToF C1 prima di autorizzare la rotazione sul posto.
+     - Larghezza chassis Marcus cingolato: 33.5 cm (raggio diagonale ~0.24 m). Se la distanza minima di un ostacolo è $< 0.28\text{ m}$, la rotazione viene annullata e i motori rimangono disarmati, prevenendo strisciamenti o urti contro ostacoli stretti.
+  3. **Feedback Diagnostico Esplicito in Frontier Exploration (`frontier_exploration_skill.py`):**
+     - Il metodo `_verify_or_spin_alignment()` intercetta i codici di uscita e i messaggi diagnostici di `auto_relocalize.py`, fornendo feedback vocale e log puntuali se il check fallisce per stato di carica attivo o per spazio insufficiente.
+  4. **Primato Cognitivo Assoluto dell'LLM sulle Azioni Fisiche (`conversation.py`):**
+     - Rimosso l'auto-dispatch euristico basato su regex/keyword matching per le azioni di avvio esplorazione (`start_explore`) o caccia bersaglio (`search_target`). Tutte le azioni attive del robot DEVONO essere deliberate dall'LLM (Gemini Live / TRINITY) tramite Function Calling strutturato.
+     - Mantenuta l'eccezione tassativa per la sicurezza: i comandi di arresto d'emergenza ("fermati", "stop", "alt", "basta") mantengono l'esecuzione istantanea via fast-path (<10ms) per azzerare immediatamente la velocità fisica.
+* **File Modificati:**
+  - `scripts/auto_relocalize.py`
+  - `robopy_controller/robot_ai/skills/builtin/frontier_exploration_skill.py`
+  - `robopy_controller/robot_ai/orchestration/conversation.py`
+  - `marcus_core_rules.md` (Sezione 6.1)
+  - `marcus_robot_guide.md`
+  - `docs/specs/SPEC-02_navigation_and_slam.md`
+  - `docs/specs/SPEC-05_cognitive_brain_trinity.md`
+  - `fmea/dfmea.yaml` (Aggiunto `FM-NAV-035`)
+  - `tests/test_frontier_exploration_trinity.py`
+
+
 
 
 

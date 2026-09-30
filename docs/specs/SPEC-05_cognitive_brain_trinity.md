@@ -10,7 +10,7 @@
   - `robopy_controller.robot_ai.skills` (`skill_registry.py`, `homeassistant_skill.py`, `navigation_skill.py`)
 - **Database & Storage:**
   - SQLite WAL (`mag_database.db`), ChromaDB vettoriale (`chroma_db/`), Zettelkasten fatti persistenti.
-- **DFMEA Correlati:** `FM-TRI-001` (Architettura TRINITY), `FM-COG-001` (Omeostasi dopaminica), `FM-COG-002` (Recupero RAG e identità), `FM-LLM-001` (Esplosione token e OOM), `FM-LLM-004` (Sandbox cinematico delle skill).
+- **DFMEA Correlati:** `FM-TRI-001` (Architettura TRINITY), `FM-COG-001` (Omeostasi dopaminica), `FM-COG-002` (Recupero RAG e identità), `FM-LLM-001` (Esplosione token e OOM), `FM-LLM-004` (Sandbox cinematico delle skill), `FM-NAV-034` (Fast-path safety stop e barge-in auto-resume trap), `FM-NAV-035` (Primato cognitivo LLM sulle azioni vs keyword scripting).
 
 ---
 
@@ -47,6 +47,8 @@ Le seguenti prescrizioni sono categoriche. La loro alterazione induce crash per 
 | **Journaling SQLite WAL** | Obbligo modalità **WAL + synchronous = NORMAL** | Corruzione fatale del database autobiografico al blackout | FM-TRI-001 |
 | **Amigdala Emergency Hijack** | Override immediato del moto su anomalie o panico | Incapacità del robot di fermarsi durante allucinazioni LLM | FM-COG-001 |
 | **Pre-flight Skill Sandbox** | Nessun comando a `/cmd_vel` senza validazione cinematica | Esecuzione di traiettorie distruttive o fuori dai muri | FM-LLM-004 |
+| **Primato Cognitivo Azioni** | **Deliberazione solo via LLM**; vietato keyword scripting per azioni (eccetto safety stop) | Esecuzioni incontrollate del robot da falsi positivi regex | FM-NAV-035 |
+| **Fast-Path Emergency Stop** | **Intercettazione immediata (<10ms)** per comandi di arresto fisico | Collisione per latenza di rete/inferenza cloud LLM | FM-NAV-034 |
 | **Esclusione File Segreti RAG**| Divieto di indicizzare `.env`, `secrets.yaml` e chiavi | Fuga di credenziali API private durante le risposte vocali | - |
 | **Limiti Vettoriali LRU** | Cache vettoriale limitata a **massimo 64 elementi** | Esaurimento silenzioso dei 4GB di RAM del Pi 5 | FM-SYS-008 |
 

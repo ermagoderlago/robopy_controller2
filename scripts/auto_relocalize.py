@@ -27,9 +27,12 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
 from geometry_msgs.msg import PoseWithCovarianceStamped, Twist, Point, Quaternion
-from sensor_msgs.msg import LaserScan
+from sensor_msgs.msg import LaserScan, BatteryState
 from nav_msgs.msg import OccupancyGrid
-from std_srvs.srv import Empty
+try:
+    from std_srvs.srv import Empty
+except ImportError:
+    Empty = None
 
 
 def euler_to_quaternion(yaw: float):
@@ -89,11 +92,19 @@ class AutoLocalizerNode(Node):
             self.map_callback,
             map_qos
         )
+        self.battery_sub = self.create_subscription(
+            BatteryState,
+            '/battery_state',
+            self.battery_callback,
+            10
+        )
 
         # Internal state
         self.latest_pose = None
         self.latest_cov_trace = 999.0
         self.latest_scan = None
+        self.latest_battery = None
+        self.is_charging = False
         self.map_grid = None
         self.map_2d = None
         self.map_res = 0.05
@@ -106,7 +117,15 @@ class AutoLocalizerNode(Node):
         self.converged = False
         self.converged_count = 0
 
-        self.get_logger().info("🤖 AutoLocalizer Node con Scan-to-Map Matching avviato.")
+        self.get_logger().info("🤖 AutoLocalizer Node con Scan-to-Map Matching e Guardie di Sicurezza avviato.")
+
+    def battery_callback(self, msg: BatteryState):
+        self.latest_battery = msg
+        # Rileva stato di carica attivo: flag CHARGING o tensione bus fisso alimentatore (>=12.70V)
+        self.is_charging = bool(
+            msg.power_supply_status == BatteryState.POWER_SUPPLY_STATUS_CHARGING or
+            msg.voltage >= 12.70
+        )
 
     def amcl_pose_callback(self, msg: PoseWithCovarianceStamped):
         self.latest_pose = msg.pose.pose
@@ -337,8 +356,28 @@ class AutoLocalizerNode(Node):
             self.call_global_localization()
             time.sleep(0.5)
 
-        # 3. Rotazione di allineamento e scansione a 360° (Spin-to-Align)
-        self.get_logger().info("🔄 Avvio rotazione lenta di allineamento a 360° sul posto (0.30 rad/s)...")
+        # 3. Guardie di sicurezza pre-rotazione (FM-NAV-035)
+        # A) Verifica preventiva stato di carica:
+        # Se il robot è in carica sulla docking station / alimentatore, lo spin a 360° è severamente vietato
+        # per evitare la distruzione dei pogo-pin o la trazione dei cavi.
+        if self.is_charging:
+            self.get_logger().warn("⚡ Robot attualmente IN CARICA sulla stazione/dock: rotazione a 360° INIBITA per salvaguardia fisica della base!")
+            return False
+
+        # B) Verifica preliminare di spazio libero (Clearance Check) per rotazione sicura a 360°:
+        # Larghezza chassis Marcus cingolato: 33.5cm (raggio diagonale ~0.24m). Richiesti almeno 0.28m liberi a 360°.
+        if self.latest_scan is not None:
+            ranges = np.array(self.latest_scan.ranges, dtype=np.float32)
+            valid_ranges = ranges[(ranges >= 0.08) & (ranges <= 8.0) & np.isfinite(ranges)]
+            if len(valid_ranges) > 0:
+                min_clearance = float(np.min(valid_ranges))
+                if min_clearance < 0.28:
+                    self.get_logger().error(f"🛑 Ostacolo rilevato a {min_clearance:.2f}m (< 0.28m)! Spazio libero insufficiente per eseguire lo spin a 360° in sicurezza. Motori disarmati.")
+                    return False
+                self.get_logger().info(f"✅ Spazio libero verificato per spin 360° (clearance minima: {min_clearance:.2f}m >= 0.28m).")
+
+        # 4. Rotazione di allineamento e scansione a 360° su spazio libero (Spin-to-Align)
+        self.get_logger().info("🔄 Avvio rotazione lenta di allineamento a 360° su spazio libero (0.30 rad/s)...")
         twist = Twist()
         twist.angular.z = 0.30
 
