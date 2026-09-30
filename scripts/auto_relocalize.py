@@ -145,6 +145,26 @@ class AutoLocalizerNode(Node):
         if self.is_empty_map:
             return (1.0, 0.0, 0)
 
+        # Se latest_pose non è ancora arrivata da /amcl_pose (es. robot fermo a riposo),
+        # carica l'ultima posa consolidata dal file di posa noto
+        if self.latest_pose is None and os.path.exists(self.target_pose_file):
+            try:
+                with open(self.target_pose_file, 'r', encoding='utf-8') as pf:
+                    pdata = yaml.safe_load(pf)
+                x = float(pdata.get('x', 0.0))
+                y = float(pdata.get('y', 0.0))
+                yaw = float(pdata.get('yaw', 0.0))
+                cov_t = float(pdata.get('covariance_trace', 0.05))
+                from geometry_msgs.msg import Pose
+                p = Pose()
+                p.position = Point(x=x, y=y, z=0.0)
+                q = euler_to_quaternion(yaw)
+                p.orientation = Quaternion(x=q[0], y=q[1], z=q[2], w=q[3])
+                self.latest_pose = p
+                self.latest_cov_trace = cov_t
+            except Exception:
+                pass
+
         if self.map_2d is None or self.latest_scan is None or self.latest_pose is None:
             return (0.0, self.latest_cov_trace, 0)
 
