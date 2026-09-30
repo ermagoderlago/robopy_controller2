@@ -6941,3 +6941,52 @@
       e creata guida HEF
     rpn_old: 168
     rpn_new: 28
+- id: FM-NAV-032
+  subsystem: Nav2
+  component: costmap_and_progress_checker
+  function: Tracciamento continuo della traiettoria MPPI ed esecuzione fluida dell'esplorazione
+    autonoma senza pause di calcolo o aborti prematuri
+  failure_mode: Stallo di calcolo MPPI indotto da raytracing fuori mappa per pointcloud
+    semantiche e aborto continuo del goal da parte del SimpleProgressChecker
+  potential_cause: Parametro clearing=true su layer PointCloud2 sintetici pubblicati
+    in coordinate map all'interno di rolling costmap locale odom 3x3m; timeout progress_checker
+    a 20s troppo restrittivo per rotazioni lente sul posto
+  potential_effect: Marcus si muove a scatti con lunghe pause di calcolo (freeze 0.3s)
+    prima di arrestarsi definitivamente per aborto del goal (Failed to make progress)
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-NAV-008
+  - FM-NAV-019
+  initial_scoring:
+    severity: 8
+    occurrence: 9
+    detection: 2
+    rpn: 144
+  prevention_controls: Impostazione clearing=false per semantic_objects e hailo_semantic_objects
+    (solo marking=true); incremento movement_time_allowance a 35.0s e riduzione required_movement_radius
+    a 0.03m; rimozione pointcloud da collision_monitor a favore del solo LiDAR C1;
+    auto-dispatch euristico intent per skill frontier_exploration in conversation.py
+  detection_controls: Assenza di warning 'Sensor origin is out of map bounds' nei
+    log nav2.log e completamento continuo dei goal di esplorazione senza aborti
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Applicare clearing=false su costmap, calibrare progress_checker
+    a 35s/0.03m ed integrare fallback euristico per avvio esplorazione
+  verification_method: Ispezione runtime su Raspberry Pi 5 con goal Nav2 e test vocale
+    'esplora la casa'
+  eco_ref: docs/ecos/navigation_ecos.md#ECO-2026-09-30-006
+  lesson_ref: docs/lessons/nav2_slam_tuning.md#FM-NAV-032
+  date_identified: '2026-09-30'
+  last_updated: '2026-09-30'
+  history:
+  - date: '2026-09-30'
+    change: Risolto stallo costmap raytracing e progress checker abort loop; aggiunta
+      mitigazione auto-dispatch intent esplorazione
+    rpn_old: 144
+    rpn_new: 8

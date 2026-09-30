@@ -381,6 +381,11 @@ void FastFlowVONode::processLoop() {
         qColor = device_->getOutputQueue("color", 2, false);
     }
     
+    std::shared_ptr<dai::DataOutputQueue> qYolo;
+    if (config_.enable_yolo && !config_.yolo_blob_path.empty()) {
+        qYolo = device_->getOutputQueue("yolo", 4, false);
+    }
+    
     int frame_counter = 0;
     
     while (running_ && rclcpp::ok()) {

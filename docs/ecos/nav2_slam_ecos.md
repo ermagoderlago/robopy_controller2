@@ -425,6 +425,30 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
   - `robopy_controller/robot_ai/trinity/mag_zettelkasten.py`
   - [ELIMINATI] nodi, script e test `nomad_*`
 
+---
+
+## 📈 ECO-2026-09-30-002: Risoluzione Stallo Raytracing Costmap Semantiche, Progress Checker Abort Loop e Heuristic Auto-Dispatch Esplorazione (FM-NAV-032)
+* **Stato:** ✅ **Completato, Testato e Integrato nel Workspace**
+* **Autore:** 🤖 **Antigravity Engine**
+* **DFMEA Correlati:** `FM-NAV-032`, `FM-NAV-008`, `FM-NAV-019`
+* **Descrizione dell'intervento:**
+  1. **Disattivazione Raytracing su Layer Costmap Sintetici (`nav2_params_jazzy.yaml`):**
+     - Impostato `clearing: false` su `semantic_objects` e `hailo_semantic_objects` sia in `local_costmap` che in `global_costmap`.
+     - Risolto il flooding critico di warning `[local_costmap]: Sensor origin is out of map bounds... The costmap cannot raytrace for it` generato dal tentativo di raytracciare l'origine frame `map` attraverso una rolling window `odom` 3x3m, che congelava il calcolo MPPI per oltre 300ms a ciclo.
+     - Affidato il clearing dello spazio libero esclusivamente al sensore LiDAR ToF RPLIDAR C1 (`/scan`), preservando il solo inserimento ostacoli (`marking: true`) per le pointcloud semantiche e di dislivello.
+  2. **Calibrazione Tolleranza Movimento Progress Checker (`nav2_params_jazzy.yaml`):**
+     - Incrementato `movement_time_allowance: 35.0s` (da 20.0s) e ridotto `required_movement_radius: 0.03m` (da 0.05m).
+     - Eliminati i continui aborti `[controller_server]: Failed to make progress -> [follow_path] Aborting handle` durante le rotazioni lente sul posto del robot cingolato ad alto attrito o in approccio millimetrico, che esaurivano i tentativi del Behavior Tree portando Nav2 al collasso (`Goal failed`).
+  3. **Blindatura Collision Monitor (`nav2_params_jazzy.yaml`):**
+     - Rimosso `pointcloud` dalle `observation_sources` di `collision_monitor`, vincolando la sicurezza d'arresto reattiva al solo sensore ToF LiDAR C1 a 10 Hz ed azzerando gli allarmi di desincronizzazione temporale (`differ on 24.7s`).
+  4. **Heuristic Auto-Dispatch Intent Esplorazione (`conversation.py`):**
+     - Nel caso in cui il modello LLM (Gemini Live / Text) risponda confermando testualmente l'intento ("Inizio subito l'esplorazione autonoma...") senza emettere la chiamata di funzione strutturata `start_frontier_exploration`, un middleware euristico intercetta la discrepanza se `frontier_skill.match(clean_text) >= 0.90` ed accoda automaticamente l'azione `frontier_exploration` con `start_explore`, garantendo l'avvio fisico dell'esploratore su `/exploration/enable`.
+* **File Modificati:**
+  - `robopy_controller/config/nav2_params_jazzy.yaml`
+  - `robopy_controller/robot_ai/orchestration/conversation.py`
+  - `fmea/dfmea.yaml` (Aggiunto `FM-NAV-032`)
+
+
 
 
 

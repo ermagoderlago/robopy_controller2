@@ -1,5 +1,5 @@
 # 📊 Report Esecutivo DFMEA - Marcus AI Robot Platform
-**Data Generazione:** 2026-09-30 17:07:11  
+**Data Generazione:** 2026-09-30 21:50:55  
 **Metodologia:** AIAG-VDA FMEA Standard con Regola Override Severità ($S \ge 9 \implies$ REVISION_MANDATORY)
 
 ---
@@ -8,8 +8,8 @@
 
 | Metrica | Valore | Note / Impatto |
 | :--- | :---: | :--- |
-| **Totale Modalità di Guasto (FM)** | **147** | Copertura integrata dei sottosistemi Marcus |
-| **🟢 Risk Level LOW** | **112** | $RPN_{res} \le 50$ (Sotto controllo) |
+| **Totale Modalità di Guasto (FM)** | **148** | Copertura integrata dei sottosistemi Marcus |
+| **🟢 Risk Level LOW** | **113** | $RPN_{res} \le 50$ (Sotto controllo) |
 | **🟡 Risk Level MEDIUM** | **7** | $51 \le RPN_{res} \le 199$ (Monitoraggio attivo) |
 | **🟠 Risk Level HIGH** | **2** | $200 \le RPN_{res} \le 349$ (Mitigazione obbligatoria) |
 | **🔴 Risk Level CRITICAL** | **0** | $RPN_{res} \ge 350$ (Blocco rilasci) |
@@ -17,7 +17,7 @@
 
 ### Ripartizione per Sottosistema:
 - **System/DDS:** 5 failure modes
-- **Nav2:** 16 failure modes
+- **Nav2:** 17 failure modes
 - **VUI Audio:** 22 failure modes
 - **Vision:** 4 failure modes
 - **Hardware/Power:** 9 failure modes
@@ -215,6 +215,7 @@
 | **FM-NAV-030** | Nav2 | `localization_amcl` | Mancato allineamento della mappa sui punti LiDAR, sdoppiamento pareti e stallo dell algoritmo SLAM/ICP deterministico a 1Hz | 8 | 1 | 1 | **8** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#opzione-a-amcl-2d`](docs/lessons/nav2_slam_tuning.md#opzione-a-amcl-2d) |
 | **FM-NAV-031** | Nav2 | `semantic_costmap_injector` | Iniezione massiva di ostacoli negativi fittizi nella costmap (109 punti a semicerchio) | 8 | 1 | 1 | **8** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#negative-obstacle-raycasting`](docs/lessons/nav2_slam_tuning.md#negative-obstacle-raycasting) |
 | **FM-VUI-030** | VUI | `live_connection_manager` | Deadlock conversazionale post-wakeword con mancata risposta vocale e drop audio microfono | 8 | 1 | 1 | **8** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#FM-VUI-030`](docs/lessons/audio_vui_pipeline.md#FM-VUI-030) |
+| **FM-NAV-032** | Nav2 | `costmap_and_progress_checker` | Stallo di calcolo MPPI indotto da raytracing fuori mappa per pointcloud semantiche e aborto continuo del goal da parte del SimpleProgressChecker | 8 | 1 | 1 | **8** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#FM-NAV-032`](docs/lessons/nav2_slam_tuning.md#FM-NAV-032) |
 | **FM-COG-002** | AI/Cognitive | `conversation_manager / llm_service` | Perdita dell'acronimo di identità e mancata ricerca RAG in conversazione | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#identita-dellacronimo-e-ricerca-semantica-rag-attiva`](docs/lessons/orchestration_and_rag.md#identita-dellacronimo-e-ricerca-semantica-rag-attiva) |
 | **FM-CPU-001** | Vision/CPU | `hailo_bridge_node` | Saturazione CPU da pipeline annotazione video sincrona a 30 Hz in rgb_callback | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/vision_hailo_npu.md`](docs/lessons/vision_hailo_npu.md) |
 | **FM-TRI-005** | AI/Trinity | `metaprompt_fusion` | Saturazione del budget token con troncamento silenzioso da parte dell'LLM o errore di context length | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#trinity-architecture`](docs/lessons/orchestration_and_rag.md#trinity-architecture) |

@@ -232,3 +232,16 @@
 * **Stato Esecuzione:** `SCHEDULED_FOR_PRO_ANALYSIS`
 
 ---
+
+### 🎯 Daily Focus (2026-09-30 - 2026-09-30 03:00:06)
+* **Tema:** Mitigazione FMEA [FM-LLM-004]: Esecuzione di codice auto-generato (Skill) pericoloso, instabile o fuori controllo (AI Code Hazard)
+* **Sottosistema:** `AI/LangGraph`
+* **Sorgente Decisionale:** `FMEA_RPN`
+* **Failure Mode Riferimento:** `FM-LLM-004`
+* **Motivazione:** Failure Mode aperto a massimo RPN nel sottosistema AI/LangGraph.
+* **Azione Raccomandata:** MIGLIORIA: 'Pre-flight Kinematic Sandbox & Semantic Gating'. Le skill generate non hanno accesso diretto ai publisher ROS 2. Vengono eseguite prima in un contesto Python isolato (AST locale) contro un simulatore cinematico fittizio. Se la skill richiede v > 0.4m/s o monopolizza la CPU per > 2s, il demone la killa preventivamente e notifica l'utente.
+* **Modello Orchestratore:** `gemini-3.1-pro`
+* **Modello Coder:** `gemini-3.8-flash`
+* **Stato Esecuzione:** `SCHEDULED_FOR_PRO_ANALYSIS`
+
+---

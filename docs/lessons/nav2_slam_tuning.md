@@ -582,6 +582,28 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
   3. *Frontier Exploration Engine (`frontier_explorer_node.py`):* Algoritmo ispirato ad `explore_lite` con clustering BFS, raggio minimo frontiera $0.40\text{ m}$, scoring normalizzato (dimensione, distanza, bias semantico), watchdog anti-stuck a 45s, blacklist circolare $R=0.20\text{ m}$ e modalità Dual (`EXPLORE` vs `HUNT` verso target con standoff a $0.85\text{ m}$).
   4. *Dismissione e Pulizia Totale NOMAD:* Rimossi fisicamente tutti i moduli e nodi NOMAD residui (`nomad_navigator_node.py`, `nomad_reactive_pipeline_node.py`, `nomad_exploration_skill.py`, script shell `start_nomad_vpr.sh`, `nomad_navigator_node`, test obsoleti). L'esplorazione è ora affidata esclusivamente al motore a frontiere e governata dalla LLM TRINITY.
 
+---
+
+### Disattivazione Raytracing su Layer Costmap Sintetici e Calibrazione Progress Checker Nav2 (Settembre 2026 - FM-NAV-032)
+* **Sintomo:** Durante la navigazione ed esplorazione autonoma, il robot si muoveva lentamente, eseguendo pause di calcolo prolungate a scatti (fino a diversi secondi), per poi arrestarsi definitivamente prima di completare il percorso.
+* **Causa Radice:**
+  1. *Flooding di Warning e Stallo MPPI per Raytracing Fuori Mappa:*
+     In `nav2_params_jazzy.yaml`, i layer `semantic_objects` e `hailo_semantic_objects` erano configurati con `clearing: true`. Poiché il nodo `semantic_costmap_injector.py` pubblica i punti ostacolo nella terna `map`, l'`ObstacleLayer` all'interno della `local_costmap` (avente terna globale `odom` e finestra rolling 3x3m centrata sul robot) tentava di proiettare e raytracciare l'origine del sensore in coordinate `odom`. Essendo l'origine fuori dai limiti della finestra 3x3m, Nav2 emetteva 3-10 volte al secondo il warning bloccante:
+     `[WARN] [local_costmap.local_costmap]: Sensor origin is out of map bounds... The costmap cannot raytrace for it.`
+     Questo ciclo fallimentare di raytracing impegnava pesantemente la CPU del Raspberry Pi 5, congelando la generazione delle traiettorie MPPI per oltre 300 ms ad ogni iterazione.
+  2. *Aborto Sistematico del Goal da Parte del Progress Checker:*
+     In `controller_server`, il plugin `SimpleProgressChecker` aveva `movement_time_allowance: 20.0s` e `required_movement_radius: 0.05m`. Poiché il cingolato di Marcus deve arrestarsi ed eseguire rotazioni sul posto o procedere con velocità ridotta ($0.15\text{ m/s}$), manovre di allineamento che richiedevano più di 20 secondi senza superare 5 cm di spostamento lineare facevano scattare l'errore:
+     `[ERROR] [controller_server]: Failed to make progress -> [follow_path] Aborting handle`
+     I continui aborti esaurivano rapidamente le recovery nel Behavior Tree, portando Nav2 a dichiarare il fallimento finale del goal (`[bt_navigator]: Goal failed`) e arrestando i motori.
+  3. *Mancata Emissione del Tool Call LLM per l'Esplorazione:*
+     Se l'utente ordinava verbalmente "vai in esplorazione", il bypass del fast-path delegava il comando all'LLM. Se Gemini Live o Text rispondeva unicamente con testo conversazionale naturale ("Inizio subito l'esplorazione!") senza emettere la chiamata di funzione strutturata `start_frontier_exploration`, la skill non veniva eseguita e il robot non avviava l'esplorazione.
+* **Soluzione Implementata:**
+  1. *Impostazione `clearing: false` su Costmap Sintetiche:* Sia in `local_costmap` che in `global_costmap`, `semantic_objects` e `hailo_semantic_objects` hanno ora `clearing: false` e `marking: true`. Gli ostacoli 3D e i bordi di dislivello vengono marcati regolarmente nella griglia dei costi, mentre il clearing dello spazio libero è affidato al LiDAR ToF RPLIDAR C1 (`/scan`), eliminando al 100% i warning di fuori mappa e i ritardi MPPI.
+  2. *Calibrazione Robusta del Progress Checker:* Portato `movement_time_allowance: 35.0s` e `required_movement_radius: 0.03m`, permettendo manovre sul posto e disimpegni accurati senza aborti fittizi.
+  3. *Collision Monitor su Solo Laser:* Rimosso `pointcloud` da `observation_sources` in `collision_monitor`, prevenendo falsi arresti da latenze pointcloud.
+  4. *Heuristic Auto-Dispatch in `conversation.py`:* Se l'utente chiede l'esplorazione o la ricerca semantica e l'LLM risponde solo testualmente, il sistema riconosce l'intento con matching $\ge 0.90$ e accoda direttamente l'azione di esplorazione, garantendo la partenza dei motori.
+
+
 
 
 

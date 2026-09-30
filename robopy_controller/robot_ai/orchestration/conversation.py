@@ -527,6 +527,19 @@ class ConversationManager:
         # Remove implicit tools before sending to standard skill executor
         explicit_actions = [a for a in response_actions if a.get("action_type", a.get("name", "")) not in ["generate_formatted_document", "ask_visual_question"]]
 
+        # Heuristic intent auto-dispatch for navigation/exploration if LLM returned text-only response without tool call
+        if not explicit_actions and frontier_skill:
+            match_score = frontier_skill.match(clean_text)
+            if match_score >= 0.90:
+                self._logger.info(f"🧭 [Auto-Dispatch] Heuristic intent exploration/navigation triggered (score={match_score}) for '{clean_text}'")
+                if any(p.search(clean_text.lower()) for p in frontier_skill.STOP_PATTERNS):
+                    explicit_actions.append({"action_type": "frontier_exploration", "args": {"action": "stop"}})
+                elif any(p.search(clean_text.lower()) for p in frontier_skill.HUNT_PATTERNS):
+                    target = frontier_skill._extract_target(clean_text) or ""
+                    explicit_actions.append({"action_type": "frontier_exploration", "args": {"action": "search_target", "target": target}})
+                elif any(p.search(clean_text.lower()) for p in frontier_skill.EXPLORE_PATTERNS):
+                    explicit_actions.append({"action_type": "frontier_exploration", "args": {"action": "start_explore"}})
+
         actions_spoken_count = 0
         if explicit_actions:
             self._logger.debug(f"LLM suggested actions: {explicit_actions}")
