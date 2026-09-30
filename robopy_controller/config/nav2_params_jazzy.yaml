@@ -160,8 +160,9 @@ controller_server:
         threshold_to_consider: 0.5
       ObstaclesCritic:
         cost_power: 1
-        cost_weight: 25.0
-        repulsion_weight: 1.5
+        cost_weight: 40.0       # [FM-NAV-033] Incrementato da 25.0 per forte penalità di avvicinamento
+        repulsion_weight: 5.0   # [FM-NAV-033] Incrementato da 1.5 per respingere attivamente dai muri/ostacoli
+        critical_cost: 254.0    # [FM-NAV-033] Scarta traiettorie su celle letali
       PathAlignCritic:
         cost_power: 1
         cost_weight: 8.0  # Ridotto da 14.0 per non forzare soste continue di riallineamento
@@ -192,7 +193,7 @@ local_costmap:
       width: 3
       height: 3
       resolution: 0.1
-      robot_radius: 0.12
+      robot_radius: 0.18  # [SPEC-02/FM-NAV-033] 18cm raggio reale Marcus (33.5cm larghezza telaio + cingoli)
       plugins: ["obstacle_layer", "range_layer", "inflation_layer"]
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
@@ -231,8 +232,8 @@ local_costmap:
         phi: 0.1
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 3.0
-        inflation_radius: 0.55
+        cost_scaling_factor: 2.2  # [FM-NAV-033] Gradiente repulsivo allargato per anticipare ostacoli
+        inflation_radius: 0.65    # [FM-NAV-033] Raggio di sicurezza espanso a 65cm
 
 # ============================================================
 # GLOBAL COSTMAP — Mappa statica + obstacle + inflation
@@ -248,7 +249,7 @@ global_costmap:
       robot_base_frame: base_link
       use_sim_time: false
       transform_tolerance: 5.0
-      robot_radius: 0.12
+      robot_radius: 0.18  # [SPEC-02/FM-NAV-033] 18cm raggio reale Marcus
       resolution: 0.1
       track_unknown_space: true
       rolling_window: false
@@ -295,8 +296,8 @@ global_costmap:
         phi: 0.1
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 3.0
-        inflation_radius: 0.55
+        cost_scaling_factor: 2.2  # [FM-NAV-033] Gradiente repulsivo allargato
+        inflation_radius: 0.65    # [FM-NAV-033] Raggio di sicurezza espanso a 65cm
 
 # ============================================================
 # PLANNER SERVER — NavfnPlanner (Dijkstra)
@@ -371,17 +372,17 @@ collision_monitor:
     polygons: ["PolygonStop", "PolygonSlowdown"]
     PolygonStop:
       type: "polygon"
-      points: "[[0.20, 0.14], [0.20, -0.14], [-0.14, -0.14], [-0.14, 0.14]]"  # [R1 FIX] Rimodellato ingombro chassis
+      points: "[[0.28, 0.20], [0.28, -0.20], [-0.18, -0.20], [-0.18, 0.20]]"  # [FM-NAV-033] 40cm larghezza, 12cm buffer frontale oltre bumper
       action_type: "stop"
-      min_points: 3
+      min_points: 1  # [FM-NAV-033] Arresto immediato non appena 1 raggio laser entra nella zona d'impatto
       visualize: true
       polygon_sub_topic: "polygon_stop"
     PolygonSlowdown:
       type: "polygon"
-      points: "[[0.35, 0.25], [0.35, -0.25], [-0.18, -0.25], [-0.18, 0.25]]"
+      points: "[[0.45, 0.30], [0.45, -0.30], [-0.22, -0.30], [-0.22, 0.30]]"  # [FM-NAV-033] 60cm larghezza, 29cm anticipo frontale
       action_type: "slowdown"
-      max_points: 3
-      slowdown_ratio: 0.70  # Mantiene vel ~0.18 m/s, sopra la soglia minima di stallo motore
+      max_points: 2
+      slowdown_ratio: 0.40  # Rallenta al 40% (circa 0.10 m/s) per permettere all'MPPI di aggirare l'ostacolo
       visualize: true
       polygon_sub_topic: "polygon_slowdown"
     observation_sources: ["scan"]  # [FM-NAV-032] Solo LiDAR ToF C1 360° per evitare timeout/lag da pointcloud

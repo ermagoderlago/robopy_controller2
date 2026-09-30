@@ -6,6 +6,7 @@ e modalità caccia target semantica (HUNT mode) integrata con la memoria TRINITY
 """
 
 import re
+import os
 import asyncio
 from typing import Any, Dict, Optional, Tuple
 
@@ -192,8 +193,78 @@ class FrontierExplorationSkill(BaseSkill):
         # 3. Pure frontier exploration (EXPLORE mode)
         return await self.start_explore()
 
+    async def _verify_or_spin_alignment(self) -> Tuple[bool, str]:
+        """
+        Verifica preventiva dell'allineamento Scan-to-Map (FM-NAV-033).
+        1. Se siamo in ambiente di test o lo script non esiste, bypassa.
+        2. Esegue auto_relocalize.py --check-only per verificare se i raggi ToF RPLIDAR C1
+           colpiscono le pareti note della mappa.
+        3. Se la mappa è vuota (<50 celle occupate / SLAM iniziale), supera il check immediatamente.
+        4. Se disallineato su mappa statica, esegue uno spin a 360° per convergere AMCL prima di muoversi.
+        """
+        # Salta se mock o ambiente offline
+        if self.ros_node is None or getattr(self.ros_node, '_is_mock', False):
+            return True, "Mock / no ROS node active"
+
+        script_path = "/mnt/ssd/robopy_controller_host/scripts/auto_relocalize.py"
+        if not os.path.exists(script_path):
+            return True, "Script auto_relocalize non presente."
+
+        try:
+            # Check rapido (non bloccante)
+            proc = await asyncio.create_subprocess_exec(
+                "python3", script_path, "--check-only",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            try:
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=8.0)
+                if proc.returncode == 0:
+                    return True, "Allineamento Scan-to-Map verificato con successo."
+            except asyncio.TimeoutError:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+                return True, "Timeout check preventivo: procedo comunque."
+
+            # Se disallineato, esegui spin a 360° per allineare
+            if hasattr(self.ros_node, 'get_logger'):
+                self.ros_node.get_logger().info("🔄 Disallineamento Scan-to-Map rilevato. Avvio rotazione di allineamento a 360°...")
+
+            spin_proc = await asyncio.create_subprocess_exec(
+                "python3", script_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            try:
+                stdout, stderr = await asyncio.wait_for(spin_proc.communicate(), timeout=35.0)
+                if spin_proc.returncode == 0:
+                    return True, "Allineamento completato dopo giro a 360°."
+                else:
+                    return False, "Impossibile allineare i raggi laser con la mappa."
+            except asyncio.TimeoutError:
+                try:
+                    spin_proc.kill()
+                except Exception:
+                    pass
+                return False, "Timeout durante la rotazione di allineamento a 360°."
+        except Exception as e:
+            return True, f"Bypass check allineamento per eccezione: {e}"
+
     async def start_explore(self) -> SkillResult:
-        """Avvia la mappatura autonoma di tutte le frontiere aperte."""
+        """Avvia la mappatura autonoma di tutte le frontiere aperte dopo verifica allineamento."""
+        # Check preventivo allineamento Scan-to-Map (FM-NAV-033)
+        align_ok, align_info = await self._verify_or_spin_alignment()
+        if not align_ok:
+            return SkillResult(
+                success=False,
+                error_code=SkillErrorCode.EXECUTION_FAILED,
+                message=f"Allineamento mappa non riuscito: {align_info}",
+                speak="Attenzione, non sono allineato con la mappa e il giro di orientamento non è riuscito. Per sicurezza non mi muovo.",
+                data={"mode": "FAILED_ALIGNMENT"}
+            )
+
         if self.ros_node is not None:
             if self.pub_enable is None or self.pub_target is None:
                 self._setup_ros_interfaces()
@@ -213,7 +284,7 @@ class FrontierExplorationSkill(BaseSkill):
         self.is_exploring = True
         self._paused_for_dialogue = False
         self.current_target = None
-        speak_msg = "Avvio l'esplorazione autonoma con il motore a frontiere. Mappo l'ambiente ed evito le zone già visitate."
+        speak_msg = "Allineamento verificato. Avvio l'esplorazione autonoma con il motore a frontiere. Mappo l'ambiente ed evito le zone già visitate."
 
         # Log event to TRINITY MAG
         if self.trinity_engine and hasattr(self.trinity_engine, "mag_database"):

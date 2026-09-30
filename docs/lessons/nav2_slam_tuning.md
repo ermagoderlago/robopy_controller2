@@ -603,6 +603,23 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
   3. *Collision Monitor su Solo Laser:* Rimosso `pointcloud` da `observation_sources` in `collision_monitor`, prevenendo falsi arresti da latenze pointcloud.
   4. *Heuristic Auto-Dispatch in `conversation.py`:* Se l'utente chiede l'esplorazione o la ricerca semantica e l'LLM risponde solo testualmente, il sistema riconosce l'intento con matching $\ge 0.90$ e accoda direttamente l'azione di esplorazione, garantendo la partenza dei motori.
 
+---
+
+### Scan-to-Map Matching Vettorizzato, Spin di Allineamento 360°, Gestione Mappa Vuota e Blindatura Footprint/Collision Monitor (Settembre 2026 - FM-NAV-033)
+* **Sintomo:** Collisione violenta dello chassis contro pareti e ostacoli fisici all'avvio della navigazione o esplorazione autonoma; Nav2 pianificava traiettorie attraverso muri fisici credendosi in spazio aperto e il collision monitor non arrestava il robot in tempo contro oggetti sottili o spigoli.
+* **Causa Radice:**
+  1. *Iniezione Posa Stale Senza Verifica Geometrica:* All'avvio in modalità AMCL o su riavvii stack, veniva caricata l'ultima posa salvata (`piano_terra_opt_pose.yaml` o `last_known_pose.yaml`) con covarianza stretta ($0.04$). Se il robot era stato spostato manualmente o collocato altrove, Nav2 assumeva per vera la posa falsa, pianificando percorsi che intersecavano muri fisici.
+  2. *Sottodimensionamento Footprint e Poligono Stop:* `nav2_params_jazzy.yaml` impostava `robot_radius: 0.12m` (diametro 24 cm), mentre la sagoma fisica reale di Marcus con i cingoli misura 33.5 cm in larghezza. Inoltre, `PolygonStop` era largo solo 28 cm ($y = \pm 0.14\text{m}$), lasciando i cingoli sporgere di 2.75 cm per lato fuori dalla zona di sicurezza!
+  3. *Tolleranza Eccessiva Min Points:* `min_points: 3` su `PolygonStop` faceva sì che ostacoli sottili (gambe di sedie, angoli di porte, piedistalli) intercettati da 1 o 2 soli raggi laser ToF non innescassero l'arresto d'emergenza.
+  4. *Assenza di Spin Reattivo di Convergenza AMCL:* Mancava un algoritmo deterministico capace di valutare il grado di allineamento tra i raggi ToF e i muri della mappa prima di avviare le ruote.
+* **Soluzione Implementata:**
+  1. *Algoritmo Scan-to-Map Matching Vettorizzato (`scripts/auto_relocalize.py`):* Sottoscrive `/scan`, `/map` (transient local QoS) e `/amcl_pose`. Proietta i raggi ToF (compensando l'offset $x=0.08\text{m}$, $yaw=180^\circ$) e calcola la percentuale di colpi su celle di parete ($\ge 50$) con finestra di tolleranza $\pm 5\text{cm}$ ($3\times3$ celle).
+  2. *Bypass Trasparente Mappa Vuota / SLAM:* Se le celle occupate nella mappa sono $< 50$, `is_empty_map` si attiva e consente l'esplorazione immediata senza forzare alcuna rotazione.
+  3. *Spin Attivo di Convergenza 360°:* Se il robot è già allineato ($\text{Match} \ge 70\%$, covarianza $< 0.08$), non esegue alcuno spin. Se disallineato, disperde le particelle (`/reinitialize_global_localization`) e ruota a $0.30\text{ rad/s}$ fino a ottenere 3 verifiche consecutive con $\text{Match} \ge 65\%$ e covarianza $< 0.08$, salvando la posa corretta.
+  4. *Preflight Alignment Check in Esplorazione:* `FrontierExplorationSkill` esegue il check preventivo prima di abilitare `/exploration/enable`, avvertendo vocalmente l'utente ed eseguendo la rotazione se necessario.
+  5. *Blindatura Geometrica Costmap e Collision Monitor:* Portato `robot_radius: 0.18m` (diametro 36 cm), espanso `PolygonStop` a 40 cm di larghezza con 12 cm di margine frontale oltre il bumper anteriore e `min_points: 1` (stop istantaneo assoluto), `PolygonSlowdown` a 60 cm con `slowdown_ratio: 0.40`, e MPPI `ObstaclesCritic` `repulsion_weight: 5.0` / `cost_weight: 40.0` con `inflation_radius: 0.65m`.
+
+
 
 
 

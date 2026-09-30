@@ -6990,3 +6990,64 @@
       mitigazione auto-dispatch intent esplorazione
     rpn_old: 144
     rpn_new: 8
+- id: FM-NAV-033
+  subsystem: Nav2
+  component: collision_monitor_and_amcl_alignment
+  function: Garantire la convergenza geometrica Scan-to-Map del LiDAR RPLIDAR C1 rispetto
+    alle pareti note della mappa prima del moto ed arrestare tempestivamente lo chassis
+    contro ostacoli fisici tramite collision_monitor espanso.
+  failure_mode: Disallineamento della posa AMCL iniettata da file stale rispetto alle
+    pareti reali con collisione contro muri, aggravato da footprint/PolygonStop sottodimensionati
+    rispetto ai 33.5cm dei cingoli e critic ostacoli permissivo.
+  potential_cause: Avvio di Nav2/AMCL con iniezione di posa stale da sessione precedente
+    senza verifica preventiva dello scan matching geometrico; footprint costmap a
+    0.12m invece di 0.18m; PolygonStop largo 28cm invece di 40cm con min_points=3
+    che ignorava ostacoli sottili; assenza di spin a 360° per convergenza globale
+    su disallineamento.
+  potential_effect: Il robot calcola traiettorie che attraversano pareti reali credendosi
+    in spazio aperto e va a sbattere violentemente contro muri e ostacoli senza che
+    il collision_monitor intervenga in tempo.
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-NAV-008
+  - FM-NAV-019
+  - FM-NAV-032
+  initial_scoring:
+    severity: 8
+    occurrence: 8
+    detection: 3
+    rpn: 192
+  prevention_controls: Algoritmo di verifica Scan-to-Map matching vettorizzato NumPy
+    in scripts/auto_relocalize.py (--check-only e active spin); bypass automatico
+    per mappa vuota/SLAM (<50 celle); preflight check integrato in FrontierExplorationSkill
+    prima di avviare il moto; espansione robot_radius a 0.18m nelle costmap; PolygonStop
+    espanso a 40cm di larghezza e 12cm buffer frontale con min_points=1 (arresto istantaneo);
+    PolygonSlowdown a 60cm con slowdown_ratio=0.40; ObstaclesCritic repulsion_weight=5.0
+    e cost_weight=40.0; inflation_radius=0.65m.
+  detection_controls: Check iniziale dello score di allineamento ToF >= 70% e covarianza
+    < 0.08 prima di consentire il moto; logging di conferma convergenza in auto_relocalize.log
+    e test unitario test_feature_04_collision_monitor_polygon_geometry.
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Eseguire sempre la verifica dello scan-to-map all'avvio e ad
+    ogni comando di esplorazione, con rotazione attiva a 360° in caso di discrepanza,
+    garantendo tolleranza zero nel collision monitor.
+  verification_method: Test unitari pytest test_nav2_motion_e2e.py e test_frontier_exploration_trinity.py,
+    verifica runtime con auto_relocalize.py su Marcus.
+  eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-09-30-003
+  lesson_ref: docs/lessons/nav2_slam_tuning.md#FM-NAV-033
+  date_identified: '2026-09-30'
+  last_updated: '2026-09-30'
+  history:
+  - date: '2026-09-30'
+    change: Implementato check Scan-to-Map matching vettorizzato con spin attivo a
+      360°, gestione mappa vuota/SLAM, espansione PolygonStop a 40cm con min_points=1
+      e radius 0.18m.
+    rpn_old: 192
+    rpn_new: 8

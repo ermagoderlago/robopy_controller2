@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """
-auto_relocalize.py — Routine autonoma di localizzazione su mappa nota (AMCL)
+auto_relocalize.py — Routine autonoma di localizzazione e verifica allineamento Scan-to-Map (AMCL)
 Marcus Robot / ROS 2 Jazzy
 
-Funzionalità:
+Funzionalità (FM-NAV-033):
 1. Inietta l'ultima posa nota salvata (Pose Persistence) su /initialpose
-2. Se richiesto o se il robot è disallineato, attiva /reinitialize_global_localization
-3. Esegue uno spin controllato e sicuro sul posto (0.30 rad/s) mentre monitora la
-   covarianza del filtro particellare AMCL su /amcl_pose.
-4. Non appena la covarianza scende sotto la soglia di convergenza (<0.08), arresta i motori
-   e salva la nuova posa su /mnt/ssd/last_known_pose.yaml.
+2. Riceve la mappa (/map) e lo scan LiDAR 360° (/scan)
+3. Calcola l'indice di allineamento Scan-to-Map (Match Ratio): percentuale di raggi laser ToF
+   che colpiscono le pareti note della mappa nell'intorno della posa stimata da AMCL
+4. Se il robot si trova su mappa vuota o in modalità SLAM (<50 celle occupate), supera il check automaticamente
+5. Se il robot è già allineato (Match Ratio >= 70% e Covarianza < 0.08), non esegue alcuno spin e termina con successo
+6. Se il robot è disallineato o spostato (Match Ratio < 70%), esegue una rotazione attiva a 360° (0.30 rad/s)
+   disperdendo le particelle AMCL (/reinitialize_global_localization) fino a far combaciare i punti laser con i muri
+7. Non appena raggiunge la convergenza (Score >= 65% e Covarianza < 0.08), arresta i motori e salva la posa
 """
 
 import sys
@@ -18,11 +21,14 @@ import time
 import math
 import argparse
 import yaml
+import numpy as np
 
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
+from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
 from geometry_msgs.msg import PoseWithCovarianceStamped, Twist, Point, Quaternion
+from sensor_msgs.msg import LaserScan
+from nav_msgs.msg import OccupancyGrid
 from std_srvs.srv import Empty
 
 
@@ -37,13 +43,14 @@ def quaternion_to_yaw(q) -> float:
 
 
 class AutoLocalizerNode(Node):
-    def __init__(self, target_pose_file=None, force_global=False, inject_only=False):
+    def __init__(self, target_pose_file=None, force_global=False, inject_only=False, check_only=False):
         super().__init__('auto_localizer')
         self.target_pose_file = target_pose_file or '/mnt/ssd/last_known_pose.yaml'
         self.force_global = force_global
         self.inject_only = inject_only
+        self.check_only = check_only
 
-        # Publishers & Subscribers
+        # Publishers
         self.initialpose_pub = self.create_publisher(
             PoseWithCovarianceStamped,
             '/initialpose',
@@ -55,33 +62,143 @@ class AutoLocalizerNode(Node):
             10
         )
 
+        # QoS transient local per la mappa statica
+        map_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1
+        )
+
+        # Subscribers
         self.amcl_pose_sub = self.create_subscription(
             PoseWithCovarianceStamped,
             '/amcl_pose',
             self.amcl_pose_callback,
             10
         )
+        self.scan_sub = self.create_subscription(
+            LaserScan,
+            '/scan',
+            self.scan_callback,
+            10
+        )
+        self.map_sub = self.create_subscription(
+            OccupancyGrid,
+            '/map',
+            self.map_callback,
+            map_qos
+        )
 
+        # Internal state
         self.latest_pose = None
         self.latest_cov_trace = 999.0
+        self.latest_scan = None
+        self.map_grid = None
+        self.map_2d = None
+        self.map_res = 0.05
+        self.map_ox = 0.0
+        self.map_oy = 0.0
+        self.map_w = 0
+        self.map_h = 0
+        self.is_empty_map = False
+
         self.converged = False
         self.converged_count = 0
 
-        self.get_logger().info("🤖 AutoLocalizer Node avviato.")
+        self.get_logger().info("🤖 AutoLocalizer Node con Scan-to-Map Matching avviato.")
 
     def amcl_pose_callback(self, msg: PoseWithCovarianceStamped):
         self.latest_pose = msg.pose.pose
         cov = msg.pose.covariance
         # Trace di covarianza (x + y + yaw)
-        self.latest_cov_trace = cov[0] + cov[7] + cov[35]
+        self.latest_cov_trace = float(cov[0] + cov[7] + cov[35])
 
-        # Soglia di confidenza rigorosa: sigma_xy < 15cm, sigma_yaw < 5°
-        if self.latest_cov_trace < 0.08:
-            self.converged_count += 1
-            if self.converged_count >= 3:
-                self.converged = True
+    def scan_callback(self, msg: LaserScan):
+        self.latest_scan = msg
+
+    def map_callback(self, msg: OccupancyGrid):
+        self.map_grid = msg
+        self.map_res = float(msg.info.resolution)
+        self.map_w = int(msg.info.width)
+        self.map_h = int(msg.info.height)
+        self.map_ox = float(msg.info.origin.position.x)
+        self.map_oy = float(msg.info.origin.position.y)
+
+        # Converte in array 2D numpy (H, W)
+        raw_data = np.array(msg.data, dtype=np.int8)
+        self.map_2d = raw_data.reshape((self.map_h, self.map_w))
+
+        # Conta celle occupate (>= 50)
+        occupied_count = int(np.sum(self.map_2d >= 50))
+        if occupied_count < 50:
+            self.is_empty_map = True
+            self.get_logger().info(f"🗺️ Mappa con poche celle occupate ({occupied_count}): considerata mappa vuota/SLAM.")
         else:
-            self.converged_count = 0
+            self.is_empty_map = False
+
+    def compute_alignment_quality(self):
+        """
+        Calcola la percentuale di raggi ToF del LiDAR (/scan) che colpiscono pareti note (/map).
+        Ritorna: (match_ratio: float, cov_trace: float, valid_points: int)
+        """
+        if self.is_empty_map:
+            return (1.0, 0.0, 0)
+
+        if self.map_2d is None or self.latest_scan is None or self.latest_pose is None:
+            return (0.0, self.latest_cov_trace, 0)
+
+        rx = self.latest_pose.position.x
+        ry = self.latest_pose.position.y
+        ryaw = quaternion_to_yaw(self.latest_pose.orientation)
+
+        # Offset geometrico RPLIDAR C1 rispetto a base_link su Marcus:
+        # x=0.08m, y=0.0m, yaw=pi (orientato a 180° all'indietro)
+        lx = rx + 0.08 * math.cos(ryaw)
+        ly = ry + 0.08 * math.sin(ryaw)
+        lyaw = ryaw + math.pi
+
+        scan = self.latest_scan
+        ranges = np.array(scan.ranges, dtype=np.float32)
+        angles = lyaw + scan.angle_min + np.arange(len(ranges)) * scan.angle_increment
+
+        # Filtra raggi validi ToF (0.15m <= r <= 8.0m)
+        valid_mask = (ranges >= 0.15) & (ranges <= 8.0) & np.isfinite(ranges)
+        ranges = ranges[valid_mask]
+        angles = angles[valid_mask]
+
+        if len(ranges) < 25:
+            return (0.0, self.latest_cov_trace, 0)
+
+        # Sottocampionamento per calcolo in tempo reale (< 2ms)
+        ranges = ranges[::2]
+        angles = angles[::2]
+
+        px = lx + ranges * np.cos(angles)
+        py = ly + ranges * np.sin(angles)
+
+        # Coordinate nella matrice mappa
+        gx = np.floor((px - self.map_ox) / self.map_res).astype(np.int32)
+        gy = np.floor((py - self.map_oy) / self.map_res).astype(np.int32)
+
+        in_bounds = (gx >= 1) & (gx < self.map_w - 1) & (gy >= 1) & (gy < self.map_h - 1)
+        gx = gx[in_bounds]
+        gy = gy[in_bounds]
+
+        if len(gx) == 0:
+            return (0.0, self.latest_cov_trace, 0)
+
+        # Verifica finestra di tolleranza 3x3 (+/- 1 cella = +/- 5cm su mappa 0.05m)
+        hits = np.zeros(len(gx), dtype=bool)
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                hits |= (self.map_2d[gy + dy, gx + dx] >= 50)
+
+        inliers = int(np.sum(hits))
+        total = int(len(gx))
+        ratio = float(inliers) / float(total) if total > 0 else 0.0
+
+        return (ratio, self.latest_cov_trace, total)
 
     def inject_pose_from_file(self) -> bool:
         if not os.path.exists(self.target_pose_file):
@@ -102,15 +219,14 @@ class AutoLocalizerNode(Node):
             q = euler_to_quaternion(yaw)
             msg.pose.pose.orientation = Quaternion(x=q[0], y=q[1], z=q[2], w=q[3])
 
-            # Covarianza iniziale stimata (stretto intorno alla posa nota: 10cm e 6°)
             cov = [0.0] * 36
-            cov[0] = 0.04   # x (sigma ~20cm)
-            cov[7] = 0.04   # y (sigma ~20cm)
-            cov[35] = 0.06  # yaw (sigma ~14°)
+            cov[0] = 0.04
+            cov[7] = 0.04
+            cov[35] = 0.06
             msg.pose.covariance = cov
 
             self.initialpose_pub.publish(msg)
-            self.get_logger().info(f"📍 Iniezione posa nota su /initialpose: x={x:.3f}m, y={y:.3f}m, yaw={math.degrees(yaw):.1f}°")
+            self.get_logger().info(f"📍 Iniezione posa su /initialpose: x={x:.3f}m, y={y:.3f}m, yaw={math.degrees(yaw):.1f}°")
             return True
         except Exception as e:
             self.get_logger().error(f"Errore lettura posa da file: {e}")
@@ -125,7 +241,7 @@ class AutoLocalizerNode(Node):
         req = Empty.Request()
         future = client.call_async(req)
         rclpy.spin_until_future_complete(self, future, timeout_sec=5.0)
-        self.get_logger().info("🌐 Global Localization attivata: particelle disperse sulla mappa.")
+        self.get_logger().info("🌐 Global Localization attivata: particelle AMCL disperse sulla mappa.")
         return True
 
     def save_converged_pose(self):
@@ -147,52 +263,92 @@ class AutoLocalizerNode(Node):
         try:
             with open(self.target_pose_file, 'w', encoding='utf-8') as f:
                 yaml.dump(data, f)
-            # Salva anche come fallback globale
             with open('/mnt/ssd/last_known_pose.yaml', 'w', encoding='utf-8') as f:
                 yaml.dump(data, f)
-            self.get_logger().info(f"💾 Nuova posa salvata con successo in {self.target_pose_file}")
+            self.get_logger().info(f"💾 Nuova posa allineata salvata in {self.target_pose_file}")
         except Exception as e:
             self.get_logger().error(f"Errore salvataggio posa: {e}")
 
-    def run_routine(self):
+    def run_routine(self) -> bool:
+        # Attesa ricezione mappa e scan (fino a 5s)
+        wait_start = time.time()
+        while rclpy.ok() and (self.map_grid is None or self.latest_scan is None):
+            rclpy.spin_once(self, timeout_sec=0.1)
+            if time.time() - wait_start > 5.0:
+                self.get_logger().warn("Timeout attesa /map o /scan. Procedo con le informazioni disponibili.")
+                break
+
+        # Se la mappa è vuota (meno di 50 celle) -> modalità SLAM pura, nessun allineamento richiesto
+        if self.is_empty_map:
+            self.get_logger().info("🗺️ Mappa vuota rilevata (modalità SLAM / esplorazione iniziale). Allineamento superato.")
+            return True
+
+        # Modalità solo check
+        if self.check_only:
+            for _ in range(10):
+                rclpy.spin_once(self, timeout_sec=0.1)
+            ratio, cov, pts = self.compute_alignment_quality()
+            self.get_logger().info(f"🔍 Check Allineamento: Match={ratio*100:.1f}%, Cov={cov:.4f}, Beams={pts}")
+            return (ratio >= 0.65 and cov < 0.12)
+
         # 1. Prova prima iniezione posa persistente
         injected = False
         if not self.force_global:
             injected = self.inject_pose_from_file()
-            # Attendi 1.5s per dare tempo ad AMCL di ricevere e valutare
-            time.sleep(1.5)
+            # Attendi 1.5s per consentire ad AMCL di ricevere la posa e processare i primi scan
+            settle_start = time.time()
+            while time.time() - settle_start < 1.5:
+                rclpy.spin_once(self, timeout_sec=0.1)
 
-        if self.inject_only:
-            self.get_logger().info("Modalità --inject-only completata.")
+        # 2. Controllo Scan-to-Map immediato: il robot è già allineato?
+        ratio, cov, pts = self.compute_alignment_quality()
+        self.get_logger().info(f"📊 Verifica Iniziale: Match={ratio*100:.1f}%, Cov Trace={cov:.4f} (raggi ToF: {pts})")
+
+        if ratio >= 0.70 and cov < 0.08:
+            self.get_logger().info("🎯 Robot GIÀ ALLINEATO alla mappa! Nessuna rotazione necessaria.")
             return True
 
-        # Se forzato o se non esiste file di posa, attiva global localization
-        if self.force_global or not injected:
-            self.call_global_localization()
-            time.sleep(1.0)
+        if self.inject_only:
+            self.get_logger().info("Modalità --inject-only completata (senza rotazione di verifica).")
+            return True
 
-        # 2. Esegui rotazione controllata (Spin-to-Settle)
-        self.get_logger().info("🔄 Avvio rotazione lenta di calibrazione ToF sul posto (0.30 rad/s)...")
+        # Se lo score iniziale è molto basso (< 40%) o se forzato, disperdi le particelle globalmente
+        if self.force_global or ratio < 0.40 or not injected:
+            self.call_global_localization()
+            time.sleep(0.5)
+
+        # 3. Rotazione di allineamento e scansione a 360° (Spin-to-Align)
+        self.get_logger().info("🔄 Avvio rotazione lenta di allineamento a 360° sul posto (0.30 rad/s)...")
         twist = Twist()
-        twist.angular.z = 0.30  # Velocità dolce conforme a SPEC-02
+        twist.angular.z = 0.30
 
         start_time = time.time()
-        max_duration = 25.0
+        max_duration = 28.0  # Tempo sufficiente per giro completo a 0.30 rad/s (~21s)
         last_log = time.time()
+        converged_checks = 0
+
         while rclpy.ok():
-            rclpy.spin_once(self, timeout_sec=0.08)
+            rclpy.spin_once(self, timeout_sec=0.05)
             elapsed = time.time() - start_time
 
-            if time.time() - last_log >= 1.0:
-                self.get_logger().info(f"⏳ Calibrazione in corso ({elapsed:.1f}s)... Covarianza: {self.latest_cov_trace:.4f} (target < 0.08)")
+            ratio, cov, pts = self.compute_alignment_quality()
+
+            if time.time() - last_log >= 1.5:
+                self.get_logger().info(f"⏳ Allineamento in corso ({elapsed:.1f}s)... Match: {ratio*100:.1f}% (target >=65%), Cov: {cov:.4f} (target <0.08)")
                 last_log = time.time()
 
-            if self.converged:
-                self.get_logger().info(f"🎯 CONVERGENZA RAGGIUNTA in {elapsed:.1f}s! Covarianza: {self.latest_cov_trace:.4f}")
-                break
+            # Condizione rigorosa di successo: sia la covarianza AMCL che il match geometrico devono essere validi
+            if ratio >= 0.65 and cov < 0.08:
+                converged_checks += 1
+                if converged_checks >= 3:
+                    self.get_logger().info(f"🎯 ALLINEAMENTO CONFERMATO in {elapsed:.1f}s! Match: {ratio*100:.1f}%, Cov: {cov:.4f}")
+                    self.converged = True
+                    break
+            else:
+                converged_checks = 0
 
             if elapsed > max_duration:
-                self.get_logger().warn(f"⏱️ Timeout rotazione ({max_duration}s) raggiunto. Covarianza residua: {self.latest_cov_trace:.4f}")
+                self.get_logger().warn(f"⏱️ Timeout rotazione ({max_duration}s). Match finale: {ratio*100:.1f}%, Cov: {cov:.4f}")
                 break
 
             self.cmd_vel_pub.publish(twist)
@@ -206,23 +362,28 @@ class AutoLocalizerNode(Node):
 
         self.get_logger().info("🛑 Motori arrestati.")
 
-        # Salva la posa finale
-        self.save_converged_pose()
-        return self.converged
+        if self.converged:
+            self.save_converged_pose()
+            return True
+        else:
+            self.get_logger().error(f"❌ Allineamento fallito o incompleto (Match: {ratio*100:.1f}%). I punti laser non combaciano con i muri.")
+            return False
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Marcus Auto Localizer")
+    parser = argparse.ArgumentParser(description="Marcus Auto Localizer con Scan-to-Map Matching")
     parser.add_argument('--pose-file', type=str, default=None, help="Percorso del file YAML con x, y, yaw")
     parser.add_argument('--force-global', action='store_true', help="Forza la dispersione uniforme globale")
     parser.add_argument('--inject-only', action='store_true', help="Inietta solo la posa senza eseguire rotazione")
+    parser.add_argument('--check-only', action='store_true', help="Verifica l'allineamento attuale senza muovere il robot")
     args = parser.parse_args()
 
     rclpy.init()
     node = AutoLocalizerNode(
         target_pose_file=args.pose_file,
         force_global=args.force_global,
-        inject_only=args.inject_only
+        inject_only=args.inject_only,
+        check_only=args.check_only
     )
 
     try:

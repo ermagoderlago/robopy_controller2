@@ -528,13 +528,13 @@ if [ "$USE_AMCL" = "true" ]; then
     
     if [ "$RELOCALIZE_FLAG" = "true" ]; then
         echo "🔄 [AMCL-INIT] Richiesta auto-localizzazione attiva a 360°..."
-        nohup python3 /mnt/ssd/robopy_controller_host/scripts/auto_relocalize.py --force-global > /home/robopy/robopy/logs/auto_relocalize.log 2>&1 &
+        python3 /mnt/ssd/robopy_controller_host/scripts/auto_relocalize.py --force-global > /home/robopy/robopy/logs/auto_relocalize.log 2>&1 || true
     elif [ -f "$POSE_FILE" ]; then
-        echo "📍 [AMCL-INIT] Iniezione posa nota da $POSE_FILE..."
-        python3 /mnt/ssd/robopy_controller_host/scripts/auto_relocalize.py --pose-file="$POSE_FILE" --inject-only > /home/robopy/robopy/logs/auto_relocalize.log 2>&1 || true
+        echo "📍 [AMCL-INIT] Iniezione posa nota e verifica allineamento Scan-to-Map da $POSE_FILE..."
+        python3 /mnt/ssd/robopy_controller_host/scripts/auto_relocalize.py --pose-file="$POSE_FILE" > /home/robopy/robopy/logs/auto_relocalize.log 2>&1 || true
     else
         echo "🌐 [AMCL-INIT] Nessuna posa salvata trovata: avvio auto-localizzazione globale..."
-        nohup python3 /mnt/ssd/robopy_controller_host/scripts/auto_relocalize.py > /home/robopy/robopy/logs/auto_relocalize.log 2>&1 &
+        python3 /mnt/ssd/robopy_controller_host/scripts/auto_relocalize.py --force-global > /home/robopy/robopy/logs/auto_relocalize.log 2>&1 || true
     fi
 fi
 

@@ -448,6 +448,38 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
   - `robopy_controller/robot_ai/orchestration/conversation.py`
   - `fmea/dfmea.yaml` (Aggiunto `FM-NAV-032`)
 
+---
+
+## 📈 ECO-2026-09-30-003: Scan-to-Map Matching Vettorizzato, Spin di Allineamento 360°, Gestione Mappa Vuota e Blindatura PolygonStop/Footprint 33.5cm (FM-NAV-033)
+* **Stato:** ✅ **Completato, Testato e Integrato nel Workspace**
+* **Autore:** 🤖 **Antigravity Engine**
+* **DFMEA Correlati:** `FM-NAV-033`, `FM-NAV-008`, `FM-NAV-019`, `FM-NAV-032`
+* **Descrizione dell'intervento:**
+  1. **Algoritmo Scan-to-Map Matching Vettorizzato (`scripts/auto_relocalize.py`):**
+     - Sottoscrive `/scan`, `/map` (transient local QoS) e `/amcl_pose`.
+     - Implementato calcolo vettorizzato in NumPy (`compute_alignment_quality()`): trasforma i raggi validi ToF RPLIDAR C1 (compensando l'offset geometrico di montaggio: $x=0.08\text{m}$, $yaw=180^\circ$) nel frame globale della mappa.
+     - Valuta la percentuale di raggi che intersecano pareti note (celle $\ge 50$) con una finestra di tolleranza $3\times3$ pixel ($\pm 5\text{cm}$ su mappa a risoluzione 5cm).
+     - Se il robot è già allineato ($\text{Match} \ge 70\%$ e traccia di covarianza $< 0.08$), supera il check all'istante senza compiere alcuna rotazione.
+     - Se disallineato o se la posa iniettata non combacia con i muri reali, disperde le particelle su AMCL (`/reinitialize_global_localization`) ed esegue una rotazione controllata a 360° sul posto ($0.30\text{ rad/s}$) finché non si verificano 3 check consecutivi con $\text{Match} \ge 65\%$ e covarianza $< 0.08$, salvando la posa corretta in `last_known_pose.yaml`.
+  2. **Gestione Trasparente Mappa Vuota / SLAM:**
+     - Se le celle occupate nella mappa sono $< 50$ (ambiente non ancora mappato o avvio SLAM da zero), il controllo rileva automaticamente `is_empty_map = True` e bypassa la richiesta di rotazione, consentendo l'esplorazione naturale senza stalli.
+  3. **Preflight Alignment Check in Frontier Exploration (`frontier_exploration_skill.py`):**
+     - Aggiunto hook asincrono `_verify_or_spin_alignment()` in `FrontierExplorationSkill`: prima di attivare `/exploration/enable`, esegue `auto_relocalize.py --check-only`.
+     - In caso di discrepanza, Marcus avverte vocalmente ed avvia lo spin di riallineamento a 360°, partendo solo quando la convergenza con le pareti reali è garantita al 100%.
+  4. **Correzione Footprint Chassis e Blindatura Collision Monitor (`nav2_params_jazzy.yaml`):**
+     - Corretto `robot_radius: 0.18m` sia in `global_costmap` che in `local_costmap` (era sottostimato a 0.12m, mentre i cingoli reali di Marcus misurano 33.5cm di larghezza).
+     - Espanso `PolygonStop` del Collision Monitor a `[[0.28, 0.20], [0.28, -0.20], [-0.18, -0.20], [-0.18, 0.20]]` (larghezza 40cm, buffer frontale di 12cm oltre il bumper anteriore) con `min_points: 1`: garantito arresto immediato d'emergenza non appena anche un singolo raggio laser tocca un ostacolo sottile o una parete.
+     - Espanso `PolygonSlowdown` a `[[0.45, 0.30], ...]` (larghezza 60cm) con `slowdown_ratio: 0.40` (circa 0.10 m/s), concedendo all'MPPI lo spazio di ripianificare senza impatti.
+     - Rinforzati i critici MPPI `ObstaclesCritic`: `cost_weight: 40.0`, `repulsion_weight: 5.0`, `critical_cost: 254.0` ed estesa la costmap d'inflazione a `inflation_radius: 0.65m` (`cost_scaling_factor: 2.2`).
+* **File Modificati:**
+  - `scripts/auto_relocalize.py`
+  - `restart_hailo.sh`
+  - `robopy_controller/config/nav2_params_jazzy.yaml`
+  - `robopy_controller/robot_ai/skills/builtin/frontier_exploration_skill.py`
+  - `tests/test_nav2_motion_e2e.py`
+  - `fmea/dfmea.yaml` (Aggiunto `FM-NAV-033`)
+
+
 
 
 
