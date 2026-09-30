@@ -619,6 +619,32 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
   4. *Preflight Alignment Check in Esplorazione:* `FrontierExplorationSkill` esegue il check preventivo prima di abilitare `/exploration/enable`, avvertendo vocalmente l'utente ed eseguendo la rotazione se necessario.
   5. *Blindatura Geometrica Costmap e Collision Monitor:* Portato `robot_radius: 0.18m` (diametro 36 cm), espanso `PolygonStop` a 40 cm di larghezza con 12 cm di margine frontale oltre il bumper anteriore e `min_points: 1` (stop istantaneo assoluto), `PolygonSlowdown` a 60 cm con `slowdown_ratio: 0.40`, e MPPI `ObstaclesCritic` `repulsion_weight: 5.0` / `cost_weight: 40.0` con `inflation_radius: 0.65m`.
 
+---
+
+### Arresto Vocale Navigazione/Esplorazione: Fast-Path Stop e Risoluzione Barge-in Auto-Resume Trap (Settembre 2026 - FM-NAV-034)
+* **Sintomo:** Su comandi vocali dell'utente come *"fermati"*, *"ferma la navigazione"*, *"stop"* o *"basta"*, il robot non si fermava immediatamente durante l'esplorazione, oppure si fermava solo transitoriamente durante la risposta vocale di Marcus ("Mi fermo subito") per poi ripartire in autonomia e andare contro i muri (auto-resume trap).
+* **Causa Radice:**
+  1. *Fast-Path Disarm Indiscriminato (`conversation.py`):*
+     Nel modulo di conversazione, per costringere le richieste di avvio navigazione ("vai in cucina") a passare dall'intelligenza semantica dell'LLM cloud (Gemini Live), il fast-path locale veniva disabilitato azzerando `skill = None` per tutti i comandi di navigazione. Questo forzava anche i comandi di arresto d'emergenza attraverso la latenza di inferenza cloud (2-5 secondi), creando un ritardo inaccettabile prima dell'azione di frenata fisica.
+  2. *Auto-Resume Trap nel Dialogue Barge-in (`conversation.py`):*
+     Quando l'utente inizia a parlare mentre il robot esplora, il meccanismo di barge-in salva `was_exploring_at_barge_in = True` e mette in pausa i motori (`pause_for_dialogue()`). Al termine della risposta vocale dell'assistente, viene invocato `resume_after_dialogue()`. Il controllo per verificare se l'utente aveva ordinato di fermarsi usava una lista rigida `["fermati", "stop", "basta", "annulla", "interrompi"]`: espressioni comuni come *"ferma la navigazione"* (che contengono la radice *"ferma"* ma non *"fermati"*), *"alt"*, *"blocca"* venivano valutate `False`, inducendo il robot a riprendere la marcia non appena finiva di pronunciare la frase di conferma!
+  3. *Mancata Mappatura Tool Live in Orchestrator (`orchestrator.py`):*
+     In modalità Gemini Live streaming, l'LLM emette il function call `stop_navigation` o `nav_stop`. In `_execute_tool_live`, la chiamata `self.skill_registry.get("stop_navigation")` restituiva `None` poiché nel registro la skill è registrata come `frontier_exploration` e `navigation`.
+  4. *Invocazione Metodo Inesistente in NavigationSkill (`navigation_skill.py`):*
+     In `_handle_stop()`, veniva invocato `await self.nav_client.stop_exploration()`. Poiché tale metodo non era definito nella classe `NavigationClient`, sollevava un `AttributeError` silenziosamente inghiottito dal blocco `except Exception: pass`, lasciando l'esploratore e Nav2 in esecuzione.
+  5. *Pattern di Stop Incompleti in `frontier_exploration_skill.py`:*
+     I pattern regex per intercettare l'arresto non comprendevano variazioni come "ferma la navigazione", "alt", "basta", "blocca".
+* **Soluzione Implementata:**
+  1. *Fast-Path Bypass Immediato (<10ms) per Comandi di Stop:*
+     In `conversation.py`, `is_stop_cmd` è ora autorizzato a procedere via fast-path locale. L'ordine di arresto bypassa completamente la latenza di rete e del modello cloud, azzerando istantaneamente `/cmd_vel` e disattivando l'esplorazione e la navigazione in pochi millisecondi.
+  2. *Regex Unificata Omnicomprensiva & Cancellazione Permanente del Resume:*
+     Adottata l'espressione regolare `r'\b(ferma|fermati|stop|alt|basta|annulla|interrompi|blocca|arresta|non\s+muoverti)\b'`. Se rilevata nel testo dell'utente, `was_exploring_at_barge_in` viene impostato incondizionatamente a `False` sia a livello di fast-path che di completamento del turno vocale, rendendo impossibile la ripresa accidentale del moto.
+  3. *Mappatura Completa Tool Live su Tutte le Skill di Movimento:*
+     In `orchestrator._execute_tool_live()`, `stop_navigation` e `nav_stop` disattivano contemporaneamente sia `frontier_exploration` che `navigation`.
+  4. *Implementazione `stop_exploration()` in `NavigationClient`:*
+     Aggiunto metodo asincrono e sincrono in `NavigationClient` che pubblica `data: False` su `/exploration/enable`, ripulisce `/exploration/search_target`, invia `cancel_navigation()` a Nav2 e pubblica un comando `Twist()` nullo su `/cmd_vel`.
+
+
 
 
 

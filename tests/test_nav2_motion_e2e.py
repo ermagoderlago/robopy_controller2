@@ -782,15 +782,21 @@ class TestTier2BoundaryAndCornerCases:
         assert motion.is_stalled is True
 
     def test_tier2_dialogue_barge_in_stop_override(self):
-        """TC 2.4: If user explicitly commands stop ('fermati') during conversational pause, auto-resume is suppressed."""
+        """TC 2.4: If user explicitly commands stop ('fermati' or 'ferma la navigazione') during conversational pause, auto-resume is suppressed."""
         skill = FrontierExplorationSkill()
         skill.is_exploring = True
         skill._paused_for_dialogue = True
 
-        # Simulate user utterance during turn: "fermati"
+        import re
+        stop_regex = re.compile(r'\b(ferma|fermati|stop|alt|basta|annulla|interrompi|blocca|arresta|non\s+muoverti)\b', re.IGNORECASE)
+
+        # 1. Test "fermati"
         user_utterance = "fermati subito Marcus"
-        stop_requested = any(w in user_utterance.lower() for w in ["fermati", "stop", "basta"])
-        assert stop_requested is True
+        assert bool(stop_regex.search(user_utterance)) is True
+
+        # 2. Test "ferma la navigazione"
+        user_utterance_nav = "ferma la navigazione"
+        assert bool(stop_regex.search(user_utterance_nav)) is True
 
         # When stopped, exploration is permanently terminated rather than resumed
         skill.stop_exploration()

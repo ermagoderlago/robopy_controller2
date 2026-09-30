@@ -84,6 +84,10 @@ def test_frontier_exploration_skill_intents(mock_ros_node):
         # 3. Match stop
         assert skill.match("ferma l'esplorazione") > 0.9
         assert skill.match("basta cercare") > 0.9
+        assert skill.match("ferma la navigazione") > 0.9
+        assert skill.match("fermati") > 0.9
+        assert skill.match("stop") > 0.9
+        assert skill.match("blocca tutto") > 0.9
 
         # 4. Execute Explore
         res_explore = await skill.execute("esplora la casa")

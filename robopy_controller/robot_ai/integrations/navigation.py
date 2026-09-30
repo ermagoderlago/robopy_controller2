@@ -388,6 +388,26 @@ class NavigationClient:
         
         self.logger.info("Navigation cancelled")
         return True
+
+    async def stop_exploration(self) -> bool:
+        """
+        Disattiva l'esplorazione autonoma e arresta il moto.
+        """
+        try:
+            if self._node and HAS_ROS:
+                from std_msgs.msg import Bool
+                pub = self._node.create_publisher(Bool, '/exploration/enable', 10)
+                msg = Bool()
+                msg.data = False
+                pub.publish(msg)
+            if self._cmd_vel_pub and HAS_ROS:
+                from geometry_msgs.msg import Twist
+                self._cmd_vel_pub.publish(Twist())
+            await self.cancel_navigation()
+            return True
+        except Exception as e:
+            self.logger.warning(f"Errore durante stop_exploration in nav_client: {e}")
+            return False
     
     async def _bootstrap_mapping(self) -> None:
         """

@@ -479,6 +479,37 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
   - `tests/test_nav2_motion_e2e.py`
   - `fmea/dfmea.yaml` (Aggiunto `FM-NAV-033`)
 
+---
+
+## 📈 ECO-2026-09-30-004: Risoluzione Bypass Arresto Vocale Navigazione/Esplorazione, Eliminazione Auto-Resume Trap su Dialogue Barge-in e Stop Istantaneo Hardware (FM-NAV-034)
+* **Stato:** ✅ **Completato, Testato e Integrato nel Workspace**
+* **Autore:** 🤖 **Antigravity Engine**
+* **DFMEA Correlati:** `FM-NAV-034`, `FM-NAV-033`, `FM-NAV-019`, `FM-VUI-001`
+* **Descrizione dell'intervento:**
+  1. **Fast-Path Bypass Immediato per Comandi di Arresto (`conversation.py`):**
+     - Riconosciuta la criticità di sicurezza: mentre l'avvio della navigazione ("vai in cucina", "esplora") richiede deliberazione semantica via LLM cloud, qualsiasi comando di stop ("fermati", "ferma la navigazione", "stop", "alt", "basta", "blocca") DEVE essere intercettato localmente dal fast-path in $<10\text{ ms}$, eliminando i 2-5 secondi di latenza round-trip di Gemini Live.
+     - Modificato il disarmo selettivo: il bypass LLM viene disattivato solo per l'avvio di moto, mentre i comandi di stop vengono eseguiti istantaneamente.
+  2. **Eliminazione Definitiva dell'Auto-Resume Trap (`conversation.py`):**
+     - Il flag `was_exploring_at_barge_in` memorizzava se l'esplorazione era in corso al momento in cui l'utente iniziava a parlare, riattivandola automaticamente al termine del turno di parlato (`resume_after_dialogue()`).
+     - La regex precedente controllava solo `["fermati", "stop", "basta", "annulla", "interrompi"]`, ignorando espressioni naturali come "ferma la navigazione" (radice "ferma"), "alt", "blocca tutto", "non muoverti". Di conseguenza, dopo che Marcus rispondeva vocalmente "Mi fermo", riavviava autonomamente l'esplorazione!
+     - Implementata regex omnicomprensiva `r'\b(ferma|fermati|stop|alt|basta|annulla|interrompi|blocca|arresta|non\s+muoverti)\b'`. Se rilevata, `was_exploring_at_barge_in` viene forzato a `False` sia nel fast-path che nel completamento del turno, bloccando definitivamente la ripresa del moto.
+  3. **Risoluzione Bug Chiamata Metodo e Arresto Triplo (`navigation.py`, `navigation_skill.py`, `frontier_exploration_skill.py`):**
+     - In `navigation_skill.py`: `_handle_stop()` chiamava `await self.nav_client.stop_exploration()`, che non esisteva su `NavigationClient`, sollevando `AttributeError` silenziosamente ignorato e lasciando il robot in moto.
+     - Implementato `stop_exploration(self)` su `NavigationClient`: pubblica `data: False` su `/exploration/enable`, cancella i goal Nav2 con `cancel_navigation()`, e pubblica `Twist()` zero su `/cmd_vel`.
+     - In `frontier_exploration_skill.py`: ampliato il set `STOP_PATTERNS` per coprire "ferma la navigazione", "stop", "alt", "basta", "blocca", "arrestati", "non muoverti".
+  4. **Tool Live Dispatcher Mapping (`orchestrator.py`):**
+     - Nel metodo `_execute_tool_live`, mappate le chiamate di Gemini `stop_navigation` e `nav_stop` per arrestare contemporaneamente sia la skill `frontier_exploration` che `navigation`.
+* **File Modificati:**
+  - `robopy_controller/robot_ai/orchestration/conversation.py`
+  - `robopy_controller/robot_ai/orchestration/orchestrator.py`
+  - `robopy_controller/robot_ai/skills/builtin/frontier_exploration_skill.py`
+  - `robopy_controller/robot_ai/skills/builtin/navigation_skill.py`
+  - `robopy_controller/robot_ai/integrations/navigation.py`
+  - `tests/test_frontier_exploration_trinity.py`
+  - `tests/test_nav2_motion_e2e.py`
+  - `fmea/dfmea.yaml` (Aggiunto `FM-NAV-034`)
+
+
 
 
 

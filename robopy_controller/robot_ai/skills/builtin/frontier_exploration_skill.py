@@ -41,8 +41,9 @@ class FrontierExplorationSkill(BaseSkill):
     ]
 
     STOP_PATTERNS = [
-        re.compile(r'\b(ferma|stop|basta|annulla|interrompi|blocca)\s+(l\'?esplorazione|esplorazione|esplorare|la\s+ricerca|cercare|il\s+giro|la\s+ricognizione|nomad)\b', re.IGNORECASE),
-        re.compile(r'\b(fermati|stop\s+esplorazione|stop\s+ricerca|basta\s+esplorare|basta\s+cercare)\b', re.IGNORECASE)
+        re.compile(r'\b(ferma|stop|basta|annulla|interrompi|blocca|cancella|arresta)\s+(l\'?esplorazione|esplorazione|esplorare|la\s+ricerca|cercare|il\s+giro|la\s+ricognizione|la\s+navigazione|navigazione|navigare|il\s+moto|il\s+movimento|tutto|nomad)\b', re.IGNORECASE),
+        re.compile(r'\b(fermati|stop|alt|basta|arrestati|blocca|ti\s+fermi|non\s+muoverti|non\s+ti\s+muovere)\b', re.IGNORECASE),
+        re.compile(r'\b(stop\s+(esplorazione|navigazione|ricerca)|basta\s+(esplorare|navigare|cercare))\b', re.IGNORECASE)
     ]
 
     def __init__(self, ros_node=None, memory_store=None, trinity_engine=None, nav_client=None):
@@ -144,7 +145,8 @@ class FrontierExplorationSkill(BaseSkill):
 
     def match(self, text: str, context: Dict[str, Any] = None) -> float:
         clean_text = (text or "").lower().strip()
-        if any(p.search(clean_text) for p in self.STOP_PATTERNS):
+        context = context or {}
+        if context.get("action") in ("stop", "nav_stop") or any(p.search(clean_text) for p in self.STOP_PATTERNS):
             return 0.99
         if any(p.search(clean_text) for p in self.HUNT_PATTERNS):
             return 0.95
@@ -377,7 +379,7 @@ class FrontierExplorationSkill(BaseSkill):
         )
 
     def stop_exploration(self) -> SkillResult:
-        """Ferma l'esplorazione e la navigazione attiva."""
+        """Ferma l'esplorazione e la navigazione attiva azzerando comandi motori e cancellando i goal."""
         if self.ros_node is not None:
             if self.pub_enable is None:
                 self._setup_ros_interfaces()
@@ -392,10 +394,34 @@ class FrontierExplorationSkill(BaseSkill):
                 t_msg.data = ""
                 self.pub_target.publish(t_msg)
 
+            # Arresto istantaneo /cmd_vel per sicurezza fisica immediata
+            if hasattr(self.ros_node, 'cmd_vel_pub'):
+                try:
+                    from geometry_msgs.msg import Twist
+                    stop_cmd = Twist()
+                    self.ros_node.cmd_vel_pub.publish(stop_cmd)
+                except Exception:
+                    pass
+
+        # Cancella navigazione su nav_client se presente
+        if self.nav_client and hasattr(self.nav_client, 'cancel_navigation'):
+            try:
+                import asyncio
+                if asyncio.iscoroutinefunction(self.nav_client.cancel_navigation):
+                    try:
+                        loop = asyncio.get_running_loop()
+                        loop.create_task(self.nav_client.cancel_navigation())
+                    except RuntimeError:
+                        pass
+                else:
+                    self.nav_client.cancel_navigation()
+            except Exception:
+                pass
+
         self.is_exploring = False
         self._paused_for_dialogue = False
         self.current_target = None
-        speak_msg = "Esplorazione e ricerca interrotte. Mi fermo qui."
+        speak_msg = "Esplorazione e navigazione interrotte. Mi fermo qui."
 
         return SkillResult(
             success=True,

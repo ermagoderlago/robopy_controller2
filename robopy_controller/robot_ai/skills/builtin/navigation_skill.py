@@ -542,7 +542,7 @@ class NavigationSkill(BaseSkill):
         )
     
     async def _handle_stop(self) -> SkillResult:
-        """Handle stop command."""
+        """Handle stop command: cancels Nav2 navigation, halts frontier exploration, and freezes motors."""
         self._is_following = False
         self._current_destination = None
         
@@ -550,17 +550,40 @@ class NavigationSkill(BaseSkill):
             "action_type": "nav_stop"
         }
         
+        # 1. Stop Nav2 navigation
         if self.nav_client:
             try:
-                await self.nav_client.stop_exploration()
-                await self.nav_client.cancel_navigation()
+                if hasattr(self.nav_client, 'cancel_navigation'):
+                    await self.nav_client.cancel_navigation()
+            except Exception as e:
+                self.logger.warning(f"Errore cancellazione navigazione: {e}")
+        
+        # 2. Stop frontier exploration if active
+        if self.nav_client and hasattr(self.nav_client, '_node') and self.nav_client._node:
+            try:
+                from std_msgs.msg import Bool
+                node = self.nav_client._node
+                if not hasattr(self, '_pub_explore_enable') or self._pub_explore_enable is None:
+                    self._pub_explore_enable = node.create_publisher(Bool, '/exploration/enable', 10)
+                e_msg = Bool()
+                e_msg.data = False
+                self._pub_explore_enable.publish(e_msg)
             except Exception:
                 pass
         
+        # 3. Direct zero cmd_vel
+        if self.nav_client and hasattr(self.nav_client, '_cmd_vel_pub') and self.nav_client._cmd_vel_pub:
+            try:
+                from geometry_msgs.msg import Twist
+                stop_twist = Twist()
+                self.nav_client._cmd_vel_pub.publish(stop_twist)
+            except Exception:
+                pass
+
         return SkillResult(
             success=True,
-            message="Mi sono fermato",
-            speak="Ok, mi fermo",
+            message="Navigazione ed esplorazione arrestate.",
+            speak="Ok, mi fermo.",
             actions=[action]
         )
     

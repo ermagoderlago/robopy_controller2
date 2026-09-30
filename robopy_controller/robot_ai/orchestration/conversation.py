@@ -242,11 +242,16 @@ class ConversationManager:
             )
 
         # Fast-path skill execution (e.g direct commands)
-        # CRITICAL: Navigation and exploration skills MUST NEVER bypass the TRINITY LLM!
+        # CRITICAL: Motion initiation skills MUST NEVER bypass the TRINITY LLM!
+        # HOWEVER, EMERGENCY STOP / FERMATI MUST EXECUTE INSTANTLY ON-DEVICE FOR PHYSICAL SAFETY!
         skill = self.skill_executor.find_best_match(clean_text, min_confidence=0.95)
         if skill and skill.name in ("navigation", "frontier_exploration", "visual_exploration"):
-            self._logger.info(f"Routing navigation/exploration command '{clean_text}' to TRINITY LLM (fast-path bypassed).")
-            skill = None
+            is_stop_cmd = bool(re.search(r'\b(ferma|fermati|stop|alt|basta|arrestati|blocca|interrompi|cancella|non\s+ti\s+muovere|non\s+muoverti)\b', clean_text, re.IGNORECASE))
+            if not is_stop_cmd:
+                self._logger.info(f"Routing navigation/exploration command '{clean_text}' to TRINITY LLM (fast-path bypassed).")
+                skill = None
+            else:
+                self._logger.info(f"🛑 [FAST-PATH SAFETY] Immediate stop command recognized: '{clean_text}' -> executing instant stop!")
 
         if skill:
             self._logger.info(f"Fast-path skill match: {skill.name}")
@@ -281,11 +286,14 @@ class ConversationManager:
                     error_message=str(e)
                 )
 
-            # Auto-resume exploration after fast-path execution if paused
+            # Auto-resume exploration after fast-path execution if paused (unless stopped)
             if was_exploring_at_barge_in and frontier_skill:
-                user_requested_stop = any(w in clean_text.lower() for w in ["fermati", "stop", "basta", "annulla", "interrompi"])
+                user_requested_stop = bool(re.search(r'\b(ferma|fermati|stop|alt|basta|annulla|interrompi|blocca|arresta|non\s+muoverti)\b', clean_text, re.IGNORECASE))
                 if user_requested_stop:
                     frontier_skill.stop_exploration()
+                    nav_skill = self.skill_executor.registry.get("navigation")
+                    if nav_skill:
+                        await nav_skill.safe_execute("fermati", {"action": "stop"})
                 elif getattr(frontier_skill, "_paused_for_dialogue", False):
                     frontier_skill.resume_after_dialogue()
 
@@ -532,8 +540,9 @@ class ConversationManager:
             match_score = frontier_skill.match(clean_text)
             if match_score >= 0.90:
                 self._logger.info(f"🧭 [Auto-Dispatch] Heuristic intent exploration/navigation triggered (score={match_score}) for '{clean_text}'")
-                if any(p.search(clean_text.lower()) for p in frontier_skill.STOP_PATTERNS):
+                if any(p.search(clean_text.lower()) for p in frontier_skill.STOP_PATTERNS) or bool(re.search(r'\b(ferma|fermati|stop|alt|basta|arrestati|blocca)\b', clean_text, re.IGNORECASE)):
                     explicit_actions.append({"action_type": "frontier_exploration", "args": {"action": "stop"}})
+                    explicit_actions.append({"action_type": "navigation", "args": {"action": "stop"}})
                 elif any(p.search(clean_text.lower()) for p in frontier_skill.HUNT_PATTERNS):
                     target = frontier_skill._extract_target(clean_text) or ""
                     explicit_actions.append({"action_type": "frontier_exploration", "args": {"action": "search_target", "target": target}})
@@ -632,9 +641,12 @@ class ConversationManager:
 
         # Auto-resume exploration after dialogue turn (unless user commanded stop)
         if was_exploring_at_barge_in and frontier_skill:
-            user_requested_stop = any(w in clean_text.lower() for w in ["fermati", "stop", "basta", "annulla", "interrompi"])
+            user_requested_stop = bool(re.search(r'\b(ferma|fermati|stop|alt|basta|annulla|interrompi|blocca|arresta|non\s+muoverti)\b', clean_text, re.IGNORECASE))
             if user_requested_stop:
                 frontier_skill.stop_exploration()
+                nav_skill = self.skill_executor.registry.get("navigation")
+                if nav_skill:
+                    await nav_skill.safe_execute("fermati", {"action": "stop"})
                 self._logger.info("🛑 Exploration stopped per user utterance command.")
             elif getattr(frontier_skill, "_paused_for_dialogue", False):
                 frontier_skill.resume_after_dialogue()

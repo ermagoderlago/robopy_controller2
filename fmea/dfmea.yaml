@@ -7051,3 +7051,59 @@
       e radius 0.18m.
     rpn_old: 192
     rpn_new: 8
+- id: FM-NAV-034
+  subsystem: Nav2
+  component: robot_ai / conversation / frontier_exploration_skill / navigation_skill
+  function: Arresto di emergenza e interruzione tempestiva di esplorazione e navigazione
+    da comando vocale utente
+  failure_mode: Mancato o ritardato arresto del robot su comandi vocali come "fermati",
+    "ferma la navigazione", "basta", con ripresa automatica del moto (barge-in resume
+    trap)
+  potential_cause: Fast-path disarm in conversation.py che forzava i comandi di stop
+    attraverso il cloud LLM introducendo 2-5s di latenza; mancata mappatura di stop_navigation
+    in orchestrator._execute_tool_live; auto-resume trap nel dialogue barge-in handler
+    (was_exploring_at_barge_in) con regex incompleta che ignorava 'ferma la navigazione'
+    e riavviava il moto dopo il parlato; chiamata a metodo errato in navigation_skill._handle_stop.
+  potential_effect: Il robot ignora il comando vocale di arresto dell'utente o riprende
+    autonomamente la navigazione subito dopo il parlato, continuando ad avanzare verso
+    ostacoli con rischio di collisione.
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-NAV-033
+  - FM-NAV-019
+  initial_scoring:
+    severity: 8
+    occurrence: 8
+    detection: 3
+    rpn: 192
+  prevention_controls: Fast-path bypass istantaneo (<10ms) per comandi di stop in
+    conversation.py; regex unificata omnicomprensiva r'\b(ferma|fermati|stop|alt|basta|annulla|interrompi|blocca|arresta|non\s+muoverti)\b'
+    che cancella permanentemente il flag was_exploring_at_barge_in; mappatura di stop_navigation
+    sia su navigation che su frontier_exploration; implementazione del metodo stop_exploration
+    in NavigationClient con twist zero, /exploration/enable=False e cancellazione
+    goal Nav2.
+  detection_controls: Suite di test unitari pytest in test_frontier_exploration_trinity.py
+    e test_nav2_motion_e2e.py per fast-path stop, tool live mapping e auto-resume
+    cancellation.
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Garantire sempre che i comandi di stop bypassino il cloud LLM
+    con fast-path immediato ed eliminino permanentemente qualsiasi stato di resume
+    del moto.
+  verification_method: Test unitari pytest (32/32 passati) e verifica runtime su Marcus.
+  eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-09-30-004
+  lesson_ref: docs/lessons/nav2_slam_tuning.md#FM-NAV-034
+  date_identified: '2026-09-30'
+  last_updated: '2026-09-30'
+  history:
+  - date: '2026-09-30'
+    change: Risolto mancato stop vocale, rimosso auto-resume trap su barge-in ed eseguito
+      fast-path bypass con stop fisico istantaneo e cancellazione Nav2 ed esplorazione.
+    rpn_old: 192
+    rpn_new: 8

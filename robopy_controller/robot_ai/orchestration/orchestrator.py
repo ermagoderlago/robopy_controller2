@@ -665,6 +665,27 @@ class AIOrchestrator(Node):
         Richiamato da llm_live_api.py in background asincrono.
         """
         self.ai_logger.info(f"🛠️ [Live Tool Call] Richiesta esecuzione per: {name} con argomenti {args}")
+
+        # Mappatura funzioni dichiarate a Gemini verso skill di sistema
+        if name in ("stop_navigation", "nav_stop"):
+            self.ai_logger.info("🛑 [Live Tool] Ricevuto stop_navigation: arresto simultaneo di esplorazione e navigazione.")
+            fe_skill = self.skill_registry.get("frontier_exploration")
+            if fe_skill and hasattr(fe_skill, "stop_exploration"):
+                fe_skill.stop_exploration()
+            nav_skill = self.skill_registry.get("navigation")
+            if nav_skill:
+                await nav_skill.safe_execute("fermati", {"action": "stop"})
+            return {"success": True, "message": "Navigazione ed esplorazione arrestate immediatamente."}
+        elif name == "start_frontier_exploration":
+            name = "frontier_exploration"
+            args = {"action": "start_explore", **args}
+        elif name == "search_target":
+            name = "frontier_exploration"
+            args = {"action": "search_target", **args}
+        elif name == "get_navigation_status":
+            name = "frontier_exploration"
+            args = {"action": "get_status", **args}
+
         # Cerchiamo la skill registrata nel registry
         skill = self.skill_registry.get(name)
         if not skill:
