@@ -2,8 +2,9 @@
 # =============================================================================
 # WATCHDOG DI SOPRAVVIVENZA COGNITIVA - MARCUS AI
 # =============================================================================
-# Questo script monitora il nodo robot_ai_node. Se crasha 3 volte in 60 secondi,
-# esegue un rollback di emergenza A/B ripristinando la versione precedente stabile.
+# Questo script monitora robot_ai_node e respeaker_vui_node (VUI).
+# Se robot_ai_node crasha 3 volte in 60 secondi, esegue rollback A/B.
+# Se respeaker_vui_node muore, lo riavvia automaticamente (FIX-05).
 # =============================================================================
 
 CRASH_LIMIT=3
@@ -21,6 +22,26 @@ while true; do
     if pgrep -f "restart_hailo.sh" > /dev/null; then
         sleep 5
         continue
+    fi
+
+    # [FIX-05] Verifica se respeaker_vui_node è attivo (VUI audio pipeline)
+    if ! pgrep -f "respeaker_vui_node" > /dev/null; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') - ATTENZIONE: respeaker_vui_node (VUI) non rilevato attivo! Riavvio..." >> "$LOG_FILE"
+        # Riavvio leggero del solo nodo VUI senza riavviare lo stack completo
+        source /home/robopy/ros2_jazzy/install/setup.bash
+        source /mnt/ssd/robopy_controller_host/install/setup.bash 2>/dev/null
+        export ROS_DOMAIN_ID=42
+        export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+        export CYCLONEDDS_URI=/tmp/cyclonedds_robopy.xml
+        export PA_ALSA_PLUGHW=1
+        # Recupera gli argomenti VUI dall'ultimo avvio
+        VUI_ARGS=""
+        if [ -f "/mnt/ssd/last_vui_args.env" ]; then
+            VUI_ARGS=$(cat /mnt/ssd/last_vui_args.env)
+        fi
+        nohup ros2 run robopy_controller respeaker_vui_node $VUI_ARGS >> /home/robopy/logs/vui_watchdog_restart.log 2>&1 &
+        echo "$(date '+%Y-%m-%d %H:%M:%S') - respeaker_vui_node riavviato dal watchdog." >> "$LOG_FILE"
+        sleep 10  # Attendi stabilizzazione prima del prossimo check
     fi
 
     # Verifica se robot_ai_node è attivo

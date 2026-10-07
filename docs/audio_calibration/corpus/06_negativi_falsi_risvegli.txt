@@ -1,0 +1,8 @@
+NEG-01: Ho visto Marco ieri.
+NEG-02: Oggi vado al mercato.
+NEG-03: La marcatura a uomo nel calcio.
+NEG-04: Ho comprato un nuovo arco.
+NEG-05: Mi ha morso un cane.
+NEG-06: Sono andato in banca stamattina.
+NEG-07: Guarda quel tramonto.
+NEG-08: (Dialogo casuale o TV accesa senza parole chiave)

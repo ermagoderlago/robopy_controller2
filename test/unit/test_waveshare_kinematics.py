@@ -71,7 +71,8 @@ class DummyNode:
             'max_duty_accel': 5.0,
             'max_duty_jerk': 25.0,
             'standstill_encoder_deadband': 8,
-            'invert_imu_yaw': True,
+            'invert_imu_yaw': False,
+            'left_motor_trim': 1.0,
         }
         val = self._declared_params.get(name, defaults.get(name, 0.0))
         m.value = val

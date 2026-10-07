@@ -59,7 +59,7 @@ class WaveshareMotorDriver(Node):
         self.declare_parameter('yaw_fusion_alpha', 0.88)            # Gyro transient weight (0.88 gyro, 0.12 wheel baseline)
         self.declare_parameter('max_duty_accel', 5.0)               # Max duty acceleration (duty/s) for S-Curve
         self.declare_parameter('max_duty_jerk', 25.0)               # Max duty jerk (duty/s^2) for S-Curve
-        self.declare_parameter('left_motor_trim', 0.88)             # Left motor forward duty multiplier (rebalanced 0.88)
+        self.declare_parameter('left_motor_trim', 1.0)              # Left motor forward duty multiplier (symmetric 1.0: eliminates left veering)
         self.declare_parameter('left_motor_trim_rev', 0.85)         # Left motor reverse duty multiplier (rebalanced 0.85)
         self.declare_parameter('right_motor_trim_rev', 1.05)        # Right motor reverse duty boost (rebalanced 1.05)
         self.declare_parameter('enable_heading_stabilizer', True)  # Active IMU gyro heading lock for straight line and symmetric turns
@@ -220,7 +220,7 @@ class WaveshareMotorDriver(Node):
         self.last_imu_time = None
         self.declare_parameter('use_cmd_vel_odometry', False) # Default False: use real physical wheel encoder odometry
         self.declare_parameter('use_imu_for_rotation', False)
-        self.declare_parameter('invert_imu_yaw', True) # Inverts OAK-D Lite IMU Z gyro to match REP-103 (+Z = Left)
+        self.declare_parameter('invert_imu_yaw', True) # Invert OAK IMU Z gyro to match REP-103 (+Z = Left, -Z = Right)
         self.declare_parameter('use_encoder_for_linear', True) # Default True: physical wheel displacement odometry (PCNT hardware)
         self.declare_parameter('standstill_encoder_deadband', 8) # Reject tick flutter <= 8 ticks (~2.5mm) when stopped
         
@@ -466,19 +466,13 @@ class WaveshareMotorDriver(Node):
         """Continuously integrates physical heading from the high-precision OAK-D Lite IMU at 42 Hz."""
         now = (self.get_clock().now().nanoseconds / 1e9) if hasattr(self, 'get_clock') else time.time()
 
-        # [CPU-OPT Pi 5] Standstill bypass: if motors are stopped and IMU is not used for rotation odometry, skip
-        if getattr(self, 'motors_stopped', True) and not getattr(self, 'use_imu_for_rotation', False):
-            self.oak_yaw_rate = 0.0
-            self.last_imu_time = now
-            return
-
         # Rate limit to max ~50 Hz (0.020s) to permit full 42 Hz OAK IMU streaming without callback starvation
         if self.last_imu_time is not None and (now - self.last_imu_time) < 0.020:
             return
 
         raw_w = msg.angular_velocity.z
         
-        # Invert sign if configured (OAK-D Lite IMU Z gyro has opposite polarity to ROS REP-103)
+        # Invert sign if configured (OAK IMU Z gyro has opposite polarity to ROS REP-103)
         w = -raw_w if getattr(self, 'invert_imu_yaw', True) else raw_w
         
         # Deadband ~0.8 deg/s (0.015 rad/s) to prevent drift at standstill
@@ -581,7 +575,7 @@ class WaveshareMotorDriver(Node):
         # 1. Hardware Motor Trims (eliminates directional friction discrepancies between wheels during linear driving)
         if not is_in_place_spin:
             if target_duty_left > 0:
-                target_duty_left *= getattr(self, 'left_motor_trim', 0.88)
+                target_duty_left *= getattr(self, 'left_motor_trim', 1.0)
             else:
                 target_duty_left *= getattr(self, 'left_motor_trim_rev', 0.85)
 
@@ -594,13 +588,13 @@ class WaveshareMotorDriver(Node):
                 floor_r = getattr(self, 'linear_min_duty_right', 0.13)
                 if is_kicking:
                     kick_d = getattr(self, 'stiction_kick_duty', 0.18)
-                    trim_l = getattr(self, 'left_motor_trim', 0.88) if left > 0 else getattr(self, 'left_motor_trim_rev', 0.85)
+                    trim_l = getattr(self, 'left_motor_trim', 1.0) if left > 0 else getattr(self, 'left_motor_trim_rev', 0.85)
                     floor_l = max(floor_l, kick_d * trim_l)
                     trim_r = 1.0 if right > 0 else getattr(self, 'right_motor_trim_rev', 1.05)
                     floor_r = max(floor_r, kick_d * trim_r)
 
                 if left < 0:
-                    floor_l *= (getattr(self, 'left_motor_trim_rev', 0.85) / max(getattr(self, 'left_motor_trim', 0.88), 0.01))
+                    floor_l *= (getattr(self, 'left_motor_trim_rev', 0.85) / max(getattr(self, 'left_motor_trim', 1.0), 0.01))
                 if right < 0:
                     floor_r *= getattr(self, 'right_motor_trim_rev', 1.05)
 
@@ -706,7 +700,7 @@ class WaveshareMotorDriver(Node):
                 if not is_in_place_spin:
                     floor_l_base = getattr(self, 'linear_min_duty_left', 0.13)
                     floor_r_base = getattr(self, 'linear_min_duty_right', 0.13)
-                    floor_l = floor_l_base * (getattr(self, 'left_motor_trim_rev', 0.85) / max(getattr(self, 'left_motor_trim', 0.88), 0.01)) if left < 0 else floor_l_base
+                    floor_l = floor_l_base * (getattr(self, 'left_motor_trim_rev', 0.85) / max(getattr(self, 'left_motor_trim', 1.0), 0.01)) if left < 0 else floor_l_base
                     floor_r = floor_r_base * getattr(self, 'right_motor_trim_rev', 1.05) if right < 0 else floor_r_base
                     if abs(left) >= 0.003 and abs(duty_left) < floor_l:
                         duty_left = math.copysign(floor_l, duty_left)
@@ -1093,18 +1087,33 @@ class WaveshareMotorDriver(Node):
                     self.last_imu_time is not None and
                     (current_time - self.last_imu_time) < 0.25
                 )
-                if self.enable_chassis_yaw_fusion and not self.motors_stopped:
-                    if chassis_imu_fresh:
-                        delta_theta_gyro = self.chassis_yaw_rate * dt
-                        delta_theta = self.yaw_fusion_alpha * delta_theta_gyro + (1.0 - self.yaw_fusion_alpha) * delta_theta_wheel
-                        src_rot = "CHASSIS_FUSED"
-                    elif oak_imu_fresh:
-                        delta_theta_gyro = self.oak_yaw_rate * dt
-                        delta_theta = self.yaw_fusion_alpha * delta_theta_gyro + (1.0 - self.yaw_fusion_alpha) * delta_theta_wheel
-                        src_rot = "OAK_FUSED"
+                if self.enable_chassis_yaw_fusion:
+                    if self.motors_stopped:
+                        # Stationary / Manual rotation mode:
+                        # Motors are stopped, wheel encoders are clamped to zero to suppress Hall jitter.
+                        # Real physical rotation (e.g. turned by hand or external torque) is tracked directly from gyro.
+                        if chassis_imu_fresh and abs(self.chassis_yaw_rate) > 0.010:
+                            delta_theta = self.chassis_yaw_rate * dt
+                            src_rot = "CHASSIS_MANUAL"
+                        elif oak_imu_fresh and abs(self.oak_yaw_rate) > 0.010:
+                            delta_theta = self.oak_yaw_rate * dt
+                            src_rot = "OAK_MANUAL"
+                        else:
+                            delta_theta = 0.0
+                            src_rot = "STANDSTILL_LOCK"
                     else:
-                        delta_theta = delta_theta_wheel
-                        src_rot = "ENCODER"
+                        # Active commanded motion: complementary fusion between gyro and wheel odometry
+                        if chassis_imu_fresh:
+                            delta_theta_gyro = self.chassis_yaw_rate * dt
+                            delta_theta = self.yaw_fusion_alpha * delta_theta_gyro + (1.0 - self.yaw_fusion_alpha) * delta_theta_wheel
+                            src_rot = "CHASSIS_FUSED"
+                        elif oak_imu_fresh:
+                            delta_theta_gyro = self.oak_yaw_rate * dt
+                            delta_theta = self.yaw_fusion_alpha * delta_theta_gyro + (1.0 - self.yaw_fusion_alpha) * delta_theta_wheel
+                            src_rot = "OAK_FUSED"
+                        else:
+                            delta_theta = delta_theta_wheel
+                            src_rot = "ENCODER"
                 else:
                     delta_theta = delta_theta_wheel
                     src_rot = "ENCODER"
@@ -1445,6 +1454,9 @@ class WaveshareMotorDriver(Node):
             elif param.name == 'right_motor_trim_rev':
                 self.right_motor_trim_rev = float(param.value)
                 self.get_logger().info(f"Dynamic Parameter Updated: right_motor_trim_rev = {self.right_motor_trim_rev:.4f}")
+            elif param.name == 'invert_imu_yaw':
+                self.invert_imu_yaw = bool(param.value)
+                self.get_logger().info(f"Dynamic Parameter Updated: invert_imu_yaw = {self.invert_imu_yaw}")
             elif param.name == 'enable_heading_stabilizer':
                 self.enable_heading_stabilizer = bool(param.value)
                 self.get_logger().info(f"Dynamic Parameter Updated: enable_heading_stabilizer = {self.enable_heading_stabilizer}")

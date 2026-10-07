@@ -67,21 +67,88 @@ static const std::vector<std::string> COCO_CLASSES = {
     "book","clock","vase","scissors","teddy bear","hair drier","toothbrush"
 };
 
-// COCO to Italian translations for Semantic Objects
+// COCO to Italian translations for all 80 classes
 static const std::unordered_map<std::string, std::string> COCO_TO_ITALIAN = {
     {"person", "persona"},
+    {"bicycle", "bicicletta"},
+    {"car", "auto"},
+    {"motorcycle", "moto"},
+    {"airplane", "aereo"},
+    {"bus", "autobus"},
+    {"train", "treno"},
+    {"truck", "camion"},
+    {"boat", "barca"},
+    {"traffic light", "semaforo"},
+    {"fire hydrant", "idrante"},
+    {"stop sign", "segnale stop"},
+    {"parking meter", "parchimetro"},
+    {"bench", "panchina"},
+    {"bird", "uccello"},
+    {"cat", "gatto"},
+    {"dog", "cane"},
+    {"horse", "cavallo"},
+    {"sheep", "pecora"},
+    {"cow", "mucca"},
+    {"elephant", "elefante"},
+    {"bear", "orso"},
+    {"zebra", "zebra"},
+    {"giraffe", "giraffa"},
+    {"backpack", "zaino"},
+    {"umbrella", "ombrello"},
+    {"handbag", "borsa"},
+    {"tie", "cravatta"},
+    {"suitcase", "valigia"},
+    {"frisbee", "frisbee"},
+    {"skis", "sci"},
+    {"snowboard", "snowboard"},
+    {"sports ball", "palla"},
+    {"kite", "aquilone"},
+    {"baseball bat", "mazza baseball"},
+    {"baseball glove", "guantone baseball"},
+    {"skateboard", "skateboard"},
+    {"surfboard", "tavola surf"},
+    {"tennis racket", "racchetta tennis"},
+    {"bottle", "bottiglia"},
+    {"wine glass", "bicchiere"},
+    {"cup", "tazza"},
+    {"fork", "forchetta"},
+    {"knife", "coltello"},
+    {"spoon", "cucchiaio"},
+    {"bowl", "ciotola"},
+    {"banana", "banana"},
+    {"apple", "mela"},
+    {"sandwich", "panino"},
+    {"orange", "arancia"},
+    {"broccoli", "broccoli"},
+    {"carrot", "carota"},
+    {"hot dog", "hot dog"},
+    {"pizza", "pizza"},
+    {"donut", "ciambella"},
+    {"cake", "torta"},
     {"chair", "sedia"},
     {"couch", "divano"},
+    {"potted plant", "pianta"},
     {"bed", "letto"},
     {"dining table", "tavolo"},
-    {"bench", "panchina"},
-    {"backpack", "zaino"},
-    {"suitcase", "valigia"},
-    {"handbag", "borsa"},
-    {"bottle", "bottiglia"},
-    {"cup", "tazza"},
+    {"toilet", "wc"},
     {"tv", "televisore"},
-    {"laptop", "computer"}
+    {"laptop", "computer"},
+    {"mouse", "mouse"},
+    {"remote", "telecomando"},
+    {"keyboard", "tastiera"},
+    {"cell phone", "cellulare"},
+    {"microwave", "microonde"},
+    {"oven", "forno"},
+    {"toaster", "tostapane"},
+    {"sink", "lavandino"},
+    {"refrigerator", "frigorifero"},
+    {"book", "libro"},
+    {"clock", "orologio"},
+    {"vase", "vaso"},
+    {"scissors", "forbici"},
+    {"teddy bear", "peluche"},
+    {"hair drier", "asciugacapelli"},
+    {"toothbrush", "spazzolino"}
 };
 
 struct DetectionBBox {
@@ -343,6 +410,17 @@ private:
             hailo_status status = configured_infer_model_->run(*bindings_, std::chrono::milliseconds(1000));
             if (status == HAILO_SUCCESS) {
                 detections = decode_yolo_outputs();
+                if (!detections.empty()) {
+                    std::string summary = "";
+                    for (size_t i = 0; i < std::min(detections.size(), (size_t)3); ++i) {
+                        summary += detections[i].label + "(" + cv::format("%.2f", detections[i].confidence) + ") ";
+                    }
+                    RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                        "🎯 [HAILO-YOLO] Rilevati %zu oggetti: %s", detections.size(), summary.c_str());
+                } else {
+                    RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 5000,
+                        "🔍 [HAILO-YOLO] Frame elaborato a 5Hz: 0 oggetti sopra soglia %.2f", conf_threshold_);
+                }
             } else {
                 RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000,
                                      "Hailo InferModel::run failed with status %d", status);
@@ -386,10 +464,12 @@ private:
 
             int base_line = 0;
             cv::Size text_size = cv::getTextSize(label_str, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &base_line);
-            cv::rectangle(annotated_frame, cv::Point(bbox.x, std::max(0, bbox.y - text_size.height - 6)),
-                          cv::Point(bbox.x + text_size.width + 4, std::max(text_size.height + 4, bbox.y)),
+            int text_x = std::max(0, std::min(bbox.x, frame.cols - text_size.width - 6));
+            int text_y = std::max(text_size.height + 4, bbox.y);
+            cv::rectangle(annotated_frame, cv::Point(text_x, text_y - text_size.height - 6),
+                          cv::Point(text_x + text_size.width + 4, text_y),
                           cv::Scalar(0, 255, 0), cv::FILLED);
-            cv::putText(annotated_frame, label_str, cv::Point(bbox.x + 2, std::max(text_size.height, bbox.y - 4)),
+            cv::putText(annotated_frame, label_str, cv::Point(text_x + 2, text_y - 4),
                         cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0), 1);
         }
 

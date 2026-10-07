@@ -10,7 +10,7 @@
   - `robopy_controller.nodes.voiceprint_manager` (`voiceprint_manager.py`)
   - `robopy_controller.nodes.memory_decay_engine` (`memory_decay_engine.py`)
 - **Hardware Diretto:** Array microfonico USB ReSpeaker Lite (XMOS XU316 + XIAO ESP32-S3), Altoparlante con DAC I2S/USB (48kHz nativo).
-- **DFMEA Correlati:** `FM-VUI-001` (Effetti Chipmunk/Darth Vader per mismatch sample rate), `FM-VUI-002` (Contesa device ALSA esclusivo), `FM-VUI-003` (Clipping e saturazione microfonica), `FM-VUI-004` (KWS su NPU), `FM-VUI-021` (Sessione estesa 3 minuti e directed follow-up), `FM-VUI-023` (Modularizzazione audio).
+- **DFMEA Correlati:** `FM-VUI-001` (Effetti Chipmunk/Darth Vader per mismatch sample rate), `FM-VUI-002` (Contesa device ALSA esclusivo), `FM-VUI-003` (Clipping e saturazione microfonica), `FM-VUI-004` (KWS su NPU), `FM-VUI-021` (Sessione estesa 3 minuti e directed follow-up), `FM-VUI-023` (Modularizzazione audio), `FM-VUI-035b` (Gating conversazionale ActivityStart vs 8s trap), `FM-VUI-036` (WebSocket keepalive e mitigazione socket zombie).
 
 ---
 
@@ -19,7 +19,7 @@
 ```mermaid
 graph LR
     MIC["ReSpeaker Mic Array (USB)"] -->|Canale Sinistro Raw| DSP["respeaker_vui_node (HPF 140Hz & Attenuazione 3.0x)"]
-    DSP -->|16kHz Mono PCM| KWS["Hailo-10H KWS ('Marcus')"]
+    DSP -->|16kHz Mono PCM| KWS["Hailo-10H KWS ('Marcus') / Vosk"]
     DSP -->|16kHz Mono PCM| ABM["AudioBufferManager (Ring Buffer)"]
     DSP -->|Audio Features| ECAPA["ECAPA-TDNN (Voiceprint)"]
     
@@ -54,11 +54,15 @@ L'agente Antigravity può ottimizzare e ricalibrare autonomamente le seguenti co
 | Area di Ottimizzazione | Metodo & Logica Ammessa | Range & Vincoli di Accettazione |
 | :--- | :--- | :--- |
 | **Filtro Passa-Alto (HPF)** | Taglio Butterworth del ronzio della ventola del Pi 5 | Frequenza di taglio $f_c \in [120\text{ Hz}, 160\text{ Hz}]$; ordine 2 |
-| **Noise Floor Adaptor** | Sottrazione adattiva del rumore di fondo domestico | Aggiornamento soglia silenzio durante pause $> 1.0\text{ s}$ |
+| **Noise Floor Adaptor** | Sostituito con Peak Limiter (AGC) | Soppresso mascheramento non lineare (crossover distorsion) |
 | **Pre-roll Buffer VUI** | Accumulo circolare audio prima dell'innesco wakeword | $T_{preroll} \in [300\text{ ms}, 600\text{ ms}]$; default: $500\text{ ms}$ |
+| **Voice Activity Detection**| Neural VAD (Silero) o WebRTC in subordine | $thresh \in [0.3, 0.5]$; default: $0.4$ |
 | **Voiceprint Match Threshold**| Soglia similarità coseno embedding ECAPA-TDNN | $thresh \in [0.68, 0.78]$; default: $0.72$ |
-| **Directed Follow-up Gating** | Riconoscimento frasi rivolte a terzi vs rivolte a Marcus | Soppressione silenciosa `<IGNORE_TURN>` senza chiusura WebSocket |
+| **Directed Follow-up Gating** | Riconoscimento frasi rivolte a terzi vs rivolte a Marcus | Soppressione silenziosa `<IGNORE_TURN>` senza chiusura WebSocket |
 | **Memory Decay Window** | Immunità temporale della memoria acustica a breve termine| Finestra immunità: $[120\text{ s}, 240\text{ s}]$; default: $180\text{ s}$ |
+| **ActivityStart Gating** | Validazione finestra conversazionale al trigger di inizio parlato | Valutazione ad `ActivityStart` memorizzata per EOS; no drop su frasi lunghe |
+| **WebSocket Keepalive Ping** | Invio periodico `LiveClientContent` vuoto per prevenire timeout NAT | Intervallo keepalive $T_{ping} \in [30\text{ s}, 90\text{ s}]$; default: $45\text{ s}$ |
+| **Vosk Gain Decoupling** | Preservazione sensibilità far-field per wake word Vosk | Guadagno nominale $G_{vosk} \ge 1.8\text{x}$ anche con barge-in TTS attivo |
 
 ---
 

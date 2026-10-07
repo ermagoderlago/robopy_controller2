@@ -26,6 +26,18 @@ improvements:
     status: "COMPLETED"
     domain: "hardware_power"
 
+  FM-PWR-004:
+    title: "Miglioramento Alimentazione: Cuccia di Ricarica e Sistema di Rientro Autonomo (Homing & Docking)"
+    file: "docs/improvements/IMP-PWR-004_autonomous_docking_station.md"
+    status: "PLANNED"
+    domain: "hardware_power"
+
+  FM-PWR-005:
+    title: "Miglioramento Alimentazione: Graceful Shutdown Orchestrator con Salvataggio Mappe e Allerta Vocale"
+    file: "docs/improvements/IMP-PWR-005_graceful_shutdown_orchestrator.md"
+    status: "PLANNED"
+    domain: "hardware_power"
+
 
   FM-LLM-004:
     title: "Miglioramento AI: Pre-flight Kinematic Sandbox per Skill Dinamiche"
@@ -198,6 +210,30 @@ improvements:
     file: "docs/improvements/IMP-VIS-009_hailo_yolo_accuracy_fix.md"
     status: "IN_PROGRESS"
     domain: "vision_hailo"
+
+  FM-VUI-035b:
+    title: "Miglioramento VUI: Gating Conversazionale ad ActivityStart vs Trappola degli 8 Secondi"
+    file: "docs/improvements/IMP-VUI-035b_activity_start_conversational_gating.md"
+    status: "COMPLETED"
+    domain: "audio_vui"
+
+  FM-VUI-036:
+    title: "Miglioramento VUI: WebSocket Keepalive, Inattività Prolungata & Recovery"
+    file: "docs/improvements/IMP-VUI-036_websocket_keepalive_and_zombie_recovery.md"
+    status: "COMPLETED"
+    domain: "audio_vui"
+
+  FM-MOT-010:
+    title: "Miglioramento Attuazione: Risoluzione Doppia Inversione Gyro Z e Trim Simmetrico"
+    file: "docs/improvements/IMP-MOT-010_imu_polarity_and_symmetric_trim.md"
+    status: "COMPLETED"
+    domain: "actuation_motion"
+
+  FM-MOT-011:
+    title: "Miglioramento Attuazione: Tracciamento Giroscopico Yaw a Veicolo Fermo ed Eliminazione Regressione Laser Scan Rotante"
+    file: "docs/improvements/IMP-MOT-011_standstill_yaw_tracking.md"
+    status: "COMPLETED"
+    domain: "actuation_motion"
 
 
 

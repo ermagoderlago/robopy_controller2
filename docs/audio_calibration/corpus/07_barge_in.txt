@@ -1,0 +1,8 @@
+BARGE-01: Zitto.
+BARGE-02: Aspetta.
+BARGE-03: No, non intendevo questo.
+BARGE-04: Marcus, stop.
+BARGE-05: Ripeti l'ultima frase.
+BARGE-06: Spegniti.
+BARGE-07: Interrompi.
+BARGE-08: Basta così.

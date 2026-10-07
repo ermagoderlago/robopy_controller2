@@ -656,9 +656,89 @@ Con JGB37-520B a 7RPM (riduzione ~143:1), **girare la ruota manualmente è impos
      - Se il robot rimane a stallo con boost massimo per oltre $1.0\text{ s}$ continui, scatta l'allarme diagnostico di protezione motore `FM-MOT-002` e i motori vengono disattivati.
   3. *Stabilizzatore di Rotta OAK-D Lite:* Giroscopio a 42 Hz attivo per correggere derive dinamiche residue in marcia retta.
 
+---
 
+### 4.2 Calibrazione Tensione 18650 3S2P, Spegnimento Pulito d'Emergenza e Persistenza Traumatica TRINITY (FM-SYS-004, FM-PWR-004, FM-PWR-005)
 
+* **Contesto Fisico & Calibrazione Scarica (Celle 18650):**
+  A causa della resistenza interna equivalente del pacco 3S2P ($R_{int} \approx 0.085\,\Omega$) e dell'assorbimento base continuo del robot ($I_{quiescent} \approx 1.20\text{ A}$ fra Pi 5, NPU Hailo-10H, OAK-D Lite e LiDAR C1), la tensione misurata sotto carico presenta una caduta sistematica rispetto alla tensione a vuoto (OCV).
+  Sono state definite e validate le seguenti soglie operative:
+  - **100% Piena Carica:** $12.10\text{ V} - 12.20\text{ V}$ (tensione stabilizzata a fine carica con carico base).
+  - **Modalità ECO (<= 20% SoC):** $10.20\text{ V}$ (taglio automatico della velocità massima e dell'accelerazione al 50% via `/speed_limit` per contenere i picchi di corrente).
+  - **Soglia Rientro Base / Docking:** $9.90\text{ V}$ (richiesta rientro preventivo alla cuccia con riserva energetica di sicurezza).
+  - **Shutdown di Sicurezza:** $9.60\text{ V}$ (con persistenza 3.0s o immediato se $\le 9.50\text{ V}$).
 
+* **Strategia Anti-Cutoff BMS allo Spegnimento a 9.60V:**
+  Il BMS Waveshare interviene a freddo a circa $9.70\text{V} - 9.75\text{V}$ sotto carico. Per consentire la sequenza di salvataggio senza interruzioni hardware:
+  1. *Arresto Immediato Motori (Priority 0 Safety Override):* Il nodo invia istantaneamente `Twist 0.0` su `/cmd_vel_mux/input/safety_override`. Azzerando la corrente motori ($I_{motori} = 0\text{ A}$), si annulla la caduta ohmica $I \cdot R_{int}$: la tensione ai capi del pacco risale istantaneamente a oltre $9.80\text{ V}$, garantendo un margine di 15-20 secondi di alimentazione stabile al Raspberry Pi 5 e al disco NVMe.
 
+* **Pipeline di Spegnimento Pulito Orchestrato (`scripts/graceful_emergency_shutdown.py`):**
+  1. **Allarme Vocale & Chime VUI:** Riproduzione su altoparlante ReSpeaker (DAC I2S / ALSA) di un segnale acustico e dell'annuncio vocale d'emergenza in italiano: *"Attenzione! Livello batteria critico a 9.6 Volt. Salvataggio mappe e spegnimento forzato in corso."*
+  2. **Persistenza dell'Evento Traumatico nel Cervello TRINITY:**
+     - **MAG (Memory Augmented Generation):** Inserimento transazionale in `mag_trinity.db` (SQLite WAL) dell'episodio con `emotion_tag='TRAUMA'` e `importance=1.0`.
+     - **RAG (Retrieval-Augmented Generation):** Memorizzazione su collection ChromaDB `robot_memories` con metadati protetti (`amygdala_protected=true`, $\lambda_{decay} = 0.0$), rendendo l'evento indelebile anche durante i processi di consolidamento (Sogno Notturno).
+     - **Amigdala & VUI Mood:** Pubblicazione dello stato emozionale `FEAR` su `/ai/conversation/mood` e segnale `low_road_interrupt`.
+  3. **Salvataggio Deterministico delle Mappe su NVMe:**
+     - Invocazione di `ros2 run nav2_map_server map_saver_cli -f /mnt/ssd/maps/auto_shutdown_map_<timestamp>` per preservare la mappa 2D dell'ambiente.
+     - Checkpoint e flush sincrono del database RTAB-Map SLAM (`/mnt/ssd/rtabmap.db`).
+  4. **Chiusura Nodi ROS 2 e Poweroff OS:**
+     - Chiusura ordinata con `SIGINT` dei nodi ROS 2 attivi.
+     - Sincronizzazione filesystem (`sync; sync`) ed emissione di `sudo systemctl poweroff -i` entro la finestra di sicurezza.
+
+* **Integrazione DFMEA:**
+  - Registrati `FM-PWR-004` (Assenza cuccia di ricarica e navigazione autonoma di docking) e `FM-PWR-005` (Spegnimento sottotensione improvviso con perdita mappe e assenza allarme vocale).
+
+---
+
+<a id="41-risoluzione-doppia-inversione-imu-e-trim-simmetrico"></a>
+### 41. Risoluzione Doppia Inversione Polare Giroscopio Z OAK-D Lite, Eliminazione Positive Feedback Loop Heading Stabilizer, Rimozione Penalizzazione Asimmetrica Trim Sinistro (1.0 vs 0.88) e Corruzione Odometria Nav2 (FM-MOT-010, FM-NAV-038)
+
+* **Sintomi Rilevati:**
+  1. Durante la marcia in linea retta pura (`cmd_vel.linear.x > 0, cmd_vel.angular.z == 0`), il robot virava progressivamente verso sinistra, rendendo impossibile mantenere la rotta rettilinea.
+  2. Durante l'inseguimento di percorsi autonomi generati da Nav2 (MPPI/DWB), la traiettoria mostrata su RViz/mappa appariva corretta, ma il robot fisico eseguiva traiettorie completamente divergenti, zigzagando fino a collidere violentemente contro mobili e pareti.
+
+* **Diagnosi e Causa Radice Architetturale:**
+  1. **Doppia Inversione Polare Giroscopio Z (REP-103 vs Driver Python):**
+     - Nel nodo C++ `fast_flow_vo_node.cpp` (riga 434), la lettura del giroscopio OAK-D Lite veniva già convertita nella convenzione standard ROS REP-103 (+Z = rotazione antioraria / sinistra):
+       `gz_ros = -packet.gyroscope.y;`
+     - Nel driver Python `waveshare_motor_driver.py` (riga 43), il parametro `invert_imu_yaw` era impostato a `True` di default, ed eseguiva:
+       `w = -raw_w` nella callback `oak_imu_callback`.
+     - Risultato: **doppia inversione**. Quando il robot curvava fisicamente a sinistra (+Z reale), il driver Python registrava un valore di `oak_yaw_rate` negativo (svolta a destra!).
+  2. **Innesco di Positive Feedback Loop nello Stabilizzatore di Rotta:**
+     - In `send_speeds()`, lo stabilizzatore di rotta a 42 Hz calcolava l'errore:
+       `err_w = target_w - oak_yaw_rate = 0.0 - (-w) = +w > 0`
+     - Il termine di correzione proporzionale/integrale sottraeva potenza alla ruota sinistra e la aggiungeva alla ruota destra:
+       `target_duty_left -= corr; target_duty_right += corr;`
+     - Poiché il segno percepito era opposto alla realtà, il correttore **rallentava la ruota interna e accelerava la ruota esterna**, spingendo attivamente il robot a virare ancora più a sinistra ad ogni ciclo di controllo.
+  3. **Corruzione Odometria `/odom` e Divergenza Catastrofica di Nav2:**
+     - Nel calcolo odometrico ad anello chiuso (`process_encoder_feedback`), il filtro complementare (`yaw_fusion_alpha = 0.88`) integrava `oak_yaw_rate * dt`.
+     - Avendo segno invertito, quando il robot virava a sinistra, la posa stimata in `/odom` ruotava a destra.
+     - L'algoritmo di path-following MPPI di Nav2, vedendo la posa stimata deviare a destra rispetto alla traiettoria pianificata, impartiva comandi correttivi a piena potenza a sinistra (`cmd_vel.angular.z > 0`), culminando nella deviazione fisica e nello schianto contro gli ostacoli adiacenti.
+  4. **Penalizzazione Asimmetrica del Trim Ruota Sinistra:**
+     - Nel driver, `left_motor_trim` era impostato a `0.88` (eredità di tentativi empirici precedenti di contrastare la deriva), tagliando del 12% la potenza erogata alla ruota sinistra rispetto alla ruota destra in tutti i regimi di marcia avanti, inducendo fisicamente una deviazione a sinistra indipendente dalla retroazione giroscopica.
+
+* **Risoluzione Implementata:**
+  1. *Allineamento Polare REP-103 su Hardware Reale:* L'orientamento dell'asse ottico di OAK-D Lite montata capovolta rispetto a DepthAI (+Y puntato verso il basso) fa sì che `gz_ros = -packet.gyroscope.y` in `fast_flow_vo_node.cpp` generi un rate positivo durante rotazioni orarie (svolte a destra). Poiché ROS REP-103 impone che una virata a destra abbia velocità angolare negativa ($\omega < 0$), è imperativo impostare `invert_imu_yaw:=True` nel driver ROS 2 `waveshare_motor_driver.py` per invertire il segno e allinearlo rigorosamente a REP-103.
+  2. *Simmetrizzazione Erogazione Coppia:* Riportato `left_motor_trim = 1.0` (simmetrico 1:1) in avanti, con `linear_min_duty_left = 0.13` e `linear_min_duty_right = 0.13`.
+  3. *Allineamento Script di Avvio:* Aggiornati `restart_hailo.sh` e `scripts/start_driver.sh` con `-p invert_imu_yaw:=True -p left_motor_trim:=1.0`.
+  4. *Suite di Test di Non-Regressione:* Aggiunto test specifico `test_13_oak_imu_callback_polarity` in `test/unit/test_yaw_fusion_and_scurve.py` per garantire che rotazioni orarie (CW) producano rate negativo e rotazioni antiorarie (CCW) producano rate positivo.
+
+---
+
+<a id="42-tracciamento-giroscopico-rotazione-manuale-standstill"></a>
+### 42. Risoluzione Blocco Orientamento Standstill Zero-Lock, Tracciamento Giroscopico Rotazione Manuale a Veicolo Fermo ed Eliminazione Regressione Laser Scan Rotante in Mappa (FM-MOT-011, FM-NAV-039)
+
+* **Sintomo Rilevato:**
+  - Quando il robot viene ruotato manualmente sul posto (a motori spenti o sul dock) oppure compie rotazioni a bassissima velocità, i punti dello scan RPLIDAR C1 delle pareti su RViz/Foxglove girano solidalmente con il corpo del robot invece di restare stabili sulle pareti della mappa.
+  - La trasformazione TF `odom -> base_link` rimane congelata sul vecchio yaw, disallineando la proiezione laser in `map` e impedendo ad AMCL di mantenere il tracking della posa.
+
+* **Causa Radice:**
+  - Lo Standstill Zero-Velocity Lock implementato per proteggere il sistema dal jitter degli interrupt Hall (FM-MOT-006) forzava indiscriminatamente sia `delta_ticks = 0` sia `oak_yaw_rate = 0.0` ogni volta che `motors_stopped == True`.
+  - La logica di fusione giroscopica `enable_chassis_yaw_fusion` operava solo `if not self.motors_stopped`, azzerando qualsiasi rotazione a motori spenti.
+
+* **Risoluzione Implementata:**
+  1. *Campionamento Continuo Giroscopio con Deadband Fisica:* Rimosso il bypass da `oak_imu_callback`. Il rate giroscopico viene costantemente campionato e filtrato dalla deadband a $0.015\text{ rad/s}$ ($0.8^\circ/\text{s}$), garantendo zero deriva a veicolo fermo.
+  2. *Fusione Differenziata per Veicolo Fermo:* In `process_encoder_feedback`, quando `motors_stopped == True`, gli encoder rimangono vincolati a 0 per bloccare il jitter lineare $x, y$, ma l'orientamento $\theta$ integra $100\%$ il giroscopio (`delta_theta = oak_yaw_rate * dt`, modo `OAK_MANUAL`).
+  3. *Validazione con Test Unitari:* Creato `test_14_manual_rotation_during_standstill_lock` in `test_yaw_fusion_and_scurve.py` per garantire stabilità a riposo e reattività alla rotazione manuale (23/23 test passati).
 
 

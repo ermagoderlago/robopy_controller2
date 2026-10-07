@@ -707,3 +707,116 @@ A seguito dell'analisi incrociata tra le linee guida generiche per array ReSpeak
   1. Finestra di ascolto ridotta rigorosamente a **8.0 secondi** (`listen_timeout_sec:=8.0`, `active_session_timeout = 8.0`): dopo la wakeword "Marcus", l'utente ha 8 secondi per interagire. Se non parla, il microfono si silenzia (`mic_mute = True`, segnale acustico di chiusura) e Marcus torna in Standby totale.
   2. In Standby, nessun audio viene inviato a Gemini Live: la televisione e le chiacchiere altrui vengono ignorate. Per riattivarlo, l'utente deve chiamarlo per nome ("Marcus...", "Marcus dimmi...").
   3. Rimosso il falso stato `LONELY` al boot in `llm_service.py` e rafforzato il system prompt con divieto di saluti proattivi non richiesti e obbligo di `<IGNORE_TURN>`.
+
+
+---
+
+## 🔧 VUI Diagnostic Batch — Fix FIX-01 ~ FIX-07 (2026-10-01)
+
+### [FIX-01] Trappola degli 8 Secondi — Gating Conversazionale Riformato (FM-VUI-035b)
+* **Problema Critico:** Il check `is_active` della finestra conversazionale veniva valutato al momento dell'End-Of-Speech (fine frase), non all'inizio del parlato. Con `active_session_timeout=8.0s`, una sequenza tipica (2s di pausa dopo beep + 5s di frase + 0.9s silenzio VAD = 7.9~8.2s) eccedeva la finestra e causava lo **scarto silenzioso del turno vocale** con distruzione del WebSocket (`_reconnect()`).
+* **Causa Storica:** Il timeout era stato ridotto da 180s a 8s per mitigare FM-VUI-035 (risposte alla TV), ma l'effetto collaterale devastava l'usabilità.
+* **Soluzione Implementata:**
+  - Il check `is_active` ora avviene al momento dell'`ActivityStart` (quando l'utente INIZIA a parlare), memorizzato in `self._turn_started_within_window`.
+  - All'EOS si controlla `_turn_started_within_window` anziché ricalcolare il tempo trascorso.
+  - Se il turno è fuori finestra, viene scartato **SENZA chiamare `_reconnect()`** — il WebSocket resta aperto e pronto.
+* **File Modificato:** `robopy_controller/robot_ai/services/live_connection_manager.py`
+* **Regola Generale:** Mai valutare timeout di validità alla fine di un'operazione che può durare a tempo variabile. Valutare sempre all'inizio.
+
+### [FIX-02] Riconnessione Immediata su Errore Invio PCM
+* **Problema:** Quando `send_realtime_input()` falliva (socket morto post-inattività), l'eccezione veniva catturata con solo `log` senza riconnessione. Il socket restava rotto per fino a 15 secondi (timeout del turno).
+* **Soluzione:** Aggiunto `asyncio.create_task(self._reconnect())` e `break` nel blocco `except` di `_audio_sender_loop()`.
+* **File Modificato:** `robopy_controller/robot_ai/services/live_connection_manager.py`
+
+### [FIX-03] Separazione Guadagno Vosk dal Guadagno Pipeline Gemini
+* **Problema:** L'attenuazione obbligatoria di 3.0x (SPEC-04/FM-VUI-003) e l'attenuazione TTS barge-in di 0.1x (FM-VUI-002) venivano applicate indistintamente a tutto il segnale, incluso Vosk. Con `stt_gain=1.8`, il guadagno effettivo per Vosk era solo 0.6x, rendendo la wake word "Marcus" inudibile oltre 1.5m.
+* **Soluzione:** Vosk ora riceve un segnale con `vosk_gain = self.stt_gain` (guadagno pieno) quando il TTS o il cooldown è attivo, indipendentemente dall'attenuazione applicata al segnale destinato a Gemini.
+* **File Modificato:** `robopy_controller/nodes/respeaker_vui_node.py`
+* **Regola Generale:** Separare i percorsi del segnale audio per consumatori diversi (ASR locale vs cloud streaming) quando hanno requisiti di guadagno opposti.
+
+### [FIX-04] Ri-trigger Wake Word Sempre Possibile
+* **Problema:** La condizione `if not already_listening` impediva il ri-trigger della wake word se la sessione precedente non si era chiusa correttamente. L'utente diceva "Marcus" ripetutamente senza effetto.
+* **Soluzione:** Se `already_listening` è True, il timer della finestra viene resettato (`_start_listen_timer()`) per estendere la conversazione. Se False, `_on_wakeword_detected()` viene chiamato normalmente.
+* **File Modificato:** `robopy_controller/nodes/respeaker_vui_node.py`
+
+### [FIX-05] Respawn VUI Node nel Watchdog
+* **Problema:** `watchdog.sh` monitorava solo `robot_ai_node`. Se `respeaker_vui_node` crashava (es. `sys.exit(1)` dopo 12 tentativi di recovery ALSA), Marcus diventava permanentemente sordo senza che nessuno lo rilevasse.
+* **Soluzione:** Aggiunto blocco di monitoraggio per `respeaker_vui_node` nel loop del watchdog, con riavvio leggero automatico senza riavviare lo stack completo.
+* **File Modificato:** `scripts/watchdog.sh`
+* **Nota:** `ENABLE_WATCHDOG` in `restart_hailo.sh` è ancora `false` di default — valutare l'abilitazione in produzione.
+
+### [FIX-06] Reset Token di Resumption su Sessione Scaduta
+* **Problema:** Dopo prolungata inattività, il token di resumption sessione scade lato Google. Il tentativo di riconnessione con token scaduto falliva ripetutamente, innescando il fallback prematuro su Qwen NPU dopo 3 tentativi.
+* **Soluzione:** Se l'errore contiene keyword indicative di sessione scaduta ("resume", "expired", "invalid", "handle", "1008"), `self._resumption_token` viene azzerato per forzare un fresh handshake.
+* **File Modificato:** `robopy_controller/robot_ai/services/live_connection_manager.py`
+
+### [FIX-07] Keepalive Periodico WebSocket Gemini Live
+* **Problema:** Nessun traffico durante l'inattività → Google Cloud e i router NAT terminavano silenziosamente la connessione WebSocket dopo 10-15 minuti (Half-Open Socket).
+* **Soluzione:** Task asincrono `_keepalive_loop()` che invia un `LiveClientContent` vuoto (leggero, senza turno) ogni 120 secondi se la sessione è idle. Se il keepalive fallisce, trigger immediato di `_reconnect()`.
+* **File Modificato:** `robopy_controller/robot_ai/services/live_connection_manager.py`
+* **Regola Generale:** Qualsiasi connessione bidirezionale persistente verso un servizio cloud deve avere un meccanismo di keepalive applicativo. I ping TCP/TLS di livello trasporto NON sono sufficienti con NAT e firewall domestici.
+
+### [FIX-08] Sordità Far-Field: Desincronizzazione Wrapper `scripts/` e Calibrazione `base_clamp` (FM-VUI-034b)
+* **Problema Riscontrato:** Nonostante il codice in `robopy_controller/nodes/respeaker_vui_node.py` fosse aggiornato, Marcus risultava ancora "duro d'orecchi", non sentiva chiaramente da 1-2 metri e il log live mostrava costantemente `Gate=400.0`.
+* **Causa Radice 1 (Desync Build/Deploy):** In `/mnt/ssd/robopy_controller_host/install/robopy_controller/lib/robopy_controller/respeaker_vui_node`, l'eseguibile era un symlink verso `/mnt/ssd/robopy_controller_host/scripts/respeaker_vui_node`. Su Marcus, quel file conteneva una copia monolitica vecchia di mesi (1465 righe) anziché il wrapper snello di 7 righe del repo. Poiché `sync_marcus.sh` usava `rsync -u` e lo script `sed -i` toccava `scripts/` sul robot ad ogni sync aggiornandone il timestamp, rsync non lo sovrascriveva mai!
+* **Causa Radice 2 (Gate Clamp Eccessivo):** Nella vecchia logica, `base_clamp` era a 400.0 (in idle) e 350.0 (in attentive). Poiché la voce umana normale a 1.5-2m produce un RMS amplificato di ~150-250, il VAD considerava il parlato come silenzio scartandolo.
+* **Soluzione Implementata:**
+  1. `sync_marcus.sh` aggiornato con sync forzato e deterministico (senza flag `-u`) della cartella `scripts/`.
+  2. Sostituiti tutti i wrapper monolitici obsoleti su Marcus con i corretti forwarder che importano dinamicamente da `site-packages`.
+  3. `base_clamp` ricalibrato in `respeaker_vui_node.py` a `95.0` (idle) e `70.0` (attentive) con offset ridotto a `+25.0`.
+  4. `stt_gain` elevato da `1.8` a `2.2` in `restart_hailo.sh` (base nominale 2.2x).
+  5. Risultato misurato sul robot live: `Ambient_EMA = 30.0` -> `Gate = 97.6`. La soglia è circa il 45% sopra il rumore di fondo (zero falsi positivi da ventola Pi 5), ma cattura istantaneamente la voce umana a 150-300 RMS.
+
+### [FIX-09] Disaccoppiamento Beep da AI Speaking, Riduzione Cooldown ed Espansione Fonetica Wake Word (FM-VUI-037)
+* **Problema Riscontrato:** Marcus spesso non rilevava la wake word (fallendo 6-7 volte su 10). Quando la rilevava emettendo il beep di sveglia, non riusciva comunque a comprendere la richiesta dell'utente e non rispondeva affatto.
+* **Causa Radice 1 (ASR Vosk Fonetica Italiana):** Il modello offline Vosk italiano trascrive frequentemente la pronuncia vocale di "Marcus" come `"marco"` o `"marcos"`. Poiché il filtro `wakeword_tokens` accettava unicamente `["marcus", "markus"]`, tutti i tentativi pronunciati come `"marco"` o `"marcos"` venivano ignorati.
+* **Causa Radice 2 (Auto-Muting indotto dal Beep):** Alla rilevazione della wake word, veniva emesso un beep di notifica (200ms) impostando `_last_ai_speaking_time = time.monotonic()`. Inoltre, il worker di riproduzione trattava indistintamente qualsiasi audio nella coda (inclusi beep e chime) come parlato AI (`_is_playing_out = True`). Questo innescava 400ms di `ai_cooldown_active = True` con `stt_gain_to_use = 0.1` (attenuazione software al 10%) per una durata totale di ~600ms esattamente quando l'utente iniziava a parlare dopo il beep.
+* **Causa Radice 3 (Allucinazione Fonetica Gemini e `<IGNORE_TURN>`):** A causa dell'attenuazione a 0.1x, Gemini Live riceveva solo l'estremità mozzata o sussurrata della frase, trascrivendola con fonemi allucinati (es. francese `"Il s'était"`). Il system prompt conteneva l'istruzione rigida *"Se senti audio non italiano ... rispondi ESCLUSIVAMENTE con <IGNORE_TURN>"*, inducendo Gemini a sopprimere la risposta vocale e lasciare il robot muto.
+* **Soluzione Implementata:**
+  1. Espansione `wakeword_tokens` in `respeaker_vui_node.py` a `["marcus", "markus", "marcos", "marco"]`.
+  2. Creazione della pipeline `_play_beep()` distinta da `_play_audio()`, con tracciamento esplicito di `_is_playing_tts` separato da `_is_playing_out`.
+  3. I beep (sveglia 80ms, chiusura timeout, mute) non impostano più `_last_ai_speaking_time` né attivano il cooldown o l'attenuazione a 0.1x.
+  4. Riduzione del cooldown post-TTS reale da 400ms a 150ms e della protezione eco Vosk da 0.6s a 0.25s.
+  5. Riformulazione del system prompt in `llm_service.py`: istruzione vincolante che l'utente comunica sempre in lingua italiana, obbligo di interpretare i fonemi ambigui in italiano, e confinamento di `<IGNORE_TURN>` al solo silenzio assoluto, rumori meccanici o terzi.
+
+### [FIX-10] Resilienza PyAudio DAC Stream Sleep (-9988), Auto-Reconnect Zombie WebSocket e Reset VAD (FM-VUI-038, FM-VUI-039)
+* **Problema Riscontrato:** Dopo diverse ore di funzionamento o inattività, Marcus appariva sordo e insensibile: la wake word "Marcus" non veniva apparentemente riconosciuta, nessun beep di attivazione veniva emesso e l'interazione vocale collassava totalmente, pur mantenendo attive la camera e Nav2.
+* **Causa Radice 1 (Sleep del DAC USB e [Errno -9988] Stream closed):** Su Linux ALSA con chip XMOS USB (ReSpeaker Lite), l'inattività prolungata dell'altoparlante causa la sospensione o chiusura del file descriptor audio da parte del kernel/driver. All'emissione del primo beep o TTS dopo ore di idle, `out_stream.write()` lanciava l'eccezione non recuperata `[Errno -9988] Stream closed`. Poiché lo stream veniva aperto solo all'avvio del nodo e l'eccezione saltava il reset di `_is_playing_out`, Marcus diventava **permanentemente muto** e lo stato di riproduzione si bloccava su `True`. Vosk in realtà udiva "Marcus" (o "marco"), ma senza beep di risposta l'utente credeva che la parola chiave fosse ignorata!
+* **Causa Radice 2 (Falso EOS da residuo VAD post-Wake Word):** Pronunciando la parola "Marcus", il VAD locale accumulava frame attivi. Alla rilevazione della wake word da parte di Vosk, i contatori VAD non venivano azzerati, provocando l'immediato invio di un frame EOS (`b''`) dopo 0.25s. Inoltre, in `live_connection_manager.py`, `on_wakeword_detected()` non impostava `_turn_started_within_window = True`, scartando silenziosamente il turno.
+* **Causa Radice 3 (Watchdog Zombie WebSocket senza Riconnessione):** Quando Gemini Live non rispondeva dopo un `activity_end` (ad es. per disconnessione silenziosa della rete o NAT timeout), il watchdog `turn_in_progress` scadeva a 8.0s sbloccando il gate locale senza forzare la riconnessione (`_reconnect()`). I successivi tentativi vocali venivano inviati su un socket zombie per minuti fino al timeout del keepalive (impostato a 120s).
+* **Soluzione Implementata:**
+  1. `_ensure_out_stream()` in `respeaker_vui_node.py`: verifica preventiva e riapertura atomica con `_out_lock` di `self.out_stream` a 48kHz prima di ogni scrittura, con gestione resiliente dell'eccezione di scrittura e reset pulito in blocco `try...finally`.
+  2. `_on_wakeword_detected()`: reset esplicito di `_speech_frame_count`, `_silence_frame_count`, `_is_speech_active` e `_vad_residual_len` a zero alla rilevazione della parola chiave.
+  3. `live_connection_manager.py`: `on_wakeword_detected()` imposta immediatamente `_turn_started_within_window = True`.
+
+### [FIX-11] Fluidità Parlato TTS, Jitter Buffer Anti-Starvation e Uscita dal Loop di Ascolto Perpetuo (FM-VUI-040, FM-VUI-041)
+* **Problema Riscontrato:** 
+  1. Il parlato di Marcus risultava "scattoso, poco fluido e a volte si inceppava, come se non riuscisse a bufferizzare bene".
+  2. Nei test successivi, il robot non rilevava più la parola chiave "Marcus", appariva insensibile alla wake word e non emetteva alcun beep di ascolto.
+* **Causa Radice 1 (Jitter Buffer Sottodimensionato & Drain Immediato - FM-VUI-040):** 
+  Nel thread `_playback_worker`, la soglia iniziale di buffer era fissata a soli 2 chunk (~80ms). Non appena la coda audio temporanea si svuotava (anche per soli 5ms di jitter nei pacchetti WebSocket da Gemini), il ciclo di riproduzione usciva immediatamente azzerando `_is_playing_out = False` e causando un underrun ALSA (XRUN) con click e silenzi. Inoltre, a ogni variazione di dimensione del blocco, veniva azzerato `_playback_ratecv_state = None`, rompendo la continuità di fase di `audioop.ratecv`. Infine, `llm_service.py` pubblicava sia su `/respeaker/speaker_audio` che su `/ai/conversation/audio_chunk`, entrambi sottoscritti dalla callback di riproduzione.
+* **Causa Radice 2 (Trappola dell'Ascolto Perpetuo & Sordità Apparente - FM-VUI-041):** 
+  Dopo una precedente attivazione, a causa della sensibilità eccessiva del WebRTC VAD su rumori ambientali (e dell'auto-ascolto del TTS), il timer di ascolto `_listen_timer_start` veniva costantemente aggiornato ad ogni frame di rumore. Poiché mancava un tetto massimo alla sessione, la finestra di ascolto non scadeva mai e il flag `_ev_listening` rimaneva attivo perennemente. Quando l'utente pronunciava "Marcus", il codice rilevava `already_listening == True` e ignorava il risveglio (nessun beep emesso, nessuna transizione visibile).
+### [FIX-12] Rigetto Rumore TV / Terzi, Soppressione Frame Duplicati e Calibrazione Volume al 10% (FM-VUI-042)
+* **Problema Riscontrato:**
+  1. Con la TV accesa nella stanza, Marcus si attivava da solo e continuava a parlare a vanvera, dicendo "c'è rumore di fondo / non riesco a capire", anche senza che nessuno gli stesse parlando.
+  2. Risposte tardive e a sproposito dovute all'invio a Gemini Live di spezzoni di dialogo della TV che allucinavano trascrizioni in lingue arbitrarie (tailandese, ucraino, coreano).
+  3. Audio della voce talvolta frammentato, poco fluido o con artefatti da duplicazione pacchetti.
+  4. Volume di riproduzione percepito come troppo alto al 35%.
+* **Causa Radice 1 (Token 'marco' e substring match permissivo in Vosk):**
+  Nel dizionario `wakeword_tokens`, era presente il token `"marco"`. Qualsiasi battuta della TV contenente il nome "Marco" o parole contenenti "marco" faceva scattare il risveglio involontario di Marcus.
+* **Causa Radice 2 (Amplificazione AGC di TV e Rumori Lontani):**
+  In `dsp_pipeline.py`, per qualsiasi segnale con RMS > 80, l'AGC calcolava `target_gain = 2000 / rms` portando il guadagno al massimo consentito (4.0x). La TV distante (~80-100 RMS) veniva amplificata di 4 volte, trasformandola in un segnale vocale forte (~400 RMS).
+* **Causa Radice 3 (VAD Mode 2 e Pre-gate RMS Troppo Basso):**
+  Il pre-gate a `rms > 50.0` e WebRTC Mode 2 lasciavano passare qualsiasi dialogo TV amplificato, aprendo turni continui verso Gemini Live.
+* **Causa Radice 4 (Duplicazione Topic e Audio Bouncing):**
+  `respeaker_vui_node` sottoscriveva sia `/respeaker/speaker_audio` che `/ai/conversation/audio_chunk`. Inoltre `orchestrator.py` intercettava `/ai/conversation/audio_chunk` e lo rimbalzava su `/respeaker/speaker_audio`. In presenza di latenza CPU, i pacchetti duplicati arrivavano sfalsati nel tempo (>10ms), ingannando il dedup e provocando il playback ripetuto degli stessi frame audio (suono frammentato / balbettio).
+* **Soluzione Implementata:**
+  1. **Wake Word Rigorosa:** Rimosso `"marco"`; matching vincolato a `\b(marcus|markus|marcos)\b` con confini di parola rigidi via regex.
+  2. **Calibrazione AGC Anti-Rumore:** Per segnali con RMS < 130.0 (rumore di fondo/TV), il guadagno rimane rigorosamente unitario (`target_gain = 1.0`). `max_gain` limitato a 2.0x e `target_rms` portato a 1400.0.
+  3. **WebRTC VAD Mode 3 (Aggressive) & Pre-gate 110.0:** VAD impostato a Mode 3 (massimo rigetto rumori d'ambiente e TV); soglia minima di apertura turno RMS portata da 50.0 a 110.0 (la TV a 60-90 RMS viene totalmente ignorata).
+  4. **Canalizzazione Esclusiva Audio Speaker:** Eliminata la sottoscrizione a `/ai/conversation/audio_chunk` in `respeaker_vui_node` (mantenuto esclusivamente `/respeaker/speaker_audio`). Eliminato il doppio inoltro in `orchestrator.py`.
+  5. **Interrupt Immediato su `<IGNORE_TURN>`:** Se Gemini classifica l'enunciato come conversazione non rivolta a Marcus, invia segnale di interrupt che svuota istantaneamente la coda altoparlante, evitando che frammenti iniziali vengano riprodotti.
+  6. **Volume al 10%:** `playback_volume` fissato a `0.10` in `respeaker_vui_node.py`, `scripts/restart_vui_ai.sh` e `restart_hailo.sh`.
+
+

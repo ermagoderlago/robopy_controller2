@@ -1,0 +1,9 @@
+CMD-01: Sì
+CMD-02: No
+CMD-03: Stop
+CMD-04: Fermati
+CMD-05: Grazie
+CMD-06: Ok
+CMD-07: Basta
+CMD-08: Annulla
+CMD-09: Silenzio

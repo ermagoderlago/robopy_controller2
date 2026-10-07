@@ -17,11 +17,12 @@ battery_manager_node:
     # --- Voltage Thresholds (Volts) ---
     charging_threshold_voltage: 12.70   # Soglia oltre la quale il robot è alimentato da rete (12.80V)
     charging_bus_voltage: 12.80         # Tensione nominale del bus con alimentatore 24V step-down
-    full_voltage: 12.60                 # 100% SoC Batteria (4.20V / cella)
+    full_voltage: 12.20                 # 100% Piena Carica (18650 3S2P calibrata con carico base)
     nominal_voltage: 11.10              # 3.70V / cella (Tensione di riferimento feed-forward)
-    eco_voltage: 10.40                  # <= 15% SoC (3.47V / cella) -> Limitatore dinamica al 50%
-    docking_voltage: 10.15              # <= 10% SoC (3.38V / cella) -> Trigger docking autonomo verso cuccia
-    shutdown_voltage: 9.80              # <= 0% SoC (3.27V / cella) -> Arresto motori e spegnimento controllato OS prima di cutoff BMS (9.74V)
+    eco_voltage: 10.20                  # <= 20% SoC -> Limitatore velocità e accel al 50% via /speed_limit
+    docking_voltage: 9.90               # <= 12% SoC -> Trigger docking autonomo verso cuccia (/robot/docking/trigger)
+    shutdown_voltage: 9.60              # <= 0% SoC -> Arresto motori immediato (I=0, anti-sag) e Graceful Shutdown con voce e mappe
+    instant_shutdown_voltage: 9.50      # Spegnimento immediato senza delay 3.0s
 
     # --- Filtering & Anti-Sag ---
     esp32_adc_scale_factor: 2880.95     # Divisore partitore 3S ESP32 (36300 -> 12.60V @ 100% full)
@@ -31,7 +32,7 @@ battery_manager_node:
 
     # --- Dynamic Limiter & Safety ---
     speed_limit_eco_pct: 50.0           # Percentuale di riduzione velocità max in modalità ECO (50%)
-    auto_poweroff: false                # Se true, esegue `sudo poweroff` su shutdown critico
+    auto_poweroff: true                 # Se true, esegue scripts/graceful_emergency_shutdown.py e sudo poweroff
 
     # --- Voltage Feed-Forward Compensation ---
     feedforward_nominal_voltage: 11.10  # Tensione di normalizzazione PWM (11.1V)

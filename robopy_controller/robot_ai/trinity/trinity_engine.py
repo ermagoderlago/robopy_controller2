@@ -116,10 +116,24 @@ class TrinityEngine:
                 content_lower = content.lower()
                 if "non ho visto molto di nuovo" in content_lower or "problema di connessione" in content_lower:
                     continue
+                time_prefix = ""
+                mem_ts = None
+                if hasattr(res, 'memory') and hasattr(res.memory, 'created_at'):
+                    mem_ts = res.memory.created_at
+                elif hasattr(res, 'metadata') and isinstance(res.metadata, dict):
+                    mem_ts = res.metadata.get('created_at')
+                if mem_ts:
+                    try:
+                        from zoneinfo import ZoneInfo
+                        dt = datetime.datetime.fromtimestamp(float(mem_ts), tz=ZoneInfo("Europe/Rome"))
+                        time_prefix = dt.strftime("[%d/%m/%Y %H:%M] ")
+                    except Exception:
+                        pass
+                line = f"- {time_prefix}{content}"
                 if hasattr(res, 'score') and res.score >= 0.35:
-                    memories.append(f"- {content}")
+                    memories.append(line)
                 elif hasattr(res, 'content'):
-                    memories.append(f"- {content}")
+                    memories.append(line)
 
             # Se la query riguarda l'apprendimento o l'identità, recupera anche i fatti appresi recenti
             is_learning_query = any(k in clean_text.lower() for k in ["appreso", "imparato", "memoria", "ricordi", "ricordare", "acronimo", "significa"])
@@ -128,7 +142,15 @@ class TrinityEngine:
                     from ..rag.memory_store import MemoryType
                     facts = self.memory_store.get_recent(limit=4, memory_type=MemoryType.LEARNED_FACT)
                     for f in facts:
-                        fact_line = f"- [FATTO APPRESO]: {f.content}"
+                        fact_ts = getattr(f, 'created_at', None)
+                        f_date = ""
+                        if fact_ts:
+                            try:
+                                dt = datetime.datetime.fromtimestamp(float(fact_ts))
+                                f_date = dt.strftime(" | %d/%m/%Y")
+                            except Exception:
+                                pass
+                        fact_line = f"- [FATTO APPRESO{f_date}]: {f.content}"
                         if fact_line not in memories:
                             memories.append(fact_line)
                 except Exception as e:
@@ -232,7 +254,8 @@ class TrinityEngine:
         dopaminergic_override: str = "",
         repeated_note: str = "",
         email_context: str = "",
-        extra_context: Optional[Dict[str, Any]] = None
+        extra_context: Optional[Dict[str, Any]] = None,
+        conversation_history: Optional[List[Dict[str, str]]] = None
     ) -> str:
         """
         Main entry point for prompt building.
@@ -271,7 +294,18 @@ class TrinityEngine:
         except Exception:
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
 
-        # 4. Metaprompt Fusion
+        # 4. Format Recent Conversation Turns (Working Memory)
+        recent_dialogue_text = ""
+        if conversation_history:
+            lines = []
+            for turn in conversation_history:
+                role = "Utente" if turn.get("role") in ("user", "human") else "Marcus"
+                content = turn.get("content", "").strip()
+                if content:
+                    lines.append(f"{role}: {content}")
+            recent_dialogue_text = "\n".join(lines)
+
+        # 5. Metaprompt Fusion
         final_prompt = self.fusion_engine.build_prompt(
             user_text=user_text,
             system_prompt=system_prompt,
@@ -288,7 +322,8 @@ class TrinityEngine:
             rag_knowledge=rag_knowledge,
             repeated_note=repeated_note,
             email_context=email_context,
-            timestamp=timestamp
+            timestamp=timestamp,
+            recent_dialogue=recent_dialogue_text
         )
 
         return final_prompt

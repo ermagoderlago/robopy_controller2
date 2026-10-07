@@ -519,6 +519,92 @@ class MAGDatabase:
                 logger.error(f"Failed to get recent episodes: {e}")
                 return []
 
+    def get_episodes_by_timerange(
+        self, 
+        start_time: float, 
+        end_time: float, 
+        limit: int = 20, 
+        user_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Retrieve episodes within a specific UNIX timestamp interval [start_time, end_time]."""
+        with self._lock:
+            try:
+                conn = self._get_connection()
+                if user_id:
+                    cursor = conn.execute(
+                        "SELECT * FROM episodes WHERE timestamp >= ? AND timestamp <= ? AND user_id = ? ORDER BY timestamp ASC LIMIT ?",
+                        (start_time, end_time, user_id, limit)
+                    )
+                else:
+                    cursor = conn.execute(
+                        "SELECT * FROM episodes WHERE timestamp >= ? AND timestamp <= ? ORDER BY timestamp ASC LIMIT ?",
+                        (start_time, end_time, limit)
+                    )
+                rows = [dict(row) for row in cursor.fetchall()]
+                conn.close()
+                return rows
+            except Exception as e:
+                logger.error(f"Failed to get episodes by timerange ({start_time} - {end_time}): {e}")
+                return []
+
+    def get_facts_by_timerange(
+        self, 
+        start_time: float, 
+        end_time: float, 
+        limit: int = 20
+    ) -> List[Dict[str, Any]]:
+        """Retrieve semantic facts created within a specific UNIX timestamp interval."""
+        with self._lock:
+            try:
+                conn = self._get_connection()
+                cursor = conn.execute(
+                    "SELECT * FROM semantic_facts WHERE created_at >= ? AND created_at <= ? ORDER BY created_at ASC LIMIT ?",
+                    (start_time, end_time, limit)
+                )
+                rows = [dict(row) for row in cursor.fetchall()]
+                conn.close()
+                return rows
+            except Exception as e:
+                logger.error(f"Failed to get facts by timerange: {e}")
+                return []
+
+    def get_episodes_frequency_stats(self, days: int = 7) -> Dict[str, Any]:
+        """Calculates episodic frequency stats over the last N days."""
+        now = time.time()
+        start_ts = now - (days * 86400)
+        with self._lock:
+            try:
+                conn = self._get_connection()
+                cursor = conn.execute(
+                    """
+                    SELECT date(timestamp, 'unixepoch', 'localtime') as day, count(*) as count
+                    FROM episodes
+                    WHERE timestamp >= ?
+                    GROUP BY day
+                    ORDER BY day ASC
+                    """,
+                    (start_ts,)
+                )
+                rows = cursor.fetchall()
+                daily_counts = {row['day']: row['count'] for row in rows}
+                total_in_period = sum(daily_counts.values())
+                avg_per_day = total_in_period / max(1, days)
+                conn.close()
+                return {
+                    "days": days,
+                    "daily_distribution": daily_counts,
+                    "total_episodes_period": total_in_period,
+                    "average_per_day": round(avg_per_day, 2)
+                }
+            except Exception as e:
+                logger.error(f"Failed to get episodes frequency stats: {e}")
+                return {
+                    "days": days,
+                    "daily_distribution": {},
+                    "total_episodes_period": 0,
+                    "average_per_day": 0.0
+                }
+
     def increment_recall_count(self, table: str, record_id: str) -> None:
         """Increment the recall_count of a record in the specified table."""
         if table not in ["episodes", "semantic_facts"]:

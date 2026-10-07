@@ -28,5 +28,12 @@ scratch/
 test_motore_remote.py
 test_motori_remote.py
 test_porcupine.py
+check_onnx.py
+fix_timer.py
+inspect_onnx.py
+refactor_vui.py
+test_onnx_run.py
+test_vad_local.py
+test_vosk_comparison.py
 
 

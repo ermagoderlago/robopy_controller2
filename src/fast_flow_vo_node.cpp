@@ -826,8 +826,8 @@ std::string FastFlowVONode::getItalianLabel(int class_id) {
         "Sci", "Snowboard", "Pallone", "Aquilone", "Mazza da baseball", "Guantone", "Skateboard", "Surf", "Racchetta", "Bottiglia",
         "Bicchiere", "Tazza", "Forchetta", "Coltello", "Cucchiaio", "Ciotola", "Banana", "Mela", "Sandwich", "Arancia",
         "Broccoli", "Carota", "Hot dog", "Pizza", "Ciambella", "Torta", "Sedia", "Divano", "Pianta", "Letto",
-        "Tavolo", "WC", "TV", "Laptop", "Mouse", "Tastiera", "Cellulare", "Microonde", "Forno", "Tostapane",
-        "Lavandino", "Frigo", "Libro", "Orologio", "Vaso", "Forbici", "Teddy Bear", "Phon", "Spazzolino"
+        "Tavolo", "WC", "TV", "Laptop", "Mouse", "Telecomando", "Tastiera", "Cellulare", "Microonde", "Forno",
+        "Tostapane", "Lavandino", "Frigo", "Libro", "Orologio", "Vaso", "Forbici", "Peluche", "Asciugacapelli", "Spazzolino"
     };
     
     if (class_id >= 0 && class_id < (int)labels.size()) {

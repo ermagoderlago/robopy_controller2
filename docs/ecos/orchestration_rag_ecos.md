@@ -234,4 +234,75 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
   * `marcus_robot_guide.md`: Documentata l'interrogazione autobiografica e semantica al punto 6.
 * **Esito Validazione:** 14/14 test superati con successo (100% PASSED) in `test_query_memory_skill.py`, `test_trinity_full.py`, `test_rag_acronym_memory.py`, confermando zero regressioni e conformità totale alla SPEC-05.
 
+---
+
+## 📈 ECO-2026-10-02-TRINITY-WORKING-MEMORY: Multi-Turn Working Memory in Metaprompt & Fast-Path Cognitive Guard
+* **Stato:** ✅ **Completato, Testato e Validato con Non-Regressione**
+* **Descrizione:** Risoluzione dell'amnesia conversazionale turno-per-turno ("effetto Parkinson") e dell'hijacking indebito delle domande conversazionali di memoria da parte di `QueryMemorySkill` (FM-TRI-008).
+* **Cause Radice:**
+  1. Assenza della sezione di cronologia recente nel prompt di `MetapromptFusion` e mancata propagazione dei turni precedenti da `ConversationManager`.
+  2. Matching avido ($\ge 0.95$) su frasi colloquiali in `QueryMemorySkill.match()`, scatenando l'esecuzione deterministica fast-path che bypassava completamente il cervello LLM e rispondeva con il solo testo preimpostato dell'acronimo MARCUS.
+* **Modifiche apportate:**
+  * `robopy_controller/robot_ai/trinity/metaprompt_fusion.py`:
+    - Aggiunta la sezione `[CONVERSAZIONE RECENTE]` e budget dedicato `BUDGET_DIALOGUE = 350` token.
+    - Ricalibrati i budget di sezione (`SYSTEM=200`, `CAG=350`, `MAG=450`, `RAG=600`, `DIALOGUE=350`, `USER=200`) per un target di 2150 token, strettamente sotto il vincolo assoluto di 2500 token (SPEC-05 Zona Rossa).
+  * `robopy_controller/robot_ai/trinity/trinity_engine.py`:
+    - Accettazione e formattazione della lista `conversation_history` in `build_augmented_prompt()`.
+  * `robopy_controller/robot_ai/orchestration/conversation.py`:
+    - Inizializzato il buffer di Working Memory `conversation_history` (ultimi 10 turni = 5 scambi).
+    - Esclusione esplicita di `query_memory`, `memory_info`, `consult_antigravity`, `consult_documentation` dal fast-path (riservato per legge fisica all'arresto di emergenza).
+    - Propagazione della cronologia dialogica a `trinity_engine.build_augmented_prompt()` e al fallback `_build_prompt()`.
+    - Registrazione post-risposta del turno (`user` e `assistant`) in `conversation_history`.
+  * `robopy_controller/robot_ai/skills/builtin/query_memory_skill.py`:
+    - Rimosse le trigger phrase colloquiali ("ti ricordi...", "cosa ricordi...") da `match()`, limitando la skill a richieste amministrative esplicite con confidenza $\le 0.85$.
+    - Rimosso il fallback cieco su tutti i fatti del DB quando una query specifica FTS5 non produce riscontri.
+    - Se esistono sia fatti che episodi/interazioni rilevanti, entrambi vengono riportati e inclusi nella risposta vocale.
+  * `robopy_controller/robot_ai/trinity/mag_episodic.py` e `mag_zettelkasten.py`:
+    - Soppressi header orfani (`RECENT EPISODES:`, `ZETTELKASTEN FACTS:`) in assenza di dati effettivi.
+  * `tests/test_trinity_full.py`:
+    - Aggiunti 3 test di non-regressione: `test_metaprompt_fusion_dialogue_working_memory`, `test_trinity_engine_conversation_history_propagation`, `test_query_memory_skill_not_hijacking_conversational_queries` (8/8 PASSED).
+  * `fmea/dfmea.yaml`:
+    - Registrato `FM-TRI-008` (RPN iniziale 144 -> residuo 8) e rigenerato il report esecutivo FMEA.
+* **Esito Validazione:** 8/8 test superati in `test_trinity_full.py` e 71/71 in `test_challenger_m4_dialogue.py`.
+
+---
+
+## 📈 ECO-2026-10-03-TRINITY-TEMPORAL-MEMORY: Datatura Ricordi Autobiografici (MAG), Parser Temporale & Statistiche di Frequenza
+* **Stato:** ✅ **Completato, Testato e Validato con Non-Regressione (12/12 PASS)**
+* **Descrizione:** Risoluzione dell'amnesia temporale e dell'incapacità di collocare cronologicamente eventi e ricordi autobiografici o rispondere a domande sulle date e frequenze (FM-TRI-009).
+* **Cause Radice:**
+  1. I metodi di sintesi del metaprompt (`to_prompt_sections` in `mag_episodic.py` e `to_prompt_section` in `mag_zettelkasten.py`) scartavano il timestamp float registrato in SQLite WAL (`episodes.timestamp`), fornendo all'LLM stringhe prive di riferimenti a giorni, orari o date. Di conseguenza, l'LLM rispondeva all'utente che il robot non mappava le date esatte dei propri ricordi.
+  2. Ricerca FTS5 cieca sulle parole temporali ("ieri", "2 ottobre", "oggi") che restituiva 0 risultati in quanto tali vocaboli non facevano parte del testo della conversazione passata. Mancava un parser temporale in linguaggio naturale e metodi di query su range temporali in SQLite WAL.
+  3. Assenza di metodi per il calcolo aggregato delle statistiche di frequenza degli episodi.
+* **Modifiche apportate:**
+  * Creato `robopy_controller/robot_ai/trinity/mag_temporal_parser.py`:
+    - Parser deterministico di espressioni temporali italiane ("oggi", "ieri", "l'altro ieri", "ultimi N giorni", "questa settimana", date numeriche `DD/MM/YYYY` e nominali `2 ottobre`) che produce intervalli $[start\_timestamp, end\_timestamp]$.
+    - Funzione `clean_temporal_tokens` per isolare le parole chiave semantiche da cercare all'interno della finestra temporale.
+    - Metodo `is_frequency_or_stats_query` per intercettare richieste di conteggio o frequenza.
+  * Modificato `robopy_controller/robot_ai/trinity/mag_database.py`:
+    - Aggiunti `get_episodes_by_timerange(start_time, end_time, limit, user_id)` e `get_facts_by_timerange(start_time, end_time, limit)`.
+    - Aggiunto `get_episodes_frequency_stats(days)` con raggruppamento per giorno `date(timestamp, 'unixepoch', 'localtime')`.
+  * Modificato `robopy_controller/robot_ai/trinity/mag_hybrid_search.py`:
+    - Integrata la decodifica delle espressioni temporali per filtrare e raggruppare prioritariamente gli episodi dell'intervallo richiesto.
+  * Modificato `robopy_controller/robot_ai/trinity/mag_episodic.py`:
+    - Formattazione di ciascun episodio con timestamp leggibile: `- [DD/MM/YYYY HH:MM] Q: ... | A: ...` localizzato `Europe/Rome`.
+  * Modificato `robopy_controller/robot_ai/trinity/mag_zettelkasten.py`:
+    - Formattazione di ciascun fatto semantico con data di creazione: `- [FACT_TYPE | DD/MM/YYYY] ...`.
+  * Modificato `robopy_controller/robot_ai/trinity/trinity_engine.py`:
+    - Aggiunta la formattazione con data e ora per i ricordi conversazionali e fatti appresi recuperati da ChromaDB.
+  * Modificato `robopy_controller/robot_ai/trinity/metaprompt_fusion.py`:
+    - Posizionata `[DATA E ORA ATTUALE: {timestamp}]` in testa al metaprompt.
+    - Istruzione esplicita in `[MEMORIA STORICA (MAG)]`: i ricordi hanno data e ora esatta da usare per collocare eventi passati ed eseguire analisi di frequenza.
+  * Modificato `robopy_controller/robot_ai/skills/builtin/query_memory_skill.py`:
+    - Gestione esplicita di query di verifica ("la tua memoria mappa le date?").
+    - Gestione delle richieste di frequenza e statistiche con ritorno strutturato dei dati aggregati.
+    - Formattazione vocale e Markdown contenente date e orari precisi per ogni fatto ed episodio.
+  * Modificato `tests/test_trinity_full.py`:
+    - Aggiunti 4 test unitari per parser temporale, query range e frequenza, formattazione date nei prompt e gestione skill (12/12 PASSED).
+  * Modificato `fmea/dfmea.yaml`:
+    - Registrato `FM-TRI-009` (RPN iniziale 168 -> residuo 7), eseguito `calculate_and_report_fmea.py`.
+* **Esito Validazione:** 12/12 in `test_trinity_full.py` e 71/71 in `test_challenger_m4_dialogue.py` (83 test complessivi superati).
+
+
+
 

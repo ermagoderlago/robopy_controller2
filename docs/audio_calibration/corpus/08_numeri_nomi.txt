@@ -1,0 +1,8 @@
+NUM-01: Chiama il numero tre tre otto, quattro cinque sei, sette otto nove zero.
+NUM-02: Imposta un timer di quindici minuti e trenta secondi.
+NUM-03: Vai nella camera da letto di Giulia.
+NUM-04: La password è alfa, bravo, charlie, uno, due, tre.
+NUM-05: Cerca il contatto Alessandro Rossi.
+NUM-06: Ho speso centoventicinque euro e cinquanta centesimi.
+NUM-07: Portami in cucina, vicino al frigorifero.
+NUM-08: Il mio codice fiscale è RSSMRA80A01H501U.

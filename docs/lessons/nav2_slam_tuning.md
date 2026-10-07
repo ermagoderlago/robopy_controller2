@@ -661,6 +661,23 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
   3. *Primato Cognitivo Assoluto dell'LLM:* Rimosso qualsiasi auto-dispatch regex di azioni attive (`start_explore`, `search_target`). Ogni manovra deve originare da una Function Call strutturata deliberata da Gemini Live / TRINITY.
   4. *Eccezione Tassativa Fast-Path Safety Stop:* I comandi di arresto immediato ("fermati", "stop", "alt", "basta") mantengono il bypass locale ultrarapido (<10ms) per azzerare istantaneamente la velocità del robot sul posto.
 
+---
+
+### Polarità dello Yaw Odometrico e Stabilità dell'Inseguimento Traiettorie Nav2 (Ottobre 2026 - FM-NAV-038 / FM-MOT-010)
+* **Sintomo:** Durante l'esecuzione di un piano di navigazione in Nav2, la traiettoria globale calcolata da `planner_server` (Navfn/Smac) e la traiettoria locale appaiono perfettamente libere da ostacoli e geometricamente ottimali sulla mappa di RViz. Tuttavia, il robot reale si muove in direzioni totalmente incongruenti, devia lateralmente, va in oscillazione angolare divergente e urta violentemente contro mobili o pareti.
+* **Causa Radice:**
+  1. *Falso Feedback di Orientamento nell'Odometria (`/odom`):*
+     Se il giroscopio Z integrato nel filtro complementare del driver ruote (`waveshare_motor_driver.py`) ha polarità invertita rispetto allo standard ROS REP-103 (+Z = antiorario/sinistra), ogni rotazione fisica del robot genera un delta di orientamento di segno opposto su `/odom`.
+  2. *Feedback Positivo nei Controllori di Traiettoria (MPPI / DWB / Pure Pursuit):*
+     - Quando il robot si inclina fisicamente di $+5^\circ$ a sinistra per seguire una curva, `/odom` notifica a Nav2 che il robot si è orientato di $-5^\circ$ a destra.
+     - L'algoritmo MPPI (`PathAlignCritic`, `PathAngleCritic`) rileva una discrepanza angolare positiva rispetto alla traiettoria target e comanda un incremento di velocità angolare $\omega > 0$ (sterza più forte a sinistra!).
+     - Questo comando spinge il robot ancora più a sinistra, ma l'odometria legge una svolta ancora più profonda a destra.
+     - Ne deriva un ciclo instabile divergente in cui il robot corre a piena potenza contro il muro laterale mentre su RViz il controllore crede di trovarsi dall'altra parte della stanza a correggere un errore immaginario.
+* **Risoluzione & Regola Cardinale di Verifica:**
+  1. La convenzione di terna destrorsa (REP-103) deve essere verificata a livello di ogni singolo stadio della pipeline sensoriale:
+     - Driver hardware C++ (`fast_flow_vo_node.cpp`): `gz_ros = -packet.gyroscope.y` (per montaggio OAK-D Lite).
+     - Ricezione ed elaborazione Python: `invert_imu_yaw:=False` (nessuna doppia inversione!).
+  2. Prima di abilitare navigazioni autonome in ambienti reali, verificare sempre su `/odom` che ruotando fisicamente il robot a sinistra di 90° lo yaw aumenti di $+1.57\text{ rad}$ e non diminuisca a $-1.57\text{ rad}$.
 
 
 
@@ -671,3 +688,41 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
 
 
 
+
+
+
+
+---
+
+### Sincronizzazione Posa Iniziale AMCL e Stabilità Orientamento Mappa in Visualizzazione (Ottobre 2026 - FM-NAV-039)
+* **Sintomo:** In Foxglove o RViz, quando il robot viene ruotato fisicamente, la mappa dell'appartamento ruota visivamente assieme al robot anziché rimanere fissa nello spazio globale. Il robot non riesce ad agganciare la propria posizione e Nav2 segnala aborto bringup con 'Failed to activate global_costmap because transform from base_link to map did not become available before timeout'.
+* **Causa Radice:**
+  1. *Race Condition di Avvio Nav2 senza Initial Pose:*
+     In nav2_params_jazzy.yaml, set_initial_pose era configurato a false. AMCL attende la ricezione di /initialpose prima di pubblicare la trasformata TF map -> odom. Nel frattempo, lifecycle_manager_navigation tenta di attivare planner_server e global_costmap. Poiché auto_relocalize.py veniva avviato solo 15 secondi dopo lo stack, global_costmap andava in timeout TF (10s), abortendo l'intero stack Nav2.
+  2. *Fallback del Fixed Frame nei Visualizzatori:*
+     In assenza del frame map (non pubblicato per mancato avvio di map_server/amcl), Foxglove Studio o RViz retrocedono automaticamente il proprio Fixed Frame su base_link (robot-centric). Quando il robot fisico ruota, la sagoma rimane orientata verso l'alto nello schermo mentre la mappa (o lo scan dei muri) ruota in senso inverso rispetto all'operatore.
+  3. *Default SLAM vs AMCL nei Riavvii Automatici:*
+     restart_hailo.sh impostava di default USE_AMCL=false, tentando la ricostruzione della mappa da zero anziché caricare la mappa ottimizzata dell'appartamento (piano_terra_opt.yaml).
+* **Risoluzione Implementata:**
+  1. *Preflight AMCL Pose Sync in restart_hailo.sh:* Prima di invocare custom_nav2_launch.py, lo script estrae le coordinate persistenti da _pose.yaml e imposta set_initial_pose: true con initial_pose: {x, y, z, yaw} nei parametri di AMCL. In questo modo AMCL pubblica immediatamente map -> odom all'attivazione del nodo.
+  2. *Default Operativo su Mappa Statica:* USE_AMCL è ora impostato di default su true in presenza di mappa nota, preservando il flag --slam solo per esplicita richiesta di rimappatura.
+  3. *Allineamento Script Utente (sync_marcus.sh):* Garantita la propagazione di restart_hailo.sh anche nella cartella home /home/robopy/ per evitare disallineamenti tra invocazioni da percorsi differenti.
+
+---
+
+### Inibizione Dispersione Particelle AMCL all'Avvio e Pose Tracking Mode (Ottobre 2026 - FM-NAV-040)
+* **Sintomo:** Il robot si avvia e imposta correttamente la posa nota salvata (es. `1.660, 1.016, 1.324`), ma dopo pochi istanti perde completamente la propria localizzazione sulla mappa dell'appartamento, esegue una rotazione a vuoto a 360° per 28 secondi senza convergere (covarianza che sale a 17 e termina a 5.77), lasciando le particelle AMCL disperse a caso nell'ambiente e il robot "rapito".
+* **Causa Radice:**
+  1. *Omissione del Flag `--inject-only` in `restart_hailo.sh`:*
+     Nello script di avvio `restart_hailo.sh`, la chiamata ad `auto_relocalize.py` su file di posa noto (`POSE_FILE`) era priva del flag `--inject-only`.
+  2. *Valutazione Troppo Rigida del Match Scan-to-Map in Ambiente Arredato:*
+     In un appartamento reale, arredi mobili, sedie, porte aperte e persone coprono oltre il 60% dei raggi ToF del LiDAR. La routine calcolava una percentuale di inlier rispetto ai muri statici pari al 12-25% (sotto la soglia di guardia del 40%).
+  3. *Distruzione Automatica del Cluster di Particelle:*
+     Rilevando match < 40%, `auto_relocalize.py` invocava il servizio `/reinitialize_global_localization`, cancellando la posa iniziale valida e spargendo 4000 particelle uniformemente su 80m². Una volta uniformi, una rotazione stazionaria sul posto non è in grado di risolvere l'ambiguità geometrica, portando al timeout e allo smarrimento totale.
+  4. *Rumore Odometrico `alpha1..alpha4` Eccessivo:*
+     I coefficienti del motion model differenziale in `nav2_params_jazzy.yaml` erano impostati a 0.5, disperdendo ulteriormente le particelle durante qualsiasi rotazione fisica.
+* **Risoluzione Implementata:**
+  1. *Ripristino `--inject-only`:* In `restart_hailo.sh`, quando `$POSE_FILE` esiste, `auto_relocalize.py` viene invocato con `--inject-only`. La posa viene iniettata su `/initialpose` e il tracking AMCL procede senza perturbare le particelle.
+  2. *Protezione Dispersione Globale in `auto_relocalize.py`:* Modificata la condizione in `run_routine()` affinché `/reinitialize_global_localization` venga invocato ESCLUSIVAMENTE se esplicitamente richiesto (`--force-global`) o in assenza di file di posa. Se una posa è stata iniettata con successo, il cluster viene preservato.
+  3. *Espansione Finestra di Tolleranza Scan-to-Map:* Ampliata la finestra di ricerca inliers da 3x3 cells ($\pm 5\text{cm}$) a 5x5 cells ($\pm 10\text{cm}$) sulla griglia 0.05m per assorbire lo spessore delle pareti e la dispersione dei fasci ToF.
+  4. *Calibrazione Noise Parameters:* Abbassati `alpha1`, `alpha2`, `alpha3`, `alpha4` da 0.5 a 0.2 in `nav2_params_jazzy.yaml`, riflettendo l'effettiva precisione della cinematica con encoder PCNT e fusione gyro.

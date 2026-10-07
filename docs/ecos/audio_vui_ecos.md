@@ -203,3 +203,131 @@ Questo documento traccia la cronologia delle modifiche ingegneristiche (ECO) app
 
 
 
+
+---
+
+## 📈 ECO-2026-10-01-001: VUI Diagnostic Batch — 7 Fix Responsività Ascolto/Risposta
+
+* **Stato:** ✅ **Completato, Collaudato (syntax check) e Pronto per Sync**
+* **Motivazione:** L'utente ha segnalato i sintomi: "a volte non risponde", "non sente", "dopo prolungata inattività non capisce/non risponde". Analisi con 3 ricercatori in parallelo ha identificato 6 cause radice.
+* **DFMEA Correlati:** FM-VUI-035b (nuovo), FM-VUI-036 (nuovo), FM-VUI-031, FM-VUI-032
+
+### File Modificati
+
+| File | Fix | Descrizione |
+|:-----|:----|:------------|
+| `robopy_controller/robot_ai/services/live_connection_manager.py` | FIX-01 | Gating finestra conversazionale spostato da EOS ad ActivityStart |
+| `robopy_controller/robot_ai/services/live_connection_manager.py` | FIX-02 | Riconnessione immediata su errore `send_realtime_input` |
+| `robopy_controller/robot_ai/services/live_connection_manager.py` | FIX-06 | Reset token di resumption su sessione scaduta |
+| `robopy_controller/robot_ai/services/live_connection_manager.py` | FIX-07 | Keepalive periodico WebSocket ogni 120s (`_keepalive_loop`) |
+| `robopy_controller/nodes/respeaker_vui_node.py` | FIX-03 | Separazione guadagno Vosk (pieno) dal guadagno Gemini (attenuato) |
+| `robopy_controller/nodes/respeaker_vui_node.py` | FIX-04 | Ri-trigger wake word sempre possibile (reset timer se already_listening) |
+| `scripts/watchdog.sh` | FIX-05 | Monitoraggio e respawn automatico di `respeaker_vui_node` |
+
+### Dettaglio Modifiche Chiave
+
+**FIX-01 — Trappola degli 8 Secondi (CAUSA RADICE #1):**
+- Aggiunta variabile `self._turn_started_within_window: bool` per memorizzare la validità del turno al momento dell'ActivityStart.
+- Al momento dell'ActivityStart: valutazione `is_active` e salvataggio in `_turn_started_within_window`.
+- Al momento dell'EOS: check su `_turn_started_within_window` invece di ricalcolare il tempo.
+- Turni fuori finestra scartati **senza** chiamare `_reconnect()` — WebSocket resta vivo.
+
+**FIX-07 — Keepalive Periodico (CAUSA RADICE WebSocket Zombie):**
+- Nuovo metodo asincrono `_keepalive_loop()` lanciato da `start_loop()`.
+- Ogni 120s in idle, invia `LiveClientContent(turns=[], turn_complete=False)`.
+- Se il keepalive fallisce, trigger immediato di `_reconnect()`.
+
+**FIX-03 — Guadagno Vosk Separato:**
+- In `_audio_processing_worker`: quando TTS o cooldown attivi, Vosk riceve segnale con `vosk_gain = self.stt_gain` (guadagno base, non attenuato).
+- Corregge il guadagno effettivo da 0.6x a 2.5x per il rilevamento far-field della wake word.
+
+### Impatto Atteso
+
+| Metrica | Prima | Dopo |
+|:--------|:------|:-----|
+| Tasso risposta su prima chiamata | ~60-70% | >95% |
+| Risveglio dopo 30min inattività | Fallisce quasi sempre | <3s latenza |
+| Range ascolto wake word | ~1.5m max | ~3m |
+| Recovery post-crash VUI | Manuale | Automatico <10s |
+
+### Addendum Collaudo Live & Risoluzione Sordità Far-Field (FIX-08)
+* **Data:** 2026-10-02 19:42
+* **Analisi Log Live:** Rilevato nel log `/home/robopy/robopy/logs/respeaker_vui_node.log` che `Gate` rimaneva forzatamente a `400.0`, bloccando il VAD vocale su frasi a volume normale (~150-250 RMS amplificato).
+* **Risoluzione:**
+  1. Identificato disallineamento nei wrapper `/mnt/ssd/robopy_controller_host/scripts/respeaker_vui_node` causato dal flag `-u` in `sync_marcus.sh`.
+  2. Implementato sync forzato di `scripts/` in `sync_marcus.sh` e ripristinati tutti i corretti script forwarder.
+  3. Ricalibrato `base_clamp` da 250/150 a `95.0` (idle) e `70.0` (attentive) in `respeaker_vui_node.py` e aumentato `stt_gain` a `2.2` in `restart_hailo.sh`.
+  4. Misurazione telemetrica a regime post-riavvio: `Ambient_EMA = 30.0` -> `Gate = 97.6` con amplificazione nominale 2.20x.
+
+---
+
+## 📈 ECO-2026-10-02-001: Disaccoppiamento Beep da AI Speaking, Riduzione Cooldown ed Espansione Fonetica Wake Word (FIX-09)
+* **Stato:** ✅ **Completato, Collaudato (108 unit tests passati) e Pronto per Deploy**
+* **Motivazione:** Risoluzione del doppio fallimento: la parola "Marcus" non veniva rilevata con costanza (60-70% di drop rate su Vosk), e quando veniva rilevata, il robot non capiva l'utente e non rispondeva per colpa del beep di sveglia che auto-attenuava il microfono a 0.1x (600ms di muting) inducendo Gemini Live a produrre un tag `<IGNORE_TURN>` su audio ritenuto "non italiano".
+* **DFMEA Correlati:** FM-VUI-037 (nuovo), FM-VUI-002, FM-VUI-003, FM-VUI-027
+
+### File Modificati
+| File | Modifica | Descrizione |
+|:-----|:---------|:------------|
+| `robopy_controller/nodes/respeaker_vui_node.py` | FIX-09a | Espansione `wakeword_tokens = ["marcus", "markus", "marcos", "marco"]` |
+| `robopy_controller/nodes/respeaker_vui_node.py` | FIX-09b | Disaccoppiamento riproduzione beep: `_play_beep()` con flag `is_speech=False`, tracciamento `_is_playing_tts` separato da `_is_playing_out` |
+| `robopy_controller/nodes/respeaker_vui_node.py` | FIX-09c | Rimozione di `_last_ai_speaking_time` da tutti i beep (sveglia 80ms, timeout, mute) |
+| `robopy_controller/nodes/respeaker_vui_node.py` | FIX-09d | Riduzione cooldown post-TTS reale da 400ms a 150ms e finestra protezione Vosk da 0.6s a 0.25s |
+| `robopy_controller/robot_ai/services/llm_service.py` | FIX-09e | Riformulazione del `system_prompt`: vincolo di interpretazione in lingua italiana per fonemi ambigui, limitazione di `<IGNORE_TURN>` a vero silenzio o terzi |
+
+---
+
+## 📈 ECO-2026-10-03-001: Resilienza PyAudio DAC Stream Sleep (-9988), Auto-Reconnect Zombie WebSocket e Reset VAD (FIX-10)
+* **Stato:** ✅ **Completato, Collaudato (176 unit tests passati) e Pronto per Deploy**
+* **Motivazione:** Risoluzione del problema di sordità/mutismo insorto dopo diverse ore di inattività: crash silenzioso di `out_stream` (`[Errno -9988] Stream closed`), blocco `_is_playing_out=True`, falso EOS immediato da frame VAD residui post-wakeword e stallo del WebSocket Gemini Live su watchdog senza riconnessione.
+* **DFMEA Correlati:** FM-VUI-038 (nuovo), FM-VUI-039 (nuovo), FM-VUI-035b, FM-VUI-036
+
+### File Modificati
+| File | Modifica | Descrizione |
+|:-----|:---------|:------------|
+| `robopy_controller/nodes/respeaker_vui_node.py` | FIX-10a | Implementazione `_ensure_out_stream()` con auto-riapertura DAC 48kHz stereo e cattura sicura errori in `_playback_worker` con `try...finally` |
+| `robopy_controller/nodes/respeaker_vui_node.py` | FIX-10b | Reset esplicito contatori e stato VAD (`_speech_frame_count=0`, `_silence_frame_count=0`, `_is_speech_active=False`, `_vad_residual_len=0`) in `_on_wakeword_detected()` |
+| `robopy_controller/nodes/respeaker_vui_node.py` | FIX-10c | Debounce ri-trigger timer finestra su Vosk parziale per prevenire log flood ad ogni frame audio |
+| `robopy_controller/robot_ai/services/live_connection_manager.py` | FIX-10d | Inizializzazione `_turn_started_within_window = True` in `on_wakeword_detected()` per accettare la frase utente post-wakeword |
+| `robopy_controller/robot_ai/services/live_connection_manager.py` | FIX-10e | Riconnessione attiva (`_reconnect()`) su scadenza watchdog `turn_in_progress` a 8.0s (abbattimento socket zombie) |
+| `robopy_controller/robot_ai/services/live_connection_manager.py` | FIX-10f | Riduzione `KEEPALIVE_INTERVAL` da 120s a 45s per prevenire chiusure silenti NAT/Google |
+
+---
+
+## 📈 ECO-2026-10-05-001: Jitter Buffer Anti-Starvation, Risoluzione Parlato Scattoso, Hard Ceiling Ascolto e Telemetria VUI (Fasi 4 & 5)
+* **Stato:** ✅ **Completato, Collaudato sul Robot Live e Confermato**
+* **Motivazione:** Risoluzione del parlato TTS "scattoso, poco fluido e con interruzioni", eliminazione del blocco della wake word da ascolto perpetuo, e completamento delle Fasi 4 e 5 del Piano di Ottimizzazione Audio.
+* **DFMEA Correlati:** FM-VUI-040 (nuovo, RPN 126 -> 14), FM-VUI-041 (nuovo, RPN 162 -> 18), FM-VUI-001, FM-VUI-037
+
+### File Modificati
+| File | Modifica | Descrizione |
+|:-----|:---------|:------------|
+| `robopy_controller/nodes/respeaker_vui_node.py` | FIX-11a | Jitter Buffer Adattivo in `_playback_worker`: prebuffer a 4 chunk (~160ms) e timeout drain di 100ms in `_audio_out_queue.get(timeout=0.100)` per eliminare ALSA underrun (XRUN) |
+| `robopy_controller/nodes/respeaker_vui_node.py` | FIX-11b | Conservazione stato filtri `audioop.ratecv` tra chunk contigui e deduplicazione pacchetti audio in `_speaker_audio_cb` |
+| `robopy_controller/nodes/respeaker_vui_node.py` | FIX-11c | Hard Ceiling di 15s in `_on_listen_timeout` per prevenire il loop infinito d'ascolto indotto da rumori o TTS echo |
+| `robopy_controller/nodes/respeaker_vui_node.py` | FIX-11d | Feedback acustico beep (80ms) abilitato anche su wake word ripetuta durante la finestra d'ascolto |
+| `robopy_controller/nodes/respeaker_vui_node.py` | FIX-11e | [Fase 5] Publisher telemetrico periodico su `/robopy/vui/diagnostics` per monitoraggio stato VAD, RMS e coda |
+| `robopy_controller/robot_ai/audio/dsp_pipeline.py` | FIX-11f | Smoothing esponenziale AGC per chunk (attack 50ms, release 800ms) e conservazione guadagno nominale 2.0x su silenzio |
+| `robopy_controller/robot_ai/audio/turn_manager.py` | FIX-11g | WebRTC VAD Mode 2 (Balanced) con pre-gate `rms > 50.0` e isteresi a 120ms |
+| `restart_hailo.sh` / `scripts/restart_vui_ai.sh` | FIX-11h | [Fase 4] Incremento `playback_volume` da 0.08 a 0.35 per volume vocale pieno e naturale |
+
+---
+
+## 📈 ECO-2026-10-06-001: Rigetto Rumore TV / Terzi, Soppressione Frame Duplicati e Calibrazione Volume al 10% (FIX-12)
+* **Stato:** ✅ **Completato, Sincronizzato e Pronto per Deploy**
+* **Motivazione:** Risoluzione di: (1) risvegli spuri da TV con Marcus che parla da solo lamentando "rumore di fondo", (2) risposte tardive o a sproposito dovute a spezzoni TV inviati a Gemini Live, (3) voce frammentata/balbettante causata da rimbalzo duplicato su topic ROS 2 multipli, (4) volume troppo alto riportato a 10%.
+* **DFMEA Correlati:** FM-VUI-042 (nuovo, RPN 144 -> 16), FM-VUI-003, FM-VUI-033, FM-VUI-040
+
+### File Modificati
+| File | Modifica | Descrizione |
+|:-----|:---------|:------------|
+| `robopy_controller/nodes/respeaker_vui_node.py` | FIX-12a | Rimosso `"marco"` da wake word tokens; matching vincolato a `\b(marcus|markus|marcos)\b` con regex |
+| `robopy_controller/nodes/respeaker_vui_node.py` | FIX-12b | Rimossa sottoscrizione duplicata su `/ai/conversation/audio_chunk`, mantenendo solo `/respeaker/speaker_audio` |
+| `robopy_controller/nodes/respeaker_vui_node.py` | FIX-12c | Volume di default impostato a `0.10` (10%) |
+| `robopy_controller/robot_ai/audio/turn_manager.py` | FIX-12d | WebRTC VAD impostato su Mode 3 (Aggressive noise rejection); pre-gate RMS elevato da 50.0 a 110.0 |
+| `robopy_controller/robot_ai/audio/dsp_pipeline.py` | FIX-12e | Calibrazione AGC: guadagno fissato a 1.0x (nessun boost) per segnali sotto 130 RMS (TV/ventole); `max_gain` limitato a 2.0x |
+| `robopy_controller/robot_ai/services/live_connection_manager.py` | FIX-12f | Interruzione immediata e svuotamento coda altoparlante su ricezione di `<IGNORE_TURN>` |
+| `robopy_controller/robot_ai/orchestration/orchestrator.py` | FIX-12g | Rimossa sottoscrizione duplicata con re-inoltro a `play_raw_pcm` |
+| `scripts/restart_vui_ai.sh` / `restart_hailo.sh` | FIX-12h | `playback_volume` fissato a `0.10` nei parametri di lancio |
+
+

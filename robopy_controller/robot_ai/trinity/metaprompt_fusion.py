@@ -18,11 +18,12 @@ class PromptSection:
 class MetapromptFusion:
     """Assembles the final structured prompt from all TRINITY sources."""
     
-    # Token budget per section
-    BUDGET_MAG = 600
-    BUDGET_CAG = 400  
-    BUDGET_RAG = 800
+    # Token budget per section (Target: 2150 tokens, max ceiling 2500 tokens per SPEC-05 ZONA ROSSA)
     BUDGET_SYSTEM = 200
+    BUDGET_CAG = 350  
+    BUDGET_MAG = 450
+    BUDGET_RAG = 600
+    BUDGET_DIALOGUE = 350
     BUDGET_USER = 200
     
     def _estimate_tokens(self, text: str) -> int:
@@ -70,7 +71,8 @@ class MetapromptFusion:
         rag_knowledge: str = "",
         repeated_note: str = "",
         email_context: str = "",
-        timestamp: str = ""
+        timestamp: str = "",
+        recent_dialogue: str = ""
     ) -> str:
         """Assemble the final metaprompt with token budget enforcement."""
         
@@ -103,6 +105,9 @@ class MetapromptFusion:
         rag_block = "\n".join(rag_parts)
         rag_block = self._truncate_to_budget(rag_block, self.BUDGET_RAG)
         
+        # Process Dialogue (Working Memory / Short-term history)
+        dialogue_block = self._truncate_to_budget(recent_dialogue, self.BUDGET_DIALOGUE)
+
         # Process User
         user_block = self._truncate_to_budget(user_text, self.BUDGET_USER)
         
@@ -117,11 +122,19 @@ class MetapromptFusion:
             "cosa significa Marcus o quale sia il tuo acronimo, devi rispondere SEMPRE e INEQUIVOCABILMENTE che è l'acronimo di "
             "Modular Autonomous Robotic Control Unit System. Non citare MAI origini latine, etimologie storiche o divinità romane (Marte)."
         )
+        if timestamp:
+            prompt_parts.append(f"\n[DATA E ORA ATTUALE: {timestamp}]")
+
         if sys_block:
             prompt_parts.append(sys_block)
             
         if mag_block:
             prompt_parts.append("\n[MEMORIA STORICA (MAG)]")
+            prompt_parts.append(
+                "(I ricordi ed episodi sottostanti contengono timestamp e date precise [GG/MM/AAAA HH:MM]. "
+                "La tua memoria mappa esattamente le date degli eventi: usale per rispondere a domande cronologiche, "
+                "sapere cosa è successo oggi, ieri o nei giorni passati, ed effettuare analisi su frequenza ed episodi.)"
+            )
             prompt_parts.append(mag_block)
             
         if cag_block:
@@ -132,18 +145,18 @@ class MetapromptFusion:
             prompt_parts.append("\n[CONOSCENZA RECUPERATA (RAG)]")
             prompt_parts.append(rag_block)
             
-        # Timestamp and Context
-        if timestamp or repeated_note or email_context:
-            if timestamp:
-                prompt_parts.append(f"\n[DATA LOCALE: {timestamp}]")
-            else:
-                prompt_parts.append(f"\n[CONTESTO AGGIUNTIVO]")
-                
+        # Context notes
+        if repeated_note or email_context:
+            prompt_parts.append("\n[CONTESTO AGGIUNTIVO]")
             if repeated_note:
                 prompt_parts.append(repeated_note)
             if email_context:
                 prompt_parts.append(email_context)
                 
+        if dialogue_block:
+            prompt_parts.append("\n[CONVERSAZIONE RECENTE]")
+            prompt_parts.append(dialogue_block)
+
         prompt_parts.append(f"\nUtente: {user_block}")
         
         return "\n".join(prompt_parts)

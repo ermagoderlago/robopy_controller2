@@ -63,11 +63,11 @@ class DummyNode:
             'legacy_voltage_topic': '/motor/battery_voltage',
             'charging_threshold_voltage': 12.70,
             'charging_bus_voltage': 12.80,
-            'full_voltage': 12.60,
+            'full_voltage': 12.20,
             'nominal_voltage': 11.10,
             'eco_voltage': 10.20,
             'docking_voltage': 9.90,
-            'shutdown_voltage': 9.00,
+            'shutdown_voltage': 9.60,
             'filter_window_size': 20,
             'sample_rate_hz': 5.0,
             'persistence_sec': 3.0,
@@ -176,6 +176,27 @@ sys.modules['diagnostic_msgs.msg'].DiagnosticArray = MockDiagnosticArray
 sys.modules['diagnostic_msgs'].msg.KeyValue = MockKeyValue
 sys.modules['diagnostic_msgs'].msg.DiagnosticStatus = MockDiagnosticStatus
 sys.modules['diagnostic_msgs'].msg.DiagnosticArray = MockDiagnosticArray
+
+class MockString:
+    def __init__(self, data=""):
+        self.data = data
+    def __repr__(self):
+        return f"MockString('{self.data}')"
+
+class MockFloat32:
+    def __init__(self, data=0.0):
+        self.data = float(data)
+
+class MockBool:
+    def __init__(self, data=False):
+        self.data = bool(data)
+
+sys.modules['std_msgs.msg'].String = MockString
+sys.modules['std_msgs.msg'].Float32 = MockFloat32
+sys.modules['std_msgs.msg'].Bool = MockBool
+sys.modules['std_msgs'].msg.String = MockString
+sys.modules['std_msgs'].msg.Float32 = MockFloat32
+sys.modules['std_msgs'].msg.Bool = MockBool
 
 
 from robopy_controller.nodes.waveshare_motor_driver import WaveshareMotorDriver
@@ -337,6 +358,44 @@ class TestBatteryMonitoring(unittest.TestCase):
         self.assertAlmostEqual(pub_bat.charge, pub_bat.percentage * 6.80, places=2)
         self.assertEqual(pub_bat.power_supply_technology, MockBatteryState.POWER_SUPPLY_TECHNOLOGY_LION)
 
+    def test_battery_manager_eco_mode_transition(self):
+        """Test that voltage at or below 10.20V activates ECO MODE and caps speed limit to 50%."""
+        for _ in range(20):
+            self.bms._insert_raw_sample(10150.0, 0.0)  # 10.15V (between docking 9.90V and eco 10.20V)
+            
+        self.bms._control_and_publish_loop()
+        self.assertIn("ECO MODE", self.bms.current_state_str)
+        self.assertFalse(self.bms.shutdown_triggered)
+        self.bms.pub_speed_limit.publish.assert_called()
+        speed_msg = self.bms.pub_speed_limit.publish.call_args[0][0]
+        val = speed_msg.speed_limit if hasattr(speed_msg, 'speed_limit') else speed_msg.data
+        self.assertAlmostEqual(val, 50.0, places=1)
+
+    def test_battery_manager_critical_shutdown_at_9_60v(self):
+        """Test that voltage <= 9.60V triggers critical shutdown, Twist 0.0, shutdown topic and FEAR mood."""
+        self.bms.pub_emergency_stop = MagicMock()
+        self.bms.pub_system_shutdown = MagicMock()
+        self.bms.pub_mood = MagicMock()
+        self.bms.pub_interrupt = MagicMock()
+
+        for _ in range(20):
+            self.bms._insert_raw_sample(9580.0, 0.0)  # 9.58V <= 9.60V
+            
+        self.bms._control_and_publish_loop()
+        self.assertEqual(self.bms.current_state_str, "CRITICO SHUTDOWN")
+        self.assertTrue(self.bms.shutdown_triggered)
+
+        # Safety override stop
+        self.bms.pub_emergency_stop.publish.assert_called()
+        # Shutdown topic
+        self.bms.pub_system_shutdown.publish.assert_called()
+        shut_arg = self.bms.pub_system_shutdown.publish.call_args[0][0].data
+        self.assertIn("CRITICAL_SHUTDOWN", shut_arg)
+        # Mood FEAR
+        self.bms.pub_mood.publish.assert_called()
+        self.assertEqual(self.bms.pub_mood.publish.call_args[0][0].data, "FEAR")
+        # Low road interrupt
+        self.bms.pub_interrupt.publish.assert_called()
 
 
 if __name__ == '__main__':

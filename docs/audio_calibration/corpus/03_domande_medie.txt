@@ -1,0 +1,8 @@
+MED-01: Che ore sono?
+MED-02: Dove ti trovi adesso?
+MED-03: Cosa vedi davanti a te?
+MED-04: Come sta andando la batteria?
+MED-05: Vai in cucina.
+MED-06: Fammi un riassunto delle notifiche.
+MED-07: Accendi la luce del salotto.
+MED-08: Che tempo fa domani mattina?

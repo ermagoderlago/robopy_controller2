@@ -1,0 +1,54 @@
+matrix_core:
+  description: "Matrice di test core ridotta (~45 min) per taratura baseline"
+  files:
+    - 01_wake.txt
+    - 02_comandi_brevi.txt
+    - 03_domande_medie.txt
+    - 04_frasi_lunghe.txt
+  dimensions:
+    distance:
+      - 0.5m
+      - 2.0m
+      - 3.0m
+    angle:
+      - 0_deg
+      - 90_deg
+      - 180_deg
+    environment:
+      - silent
+      - tv_medium_volume
+      - fan_under_load
+
+matrix_full:
+  description: "Matrice di test completa inclusiva di falsi positivi e interferenze"
+  files:
+    - 01_wake.txt
+    - 02_comandi_brevi.txt
+    - 03_domande_medie.txt
+    - 04_frasi_lunghe.txt
+    - 05_foneticamente_bilanciate.txt
+    - 06_negativi_falsi_risvegli.txt
+    - 07_barge_in.txt
+    - 08_numeri_nomi.txt
+  dimensions:
+    distance:
+      - 0.5m
+      - 1.0m
+      - 2.0m
+      - 3.0m
+      - 4.0m
+    angle:
+      - 0_deg
+      - 45_deg
+      - 90_deg
+      - 180_deg
+    environment:
+      - silent
+      - tv_medium_volume
+      - tv_loud_volume
+      - fan_under_load
+      - motors_moving
+    speaker:
+      - primary_user
+      - secondary_user
+      - child

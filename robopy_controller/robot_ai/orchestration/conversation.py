@@ -34,6 +34,7 @@ class ConversationManager:
         self._sanitizer = InputSanitizer()
         self.document_callback = None
         self._recent_inputs = []
+        self.conversation_history = []
 
         # Dopamine Biometric Alignment System
         self.cognitive_graph = MarcusStateGraph(
@@ -245,7 +246,10 @@ class ConversationManager:
         # CRITICAL: Motion initiation skills MUST NEVER bypass the TRINITY LLM!
         # HOWEVER, EMERGENCY STOP / FERMATI MUST EXECUTE INSTANTLY ON-DEVICE FOR PHYSICAL SAFETY!
         skill = self.skill_executor.find_best_match(clean_text, min_confidence=0.95)
-        if skill and skill.name in ("navigation", "frontier_exploration", "visual_exploration"):
+        if skill and skill.name in ("query_memory", "memory_info", "consult_antigravity", "consult_documentation"):
+            self._logger.info(f"Routing cognitive skill '{skill.name}' to TRINITY LLM (fast-path bypassed).")
+            skill = None
+        elif skill and skill.name in ("navigation", "frontier_exploration", "visual_exploration"):
             is_stop_cmd = bool(re.search(r'\b(ferma|fermati|stop|alt|basta|arrestati|blocca|interrompi|cancella|non\s+ti\s+muovere|non\s+muoverti)\b', clean_text, re.IGNORECASE))
             if not is_stop_cmd:
                 self._logger.info(f"Routing navigation/exploration command '{clean_text}' to TRINITY LLM (fast-path bypassed).")
@@ -424,7 +428,8 @@ class ConversationManager:
                 system_prompt=self.llm._system_prompt,
                 dopaminergic_override=getattr(self.agent_state, 'system_prompt_override', ''),
                 repeated_note=combined_notes,
-                email_context=f"\n[NOTIFICHE EMAIL RECENTI]\n{email_ctx}" if email_ctx else ""
+                email_context=f"\n[NOTIFICHE EMAIL RECENTI]\n{email_ctx}" if email_ctx else "",
+                conversation_history=list(self.conversation_history)
             )
         else:
             try:
@@ -438,7 +443,7 @@ class ConversationManager:
             except Exception as e:
                 self._logger.warning(f"Errore durante il recupero RAG in conversazione: {e}")
 
-            augmented_prompt = self._build_prompt(clean_text, ha_context, combined_notes, rag_memories)
+            augmented_prompt = self._build_prompt(clean_text, ha_context, combined_notes, rag_memories, conversation_history=list(self.conversation_history))
 
         # Timeout dall'oggetto config.llm.timeout (di base accesskey)
         llm_timeout = 20.0
@@ -611,6 +616,12 @@ class ConversationManager:
             if self.response_callback:
                  self.response_callback(response_text)
 
+            # Record completed turn in Working Memory (Short-Term Dialogue History)
+            self.conversation_history.append({"role": "user", "content": clean_text})
+            self.conversation_history.append({"role": "assistant", "content": response_text})
+            if len(self.conversation_history) > 10:
+                self.conversation_history = self.conversation_history[-10:]
+
         if response_text and self.config.get_config().rag.enabled:
             is_factual = bool(re.search(r'\b(significa|acronimo|definizione|ricordati|mi chiamo|chiamami|impara|nota)\b', clean_text, re.IGNORECASE))
             mem_type = "learned_fact" if is_factual else "conversation"
@@ -681,7 +692,7 @@ class ConversationManager:
         except Exception as e:
             return f"Errore durante l'analisi visiva: {e}"
 
-    def _build_prompt(self, user_text: str, ha_context: str, repeated_note: str = "", rag_memories: list = None) -> str:
+    def _build_prompt(self, user_text: str, ha_context: str, repeated_note: str = "", rag_memories: list = None, conversation_history: list = None) -> str:
         from zoneinfo import ZoneInfo
         now = datetime.datetime.now(ZoneInfo("Europe/Rome")).strftime("%A %d %B %Y, ore %H:%M")
         prompt = f"[DATA LOCALE: {now} (fuso orario: Europe/Rome)]\n"
@@ -701,6 +712,14 @@ class ConversationManager:
             email_ctx = email_skill.consume_notifications()
             if email_ctx:
                 prompt += f"\n[NOTIFICHE EMAIL RECENTI]\n{email_ctx}\n"
+
+        if conversation_history:
+            prompt += "\n[CONVERSAZIONE RECENTE]\n"
+            for turn in conversation_history:
+                role = "Utente" if turn.get("role") in ("user", "human") else "Marcus"
+                content = turn.get("content", "").strip()
+                if content:
+                    prompt += f"{role}: {content}\n"
                 
         prompt += f"Utente: {user_text}\n"
         return prompt

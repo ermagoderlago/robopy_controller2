@@ -141,14 +141,23 @@ rsync -avz -e "${RSYNC_SSH}" \
     --exclude='__pycache__/' --exclude='*.pyc' \
     robopy_controller/config/ ${TARGET_HOST}:${TARGET_DIR}/install/robopy_controller/share/robopy_controller/config/
 
+# Sincronizzazione deterministica di scripts/ (sovrascrive wrapper obsoleti per hot-swap)
+rsync -avz -e "${RSYNC_SSH}" \
+    --exclude='__pycache__/' --exclude='*.pyc' \
+    scripts/ ${TARGET_HOST}:${TARGET_DIR}/scripts/
+
 # --- STEP 4: PERMESSI REMOTI (eseguiti in una sola chiamata SSH) ---
 echo ""
 echo "🔑 [4/4] Impostazione permessi remoti..."
 ${SSH_CMD} ${TARGET_HOST} "
     chmod +x ${TARGET_DIR}/scripts/* ${TARGET_DIR}/*.sh ${TARGET_DIR}/robopy_controller/nodes/*.py 2>/dev/null || true
+    # Sincronizza restart_hailo.sh anche nella home dell'utente
+    cp -f ${TARGET_DIR}/restart_hailo.sh /home/robopy/restart_hailo.sh 2>/dev/null || true
+    chmod +x /home/robopy/restart_hailo.sh 2>/dev/null || true
     # Fix line endings su tutti gli script shell e wrapper in scripts/ (per sicurezza)
     find ${TARGET_DIR} -name '*.sh' -exec sed -i 's/\r$//' {} \; 2>/dev/null || true
     find ${TARGET_DIR}/scripts -type f -exec sed -i 's/\r$//' {} \; 2>/dev/null || true
+    sed -i 's/\r$//' /home/robopy/restart_hailo.sh 2>/dev/null || true
     echo '✅ Permessi impostati.'
 "
 

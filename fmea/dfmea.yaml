@@ -3303,6 +3303,57 @@
     change: Inserimento e mitigazione scheduling disgiunto ciclo notturno TRINITY
     rpn_old: 84
     rpn_new: 7
+- id: FM-TRI-008
+  subsystem: AI/Trinity
+  component: conversation_manager / metaprompt_fusion / query_memory_skill
+  function: Mantenimento della memoria di lavoro conversazionale multi-turn (Working
+    Memory) e deliberazione cognitiva delle domande di memoria
+  failure_mode: Amnesia conversazionale turno-per-turno ('Effetto Parkinson') e hijacking
+    deterministico fast-path da QueryMemorySkill con risposta rigida su acronimo
+  potential_cause: Assenza del blocco [CONVERSAZIONE RECENTE] in MetapromptFusion,
+    mancata propagazione della cronologia da ConversationManager, e trigger avido
+    (0.98) in QueryMemorySkill.match() con fallback errato a tutti i fatti
+  potential_effect: Marcus perde il contesto a ogni singola frase, non riconosce riferimenti
+    ai turni precedenti, e risponde sempre con il testo preimpostato del proprio acronimo
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-COG-002
+  - FM-TRI-001
+  initial_scoring:
+    severity: 8
+    occurrence: 9
+    detection: 2
+    rpn: 144
+  prevention_controls: Iniezione della sezione [CONVERSAZIONE RECENTE] (BUDGET_DIALOGUE
+    = 350 token) in MetapromptFusion; buffer Working Memory conversation_history in
+    ConversationManager propagato a TrinityEngine; inibizione categorica del fast-path
+    per query_memory (deliberazione esclusiva LLM); rimozione trigger avidi conversazionali
+    da QueryMemorySkill (confidence <= 0.85); soppressione del fallback forzato a
+    get_all_facts()[0].
+  detection_controls: Unit test test_metaprompt_fusion_dialogue_working_memory, test_trinity_engine_conversation_history_propagation
+    e test_query_memory_skill_not_hijacking_conversational_queries in test_trinity_full.py
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Garantire sempre che la cronologia dialogica recente sia parte
+    integrante del metaprompt TRINITY e che nessuna skill verbale bypassi l'LLM via
+    fast-path regex
+  verification_method: Pytest test_trinity_full.py (8 test passati con successo)
+  eco_ref: docs/ecos/orchestration_rag_ecos.md#ECO-2026-10-02-TRINITY-WORKING-MEMORY
+  lesson_ref: docs/lessons/orchestration_and_rag.md#working-memory-and-dialogue-context
+  date_identified: '2026-10-02'
+  last_updated: '2026-10-02'
+  history:
+  - date: '2026-10-02'
+    change: Implementata Working Memory nel Metaprompt TRINITY e rimosso hijacking
+      fast-path QueryMemorySkill
+    rpn_old: 144
+    rpn_new: 8
 - id: FM-NAV-010
   subsystem: Navigation/Vision
   component: nomad_navigator
@@ -7165,4 +7216,762 @@
       spazio libero per spin 360°, e stabilito il principio del primato cognitivo
       LLM sulle azioni (eccetto fast-path safety stop).
     rpn_old: 192
+    rpn_new: 8
+- id: FM-PWR-004
+  subsystem: Hardware/Power & Compute
+  component: battery_docking_system
+  function: Preservazione della salute chimica del pacco Li-ion 18650 (3S2P) e continuità
+    operativa autonoma mediante docking station e procedura di autoricarica ("cuccia")
+  failure_mode: Esaurimento completo della batteria con robot fermo in punti remoti
+    (Stranding) e scarica profonda distruttiva delle celle 18650 per totale assenza
+    di stazione di ricarica ("cuccia") e procedura di docking
+  potential_cause: Assenza fisica della docking station di ricarica a pavimento, assenza
+    di contatti di carica magnetici/elastici sul telaio e mancata implementazione
+    della routine di homing/docking autonomo in Nav2/TRINITY quando la tensione scende
+    sotto la soglia di allarme
+  potential_effect: Degrado chimico irreversibile delle 6 celle 18650 per caduta sotto
+    2.5V/cella (perdita permanente di capacità, rischio incendio/rigonfiamento alla
+    ricarica manuale), blocco del robot in zone inaccessibili dell'abitazione (sotto
+    letti/mobili) e totale indisponibilità operativa del sistema robotico
+  classification: HW_DAMAGE
+  estimation_basis: measured
+  related_ids:
+  - FM-SYS-003
+  - FM-SYS-004
+  - FM-PWR-003
+  initial_scoring:
+    severity: 9
+    occurrence: 8
+    detection: 4
+    rpn: 288
+  prevention_controls: 'Necessità tracciata: progettazione meccanica ed elettrica
+    della cuccia di ricarica (guida di imbocco, contatti striscianti/a molla, alimentatore
+    step-down CC-CV 12.80V 1.5A), implementazione marker fiduciale/AprilTag/LiDAR
+    per allineamento terminale ad alta precisione, e sviluppo Action Server Nav2 Docking/Homing
+    scatenato dal topic /robot/docking/trigger'
+  detection_controls: Topic /battery_state, /foxglove/power_status, /robot/docking/trigger
+    a soglia 10.15V-10.20V
+  residual_scoring:
+    severity: 9
+    occurrence: 8
+    detection: 4
+    rpn: 288
+  risk_level: REVISION_MANDATORY
+  mitigation_status: OPEN
+  recommended_action: Progettare e realizzare fisicamente la cuccia di ricarica con
+    step-down CC-CV 24V->12.80V e sviluppare il modulo di navigazione e aggancio autonomo
+    Nav2 DockingNavigator
+  verification_method: Collaudo completo ciclo di scarica, navigazione di homing,
+    accoppiamento contatti e transizione in stato POWER_SUPPLY_STATUS_CHARGING
+  eco_ref: docs/specs/SPEC-06_power_bms_thermal_safety.md
+  lesson_ref: docs/lessons/actuation_motor_driver.md#power-path-oring
+  date_identified: '2026-10-01'
+  last_updated: '2026-10-01'
+  history:
+  - date: '2026-10-01'
+    change: Apertura failure mode per tracciare la mancanza della cuccia di ricarica
+      e del sistema di ritorno autonomo
+    rpn_old: 288
+    rpn_new: 288
+- id: FM-PWR-005
+  subsystem: System/Software & Power
+  component: lifecycle_shutdown_orchestrator / battery_manager
+  function: Esecuzione deterministica della sequenza di spegnimento pulito di emergenza
+    (avviso vocale VUI, salvataggio mappe SLAM in corso, chiusura pulita nodi ROS
+    2 e flush SSD) prima del cutoff hardware BMS
+  failure_mode: Spegnimento brutale a freddo per sottotensione critica (9.60V) o crash
+    Linux da poweroff disordinato, con perdita mappe SLAM in creazione, corruzione
+    database SQLite (rtabmap/MAG) e assenza di segnalazione vocale all'utente
+  potential_cause: Parametro auto_poweroff disabilitato di default in battery_manager_node;
+    mancanza di un orchestratore di spegnimento pulito che invochi il salvataggio
+    mappa Nav2/RTAB-Map, sintetizzi l'annuncio vocale tramite ReSpeaker VUI e invii
+    la sequenza di terminazione SIGTERM controllata ai ~38 nodi ROS 2 prima del sync/poweroff
+  potential_effect: Perdita irreparabile della sessione di mappatura in corso, corruzione
+    del file journal WAL di RTAB-Map su SSD NVMe, arresto improvviso senza che l'utente
+    sappia la causa dello spegnimento
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-SYS-004
+  - FM-NAV-020
+  - FM-VUI-002
+  initial_scoring:
+    severity: 8
+    occurrence: 8
+    detection: 3
+    rpn: 192
+  prevention_controls: 'Necessità tracciata: creazione del nodo/servizio GracefulShutdownOrchestrator
+    o estensione di battery_manager_node con pipeline sequenziale: 1) Twist 0.0 immediato;
+    2) Annuncio vocale VUI prioritario; 3) Dump/Salvataggio mappa attiva (/mnt/ssd/maps/);
+    4) rtabmap/pause e sync database SQLite; 5) Arresto ordinato nodi ROS 2; 6) sync
+    e sudo systemctl poweroff'
+  detection_controls: Log di sistema, topic /robot/system/shutdown, persistenza mappe
+    su SSD NVMe
+  residual_scoring:
+    severity: 8
+    occurrence: 8
+    detection: 3
+    rpn: 192
+  risk_level: MEDIUM
+  mitigation_status: OPEN
+  recommended_action: Implementare il demone/script di graceful shutdown coordinato
+    con salvataggio mappa e annuncio vocale su ReSpeaker prima del cutoff BMS
+  verification_method: Simulazione caduta di tensione con mock e verifica generazione
+    file mappa, emissione audio PCM su DAC e spegnimento ordinato
+  eco_ref: docs/specs/SPEC-07_system_os_build_lifecycle.md
+  lesson_ref: docs/lessons/actuation_motor_driver.md#40-risoluzione-battery-cliff-da-cutoff-hardware-bms-lipo-a-974v-fm-sys-004
+  date_identified: '2026-10-01'
+  last_updated: '2026-10-01'
+  history:
+  - date: '2026-10-01'
+    change: Apertura failure mode per assenza procedura di spegnimento pulita con
+      salvataggio mappe e annuncio vocale a 9.6V
+    rpn_old: 192
+    rpn_new: 192
+- id: FM-VUI-035b
+  subsystem: Audio/VUI
+  component: live_connection_manager
+  function: Gating della finestra conversazionale per separare il parlato diretto
+    a Marcus dal rumore di fondo (TV, conversazioni terzi)
+  failure_mode: Scarto silenzioso di frasi vocali legittime dell'utente che superano
+    la finestra di 8 secondi dal trigger della wake word, con distruzione del WebSocket
+  potential_cause: Valutazione del check is_active al momento dell'End-Of-Speech (fine
+    frase) anziché all'inizio del parlato (ActivityStart). Con timeout=8.0s, la sequenza
+    tipica (2s pausa + 5s frase + 0.9s silenzio VAD) eccede la finestra
+  potential_effect: L'utente parla invano, riceve il beep calante di chiusura senza
+    risposta. Frustrazione e percezione di robot sordo. Il WebSocket viene riconnesso
+    inutilmente
+  classification: SAFETY_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-VUI-035
+  - FM-VUI-021
+  - FM-VUI-030
+  initial_scoring:
+    severity: 8
+    occurrence: 9
+    detection: 2
+    rpn: 144
+  prevention_controls: Nessuno — il timeout a 8s era un effetto collaterale della
+    mitigazione di FM-VUI-035 (anti-TV)
+  detection_controls: Log LLM Gate con wakeword_ago e is_active. Nessun allarme automatico
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  residual_controls: '[FIX-01] Il check is_active ora avviene al momento dell ActivityStart
+    (inizio parlato) e viene memorizzato in _turn_started_within_window. All EOS si
+    controlla il flag salvato. Turni fuori finestra vengono scartati senza distruggere
+    il WebSocket (_reconnect non chiamato)'
+  status: CLOSED
+  mitigation_status: CLOSED
+  history:
+  - date: '2026-10-01'
+    note: 'Identificato come causa primaria del sintomo a volte non risponde. Implementato
+      FIX-01: gating riformato da EOS ad ActivityStart (RPN 144 -> 8)'
+  risk_level: LOW
+- id: FM-VUI-036
+  subsystem: Audio/VUI
+  component: live_connection_manager
+  function: Mantenimento della connessione WebSocket Gemini Live durante periodi di
+    inattività vocale prolungata
+  failure_mode: WebSocket Zombie — connessione morta silenziosamente da Google Cloud
+    o router NAT dopo 10-15 minuti senza traffico, con invio PCM fallito e attesa
+    di 15 secondi prima della riconnessione
+  potential_cause: Assenza totale di keepalive applicativo WebSocket. Il loop di ricezione
+    fa continue ogni 60s senza inviare ping. Il blocco except su send_realtime_input
+    logga l errore senza riconnettersi
+  potential_effect: Dopo prolungata inattività, l utente chiama Marcus e non riceve
+    risposta per 15+ secondi. La finestra VUI di 8s scade durante l attesa, il turno
+    viene perso e l utente percepisce Marcus come completamente sordo
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-VUI-032
+  - FM-VUI-009
+  - FM-LLM-003
+  initial_scoring:
+    severity: 8
+    occurrence: 8
+    detection: 7
+    rpn: 448
+  prevention_controls: Nessuno — il timeout a 60s nel receive loop faceva solo continue
+  detection_controls: cloud_watchdog_node eseguiva solo ping TCP 443 senza validare
+    la sessione WebSocket Live
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  residual_controls: '[FIX-02] Riconnessione immediata su errore send_realtime_input
+    con break dal sender loop. [FIX-06] Reset automatico del token di resumption su
+    sessione scaduta. [FIX-07] Keepalive periodico ogni 120s con LiveClientContent
+    vuoto per impedire la chiusura silente della connessione da parte di Google Cloud
+    e NAT'
+  status: CLOSED
+  mitigation_status: CLOSED
+  history:
+  - date: '2026-10-01'
+    note: 'Identificato come causa primaria del sintomo dopo inattività non capisce.
+      Implementati FIX-02, FIX-06, FIX-07: riconnessione immediata, reset token e
+      keepalive periodico (RPN 448 -> 8)'
+  risk_level: LOW
+- id: FM-VUI-037
+  subsystem: Audio/VUI
+  component: respeaker_vui_node
+  function: Rilevamento continuo e affidabile della wake word e ascolto immediato
+    post-risveglio senza auto-muting
+  failure_mode: Mancato rilevamento della parola Marcus per token fonetici incompleti
+    (marcos/marco) e sordità transitoria (attenuazione microfonica 0.1x per 600ms)
+    causata dall'auto-muting del beep di risveglio
+  potential_cause: 1) Vosk su dizionario italiano trascrive Marcus come marcos o marco
+    ma il filtro token cercava solo marcus/markus. 2) Il playback del beep di risveglio
+    impostava _last_ai_speaking_time e _is_playing_out, innescando lo stato di AI
+    speaking con 400ms di cooldown ad attenuazione 0.1x proprio mentre l'utente pronunciava
+    la domanda. 3) Gemini riceveva audio mozzato e restituiva IGNORE_TURN per divieto
+    di audio straniero.
+  potential_effect: La parola Marcus fallisce 6-7 volte su 10. Quando rileva, la prima
+    frase dell'utente viene mozzata e Gemini sopprime la risposta, lasciando il robot
+    muto.
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-VUI-002
+  - FM-VUI-003
+  - FM-VUI-027
+  initial_scoring:
+    severity: 8
+    occurrence: 9
+    detection: 6
+    rpn: 432
+  prevention_controls: Nessuno — il beep veniva instradato come parlato AI
+  detection_controls: Log ASR di Vosk con token mancanti e log Gemini con trascrizioni
+    allucinate
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  residual_controls: 1) Inclusione varianti fonetiche marcus/markus/marcos/marco nei
+    token wake word. 2) Disaccoppiamento completo dei beep da _is_playing_tts e _last_ai_speaking_time
+    con _play_beep() e durata a 80ms. 3) Riduzione cooldown post-TTS reale a 150ms.
+    4) Istruzione nel system prompt per interpretazione italiana del parlato.
+  status: CLOSED
+  mitigation_status: CLOSED
+  history:
+  - date: '2026-10-02'
+    note: Risolto con separazione audio beeps/TTS in respeaker_vui_node.py, espansione
+      token fonetici Vosk e rafforzamento prompt italiano in llm_service.py (RPN 432
+      -> 8)
+  risk_level: LOW
+- id: FM-MOT-010
+  subsystem: Actuation/Motion
+  component: waveshare_motor_driver / fast_flow_vo_node
+  function: Mantenimento della traiettoria rettilinea stabile e accurato inseguimento
+    traiettoria Nav2 senza derive o collisioni
+  failure_mode: Deviazione sistematica a sinistra in rettilineo e traiettorie divergenti
+    con collisione ostacoli durante tracking Nav2
+  potential_cause: '1) Doppia inversione della polarità giroscopica Z IMU OAK-D Lite:
+    fast_flow_vo_node.cpp converte l asse Y hardware nel frame ROS REP-103 (+Z = rotazione
+    antioraria a sinistra via gz_ros = -packet.gyroscope.y); invert_imu_yaw:=True
+    in waveshare_motor_driver.py ne invertiva nuovamente il segno (w = -raw_w). Questo
+    generava un anello di retroazione positiva (positive feedback loop) nello stabilizzatore
+    di rotta a 42Hz (virata a sinistra interpretata come virata a destra, inducendo
+    il correttore ad accelerare a sinistra) e corrompeva la stima di yaw odometrico
+    in /odom (curva fisica a sinistra riportata come rotazione a destra). Il controllore
+    Nav2 (MPPI), vedendo il robot deviare a destra del percorso pianificato, comandava
+    massima sterzata a sinistra portando il robot a schiantarsi contro ostacoli. 2)
+    Asimmetria del parametro left_motor_trim=0.88 che tagliava il duty cycle del 12%
+    sulla sola ruota sinistra in marcia avanti.'
+  potential_effect: Deriva continua verso sinistra nei comandi rettilinei; fallimento
+    critico del tracking di percorso con Nav2 e collisione contro muri/ostacoli con
+    traiettoria pianificata apparentemente corretta sulla mappa
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-MOT-001
+  - FM-MOT-008
+  - FM-NAV-012
+  - FM-NAV-015
+  - FM-NAV-033
+  initial_scoring:
+    severity: 8
+    occurrence: 9
+    detection: 4
+    rpn: 288
+  prevention_controls: Allineamento rigoroso convenzione REP-103; invert_imu_yaw impostato
+    a False di default nel driver Python e negli script di avvio; left_motor_trim
+    impostato a 1.0 simmetrico; test unitario di polarita test_13_oak_imu_callback_polarity
+  detection_controls: Suite test unitari test_yaw_fusion_and_scurve.py e test_waveshare_kinematics.py;
+    monitoraggio topic /odom e /diagnostics
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  residual_controls: 1) invert_imu_yaw:=False con supporto runtime dinamico in parameter_callback;
+    2) left_motor_trim:=1.0 per simmetria forward; 3) Allineamento parametri espliciti
+    in restart_hailo.sh e start_driver.sh
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Mantenere invert_imu_yaw:=False finche fast_flow_vo_node.cpp
+    emette convenzione REP-103; mantenere trim simmetrici 1.0/1.0 per marcia avanti
+  verification_method: Convalidato con test_waveshare_kinematics.py e test_yaw_fusion_and_scurve.py
+    (18/18 test passati con polarita CCW positiva)
+  eco_ref: docs/ecos/actuation_ecos.md#ECO-2026-10-02-001
+  lesson_ref: docs/lessons/actuation_motor_driver.md#41-risoluzione-doppia-inversione-imu-e-trim-simmetrico
+  date_identified: '2026-10-02'
+  last_updated: '2026-10-02'
+  history:
+  - date: '2026-10-02'
+    change: Risolta doppia inversione polarita gyro Z e asimmetria trim 0.88. Impostato
+      invert_imu_yaw=False e left_motor_trim=1.0 (RPN 288 -> 8)
+    rpn_old: 288
+    rpn_new: 8
+- id: FM-VUI-038
+  subsystem: VUI
+  component: respeaker_vui_node / PyAudio
+  function: Riproduzione audio continua (beep e TTS) e feedback sonoro all'utente
+  failure_mode: Sordità/mutismo apparente del robot dovuto a crash silenzioso dello
+    stream di output PyAudio [Errno -9988] Stream closed dopo ore di idle
+  potential_cause: Sleep o sospensione ALSA/USB DAC ReSpeaker Lite a lungo termine
+    che invalida l'handle di output di PyAudio aperto solo al boot; assenza di recovery
+    automatico e mancato reset dei flag _is_playing_out in blocco finally
+  potential_effect: Marcus non emette alcun suono di risposta o beep di attivazione,
+    inducendo l'utente a ritenere che la wake word 'Marcus' non funzioni
+  classification: PERFORMANCE
+  estimation_basis: measured
+  related_ids:
+  - FM-VUI-001
+  - FM-VUI-002
+  - FM-VUI-031
+  initial_scoring:
+    severity: 8
+    occurrence: 8
+    detection: 3
+    rpn: 192
+  prevention_controls: Implementazione _ensure_out_stream() con auto-riapertura DAC
+    prima di ogni write e pulizia atomica dello stato _is_playing_out / _is_playing_tts
+    in clausola finally
+  detection_controls: Log di errore su out_stream e rilevamento automatico stato inattivo
+    dello stream
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  residual_controls: Auto-recovery resiliente dello stream di output PyAudio con riapertura
+    dinamica e reset VAD post-wake word
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Mantenere _ensure_out_stream() e la corretta gestione delle
+    eccezioni di write in _playback_worker
+  verification_method: Test di riproduzione continuo con chiusura forzata stream e
+    verifica auto-ripristino
+  eco_ref: docs/ecos/audio_vui_ecos.md#ECO-2026-10-03-001
+  lesson_ref: docs/lessons/audio_vui_pipeline.md#resilienza-stream-dac-e-zombie-socket
+  date_identified: '2026-10-03'
+  last_updated: '2026-10-03'
+  history:
+  - date: '2026-10-03'
+    change: Risolto con _ensure_out_stream, try...finally in _playback_worker e reset
+      VAD frame count post-wakeword (RPN 192 -> 8)
+    rpn_old: 192
+    rpn_new: 8
+- id: FM-VUI-039
+  subsystem: VUI
+  component: live_connection_manager / Gemini Live WebSocket
+  function: Gestione della sessione bidirezionale audio persistente verso Google Gemini
+    Live API
+  failure_mode: WebSocket zombie in stallo dopo mancata risposta ad activity_end e
+    turn_in_progress watchdog
+  potential_cause: Watchdog turn_in_progress a 8s che sbloccava il gate locale senza
+    triggerare la riconnessione della sessione WebSocket compromessa, abbinato a keepalive
+    interval troppo lungo (120s) e mancata valorizzazione di _turn_started_within_window
+    su evento wake word
+  potential_effect: Turni vocali dell'utente scartati silenziosamente o inviati su
+    socket zombie senza risposta vocale da parte di Marcus
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-VUI-035b
+  - FM-VUI-036
+  initial_scoring:
+    severity: 8
+    occurrence: 8
+    detection: 3
+    rpn: 192
+  prevention_controls: Trigger esplicito _reconnect() allo scadere del watchdog turn_in_progress
+    (>8s), abbassamento keepalive ping a 45s e inizializzazione _turn_started_within_window=True
+    in on_wakeword_detected()
+  detection_controls: Log dettagliati su activity_start/activity_end e monitoraggio
+    ricezione messaggi Live
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  residual_controls: Auto-reconnect su watchdog timeout turn_in_progress, keepalive
+    45s e ripristino istantaneo finestra conversazionale
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Mantenere il keepalive a 45s e verificare la salute del socket
+    ad ogni transizione di turno
+  verification_method: Test di timeout risposta e riavvio asincrono della connessione
+  eco_ref: docs/ecos/audio_vui_ecos.md#ECO-2026-10-03-001
+  lesson_ref: docs/lessons/audio_vui_pipeline.md#resilienza-stream-dac-e-zombie-socket
+  date_identified: '2026-10-03'
+  last_updated: '2026-10-03'
+  history:
+  - date: '2026-10-03'
+    change: Risolto con riconnessione automatica su timeout watchdog, keepalive a
+      45s e flag _turn_started_within_window su wakeword (RPN 192 -> 8)
+    rpn_old: 192
+    rpn_new: 8
+- id: FM-TRI-009
+  subsystem: TRINITY
+  component: mag_episodic / mag_hybrid_search / mag_database / metaprompt_fusion
+  function: Conservazione ed estrazione della componente temporale nei ricordi autobiografici
+    (data, ora, timestamp) per collocazione cronologica e analisi di frequenza
+  failure_mode: Amnesia temporale ed emissione di risposte allucinate sulla mancata
+    memorizzazione delle date ("Sembra che ci sia un limite alla precisione con cui
+    posso registrare le date esatte dei miei ricordi")
+  potential_cause: Troncamento della data/ora (timestamp) durante la sintesi delle
+    sezioni di metaprompt (to_prompt_sections in mag_episodic e mag_zettelkasten),
+    unito all'assenza di filtro temporale (get_episodes_by_timerange, MAGTemporalParser)
+    e al mancato chiarimento nel prompt di sistema sulle capacità cronologiche del
+    robot
+  potential_effect: Incapacità di rispondere a domande temporali ("cosa abbiamo fatto
+    ieri?", "cosa è successo il 2 ottobre?"), impossibilità di condurre analisi di
+    frequenza sugli episodi passati e perdita di fiducia dell'utente
+  classification: PERFORMANCE
+  estimation_basis: measured
+  related_ids:
+  - FM-TRI-001
+  - FM-TRI-008
+  initial_scoring:
+    severity: 7
+    occurrence: 8
+    detection: 3
+    rpn: 168
+  prevention_controls: Iniezione vincolante del timestamp human-readable [GG/MM/AAAA
+    HH:MM] nelle sezioni prompt episodiche e fatti, parser temporale in linguaggio
+    naturale (MAGTemporalParser), query per intervallo temporale (get_episodes_by_timerange),
+    calcolo statistiche di frequenza (get_episodes_frequency_stats) e istruzione esplicita
+    nel metaprompt MAG
+  detection_controls: Suite di test automatizzati su intervalli temporali, parsing
+    date italiane, formattazione prompt e non-regressione dialogica (test_trinity_full.py)
+  residual_scoring:
+    severity: 7
+    occurrence: 1
+    detection: 1
+    rpn: 7
+  residual_controls: Risolto con MAGTemporalParser per parsing date italiane, get_episodes_by_timerange
+    su SQLite WAL, formattazione [DD/MM/YYYY HH:MM] in prompt fusion e supporto frequenza
+    in QueryMemorySkill
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Mantenere sempre la formattazione temporale nelle sezioni prompt
+    autobiografiche verificando il rispetto del budget token (<=2500)
+  verification_method: Unit test pytest tests/test_trinity_full.py
+  eco_ref: docs/ecos/orchestration_rag_ecos.md#ECO-2026-10-03-TRINITY-TEMPORAL-MEMORY
+  lesson_ref: docs/lessons/orchestration_and_rag.md#amnesia-temporale-e-datatura-dei-ricordi
+  date_identified: '2026-10-03'
+  last_updated: '2026-10-03'
+  history:
+  - date: '2026-10-03'
+    change: Risolto con iniezione timestamp human-readable in to_prompt_sections,
+      MAGTemporalParser per query temporali e statistiche di frequenza (RPN 168 ->
+      7)
+    rpn_old: 168
+    rpn_new: 7
+- id: FM-VUI-037
+  subsystem: VUI Audio
+  component: respeaker_hardware
+  function: Riconoscimento vocale affidabile a distanza (far-field) e in ambienti
+    rumorosi o da direzioni posteriori
+  failure_mode: Mancato riconoscimento della parola di attivazione e della voce umana
+    oltre i 3 metri o fuori asse
+  potential_cause: Limiti fisici dell'hardware ReSpeaker Lite (array lineare 2-mic
+    broadside) che degrada significativamente il segnale oltre i 3 metri o posteriormente
+  potential_effect: Iterazione vocale fallita o assente, degradazione severa dell'esperienza
+    utente a distanza
+  classification: PERFORMANCE
+  estimation_basis: measured
+  related_ids: []
+  initial_scoring:
+    severity: 7
+    occurrence: 8
+    detection: 4
+    rpn: 224
+  prevention_controls: Ottimizzazione software DSP (HPF, AGC, Silero VAD) e posizionamento
+    frontale del robot
+  detection_controls: Monitoraggio dei log di mancata attivazione e feedback utente
+  residual_scoring:
+    severity: 7
+    occurrence: 5
+    detection: 4
+    rpn: 140
+  residual_controls: Ottimizzazione software in corso, ma il limite fisico impone
+    un upgrade hardware per la risoluzione definitiva
+  risk_level: MEDIUM
+  mitigation_status: IN_PROGRESS
+  recommended_action: Aggiornamento hardware a ReSpeaker XVF3800 (4-mic array, 360
+    gradi, DSP avanzato) per risolvere definitivamente i limiti acustici
+  verification_method: Test comparativo di riconoscimento vocale a 5 metri e fuori
+    asse
+  eco_ref: docs/ecos/audio_vui_ecos.md
+  lesson_ref: docs/lessons/audio_vui_pipeline.md
+  date_identified: '2026-10-03'
+  last_updated: '2026-10-03'
+  history:
+  - date: '2026-10-03'
+    change: Identificati i limiti hardware dell'array 2-mic e proposto upgrade a XVF3800
+      come mitigazione hardware definitiva
+    rpn_old: 224
+    rpn_new: 140
+- id: FM-VUI-040
+  subsystem: VUI Audio
+  component: respeaker_playback
+  function: Riproduzione audio continua, fluida e naturale della voce sintetica del
+    robot
+  failure_mode: Parlato scattoso, discontinuo con pause innaturali e micro-interruzioni
+    DAC (ALSA XRUN)
+  potential_cause: Jitter buffer sottodimensionato (2 chunk = 80ms) che si svuota
+    istantaneamente durante la ricezione WebSocket, con reset immediato di _is_playing_out
+    e reinizializzazione di audioop.ratecv
+  potential_effect: Esperienza utente severamente degradata, voce robotica e inintelligibile
+  classification: PERFORMANCE
+  estimation_basis: measured
+  related_ids:
+  - FM-VUI-001
+  - FM-VUI-002
+  initial_scoring:
+    severity: 7
+    occurrence: 9
+    detection: 2
+    rpn: 126
+  prevention_controls: Jitter buffer adattivo con prebuffer a 4 chunk (~160ms), drain
+    hysteresis con timeout 100ms e conservazione dello stato ratecv
+  detection_controls: Telemetria coda di riproduzione su /robopy/vui/diagnostics e
+    log drain
+  residual_scoring:
+    severity: 7
+    occurrence: 2
+    detection: 1
+    rpn: 14
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Introdurre timeout di svuotamento anti-fame nel playback_worker
+    e deduplicazione topic
+  verification_method: Esecuzione di scripts/test_publish_audio.py con verifica audio
+    fluido
+  eco_ref: docs/ecos/audio_vui_ecos.md
+  lesson_ref: docs/lessons/audio_vui_pipeline.md
+  date_identified: '2026-10-05'
+  last_updated: '2026-10-05'
+  history:
+  - date: '2026-10-05'
+    change: Risolto con jitter buffer prebuffering (4 chunk), timeout drain 100ms
+      e ratecv continuo (RPN 126 -> 14)
+    rpn_old: 126
+    rpn_new: 14
+- id: FM-VUI-041
+  subsystem: VUI Audio
+  component: respeaker_turn_manager
+  function: Riconoscimento della parola di attivazione Marcus e chiusura deterministica
+    della finestra conversazionale
+  failure_mode: Mancato risveglio del robot e apparente sordità alla wake word dovuta
+    a blocco nello stato di ascolto perpetuo
+  potential_cause: Fluttuazioni del VAD su rumore ambientale e auto-ascolto del TTS
+    che resettano continuamente il timer di ascolto senza tetto massimo, inibendo
+    il callback di risveglio
+  potential_effect: Il robot non risponde all'attivatore Marcus, non emette il beep
+    di attivazione e invia flussi continui al cloud
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-VUI-004
+  - FM-VUI-035b
+  initial_scoring:
+    severity: 9
+    occurrence: 9
+    detection: 2
+    rpn: 162
+  prevention_controls: Tetto massimo assoluto di 15s per sessione, RMS pre-gate per
+    WebRTC VAD Mode 2, soppressione auto-ascolto TTS e conferma acustica su wake word
+    ripetuta
+  detection_controls: Topic /robopy/vui/diagnostics e log di reset sessione
+  residual_scoring:
+    severity: 9
+    occurrence: 2
+    detection: 1
+    rpn: 18
+  risk_level: REVISION_MANDATORY
+  mitigation_status: CLOSED
+  recommended_action: Applicare hard ceiling temporale e gating RMS pre-VAD
+  verification_method: Test comparativo Vosk offline su corpus e simulazione risveglio
+  eco_ref: docs/ecos/audio_vui_ecos.md
+  lesson_ref: docs/lessons/audio_vui_pipeline.md
+  date_identified: '2026-10-05'
+  last_updated: '2026-10-05'
+  history:
+  - date: '2026-10-05'
+    change: Introdotto hard ceiling a 15s, WebRTC Mode 2 con RMS gate >50.0 e gestione
+      risveglio continuo (RPN 162 -> 18)
+    rpn_old: 162
+    rpn_new: 18
+- id: FM-VUI-042
+  subsystem: VUI Audio
+  component: respeaker_vui_node / turn_manager / dsp_pipeline
+  function: Rigoroso filtraggio rumori ambientali, rigetto audio TV ed emissione vocale
+    non duplicata
+  failure_mode: Falsi risvegli VUI da TV, risposte a vanvera su rumore amplificato
+    da AGC e parlato frammentato da topic multipli
+  potential_cause: Token 'marco' in wakeword con match permissivo, boost AGC 4x su
+    rumore sotto 130 RMS, VAD Mode 2 con gate basso e ricezione concorrente di chunk
+    audio duplicati
+  potential_effect: Il robot si risponde da solo alla TV dicendo che c'è rumore di
+    fondo, volume eccessivo e balbettio nei frame audio
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-VUI-003
+  - FM-VUI-033
+  - FM-VUI-040
+  - FM-VUI-041
+  initial_scoring:
+    severity: 8
+    occurrence: 9
+    detection: 2
+    rpn: 144
+  prevention_controls: Regex boundary \b(marcus|markus|marcos)\b senza marco, AGC
+    nominale su RMS < 130, WebRTC Mode 3 con gate RMS 110, volume 10%, topic /respeaker/speaker_audio
+    esclusivo e interrupt immediato su IGNORE_TURN
+  detection_controls: Telemetria diagnostica VUI, log di gating conversazione e log
+    ASR
+  residual_scoring:
+    severity: 8
+    occurrence: 2
+    detection: 1
+    rpn: 16
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Isolamento canale di ascolto da TV e deduping del bus di riproduzione
+    altoparlante
+  verification_method: Test comparativo offline Vosk e test streaming audio live
+  eco_ref: docs/ecos/audio_vui_ecos.md
+  lesson_ref: docs/lessons/audio_vui_pipeline.md
+  date_identified: '2026-10-06'
+  last_updated: '2026-10-06'
+  history:
+  - date: '2026-10-06'
+    change: Rimosso 'marco', WebRTC Mode 3, RMS pre-gate 110.0, AGC capped e dedup
+      topic audio altoparlante (RPN 144 -> 16)
+    rpn_old: 144
+    rpn_new: 16
+- id: FM-NAV-040
+  subsystem: Nav2
+  component: localization_amcl / auto_relocalize / restart_hailo
+  function: Conservazione della posa nota all'avvio del robot su mappa statica senza
+    dispersione del cluster particellare AMCL.
+  failure_mode: Perdita totale della posa iniziale all'avvio con dispersione uniforme
+    a 360° delle particelle AMCL indotta da match scan-to-map basso su arredi interni.
+  potential_cause: Omissione del flag --inject-only in restart_hailo.sh per auto_relocalize.py;
+    soglia euristica troppo restrittiva (<40%) in ambiente domestico arredato che
+    chiamava /reinitialize_global_localization; rumore odometrico alpha1..alpha4 a
+    0.5.
+  potential_effect: Il robot si ritrova completamente smarrito nella mappa, ruota
+    a vuoto per 28 secondi senza convergere e non è più in grado di navigare verso
+    i waypoint.
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-NAV-030
+  - FM-NAV-033
+  - FM-NAV-035
+  initial_scoring:
+    severity: 8
+    occurrence: 9
+    detection: 2
+    rpn: 144
+  prevention_controls: Flag --inject-only su pose file esistente in restart_hailo.sh;
+    inibizione chiamata global localization su pose iniettata; finestra tolleranza
+    5x5 cells (+/- 10cm); alpha1..alpha4 impostati a 0.2.
+  detection_controls: Verifica log auto_relocalize.log e nav2.log su AMCL initial
+    pose tracking.
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Garantire che l'avvio su mappa statica preservi il cluster AMCL
+    della posa persistente senza triggerare la dispersione globale.
+  verification_method: Suite test_amcl_nav2_integration.py e verifica avvio su Marcus.
+  eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-10-06-002
+  lesson_ref: docs/lessons/nav2_slam_tuning.md#FM-NAV-040
+  date_identified: '2026-10-06'
+  history:
+  - date: '2026-10-06'
+    change: Ripristinato --inject-only in restart_hailo.sh, protetto cluster pose
+      iniettato in auto_relocalize.py, tolleranza 5x5 e alpha a 0.2 (RPN 144 -> 8).
+    rpn_old: 144
+    rpn_new: 8
+- id: FM-MOT-011
+  subsystem: Actuation/Motion
+  component: waveshare_motor_driver
+  function: Tracciamento continuo dell'orientamento angolare (yaw) odometrico in TF
+    anche a motori spenti o a veicolo fermo
+  failure_mode: Blocco dell'orientamento odometrico su TF (odom -> base_link congelato)
+    a veicolo fermo con rotazione solidale dello scan laser rispetto alla mappa
+  potential_cause: Standstill bypass indiscriminato in oak_imu_callback e soppressione
+    della fusione giroscopica in process_encoder_feedback quando motors_stopped è
+    True. Qualsiasi rotazione fisica manuale o a bassa velocità a comandi nulli veniva
+    forzata a 0.0, congelando la trasformazione TF e inducendo i punti dello scan
+    LiDAR a ruotare solidalmente col robot su RViz, con collasso del particle filter
+    AMCL.
+  potential_effect: Mancata collimazione dello scan RPLIDAR C1 con i muri della mappa;
+    dispersione delle particelle AMCL; perdita totale della localizzazione globale
+    del robot su mappa statica.
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-MOT-006
+  - FM-MOT-010
+  - FM-NAV-030
+  - FM-NAV-039
+  initial_scoring:
+    severity: 8
+    occurrence: 8
+    detection: 2
+    rpn: 128
+  prevention_controls: Campionamento continuo di oak_yaw_rate da OAK-D Lite con filtro
+    deadband a 0.015 rad/s; modalità di fusione differenziata OAK_MANUAL che integra
+    il giroscopio anche con motors_stopped=True mentre mantiene bloccate le coordinate
+    x, y per azzerare il jitter Hall.
+  detection_controls: Script di verifica catena TF check_tf_laser.py e test unitario
+    test_14_manual_rotation_during_standstill_lock.
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Separare la protezione anti-jitter lineare dagli encoder dal
+    tracciamento dell'orientamento angolare del giroscopio a veicolo fermo.
+  verification_method: Test unitario pytest test_yaw_fusion_and_scurve.py (test_14)
+    e verifica live con check_tf_laser.py.
+  eco_ref: docs/ecos/actuation_ecos.md#ECO-2026-10-06-001
+  lesson_ref: docs/lessons/actuation_motor_driver.md#42-tracciamento-giroscopico-rotazione-manuale-standstill
+  date_identified: '2026-10-06'
+  last_updated: '2026-10-06'
+  history:
+  - date: '2026-10-06'
+    change: Rimosso standstill bypass in oak_imu_callback, attivata modalità OAK_MANUAL
+      in process_encoder_feedback a motori spenti (RPN 128 -> 8).
+    rpn_old: 128
     rpn_new: 8

@@ -296,5 +296,60 @@ L'architettura TRINITY integra i tre paradigmi di memoria e contesto operando a 
    - In `skill_executor.py`: supporto all'estrazione di `query` in fallback su `execution_text`, e fallback automatico su `result.message` se `result.speak` è assente.
    - In `conversation.py`: aggiunta della guardia anti-silenzio. Se sono state eseguite azioni esplicative ma nessun parlato è stato emesso e `response_text` è vuoto, viene pronunciata una risposta di stato gentile (*"Ho controllato la mia memoria, ma non ho trovato informazioni specifiche a riguardo"*), garantendo che Marcus fornisca sempre un riscontro all'interlocutore.
 
+---
 
+## 🧠 Risoluzione Amnesia Multi-Turn ('Effetto Parkinson') & Working Memory TRINITY (FM-TRI-008)
 
+### 1. Il Problema Rilevato
+* **Sintomi:**
+  1. Marcus sembrava soffrire di perdita totale di memoria ad ogni frase ("effetto Parkinson"): ogni nuovo input dell'utente veniva trattato come una conversazione completamente nuova, incapace di risolvere riferimenti al contesto o anafore ("l'hai trovato?", "di cosa stavamo parlando?", "e adesso?").
+  2. Ponendo domande del tipo *"ti ricordi cosa ti ho detto di cercare?"*, Marcus rispondeva in modo rigido e stereotipato affermando unicamente di ricordare il proprio nome e acronimo: *"Ho consultato la mia memoria: ricordo ad esempio che MARCUS ? un acronimo tecnico... Inoltre ho registrato altri 4 fatti appresi."*
+* **Cause Radice Identificate:**
+  1. **Assenza della Working Memory nel Metaprompt:** `MetapromptFusion` e `ConversationManager` non includevano la cronologia dialogica recente (`recent_dialogue`) nel prompt inviato all'LLM. Ogni chiamata di generazione standard non riceveva alcun contesto dei turni precedenti, rendendo l'LLM totalmente all'oscuro di ciò che era stato detto pochi secondi prima.
+  2. **Hijacking Indebito via Fast-Path Regex:** In `QueryMemorySkill.match()`, le frasi colloquiali come *"ti ricordi cosa"*, *"cosa ti ricordi"*, *"cosa abbiamo fatto"* restituivano un punteggio di confidenza di 0.98. In `ConversationManager._process_locked`, qualsiasi skill con confidenza $\ge 0.95$ veniva eseguita via fast-path, bypassando completamente l'LLM e il motore TRINITY!
+  3. **Fallback Forzato su Fatti Generici:** In `QueryMemorySkill.execute()`, se la ricerca FTS per la frase colloquiale non produceva risultati (poiché non era memorizzata tra i fatti), il codice ricadeva forzatamente su `get_all_facts()[:limit]`. Il primo fatto del database era tassativamente la definizione dell'acronimo MARCUS, mentre la presenza di qualsiasi fatto causava l'oscuramento completo della visualizzazione degli episodi dialogici (`elif episodes_summary`).
+
+### 2. Risoluzioni Implementate
+1. **Iniezione della Working Memory (`[CONVERSAZIONE RECENTE]`):**
+   - Introdotto un buffer circolare `conversation_history` (ultimi 10 turni = 5 scambi) in `ConversationManager`.
+   - Aggiunta la sezione `[CONVERSAZIONE RECENTE]` in `MetapromptFusion` con budget token dedicato `BUDGET_DIALOGUE = 350` token (target complessivo calibrato a 2150 token, strettamente sotto il tetto massimo di 2500 prescritto in SPEC-05 ZONA ROSSA).
+   - Propagazione trasparente della cronologia dialogica tramite `TrinityEngine.build_augmented_prompt()` e nel fallback `_build_prompt()`.
+2. **Inibizione del Fast-Path per Skill Cognitive e di Memoria:**
+   - Applicato il principio del **Primato Cognitivo Assoluto dell'LLM** (SPEC-05, SPEC-01 e marcus_core_rules.md): le skill cognitive come `query_memory`, `memory_info`, `consult_antigravity` e `consult_documentation` non possono MAI essere eseguite in fast-path bypassando l'LLM. Il fast-path on-device immediato (<10ms) rimane rigorosamente riservato all'arresto di emergenza.
+   - Rimosse da `QueryMemorySkill.match()` tutte le frasi colloquiali che appartengono all'interazione naturale dell'LLM, limitando il trigger alle sole richieste esplicite di dump o diagnostica con confidenza limitata a $\le 0.85$.
+3. **Correzione Logica di Sintesi in `QueryMemorySkill`:**
+   - Eliminato il fallback cieco a `get_all_facts()` per query specifiche.
+   - Se esistono sia fatti che interazioni/episodi pertinenti, entrambi vengono inclusi nella risposta vocale e nel report Markdown.
+   - Soppressione dell'emissione di header vuoti (`RECENT EPISODES:` e `ZETTELKASTEN FACTS:`) quando i rispettivi array sono privi di elementi.
+
+---
+
+## 📅 Conservazione Temporale, Datatura dei Ricordi Autobiografici (MAG) & Analisi di Frequenza (FM-TRI-009)
+
+### 1. Il Problema Rilevato
+* **Sintomi:**
+  1. Marcus rispondeva a domande dell'utente sulle date dei ricordi affermando: *"Uhm... Mi dispiace, Luca. Sembra che ci sia un limite alla precisione con cui posso registrare le date esatte dei miei ricordi."*
+  2. Impossibilità per l'utente di chiedere cosa fosse successo un determinato giorno ("cosa abbiamo fatto ieri?", "cosa è successo il 2 ottobre?"), quanti ricordi fossero stati registrati in un intervallo o fare analisi temporali e di frequenza.
+* **Cause Radice Identificate:**
+  1. **Dispersione del Timestamp nella Prompt Synthesis:** Nonostante SQLite WAL memorizzasse fin dall'inizio il timestamp float (`episodes.timestamp` e `semantic_facts.created_at`), i metodi `to_prompt_sections()` in `mag_episodic.py` e `to_prompt_section()` in `mag_zettelkasten.py` formattavano gli episodi come stringhe senza data (`- Q: ... | A: ...`). L'LLM vedeva stringhe prive di riferimenti temporali e allucinava l'inesistenza della datatura nel robot.
+  2. **Incapacità di Ricerca per Data e Intervallo:** Le interrogazioni temporali dell'utente (es. "ieri", "2 ottobre") venivano inviate direttamente alla ricerca Full-Text (FTS5). Poiché le parole "ieri" o "ottobre" non comparivano nel testo delle conversazioni passate, la ricerca restituiva 0 risultati. Mancava un parser temporale in linguaggio naturale e un metodo per interrogare il DB SQLite su intervalli di timestamp Unix.
+  3. **Assenza di Statistiche di Frequenza:** Mancava una query aggregata per calcolare il numero di episodi per giorno e la media temporale.
+
+### 2. Risoluzioni Implementate
+1. **Iniezione del Timestamp Umano nelle Sezioni Prompt:**
+   - In `mag_episodic.py`: ogni episodio viene formattato come `- [DD/MM/YYYY HH:MM] Q: ... | A: ...` localizzato sul fuso `Europe/Rome`.
+   - In `mag_zettelkasten.py`: ogni fatto semantico riporta la data di acquisizione `- [FACT_TYPE | DD/MM/YYYY] ...`.
+   - In `trinity_engine.py`: formattazione timestamp estesa anche ai ricordi conversazionali ChromaDB.
+2. **Parser Temporale Italiano Dedicato (`MAGTemporalParser`):**
+   - Modulo leggero e deterministico (`mag_temporal_parser.py`) che traduce espressioni temporali italiane ("oggi", "ieri", "l'altro ieri", "ultimi N giorni", "questa settimana", date numeriche `DD/MM/YYYY` e nominali `2 ottobre`) in tuple $[start\_timestamp, end\_timestamp]$.
+   - Estrazione di token semantici sostantivi (`clean_temporal_tokens`) per consentire il ranking di argomenti all'interno di una specifica finestra temporale (es. "cosa abbiamo cercato ieri?").
+   - Rilevamento intenti di frequenza/statistiche (`is_frequency_or_stats_query`).
+3. **Estensione API Database `MAGDatabase` (SQLite WAL):**
+   - Implementati `get_episodes_by_timerange(start_ts, end_ts)` e `get_facts_by_timerange(start_ts, end_ts)`.
+   - Implementato `get_episodes_frequency_stats(days=7)` con raggruppamento SQL `date(timestamp, 'unixepoch', 'localtime')`.
+4. **Integrazione in `HybridSearchEngine` e `MetapromptFusion`:**
+   - In `mag_hybrid_search.py`: la ricerca riconosce le query temporali e recupera prioritariamente i ricordi appartenenti all'intervallo temporale specificato.
+   - In `metaprompt_fusion.py`: posizionato `[DATA E ORA ATTUALE: {timestamp}]` in evidenza all'inizio del prompt e aggiunta la chiara istruzione: *"I ricordi ed episodi sottostanti contengono timestamp e date precise [GG/MM/AAAA HH:MM]. La tua memoria mappa esattamente le date degli eventi: usale per rispondere a domande cronologiche, sapere cosa è successo oggi, ieri o nei giorni passati, ed effettuare analisi su frequenza ed episodi."*
+5. **Supporto in `QueryMemorySkill`:**
+   - Supporto nativo per query statistiche ("quante volte abbiamo parlato questa settimana?", "frequenza dei ricordi").
+   - Risposta assertiva e accurata alla domanda sulla persistenza delle date, con restituzione di date/orari precisi sia a voce che in Markdown.

@@ -61,12 +61,10 @@ def main():
     rclpy.init()
     node = LocalizationInspector()
     
-    # Aspetta dati per 3 secondi
+    # Aspetta dati per 3 secondi per consentire a tf_buffer di accumulare la cronologia
     start = time.time()
     while time.time() - start < 3.0:
         rclpy.spin_once(node, timeout_sec=0.1)
-        if node.amcl_pose is not None and node.odom_pose is not None and node.scan_msg is not None:
-            break
             
     print("=" * 60)
     print("📍 STATO ATTUALE LOCALIZZAZIONE & ODOMETRIA")

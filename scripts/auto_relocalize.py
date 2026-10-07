@@ -220,17 +220,17 @@ class AutoLocalizerNode(Node):
         gx = np.floor((px - self.map_ox) / self.map_res).astype(np.int32)
         gy = np.floor((py - self.map_oy) / self.map_res).astype(np.int32)
 
-        in_bounds = (gx >= 1) & (gx < self.map_w - 1) & (gy >= 1) & (gy < self.map_h - 1)
+        in_bounds = (gx >= 2) & (gx < self.map_w - 2) & (gy >= 2) & (gy < self.map_h - 2)
         gx = gx[in_bounds]
         gy = gy[in_bounds]
 
         if len(gx) == 0:
             return (0.0, self.latest_cov_trace, 0)
 
-        # Verifica finestra di tolleranza 3x3 (+/- 1 cella = +/- 5cm su mappa 0.05m)
+        # Verifica finestra di tolleranza 5x5 (+/- 2 celle = +/- 10cm su mappa 0.05m)
         hits = np.zeros(len(gx), dtype=bool)
-        for dy in (-1, 0, 1):
-            for dx in (-1, 0, 1):
+        for dy in (-2, -1, 0, 1, 2):
+            for dx in (-2, -1, 0, 1, 2):
                 hits |= (self.map_2d[gy + dy, gx + dx] >= 50)
 
         inliers = int(np.sum(hits))
@@ -351,8 +351,9 @@ class AutoLocalizerNode(Node):
             self.get_logger().info("Modalità --inject-only completata (senza rotazione di verifica).")
             return True
 
-        # Se lo score iniziale è molto basso (< 40%) o se forzato, disperdi le particelle globalmente
-        if self.force_global or ratio < 0.40 or not injected:
+        # Se forzato esplicitamente (--force-global) o se nessuna posa è stata iniettata, disperdi le particelle globalmente.
+        # Se la posa è stata iniettata con successo, mantieni il cluster AMCL centrato per consentire il tracking/affinamento locale.
+        if self.force_global or not injected:
             self.call_global_localization()
             time.sleep(0.5)
 

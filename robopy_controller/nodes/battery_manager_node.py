@@ -20,6 +20,7 @@ Architettura Hardware Power Path OR-ing (Diodi Ideali):
 import os
 import sys
 import time
+import json
 import math
 import subprocess
 import threading
@@ -41,6 +42,17 @@ try:
 except ImportError:
     HAS_NAV2_MSGS = False
 
+# Supporto opzionale per AudioData (ReSpeaker / Speaker VUI)
+try:
+    from robopy_controller.msg import AudioData
+    HAS_AUDIO_DATA = True
+except ImportError:
+    try:
+        from audio_common_msgs.msg import AudioData
+        HAS_AUDIO_DATA = True
+    except ImportError:
+        HAS_AUDIO_DATA = False
+
 
 class BatteryManagerNode(Node):
     def __init__(self):
@@ -59,11 +71,11 @@ class BatteryManagerNode(Node):
 
         self.declare_parameter('charging_threshold_voltage', 12.70)
         self.declare_parameter('charging_bus_voltage', 12.80)
-        self.declare_parameter('full_voltage', 12.60)
+        self.declare_parameter('full_voltage', 12.20)               # Piena Carica in esercizio sotto carico (12.10V - 12.20V)
         self.declare_parameter('nominal_voltage', 11.10)
-        self.declare_parameter('eco_voltage', 10.40)
-        self.declare_parameter('docking_voltage', 10.15)
-        self.declare_parameter('shutdown_voltage', 9.80)
+        self.declare_parameter('eco_voltage', 10.20)                # Modalità ECO (10.20V)
+        self.declare_parameter('docking_voltage', 9.90)             # Soglia Rientro in Cuccia (9.90V)
+        self.declare_parameter('shutdown_voltage', 9.60)            # Shutdown di Sicurezza (9.60V)
 
         # Parametri Batteria Panasonic NCR18650B (3S2P: 6 celle, 6800 mAh, 11.1V nominale)
         self.declare_parameter('total_capacity_ah', 6.80)            # 2x 3400 mAh = 6.8 Ah (75.5 Wh)
@@ -82,7 +94,7 @@ class BatteryManagerNode(Node):
         self.declare_parameter('sample_rate_hz', 5.0)
         self.declare_parameter('persistence_sec', 3.0)
         self.declare_parameter('speed_limit_eco_pct', 50.0)
-        self.declare_parameter('auto_poweroff', False)
+        self.declare_parameter('auto_poweroff', True)               # Abilitato per spegnimento controllato a 9.60V
         self.declare_parameter('esp32_adc_scale_factor', 2880.95)
 
         # --- Lettura Parametri ---
@@ -121,22 +133,20 @@ class BatteryManagerNode(Node):
         self.post_dock_min_voltage = float(val_min_v) if (val_min_v is not None and float(val_min_v) > 10.0) else 12.45
 
 
-        # Tabella OCV calibrata da datasheet ufficiale Panasonic NCR18650B per pacco 3S (12.60V max, 9.00V min)
+        # Tabella OCV calibrata da datasheet Panasonic NCR18650B (3S2P) sotto carico operativo continuo
+        # 100% Piena Carica: 12.10V - 12.20V, ECO: 10.20V, Shutdown: 9.60V
         # Coppie: (Tensione_V, SoC_ratio) ordinate in modo decrescente
         self.ncr18650b_ocv_table = [
-            (12.60, 1.00),  # 4.20V/cella - 100% Carica completa
-            (12.45, 0.95),  # 4.15V/cella - 95%
-            (12.24, 0.90),  # 4.08V/cella - 90%
-            (11.97, 0.80),  # 3.99V/cella - 80%
-            (11.70, 0.70),  # 3.90V/cella - 70%
-            (11.46, 0.60),  # 3.82V/cella - 60%
-            (11.25, 0.50),  # 3.75V/cella - 50%
-            (11.04, 0.40),  # 3.68V/cella - 40% (Altezza tipica del plateau Li-ion)
-            (10.86, 0.30),  # 3.62V/cella - 30%
-            (10.65, 0.20),  # 3.55V/cella - 20%
-            (10.40, 0.15),  # 3.47V/cella - 15% (Prossimità soglia ECO 10.40V)
-            (10.15, 0.10),  # 3.38V/cella - 10% (Prossimità soglia Docking 10.15V)
-            (9.80,  0.00),  # 3.27V/cella - 0%  (Soglia critica spegnimento OS prima del cutoff hardware BMS 9.74V)
+            (12.20, 1.00),  # 100% Carica completa in esercizio sotto carico (12.10V - 12.20V)
+            (12.10, 0.95),  # 95%
+            (11.90, 0.85),  # 85%
+            (11.65, 0.70),  # 70%
+            (11.35, 0.52),  # 52% (Plateau nominale ~11.1V a vuoto / ~11.3V OCV compensata)
+            (11.05, 0.38),  # 38%
+            (10.60, 0.25),  # 25%
+            (10.20, 0.15),  # 15% (Soglia ECO: 10.20V)
+            (9.90,  0.08),  # 8%  (Soglia Docking / Rientro: 9.90V)
+            (9.60,  0.00),  # 0%  (Soglia Spegnimento di Sicurezza: 9.60V)
         ]
 
         self.filter_window_size = int(self.get_parameter('filter_window_size').value)
@@ -195,6 +205,12 @@ class BatteryManagerNode(Node):
         self.pub_system_shutdown = self.create_publisher(String, self.shutdown_topic, qos_reliable)
         self.pub_legacy_voltage = self.create_publisher(Float32, self.legacy_voltage_topic, qos_reliable)
         self.pub_emergency_stop = self.create_publisher(Twist, '/cmd_vel_mux/input/safety_override', qos_reliable)
+        self.pub_mood = self.create_publisher(String, '/ai/conversation/mood', qos_reliable)
+        self.pub_interrupt = self.create_publisher(String, '/marcus/low_road/interrupt', qos_reliable)
+        if HAS_AUDIO_DATA:
+            self.pub_speaker_audio = self.create_publisher(AudioData, '/respeaker/speaker_audio', 10)
+        else:
+            self.pub_speaker_audio = None
 
 
         if HAS_NAV2_MSGS:
@@ -464,12 +480,12 @@ class BatteryManagerNode(Node):
                     self.shutdown_start_time = now
 
                 dur = now - self.shutdown_start_time
-                # Interblocco hardware per prevenire il distacco brutale del BMS LiPo (cutoff misurato a ~9.74V)
-                hard_cutoff_threat = (v_filt <= 9.72)
+                # Interblocco hardware per prevenire il distacco brutale del BMS (spegnimento istantaneo se V <= v_shutdown)
+                hard_cutoff_threat = (v_filt <= self.v_shutdown)
                 if dur >= self.persistence_sec or hard_cutoff_threat:
                     self.shutdown_triggered = True
                     self.current_state_str = "CRITICO SHUTDOWN"
-                    reason_msg = f"cutoff fisico BMS imminente ({v_filt:.2f}V <= 9.72V)" if hard_cutoff_threat else f"{v_filt:.2f}V per {dur:.1f}s"
+                    reason_msg = f"sottotensione critica ({v_filt:.2f}V <= {self.v_shutdown:.2f}V)" if hard_cutoff_threat else f"{v_filt:.2f}V per {dur:.1f}s"
                     self.get_logger().error(
                         f"🚨 [BatteryManager] SOTTOTENSIONE CRITICA ({reason_msg})! Arresto motori e spegnimento OS imminente.",
                         throttle_duration_sec=1.0
@@ -551,21 +567,56 @@ class BatteryManagerNode(Node):
         stop_cmd = Twist()
         self.pub_emergency_stop.publish(stop_cmd)
 
-        # 3. Spegnimento OS Graceful Shutdown se abilitato
+        # 3. Aggiorna stato emotivo a FEAR e notifica Amigdala Low Road
+        try:
+            mood_msg = String()
+            mood_msg.data = "FEAR"
+            self.pub_mood.publish(mood_msg)
+
+            int_msg = String()
+            int_msg.data = json.dumps({
+                "type": "CRITICAL_BATTERY_SHUTDOWN",
+                "voltage": float(v_filt),
+                "reason": f"Sottotensione critica {v_filt:.2f}V <= {self.v_shutdown}V",
+                "timestamp": time.time()
+            })
+            self.pub_interrupt.publish(int_msg)
+        except Exception:
+            pass
+
+        # 4. Spegnimento OS Graceful Shutdown se abilitato
         if self.auto_poweroff and not self.poweroff_executed:
             self.poweroff_executed = True
-            self.get_logger().error("🛑 [BatteryManager] Esecuzione OS Graceful Shutdown (sudo poweroff)...")
+            self.get_logger().error(f"🛑 [BatteryManager] Esecuzione OS Graceful Emergency Shutdown ({v_filt:.2f}V <= {self.v_shutdown}V)...")
             threading.Thread(target=self._execute_poweroff_worker, daemon=True).start()
 
     def _execute_poweroff_worker(self):
-        """Thread asincrono per lanciare il poweroff del sistema operativo senza bloccare ROS 2."""
+        """Thread asincrono per lanciare la sequenza orchestrata di graceful emergency shutdown."""
         try:
-            # Sync dei filesystem per proteggere NVMe / SD
-            os.system("sync")
-            time.sleep(0.5)
-            subprocess.run(["sudo", "systemctl", "poweroff", "-i"], check=False)
+            with self.lock:
+                v_filt = float(self.filtered_voltage)
+
+            script_paths = [
+                "/mnt/ssd/robopy_controller_host/scripts/graceful_emergency_shutdown.py",
+                os.path.join(os.path.dirname(__file__), "..", "..", "scripts", "graceful_emergency_shutdown.py"),
+                os.path.join(os.path.dirname(__file__), "..", "scripts", "graceful_emergency_shutdown.py")
+            ]
+            target_script = None
+            for p in script_paths:
+                if os.path.exists(p):
+                    target_script = os.path.abspath(p)
+                    break
+
+            if target_script:
+                self.get_logger().info(f"🚀 Avvio orchestratore graceful shutdown: {target_script}")
+                subprocess.run([sys.executable, target_script, f"--voltage={v_filt:.2f}"], check=False)
+            else:
+                self.get_logger().warn("⚠️ Script graceful_emergency_shutdown.py non trovato, eseguo fallback diretto.")
+                os.system("sync")
+                time.sleep(0.5)
+                subprocess.run(["sudo", "systemctl", "poweroff", "-i"], check=False)
         except Exception as e:
-            self.get_logger().error(f"Errore durante l'esecuzione di poweroff: {e}")
+            self.get_logger().error(f"Errore durante l'esecuzione di graceful shutdown: {e}")
 
 
 def main(args=None):

@@ -1,0 +1,4 @@
+LONG-01: Vorrei che tu mi spiegassi, per favore, come funziona il tuo sistema di navigazione e se riesci a mappare tutta la casa senza perderti nei corridoi stretti.
+LONG-02: Stavo pensando di farti aggiungere un nuovo promemoria per domani, ricordami di chiamare l'idraulico verso le quattro del pomeriggio e poi di comprare il pane.
+LONG-03: Se io adesso mi sposto verso la cucina e tu mi segui, riesci a non sbattere contro le sedie che ho lasciato in mezzo al tavolo? Perché l'altra volta hai fatto fatica.
+LONG-04: Vorrei provare a raccontarti una storia molto lunga per vedere se la ascolti tutta senza interrompermi, c'era una volta un robot che voleva imparare a cucinare ma non aveva le mani, quindi usava i laser per scaldare il cibo. Ti è piaciuta?

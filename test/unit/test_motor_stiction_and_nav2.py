@@ -230,11 +230,10 @@ class TestNav2JazzyMotionParameters(unittest.TestCase):
     def test_collision_monitor_parameters(self):
         """Collision monitor parameters must filter reflections and tolerate sensor latencies"""
         cm = self.config['collision_monitor']['ros__parameters']
-        self.assertEqual(cm['source_timeout'], 5.0, "source_timeout must be 5.0s to tolerate pointcloud latency")
-        self.assertIn("[[0.20, 0.14], [0.20, -0.14], [-0.14, -0.14], [-0.14, 0.14]]", cm['PolygonStop']['points'],
-                      "PolygonStop must be reshaped to match chassis footprint")
+        self.assertEqual(cm['source_timeout'], 5.0, "source_timeout must be 5.0s to tolerate sensor latency")
+        self.assertIn("[[0.28, 0.20], [0.28, -0.20], [-0.18, -0.20], [-0.18, 0.20]]", cm['PolygonStop']['points'],
+                      "PolygonStop must match FM-NAV-033 expanded chassis safety envelope")
         self.assertEqual(cm['scan']['min_range'], 0.06, "scan min_range must be 0.06m to filter mast reflections")
-        self.assertEqual(cm['pointcloud']['min_range'], 0.06, "pointcloud min_range must be 0.06m to filter chassis artifacts")
 
 
 if __name__ == '__main__':

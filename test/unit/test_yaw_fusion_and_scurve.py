@@ -54,7 +54,8 @@ class DummyNode:
             'use_cmd_vel_odometry': False,
             'use_encoder_for_linear': True,
             'use_imu_for_rotation': False,
-            'invert_imu_yaw': True,
+            'invert_imu_yaw': False,
+            'left_motor_trim': 1.0,
             'standstill_encoder_deadband': 8,
             'feedforward_nominal_voltage': 11.10,
             'feedforward_min_scale': 0.70,
@@ -463,5 +464,53 @@ class TestYawFusionAndSCurve(unittest.TestCase):
         self.assertGreaterEqual(abs(self.driver.current_duty_left), 0.13, "Left spin duty must meet scrub floor")
         self.assertGreaterEqual(abs(self.driver.current_duty_right), 0.15, "Right spin duty must meet scrub floor")
 
+    def test_13_oak_imu_callback_polarity(self):
+        """Verify that oak_imu_callback inverts DepthAI OAK gyro (+Y cam) to ROS REP-103 (+Z = Left)."""
+        imu_msg = MagicMock()
+        # On Marcus, raw angular_velocity.z is negative for CCW left turns; invert_imu_yaw=True restores positive REP-103
+        imu_msg.angular_velocity.z = -0.35
+        
+        self.driver.motors_stopped = False
+        self.driver.invert_imu_yaw = True
+        self.driver.last_imu_time = None
+        
+        self.driver.oak_imu_callback(imu_msg)
+        
+        self.assertAlmostEqual(self.driver.oak_yaw_rate, 0.35, places=2,
+            msg="OAK IMU yaw rate must be positive for CCW turn when invert_imu_yaw is True")
+
+    def test_14_manual_rotation_during_standstill_lock(self):
+        """Verify that when motors_stopped is True, gyro rotation is integrated into theta while x,y remain locked."""
+        self.driver.motors_stopped = True
+        self.driver.enable_chassis_yaw_fusion = True
+        self.driver.theta = 0.0
+        self.driver.x = 1.0
+        self.driver.y = 2.0
+        self.driver.last_odom_time = time.time()
+        
+        # 1. Stationary case: gyro rate 0.0 -> theta must not drift
+        self.driver.oak_yaw_rate = 0.0
+        self.driver.last_imu_time = time.time()
+        self.driver.process_encoder_feedback(1000, 1000)
+        self.assertEqual(self.driver.theta, 0.0, "Theta must not drift when stationary")
+        self.assertEqual(self.driver.x, 1.0, "X must remain locked")
+        self.assertEqual(self.driver.y, 2.0, "Y must remain locked")
+        
+        # 2. Manual rotation case: robot is physically turned CCW at 0.40 rad/s
+        now = time.time()
+        self.driver.oak_yaw_rate = 0.40
+        self.driver.last_imu_time = now
+        t_next = now + 0.10
+        with patch.object(self.driver, 'get_clock') as mock_clock:
+            mock_clock.return_value.now.return_value.nanoseconds = int(t_next * 1e9)
+            # Encoders may report 0 ticks or noise
+            self.driver.process_encoder_feedback(1000, 1000)
+            
+        self.assertAlmostEqual(self.driver.theta, 0.40 * 0.10, places=2,
+            msg="Theta must track manual gyro rotation even when motors_stopped is True")
+        self.assertEqual(self.driver.x, 1.0, "X must still remain strictly locked during pure rotation")
+        self.assertEqual(self.driver.y, 2.0, "Y must still remain strictly locked during pure rotation")
+
 if __name__ == '__main__':
     unittest.main()
+

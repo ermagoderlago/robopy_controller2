@@ -453,5 +453,75 @@ Durante il primo collaudo fisico a bordo del robot Marcus alimentato a batteria 
 2. **[TEST UNITARI] `test/unit/test_battery_monitoring.py`:**
    - Aggiunti test per l'avanzamento carica stimata, l'emissione del trigger di undock e la validazione post-docking sia in caso di successo che di interruzione precoce: **8/8 test superati al 100%**.
 
+---
+
+<a id="ECO-2026-10-02-001"></a>
+## ECO-2026-10-02-001: Risoluzione Doppia Inversione Gyro Z OAK-D Lite, Eliminazione Feedback Positivo Heading Stabilizer e Trim Simmetrico (FM-MOT-010, FM-NAV-038)
+
+* **Data:** 2026-10-02
+* **Autore:** Marcus AI / Antigravity
+* **Stato:** ✅ **APPLICATO IN CODICE & VALIDATO CON TEST UNITARI (41/41 PASSATI)**
+* **DFMEA Correlati:** `FM-MOT-010`, `FM-MOT-008`, `FM-NAV-012`, `FM-NAV-038`
+
+### Contesto e Causa Radice
+1. **Doppia Inversione Polare Giroscopio Z (REP-103):**
+   - Nel nodo C++ `fast_flow_vo_node.cpp` (riga 434), la lettura del giroscopio OAK-D Lite veniva già convertita nella convenzione standard ROS REP-103 (+Z = rotazione antioraria / sinistra): `gz_ros = -packet.gyroscope.y;`.
+   - Nel driver Python `waveshare_motor_driver.py` (riga 43), il parametro `invert_imu_yaw` era impostato a `True` di default, eseguendo `w = -raw_w` nella callback `oak_imu_callback`.
+   - Questa doppia inversione faceva sì che una rotazione fisica a sinistra producesse un valore di `oak_yaw_rate` negativo.
+2. **Positive Feedback Loop Heading Stabilizer:**
+   - In `send_speeds()`, lo stabilizzatore di rotta a 42 Hz interpretava una deviazione a sinistra come una svolta a destra, sottraendo potenza alla ruota sinistra e accelerando la ruota destra, accentuando attivamente la virata a sinistra.
+3. **Corruzione Odometria `/odom` e Collisioni Nav2:**
+   - La fusione odometrica integrava la velocità angolare invertita. Quando il robot girava fisicamente a sinistra, `/odom` ruotava a destra.
+   - Il controllore MPPI di Nav2, vedendo il robot deviare a destra rispetto al percorso pianificato, comandava massima sterzata a sinistra, conducendo il robot a deviare violentemente dalla traiettoria della mappa e schiantarsi contro pareti e mobili.
+4. **Asimmetria Trim Eccessiva:**
+   - `left_motor_trim` impostato a `0.88` tagliava del 12% la potenza erogata alla ruota sinistra in marcia avanti.
+
+### Modifiche Applicate
+1. **[DRIVER ROS 2] `robopy_controller/nodes/waveshare_motor_driver.py`:**
+   - Impostato `left_motor_trim = 1.0` di default (simmetrico 1:1 in avanti).
+   - Impostato `invert_imu_yaw = False` di default (allineato a ROS REP-103).
+   - Aggiunto `invert_imu_yaw` nel `parameter_callback` per la riconfigurazione dinamica a caldo.
+2. **[SCRIPT DI LANCIO] `restart_hailo.sh` e `scripts/start_driver.sh`:**
+   - Specificati esplicitamente `-p invert_imu_yaw:=False` e `-p left_motor_trim:=1.0`.
+3. **[TEST UNITARI] `test/unit/test_yaw_fusion_and_scurve.py` e `test/unit/test_waveshare_kinematics.py`:**
+   - Aggiunto test `test_13_oak_imu_callback_polarity` per verificare che la convenzione REP-103 mantenga il segno positivo per rotazioni antiorarie (+Z).
+   - Validata la cinematica differenziale e la risposta di correzione giroscopica (41/41 test unitari passati).
+
+---
+
+<a id="ECO-2026-10-06-001"></a>
+## ECO-2026-10-06-001: Tracciamento Giroscopico Yaw a Veicolo Fermo, Rimozione Standstill Zero-Lock Rotazionale ed Eliminazione Regressione Laser Scan Rotante in Mappa (FM-MOT-011, FM-NAV-039)
+
+* **Data:** 2026-10-06
+* **Autore:** Marcus AI / Antigravity
+* **Stato:** ✅ **APPLICATO IN CODICE, VALIDATO CON TEST UNITARI (23/23) E DEPLOYATO SU MARCUS**
+* **DFMEA Correlati:** `FM-MOT-011`, `FM-MOT-006`, `FM-NAV-039`, `FM-NAV-030`
+
+### Contesto e Causa Radice
+1. **Sintomo Segnalato dall'Utente:**
+   - Ruotando il robot sul posto (a mano o con manovre di test), i punti dello scan LiDAR RPLIDAR C1 delle pareti ruotavano solidalmente con il robot su RViz/Foxglove invece di rimanere ancorati alle pareti fisse della mappa.
+   - Di conseguenza, l'algoritmo di localizzazione probabilistica AMCL non riusciva a far collimare i ritorni laser con la mappa statica (`/mnt/ssd/maps/piano_terra_opt.yaml`), disperdendo i campioni e perdendo completamente la localizzazione della posa del robot.
+2. **Causa Radice Identificata:**
+   - In `waveshare_motor_driver.py` (riga 470), la callback `oak_imu_callback` conteneva un blocco di bypass:
+     `if getattr(self, 'motors_stopped', True) and not getattr(self, 'use_imu_for_rotation', False): self.oak_yaw_rate = 0.0; return`
+     Con `use_imu_for_rotation:=False` (adottato in ECO-2026-09-08-002 per disaccoppiare le vibrazioni dell'asta telecamera), non appena `/cmd_vel` era nullo (`motors_stopped == True`), la velocità angolare giroscopica `oak_yaw_rate` veniva forzata a 0.0.
+   - Inoltre, nel calcolo di odometria in `process_encoder_feedback`:
+     `if self.enable_chassis_yaw_fusion and not self.motors_stopped:`
+     la fusione giroscopica veniva interamente bypassata a motori fermi, ponendo `delta_theta = 0.0`.
+   - Di conseguenza, qualsiasi rotazione fisica impressa a mano o derivante da inerzia non produceva alcuna variazione di `self.theta` nell'odometria.
+   - Nella catena TF (`map -> odom -> base_link -> laser`), la trasformazione `odom -> base_link` rimaneva congelata; il sensore laser fisico girava nello spazio, proiettando le pareti ruotate nel frame mappa.
+
+### Modifiche Applicate
+1. **[DRIVER ROS 2] `robopy_controller/nodes/waveshare_motor_driver.py`:**
+   - In `oak_imu_callback`: Rimosso il bypass condizionato da `motors_stopped`. Il rate giroscopico `oak_yaw_rate` viene continuamente campionato e validato attraverso la deadband già presente (`abs(w) < 0.015 rad/s: w = 0.0`). A robot fermo non vi è alcun drift, mentre qualsiasi rotazione reale viene catturata.
+   - In `process_encoder_feedback`: Differenziata la fusione tra modalità moto comandato e modalità veicolo fermo (`motors_stopped == True`). A veicolo fermo, gli encoder rimangono bloccati a 0 per azzerare il jitter Hall (FM-MOT-006), ma il giroscopio integra `delta_theta = oak_yaw_rate * dt` (`src_rot = "OAK_MANUAL"`), consentendo a `self.theta` di tracciare istantaneamente qualsiasi rotazione impressa dall'esterno o a mano senza spostare $x, y$.
+2. **[TEST UNITARI] `test/unit/test_yaw_fusion_and_scurve.py`:**
+   - Aggiunto test `test_14_manual_rotation_during_standstill_lock` che convalida formalmente l'assenza di drift a veicolo fermo con giroscopio neutro, e l'aggiornamento corretto di `theta` a coordinate $x,y$ bloccate in presenza di rotazione manuale (23/23 test passati).
+3. **[DIAGNOSTICA & DEPLOY] `scripts/check_tf_laser.py`:**
+   - Sincronizzato ed eseguito lo script di verifica catena TF su Marcus, confermando l'orientamento corretto e la reattività della catena `map -> odom -> base_link -> laser`.
+4. **[CONVENZIONE ROS REP-103] Allineamento Polare Gyro Z:**
+   - Confermato `invert_imu_yaw:=True` come default permanente in `waveshare_motor_driver.py`, `restart_hailo.sh` e `scripts/start_driver.sh`, garantendo che rotazioni orarie (CW, svolta a destra) generino velocità angolare negativa conforme allo standard ROS REP-103, eliminando discrepanze di orientamento su RViz e AMCL.
+
+
 
 

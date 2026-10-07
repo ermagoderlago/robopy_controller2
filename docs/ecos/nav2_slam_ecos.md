@@ -538,6 +538,30 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
   - `fmea/dfmea.yaml` (Aggiunto `FM-NAV-035`)
   - `tests/test_frontier_exploration_trinity.py`
 
+---
+
+## 📈 ECO-2026-10-06-002: Inibizione Dispersione Particelle AMCL all'Avvio e Ripristino Modalità Pose Tracking (FM-NAV-040)
+* **Stato:** ✅ **Completato, Testato e Integrato nel Workspace**
+* **Autore:** 🤖 **Antigravity Engine**
+* **DFMEA Correlati:** `FM-NAV-040`, `FM-NAV-030`, `FM-NAV-033`, `FM-NAV-035`
+* **Descrizione dell'intervento:**
+  1. **Ripristino Flag `--inject-only` in `restart_hailo.sh`:**
+     - Quando è presente il file di posa noto (`$POSE_FILE`), `restart_hailo.sh` esegue `auto_relocalize.py --pose-file="$POSE_FILE" --inject-only`.
+     - Questo inietta la posa consolidata su `/initialpose` permettendo ad AMCL di mantenere il tracking locale esatto senza perturbare le particelle.
+  2. **Protezione Cluster Particelle in `scripts/auto_relocalize.py`:**
+     - Modificato il guard di `run_routine()`: `/reinitialize_global_localization` non viene più innescato su match basso se una posa nota è stata iniettata con successo. Viene invocato solo se esplicitamente richiesto (`--force-global`) o se non è disponibile alcuna posa iniziale.
+  3. **Tolleranza Scan-to-Map Estesa a 5x5 Celle (`auto_relocalize.py`):**
+     - Ampliato il raggio di tolleranza da 3x3 ($\pm 5\text{cm}$) a 5x5 ($\pm 10\text{cm}$) sulla griglia 0.05m per tener conto dello spessore delle pareti e dell'incertezza intrinseca dei fasci ToF RPLIDAR C1.
+  4. **Calibrazione Rumore Odometrico AMCL (`nav2_params_jazzy.yaml`):**
+     - Riportati `alpha1..alpha4` a 0.2 (da 0.5) per riflettere l'odometria fusa calibrata (PCNT + gyro) ed evitare la dispersione ad anello delle particelle durante la rotazione.
+* **File Modificati:**
+  - `restart_hailo.sh`
+  - `scripts/auto_relocalize.py`
+  - `robopy_controller/config/nav2_params_jazzy.yaml`
+  - `docs/lessons/nav2_slam_tuning.md`
+  - `docs/ecos/nav2_slam_ecos.md`
+  - `fmea/dfmea.yaml`
+
 
 
 

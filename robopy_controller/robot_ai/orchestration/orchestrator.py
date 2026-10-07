@@ -224,7 +224,6 @@ class AIOrchestrator(Node):
         self.create_subscription(String, '/ai/input/text', self._text_input_callback, 10)
         self.create_subscription(String, 'ai/input/document', self._document_input_callback, 10)
         self.create_subscription(String, 'ai/input/voice_test', self._voice_test_callback, 10)
-        self.create_subscription(AudioData, '/ai/conversation/audio_chunk', self._audio_chunk_callback, 10)
         self.create_subscription(String, '/ai/live/fallback', self._fallback_callback, 10)
         self.pub_hailo_vlm = self.create_publisher(String, '/hailo/vlm/ask_question', 10)
 

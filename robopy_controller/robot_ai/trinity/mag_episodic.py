@@ -4,6 +4,7 @@ Episodic Memory Engine for MAG.
 
 from typing import List, Dict, Any, Optional
 import threading
+import datetime
 from robot_ai.utils import get_logger
 
 logger = get_logger(__name__)
@@ -81,14 +82,31 @@ class EpisodicMemoryEngine:
     def to_prompt_sections(self, memory_data: Dict[str, Any], max_tokens: int = 600) -> Dict[str, str]:
         sections = {}
         
-        episodes_text = "RECENT EPISODES:\n"
+        episodes_lines = []
         for ep in memory_data.get("episodes", []):
             resp = ep.get('robot_response', '')
             resp_lower = resp.lower()
             if "non ho visto molto di nuovo" in resp_lower or "problema di connessione" in resp_lower:
                 continue
-            episodes_text += f"- Q: {ep.get('user_input', '')} | A: {resp}\n"
-        sections["episodes"] = episodes_text
+            ts = ep.get('timestamp')
+            time_prefix = ""
+            if ts:
+                try:
+                    from zoneinfo import ZoneInfo
+                    dt = datetime.datetime.fromtimestamp(float(ts), tz=ZoneInfo("Europe/Rome"))
+                    time_prefix = dt.strftime("[%d/%m/%Y %H:%M] ")
+                except Exception:
+                    try:
+                        dt = datetime.datetime.fromtimestamp(float(ts))
+                        time_prefix = dt.strftime("[%d/%m/%Y %H:%M] ")
+                    except Exception:
+                        pass
+            episodes_lines.append(f"- {time_prefix}Q: {ep.get('user_input', '')} | A: {resp}")
+        
+        if episodes_lines:
+            sections["episodes"] = "RECENT EPISODES:\n" + "\n".join(episodes_lines) + "\n"
+        else:
+            sections["episodes"] = ""
 
         facts_text = self._fact_store.to_prompt_section(memory_data.get("facts", []), max_tokens=250)
         sections["facts"] = facts_text

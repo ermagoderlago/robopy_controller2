@@ -23,7 +23,7 @@ export ROS_DOMAIN_ID=42
 # --- Configurazione Hardware & Power-Saving ---
 # Se ENABLE_HAILO=false, la NPU Hailo-10H non viene avviata per azzerare il carico di corrente PCIe (previene brownout)
 ENABLE_HAILO="${ENABLE_HAILO:-true}"
-USE_AMCL="${USE_AMCL:-false}"
+USE_AMCL="${USE_AMCL:-true}"
 ENABLE_WATCHDOG="${ENABLE_WATCHDOG:-false}"
 SOFT_START="${SOFT_START:-true}"
 TARGET_CPU_FREQ="${TARGET_CPU_FREQ:-1500000}"
@@ -225,6 +225,8 @@ nohup ros2 run robopy_controller waveshare_motor_driver --ros-args \
     -p use_imu_for_rotation:=False \
     -p use_encoder_for_linear:=True \
     -p enable_esp32_pid:=False \
+    -p invert_imu_yaw:=True \
+    -p left_motor_trim:=1.0 \
     -p odom_topic:=/odom \
     > /home/robopy/robopy/logs/waveshare_motor_driver.log 2>&1 &
 
@@ -374,8 +376,8 @@ echo "🎤 Starting respeaker_vui_node (v12.0 adaptive)..."
 nohup ros2 run robopy_controller respeaker_vui_node --ros-args \
     -r __node:=respeaker_vui_node \
     -p use_sim_time:=False \
-    -p stt_gain:=1.8 \
-    -p noise_gate_threshold:=120.0 \
+    -p stt_gain:=2.2 \
+    -p noise_gate_threshold:=90.0 \
     -p listen_timeout_sec:=8.0 \
     -p wakeword_sensitivity:=0.95 \
     -p enable_barge_in:=true \
@@ -383,7 +385,7 @@ nohup ros2 run robopy_controller respeaker_vui_node --ros-args \
     -p barge_in_min_frames:=10 \
     -p enable_adaptive_threshold:=true \
     -p enable_adaptive_silence:=true \
-    -p playback_volume:=0.08 \
+    -p playback_volume:=0.10 \
     -p enable_auto_volume:=false \
     -p enable_audio_beeps:=true \
     -p diag_mode:=true \
@@ -494,6 +496,31 @@ sleep 10
 # =============================================================================
 # STEP 3: AVVIO NAV2 STACK (Solo dopo che i sensori e TF odom/map sono stabili)
 # =============================================================================
+if [ "$USE_AMCL" = "true" ]; then
+    POSE_FILE="${MAP_FILE%.*}_pose.yaml"
+    [ ! -f "$POSE_FILE" ] && POSE_FILE="/mnt/ssd/last_known_pose.yaml"
+    if [ -f "$POSE_FILE" ]; then
+        INIT_X=$(grep "^x:" "$POSE_FILE" | awk '{print $2}')
+        INIT_Y=$(grep "^y:" "$POSE_FILE" | awk '{print $2}')
+        INIT_YAW=$(grep "^yaw:" "$POSE_FILE" | awk '{print $2}')
+        if [ -n "$INIT_X" ] && [ -n "$INIT_Y" ] && [ -n "$INIT_YAW" ]; then
+            echo "📍 [AMCL-PREFLIGHT] Pre-caricamento posa iniziale AMCL in nav2_params_jazzy.yaml: x=$INIT_X, y=$INIT_Y, yaw=$INIT_YAW"
+            python3 -c "
+import yaml
+p = '/mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_controller/config/nav2_params_jazzy.yaml'
+try:
+    with open(p, 'r') as f: data = yaml.safe_load(f)
+    if 'amcl' in data and 'ros__parameters' in data['amcl']:
+        data['amcl']['ros__parameters']['set_initial_pose'] = True
+        data['amcl']['ros__parameters']['initial_pose'] = {'x': float('$INIT_X'), 'y': float('$INIT_Y'), 'z': 0.0, 'yaw': float('$INIT_YAW')}
+        with open(p, 'w') as f: yaml.dump(data, f)
+except Exception:
+    pass
+" 2>/dev/null || true
+        fi
+    fi
+fi
+
 echo "🚀 Starting Nav2 Stack (enable_amcl=$USE_AMCL, map=$MAP_FILE)..."
 > /home/robopy/robopy/logs/nav2.log
 nohup ros2 launch robopy_controller custom_nav2_launch.py \
@@ -530,8 +557,8 @@ if [ "$USE_AMCL" = "true" ]; then
         echo "🔄 [AMCL-INIT] Richiesta auto-localizzazione attiva a 360°..."
         python3 /mnt/ssd/robopy_controller_host/scripts/auto_relocalize.py --force-global > /home/robopy/robopy/logs/auto_relocalize.log 2>&1 || true
     elif [ -f "$POSE_FILE" ]; then
-        echo "📍 [AMCL-INIT] Iniezione posa nota e verifica allineamento Scan-to-Map da $POSE_FILE..."
-        python3 /mnt/ssd/robopy_controller_host/scripts/auto_relocalize.py --pose-file="$POSE_FILE" > /home/robopy/robopy/logs/auto_relocalize.log 2>&1 || true
+        echo "📍 [AMCL-INIT] Iniezione posa nota da $POSE_FILE (Tracking Mode)..."
+        python3 /mnt/ssd/robopy_controller_host/scripts/auto_relocalize.py --pose-file="$POSE_FILE" --inject-only > /home/robopy/robopy/logs/auto_relocalize.log 2>&1 || true
     else
         echo "🌐 [AMCL-INIT] Nessuna posa salvata trovata: avvio auto-localizzazione globale..."
         python3 /mnt/ssd/robopy_controller_host/scripts/auto_relocalize.py --force-global > /home/robopy/robopy/logs/auto_relocalize.log 2>&1 || true

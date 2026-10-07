@@ -398,3 +398,163 @@ Questo file costituisce il registro permanente della curiosità, delle indagini 
 - **Esito del Ciclo:** `THEME_SELECTED`
 
 ---
+
+### [DAILY_FOCUS_2026-10-01] AI/LangGraph - 2026-10-01 03:00:16
+- **Failure Mode Riferito:** FM-LLM-004
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema AI/LangGraph.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema giornaliero: Mitigazione FMEA [FM-LLM-004]: Esecuzione di codice auto-generato (Skill) pericoloso, instabile o fuori controllo (AI Code Hazard). Pipeline multi-modello allocata (gemini-3.1-pro + gemini-3.8-flash).
+- **Esito del Ciclo:** `THEME_SELECTED`
+
+---
+
+### [DAILY_FOCUS_2026-10-02] AI/LangGraph - 2026-10-02 03:00:09
+- **Failure Mode Riferito:** FM-LLM-004
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema AI/LangGraph.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema giornaliero: Mitigazione FMEA [FM-LLM-004]: Esecuzione di codice auto-generato (Skill) pericoloso, instabile o fuori controllo (AI Code Hazard). Pipeline multi-modello allocata (gemini-3.1-pro + gemini-3.8-flash).
+- **Esito del Ciclo:** `THEME_SELECTED`
+
+---
+
+### [DAILY_FOCUS_2026-10-02] AI/LangGraph - 2026-10-02 21:56:56
+- **Failure Mode Riferito:** FM-LLM-004
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema AI/LangGraph.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema giornaliero: Mitigazione FMEA [FM-LLM-004]: Esecuzione di codice auto-generato (Skill) pericoloso, instabile o fuori controllo (AI Code Hazard). Pipeline multi-modello allocata (gemini-3.1-pro + gemini-3.8-flash).
+- **Esito del Ciclo:** `THEME_SELECTED`
+
+---
+
+### [DAILY_FOCUS_2026-10-02] AI/LangGraph - 2026-10-02 21:56:57
+- **Failure Mode Riferito:** FM-LLM-004
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema AI/LangGraph.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema giornaliero: Mitigazione FMEA [FM-LLM-004]: Esecuzione di codice auto-generato (Skill) pericoloso, instabile o fuori controllo (AI Code Hazard). Pipeline multi-modello allocata (gemini-3.1-pro + gemini-3.8-flash).
+- **Esito del Ciclo:** `THEME_SELECTED`
+
+---
+
+### [DAILY_FOCUS_2026-10-02] AI/LangGraph - 2026-10-02 21:56:58
+- **Failure Mode Riferito:** FM-LLM-004
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema AI/LangGraph.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema giornaliero: Mitigazione FMEA [FM-LLM-004]: Esecuzione di codice auto-generato (Skill) pericoloso, instabile o fuori controllo (AI Code Hazard). Pipeline multi-modello allocata (gemini-3.1-pro + gemini-3.8-flash).
+- **Esito del Ciclo:** `THEME_SELECTED`
+
+---
+
+### [DAILY_FOCUS_2026-10-02] AI/LangGraph - 2026-10-02 21:56:59
+- **Failure Mode Riferito:** FM-LLM-004
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema AI/LangGraph.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema giornaliero: Mitigazione FMEA [FM-LLM-004]: Esecuzione di codice auto-generato (Skill) pericoloso, instabile o fuori controllo (AI Code Hazard). Pipeline multi-modello allocata (gemini-3.1-pro + gemini-3.8-flash).
+- **Esito del Ciclo:** `THEME_SELECTED`
+
+---
+
+### [DAILY_FOCUS_2026-10-02] AI/LangGraph - 2026-10-02 21:57:01
+- **Failure Mode Riferito:** FM-LLM-004
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema AI/LangGraph.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema giornaliero: Mitigazione FMEA [FM-LLM-004]: Esecuzione di codice auto-generato (Skill) pericoloso, instabile o fuori controllo (AI Code Hazard). Pipeline multi-modello allocata (gemini-3.1-pro + gemini-3.8-flash).
+- **Esito del Ciclo:** `THEME_SELECTED`
+
+---
+
+### [DAILY_FOCUS_2026-10-03] AI/LangGraph - 2026-10-03 03:00:17
+- **Failure Mode Riferito:** FM-LLM-004
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema AI/LangGraph.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema giornaliero: Mitigazione FMEA [FM-LLM-004]: Esecuzione di codice auto-generato (Skill) pericoloso, instabile o fuori controllo (AI Code Hazard). Pipeline multi-modello allocata (gemini-3.1-pro + gemini-3.8-flash).
+- **Esito del Ciclo:** `THEME_SELECTED`
+
+---
+
+### [DAILY_FOCUS_2026-10-04] AI/LangGraph - 2026-10-04 03:00:08
+- **Failure Mode Riferito:** FM-LLM-004
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema AI/LangGraph.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema giornaliero: Mitigazione FMEA [FM-LLM-004]: Esecuzione di codice auto-generato (Skill) pericoloso, instabile o fuori controllo (AI Code Hazard). Pipeline multi-modello allocata (gemini-3.1-pro + gemini-3.8-flash).
+- **Esito del Ciclo:** `THEME_SELECTED`
+
+---
+
+### [DAILY_FOCUS_2026-10-05] AI/LangGraph - 2026-10-05 03:00:06
+- **Failure Mode Riferito:** FM-LLM-004
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema AI/LangGraph.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema giornaliero: Mitigazione FMEA [FM-LLM-004]: Esecuzione di codice auto-generato (Skill) pericoloso, instabile o fuori controllo (AI Code Hazard). Pipeline multi-modello allocata (gemini-3.1-pro + gemini-3.8-flash).
+- **Esito del Ciclo:** `THEME_SELECTED`
+
+---
+
+### [DAILY_FOCUS_2026-10-06] AI/LangGraph - 2026-10-06 03:00:12
+- **Failure Mode Riferito:** FM-LLM-004
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema AI/LangGraph.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema giornaliero: Mitigazione FMEA [FM-LLM-004]: Esecuzione di codice auto-generato (Skill) pericoloso, instabile o fuori controllo (AI Code Hazard). Pipeline multi-modello allocata (gemini-3.1-pro + gemini-3.8-flash).
+- **Esito del Ciclo:** `THEME_SELECTED`
+
+---
+
+### [DAILY_FOCUS_2026-10-06] AI/LangGraph - 2026-10-06 22:01:29
+- **Failure Mode Riferito:** FM-LLM-004
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema AI/LangGraph.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema giornaliero: Mitigazione FMEA [FM-LLM-004]: Esecuzione di codice auto-generato (Skill) pericoloso, instabile o fuori controllo (AI Code Hazard). Pipeline multi-modello allocata (gemini-3.1-pro + gemini-3.8-flash).
+- **Esito del Ciclo:** `THEME_SELECTED`
+
+---
+
+### [DAILY_FOCUS_2026-10-06] AI/LangGraph - 2026-10-06 22:01:30
+- **Failure Mode Riferito:** FM-LLM-004
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema AI/LangGraph.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema giornaliero: Mitigazione FMEA [FM-LLM-004]: Esecuzione di codice auto-generato (Skill) pericoloso, instabile o fuori controllo (AI Code Hazard). Pipeline multi-modello allocata (gemini-3.1-pro + gemini-3.8-flash).
+- **Esito del Ciclo:** `THEME_SELECTED`
+
+---
+
+### [DAILY_FOCUS_2026-10-06] AI/LangGraph - 2026-10-06 22:01:30
+- **Failure Mode Riferito:** FM-LLM-004
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema AI/LangGraph.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema giornaliero: Mitigazione FMEA [FM-LLM-004]: Esecuzione di codice auto-generato (Skill) pericoloso, instabile o fuori controllo (AI Code Hazard). Pipeline multi-modello allocata (gemini-3.1-pro + gemini-3.8-flash).
+- **Esito del Ciclo:** `THEME_SELECTED`
+
+---
+
+### [DAILY_FOCUS_2026-10-06] AI/LangGraph - 2026-10-06 22:01:31
+- **Failure Mode Riferito:** FM-LLM-004
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema AI/LangGraph.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema giornaliero: Mitigazione FMEA [FM-LLM-004]: Esecuzione di codice auto-generato (Skill) pericoloso, instabile o fuori controllo (AI Code Hazard). Pipeline multi-modello allocata (gemini-3.1-pro + gemini-3.8-flash).
+- **Esito del Ciclo:** `THEME_SELECTED`
+
+---
+
+### [DAILY_FOCUS_2026-10-06] AI/LangGraph - 2026-10-06 22:01:32
+- **Failure Mode Riferito:** FM-LLM-004
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema AI/LangGraph.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema giornaliero: Mitigazione FMEA [FM-LLM-004]: Esecuzione di codice auto-generato (Skill) pericoloso, instabile o fuori controllo (AI Code Hazard). Pipeline multi-modello allocata (gemini-3.1-pro + gemini-3.8-flash).
+- **Esito del Ciclo:** `THEME_SELECTED`
+
+---

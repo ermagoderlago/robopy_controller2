@@ -4,6 +4,7 @@ Zettelkasten Semantic Fact Store for MAG.
 
 from typing import List, Dict, Any, Optional
 import threading
+import datetime
 from robot_ai.utils import get_logger
 
 logger = get_logger(__name__)
@@ -57,9 +58,24 @@ class SemanticFactStore:
             return []
 
     def to_prompt_section(self, facts: List[Dict[str, Any]], max_tokens: int = 250) -> str:
+        if not facts:
+            return ""
         lines = ["ZETTELKASTEN FACTS:"]
         for fact in facts:
-            lines.append(f"- [{fact.get('fact_type', 'FACT')}] {fact.get('fact_text', '')} (conf: {fact.get('confidence', 0.0):.2f})")
+            ts = fact.get('created_at')
+            date_prefix = ""
+            if ts:
+                try:
+                    from zoneinfo import ZoneInfo
+                    dt = datetime.datetime.fromtimestamp(float(ts), tz=ZoneInfo("Europe/Rome"))
+                    date_prefix = f" | {dt.strftime('%d/%m/%Y')}"
+                except Exception:
+                    try:
+                        dt = datetime.datetime.fromtimestamp(float(ts))
+                        date_prefix = f" | {dt.strftime('%d/%m/%Y')}"
+                    except Exception:
+                        pass
+            lines.append(f"- [{fact.get('fact_type', 'FACT')}{date_prefix}] {fact.get('fact_text', '')} (conf: {fact.get('confidence', 0.0):.2f})")
         
         section = "\n".join(lines)
         if len(section) > max_tokens * 4: # rough approximation
