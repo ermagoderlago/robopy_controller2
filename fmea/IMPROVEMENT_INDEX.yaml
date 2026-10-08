@@ -81,6 +81,12 @@ improvements:
     status: "COMPLETED"
     domain: "vision_hailo"
 
+  FM-VIS-004:
+    title: "Miglioramento Visione: Stabilizzazione Alimentazione Drone-Grade e Connessione USB 3.0 SuperSpeed Reale OAK-D Lite"
+    file: "docs/improvements/IMP-VIS-004_oak_usb3_power_stabilization.md"
+    status: "COMPLETED"
+    domain: "vision_hailo"
+
   FM-VUI-021:
     title: "Miglioramento VUI: Finestra Conversazionale Estesa (3 Minuti) e Directed Follow-Up Gating"
     file: "docs/improvements/IMP-VUI-021_extended_session_gating.md"
@@ -234,6 +240,12 @@ improvements:
     file: "docs/improvements/IMP-MOT-011_standstill_yaw_tracking.md"
     status: "COMPLETED"
     domain: "actuation_motion"
+
+  FM-GOV-001:
+    title: "Miglioramento Sistema: Dynamic Resource Governor, Pose su Hailo-10H e Biometria Residente (copre FM-GOV-001..017)"
+    file: "docs/improvements/IMP-GOV-001_dynamic_resource_governor.md"
+    status: "PLANNED"
+    domain: "system_resources"
 
 
 

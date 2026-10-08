@@ -181,6 +181,8 @@ setup(
             "engagement_monitor = robopy_controller.nodes.engagement_monitor:main",
             "cloud_watchdog_node = robopy_controller.nodes.cloud_watchdog_node:main",
             "speaker_id_node = robopy_controller.nodes.speaker_id_node:main",
+            "multimodal_identity_node = robopy_controller.nodes.multimodal_identity_node:main",
+            "resource_governor_node = robopy_controller.nodes.resource_governor_node:main",
             "localization_fuser_node = robopy_controller.nodes.localization_fuser_node:main",
             "robot_health_supervisor = robopy_controller.nodes.robot_health_supervisor:main",
             "room_mapping_scan_node = robopy_controller.nodes.room_mapping_scan_node:main",

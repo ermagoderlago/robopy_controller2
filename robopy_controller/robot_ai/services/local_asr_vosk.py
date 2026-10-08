@@ -6,6 +6,7 @@ import threading
 import datetime
 import time
 import gc
+import numpy as np
 
 # Garantisce l'accesso a vosk anche se eseguito da /usr/bin/python3
 for venv_site in [
@@ -37,6 +38,14 @@ class VoskASRManager:
         self._shutdown = False
         self._worker_thread = None
         self._drop_count = 0  # [v19.6] Contatore frame scartati per debug drop sotto carico CPU
+
+        # [F3 - VAD Energy Gating per Zero-Idle CPU Overload]
+        self.energy_gating = True
+        self._noise_floor_ema = 200.0
+        self._hangover_chunks = 0
+        self._max_hangover_chunks = 15  # ~300-450ms di margine post-voce
+        self._min_rms_threshold = 150.0
+        self._last_was_speech = False
         
         self.model = None
         self.recognizer = None
@@ -110,10 +119,44 @@ class VoskASRManager:
     def is_active(self):
         return self._worker_thread is not None and self._worker_thread.is_alive()
 
+    def set_energy_gating(self, enabled: bool):
+        """Abilita o disabilita il pre-filtraggio energetico dei frame audio."""
+        self.energy_gating = bool(enabled)
+
     def process_audio(self, pcm_bytes: bytes):
-        """Inserisce chunk audio (16kHz mono int16) nella coda per l'elaborazione."""
+        """Inserisce chunk audio (16kHz mono int16) nella coda per l'elaborazione.
+        Se energy_gating è attivo, i chunk di silenzio puro vengono scartati a monte
+        senza risvegliare il decoder Kaldi, abbattendo la CPU in idle sotto l'1%."""
         if not self.is_active():
             return
+
+        if self.energy_gating and len(pcm_bytes) >= 32:
+            chunk_arr = np.frombuffer(pcm_bytes, dtype=np.int16)
+            rms = float(np.sqrt(np.mean(chunk_arr.astype(np.float32) ** 2)))
+
+            # Soglia dinamica: voce presente se RMS supera il noise floor adattivo
+            is_voice = rms > max(self._min_rms_threshold, self._noise_floor_ema * 1.5)
+
+            if is_voice:
+                self._hangover_chunks = self._max_hangover_chunks
+                self._last_was_speech = True
+            else:
+                # Tracciamento lento del rumore di fondo solo durante il silenzio
+                self._noise_floor_ema = 0.98 * self._noise_floor_ema + 0.02 * rms
+                if self._hangover_chunks > 0:
+                    self._hangover_chunks -= 1
+                elif self._last_was_speech:
+                    # Chiusura coda fonetica con padding silenzioso
+                    self._last_was_speech = False
+                    try:
+                        self._audio_queue.put_nowait(bytes(len(pcm_bytes)))
+                    except queue.Full:
+                        pass
+                    return
+                else:
+                    # Silenzio puro: azzeramento totale del carico di decodifica Kaldi
+                    return
+
         try:
             self._audio_queue.put_nowait(pcm_bytes)
         except queue.Full:

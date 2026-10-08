@@ -69,8 +69,11 @@ class SpeakerIdNode(Node):
         self.sub_trigger_enrollment = self.create_subscription(
             String, '/speaker/trigger_enrollment', self.trigger_enrollment_callback, qos_reliable
         )
+        self.sub_wakeword = self.create_subscription(
+            String, '/wake_word', self.wakeword_callback, qos_reliable
+        )
 
-        # Publishers
+        # Publishers (Stage 2 - Confirmed)
         self.pub_verified = self.create_publisher(
             Bool, '/speaker/verified', qos_reliable
         )
@@ -81,6 +84,14 @@ class SpeakerIdNode(Node):
             Float32, '/speaker/confidence', qos_reliable
         )
 
+        # Publishers (Stage 1 - Provisional, latency <= 300ms)
+        self.pub_provisional_identity = self.create_publisher(
+            String, '/speaker/provisional_identity', qos_reliable
+        )
+        self.pub_provisional_confidence = self.create_publisher(
+            Float32, '/speaker/provisional_confidence', qos_reliable
+        )
+
         # Initialize Speaker ID Service
         os.makedirs(self.known_speakers_dir, exist_ok=True)
         self.speaker_service = SpeakerRecognitionService(
@@ -88,8 +99,10 @@ class SpeakerIdNode(Node):
             confidence_high=self.min_confidence
         )
 
-        # Audio chunk buffer
+        # Audio chunk buffer (full utterance) and rolling ring buffer (pre-roll / KWS)
         self._audio_buffer = []
+        self._rolling_ring_buffer = bytearray()
+        self._max_ring_bytes = 16000 * 2 * 2  # 2.0s @ 16kHz 16-bit mono = 64KB
 
         # NPU components
         self.vdevice = None
@@ -105,7 +118,7 @@ class SpeakerIdNode(Node):
         if not self.sim_mode:
             self.init_hardware()
 
-        self.get_logger().info("speaker_id_node avviato.")
+        self.get_logger().info("speaker_id_node avviato con biometria progressiva a 2 stadi.")
 
     def init_hardware(self):
         try:
@@ -134,12 +147,51 @@ class SpeakerIdNode(Node):
             self.sim_mode = True
 
     def audio_callback(self, msg):
-        """Accumula i chunk audio e avvia il processamento alla fine della frase"""
+        """Accumula i chunk audio e aggiorna il ring buffer pre-roll"""
         if len(msg.data) > 0:
             self._audio_buffer.append(msg.data)
+            # Mantieni il rolling ring buffer
+            self._rolling_ring_buffer.extend(msg.data)
+            if len(self._rolling_ring_buffer) > self._max_ring_bytes:
+                self._rolling_ring_buffer = self._rolling_ring_buffer[-self._max_ring_bytes:]
         else:
             # Chunk vuoto indica End-of-Speech
             self.process_accumulated_audio()
+
+    def wakeword_callback(self, msg):
+        """
+        Stage 1: Innesco wake word ("Marcus").
+        Calcola immediatamente l'identità vocale provvisoria sul buffer recente (target latency <= 300ms).
+        """
+        t0 = time.perf_counter()
+        if len(self._rolling_ring_buffer) < 8000:  # < 0.25s
+            return
+
+        # Prendi gli ultimi ~0.75s di audio (24000 byte)
+        sample_bytes = bytes(self._rolling_ring_buffer[-24000:])
+        audio_data = np.frombuffer(sample_bytes, dtype=np.int16)
+        if len(audio_data) < 4000:
+            return
+
+        embedding = self.extract_embedding(audio_data)
+        if embedding is None:
+            return
+
+        result = self.speaker_service.process_speaker_embedding(embedding)
+        latency_ms = (time.perf_counter() - t0) * 1000.0
+
+        prov_id_msg = String()
+        prov_id_msg.data = result.name
+        self.pub_provisional_identity.publish(prov_id_msg)
+
+        prov_conf_msg = Float32()
+        prov_conf_msg.data = float(result.confidence)
+        self.pub_provisional_confidence.publish(prov_conf_msg)
+
+        self.get_logger().info(
+            f"🗣️ [Provisional Speaker ID] '{result.name}' (conf: {result.confidence:.3f}) "
+            f"calcolato in {latency_ms:.1f}ms (target: <=300ms)"
+        )
 
     def trigger_enrollment_callback(self, msg):
         name = msg.data
@@ -151,6 +203,11 @@ class SpeakerIdNode(Node):
             self.speaker_service.cancel_enrollment()
 
     def process_accumulated_audio(self):
+        """
+        Stage 2: End-of-Speech.
+        Calcola l'identità vocale confermata sull'intera frase (target latency <= 500ms).
+        """
+        t0 = time.perf_counter()
         if not self._audio_buffer:
             return
             
@@ -170,8 +227,9 @@ class SpeakerIdNode(Node):
             return
 
         result = self.speaker_service.process_speaker_embedding(embedding)
+        latency_ms = (time.perf_counter() - t0) * 1000.0
 
-        # Pubblica risultati
+        # Pubblica risultati confermati
         verified_msg = Bool()
         verified_msg.data = result.recognized
         self.pub_verified.publish(verified_msg)
@@ -184,7 +242,10 @@ class SpeakerIdNode(Node):
         conf_msg.data = result.confidence
         self.pub_confidence.publish(conf_msg)
         
-        self.get_logger().info(f"Speaker ID: riconosciuto={result.recognized}, identità='{result.name}', confidenza={result.confidence:.3f}")
+        self.get_logger().info(
+            f"🗣️ [Confirmed Speaker ID] '{result.name}' (conf: {result.confidence:.3f}, verif={result.recognized}) "
+            f"calcolato in {latency_ms:.1f}ms (target: <=500ms)"
+        )
 
     def extract_embedding(self, audio_data: np.ndarray) -> Optional[List[float]]:
         if self.sim_mode or not self.hef:

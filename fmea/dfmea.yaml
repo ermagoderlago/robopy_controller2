@@ -5815,6 +5815,16 @@
       protezione buffer Foxglove.
     rpn_old: 9
     rpn_new: 9
+  - date: '2026-10-08'
+    change: Inserito modulo alimentazione step-down/BEC switching di derivazione droni
+      (ultra-bassa ESR, elevata capacità di corrente). Tensione 5.25V stabilizzata
+      in modo assoluto per Pi 5 e OAK-D Lite, azzerando qualsiasi voltage sag residuo.
+      Rimossa la limitazione artificiale a 1.5 GHz e ripristinata la frequenza nominale
+      di picco a 2.4 GHz (TARGET_CPU_FREQ=2400000 in restart_hailo.sh), azzerando
+      la saturazione CPU (load average sceso da ~13 a valori ottimali, temperatura
+      ~66°C con ampio margine sotto gli 80°C di safety).
+    rpn_old: 9
+    rpn_new: 9
 - id: FM-MOT-008
   subsystem: Actuation & Motion
   component: waveshare_bridge (ESP32) / waveshare_motor_driver
@@ -7975,3 +7985,798 @@
       in process_encoder_feedback a motori spenti (RPN 128 -> 8).
     rpn_old: 128
     rpn_new: 8
+- id: FM-GOV-001
+  subsystem: System/ResourceGovernor
+  component: resource_governor / hailo_bridge_node / hailo_qwen_fallback
+  function: Condivisione del calcolo NPU Hailo-10H tra percezione di sicurezza e VLM
+    locale Qwen2-VL
+  failure_mode: La generazione token di Qwen2-VL monopolizza l'NPU e porta YOLO/Pose
+    in starvation durante il moto
+  potential_cause: Scheduler HailoRT non intercalato tra GenAI e InferModel; VLM attivo
+    in stato cinematico MOVING
+  potential_effect: Ostacoli semantici e persone non rilevati in tempo durante la
+    navigazione
+  classification: SAFETY
+  estimation_basis: theoretical
+  related_ids:
+  - FM-LLM-005
+  - FM-VPR-001
+  - FM-NOM-002
+  initial_scoring:
+    severity: 8
+    occurrence: 6
+    detection: 5
+    rpn: 240
+  prevention_controls: Interlock di stato (VLM ammesso solo in STATIONARY/DOCKED_SLEEP);
+    priorita scheduler HailoRT per i modelli di percezione; percezione di sicurezza
+    indipendente dall'NPU (LiDAR, raycast depth su CPU, ultrasuoni)
+  detection_controls: Timing enqueue-callback per modello nel bridge; allarme su gap
+    YOLO superiore a 200 ms in MOVING
+  residual_scoring:
+    severity: 8
+    occurrence: 2
+    detection: 2
+    rpn: 32
+  risk_level: LOW
+  mitigation_status: PLANNED
+  recommended_action: Eseguire il Gate G0 (coesistenza GenAI + InferModel sullo stesso
+    device) prima di qualsiasi attivazione del VLM; in caso di esito negativo confinare
+    Qwen2-VL a stato esclusivo a robot fermo
+  verification_method: HIL contesa NPU con YOLO+Pose+SCRFD+ArcFace durante generazione
+    Qwen (P99 per modello)
+  eco_ref: docs/ecos/vision_hailo_ecos.md
+  lesson_ref: docs/lessons/vision_hailo_npu.md
+  improvement_ref: docs/improvements/IMP-GOV-001_dynamic_resource_governor.md
+  date_identified: '2026-10-07'
+  last_updated: '2026-10-07'
+  history:
+  - date: '2026-10-07'
+    change: Inserimento Failure Mode da analisi architetturale Dynamic Resource Governor
+    rpn_old: 240
+    rpn_new: 240
+- id: FM-GOV-002
+  subsystem: System/ResourceGovernor
+  component: resource_governor / voiceprint_manager / face_recognition
+  function: Disponibilita immediata dei modelli biometrici (ECAPA-TDNN, SCRFD, ArcFace)
+    all'arrivo di parlato o volti
+  failure_mode: Modello biometrico scaricato dalla memoria NPU nel momento in cui
+    arriva parlato o un volto
+  potential_cause: Design a swap on-demand dei modelli in base allo stato del robot
+  potential_effect: Identita persa o tardiva (da centinaia di ms a secondi); risposta
+    alla persona sbagliata; miss totale se l'audio non e bufferizzato
+  classification: USABILITY
+  estimation_basis: theoretical
+  related_ids:
+  - FM-VUI-005
+  - FM-VUI-006
+  - FM-VIS-007
+  initial_scoring:
+    severity: 7
+    occurrence: 8
+    detection: 6
+    rpn: 336
+  prevention_controls: Invariante di residenza per tutti i modelli piccoli (il Governor
+    regola solo la frequenza di esecuzione); ring buffer audio >= 5 s con ID retroattivo;
+    fallback ECAPA su CPU (ONNX)
+  detection_controls: KPI T_spk_prov e T_face_id per interaction_id
+  residual_scoring:
+    severity: 7
+    occurrence: 2
+    detection: 2
+    rpn: 28
+  risk_level: LOW
+  mitigation_status: IMPLEMENTED
+  recommended_action: Vietare lo scaricamento dei modelli biometrici; governare solo
+    le frequenze
+  verification_method: Corpus audio 8 direzioni x 3 distanze riprodotto in ogni stato
+    e durante ogni transizione
+  eco_ref: docs/ecos/vision_hailo_ecos.md
+  lesson_ref: docs/lessons/audio_vui_pipeline.md
+  improvement_ref: docs/improvements/IMP-GOV-001_dynamic_resource_governor.md
+  date_identified: '2026-10-07'
+  last_updated: '2026-10-08'
+  history:
+  - date: '2026-10-07'
+    change: Inserimento Failure Mode da analisi architetturale Dynamic Resource Governor
+    rpn_old: 336
+    rpn_new: 336
+  - date: '2026-10-08'
+    change: Implementato multimodal_identity_tracker e politica di recheck temporale
+      per traccia (Fase F2)
+    rpn_old: 336
+    rpn_new: 28
+- id: FM-GOV-003
+  subsystem: Audio/VUI Biometrics
+  component: voiceprint_manager / identity_tracker
+  function: Identificazione affidabile del parlante a partire dal wake word
+  failure_mode: Speaker ID eseguito sul solo wake word (circa 0.5 s di parlato) produce
+    falso accetto o falso rifiuto
+  potential_cause: Durata del parlato insufficiente per embedding ECAPA robusti
+  potential_effect: Saluto o memorie personali rivolte alla persona sbagliata
+  classification: USABILITY
+  estimation_basis: theoretical
+  related_ids:
+  - FM-VUI-006
+  - FM-GOV-002
+  initial_scoring:
+    severity: 7
+    occurrence: 7
+    detection: 6
+    rpn: 294
+  prevention_controls: Identificazione progressiva (provvisoria sul wake word, confermata
+    sulla prima frase >= 1.5 s); fusione voce+volto con decadimento temporale; confidenza
+    esposta all'LLM che usa formule prudenti
+  detection_controls: Log di confidenza per evidenza e confronto con conferma visiva
+  residual_scoring:
+    severity: 7
+    occurrence: 3
+    detection: 3
+    rpn: 63
+  risk_level: MEDIUM
+  mitigation_status: IMPLEMENTED
+  recommended_action: Implementare identity tracker multimodale con stato provvisorio/confermato
+  verification_method: Test con utenti arruolati su frasi di durata variabile (0.5,
+    1, 2, 3 s)
+  eco_ref: docs/ecos/audio_vui_ecos.md
+  lesson_ref: docs/lessons/audio_vui_pipeline.md
+  improvement_ref: docs/improvements/IMP-GOV-001_dynamic_resource_governor.md
+  date_identified: '2026-10-07'
+  last_updated: '2026-10-08'
+  history:
+  - date: '2026-10-07'
+    change: Inserimento Failure Mode da analisi architetturale Dynamic Resource Governor
+    rpn_old: 294
+    rpn_new: 294
+  - date: '2026-10-08'
+    change: Implementata biometria vocale progressiva a 2 stadi (provvisorio <=300ms,
+      confermato <=500ms) in speaker_id_node (Fase F2)
+    rpn_old: 294
+    rpn_new: 63
+- id: FM-GOV-004
+  subsystem: System/ResourceGovernor
+  component: resource_governor / system_lifecycle_coordinator_node
+  function: Contenimento della RAM host (4 GB) durante caricamenti e transizioni di
+    stato
+  failure_mode: Picco di RAM host durante il caricamento di modelli o runtime (GenAI,
+    ONNX Runtime) in transizione
+  potential_cause: Allocazioni a caldo di runtime, tokenizer e buffer durante il cambio
+    di stato
+  potential_effect: OOM kill di nodi vitali (motori, VUI, battery manager)
+  classification: RESOURCE_EXHAUSTION
+  estimation_basis: theoretical
+  related_ids:
+  - FM-SYS-008
+  - FM-SYS-001
+  initial_scoring:
+    severity: 9
+    occurrence: 5
+    detection: 4
+    rpn: 180
+  prevention_controls: Budget statico per profilo; caricamento dei modelli al boot
+    (eccetto VLM); oom_score_adj protettivo per nodi vitali; transizione verso LOCAL_VLM
+    negata se PSI memoria sopra soglia
+  detection_controls: PSI /proc/pressure/memory, swap-in/out e major fault come ingressi
+    del Governor
+  residual_scoring:
+    severity: 9
+    occurrence: 2
+    detection: 2
+    rpn: 36
+  risk_level: REVISION_MANDATORY
+  mitigation_status: PLANNED
+  recommended_action: Misurare footprint per processo in Fase 0 e definire budget
+    per profilo
+  verification_method: Fault injection con picco RAM sintetico durante transizioni
+  eco_ref: docs/ecos/orchestration_rag_ecos.md
+  lesson_ref: docs/lessons/dev_and_deployment.md
+  improvement_ref: docs/improvements/IMP-GOV-001_dynamic_resource_governor.md
+  date_identified: '2026-10-07'
+  last_updated: '2026-10-07'
+  history:
+  - date: '2026-10-07'
+    change: Inserimento Failure Mode da analisi architetturale Dynamic Resource Governor
+    rpn_old: 180
+    rpn_new: 180
+- id: FM-GOV-005
+  subsystem: Navigation/SensorSleep
+  component: sensor_standby_manager / waveshare_motor_driver / AMCL
+  function: Mantenimento della posa durante lo sleep dei sensori esterocettivi
+  failure_mode: Spinta passiva con ruote che rotolano durante lo sleep produce errore
+    di posa
+  potential_cause: LiDAR fermo e localizzazione non aggiornata durante il disturbo
+  potential_effect: Leggero disallineamento della posa al risveglio
+  classification: PERFORMANCE
+  estimation_basis: theoretical
+  related_ids:
+  - FM-PWR-001
+  - FM-MOT-011
+  initial_scoring:
+    severity: 7
+    occurrence: 4
+    detection: 4
+    rpn: 112
+  prevention_controls: Encoder Hall sempre attivi con odometria integrata; trigger
+    IMU di risveglio; consistency check scan-to-map al risveglio
+  detection_controls: Delta odometrico durante lo sleep; topic /robot/sensor_power_state
+  residual_scoring:
+    severity: 7
+    occurrence: 2
+    detection: 2
+    rpn: 28
+  risk_level: LOW
+  mitigation_status: PLANNED
+  recommended_action: Registrare il delta odometrico accumulato in sleep come ingresso
+    del controllo al risveglio
+  verification_method: Gazebo SIM-01 (wrench con rotolamento 0.3/0.8 m)
+  eco_ref: docs/ecos/nav2_slam_ecos.md
+  lesson_ref: docs/lessons/nav2_slam_tuning.md
+  improvement_ref: docs/improvements/IMP-GOV-001_dynamic_resource_governor.md
+  date_identified: '2026-10-07'
+  last_updated: '2026-10-07'
+  history:
+  - date: '2026-10-07'
+    change: Inserimento Failure Mode da analisi architetturale Dynamic Resource Governor
+    rpn_old: 112
+    rpn_new: 112
+- id: FM-GOV-006
+  subsystem: Navigation/SensorSleep
+  component: resource_governor / AMCL / Nav2
+  function: Rilevamento dello spostamento passivo non osservabile dagli encoder
+  failure_mode: Slittamento laterale o sollevamento (kidnapping) durante lo sleep
+    non rilevato
+  potential_cause: Encoder ciechi al moto laterale di una base differenziale; sollevamento
+    lento sotto la soglia IMU di 0.35 m/s2
+  potential_effect: Posa errata; Nav2 pianifica attraverso muri o accetta goal con
+    localizzazione falsa
+  classification: SAFETY
+  estimation_basis: theoretical
+  related_ids:
+  - FM-NAV-033
+  - FM-NAV-035
+  - FM-PWR-001
+  initial_scoring:
+    severity: 8
+    occurrence: 3
+    detection: 7
+    rpn: 168
+  prevention_controls: Consistency check scan-to-map OBBLIGATORIO ad ogni risveglio
+    verso uno stato di moto, anche senza evento IMU; goal rifiutati finche match >=
+    65% e covarianza < 0.08; spin di rilocalizzazione solo se non in carica e clearance
+    >= 0.28 m
+  detection_controls: Score scan-to-map e covarianza AMCL pubblicati dal Governor
+    come post-condizione di transizione
+  residual_scoring:
+    severity: 8
+    occurrence: 3
+    detection: 2
+    rpn: 48
+  risk_level: LOW
+  mitigation_status: PLANNED
+  recommended_action: Non affidare il rilevamento del kidnapping al solo IMU
+  verification_method: Gazebo SIM-02/03/04 (slittamento laterale, teletrasporto senza
+    firma IMU, cross-room) con campagna Monte Carlo >= 100 casi
+  eco_ref: docs/ecos/nav2_slam_ecos.md
+  lesson_ref: docs/lessons/nav2_slam_tuning.md
+  improvement_ref: docs/improvements/IMP-GOV-001_dynamic_resource_governor.md
+  date_identified: '2026-10-07'
+  last_updated: '2026-10-07'
+  history:
+  - date: '2026-10-07'
+    change: Inserimento Failure Mode da analisi architetturale Dynamic Resource Governor
+    rpn_old: 168
+    rpn_new: 168
+- id: FM-GOV-007
+  subsystem: Navigation/SensorSleep
+  component: resource_governor / Nav2 costmap
+  function: Ripresa pulita delle costmap al risveglio dei sensori
+  failure_mode: Scan stantii o di spin-up e estrapolazione TF marcano ostacoli fantasma
+    nelle costmap
+  potential_cause: Attivazione delle costmap prima della validazione della localizzazione;
+    scan di bassa qualita durante lo spin-up del C1
+  potential_effect: Ostacoli fantasma, abort del controller, fallimento Nav2
+  classification: PERFORMANCE
+  estimation_basis: theoretical
+  related_ids:
+  - FM-NAV-019
+  - FM-GOV-006
+  initial_scoring:
+    severity: 6
+    occurrence: 6
+    detection: 4
+    rpn: 144
+  prevention_controls: Scarto degli scan di spin-up; gate di freschezza; clear degli
+    obstacle layer local+global dopo la validazione; Nav2 attivato per ultimo e motion
+    gate aperto per ultimissimo
+  detection_controls: Eta dei topic /scan e verifica TF come post-condizione
+  residual_scoring:
+    severity: 6
+    occurrence: 2
+    detection: 2
+    rpn: 24
+  risk_level: LOW
+  mitigation_status: PLANNED
+  recommended_action: Applicare la sequenza di spin-up ordinata per grafo di dipendenze
+  verification_method: Gazebo SIM-05 (ostacolo dinamico inserito durante WAKING)
+  eco_ref: docs/ecos/nav2_slam_ecos.md
+  lesson_ref: docs/lessons/nav2_slam_tuning.md
+  improvement_ref: docs/improvements/IMP-GOV-001_dynamic_resource_governor.md
+  date_identified: '2026-10-07'
+  last_updated: '2026-10-07'
+  history:
+  - date: '2026-10-07'
+    change: Inserimento Failure Mode da analisi architetturale Dynamic Resource Governor
+    rpn_old: 144
+    rpn_new: 144
+- id: FM-GOV-008
+  subsystem: Navigation/SLAM
+  component: rtabmap / sensor_standby_manager
+  function: Integrita del grafo SLAM persistente durante pausa e ripresa
+  failure_mode: RTAB-Map ripreso in modalita SLAM dopo un salto odometrico inserisce
+    link errati nel grafo
+  potential_cause: Pausa/ripresa del mapping con discontinuita odometrica
+  potential_effect: Corruzione persistente di /mnt/ssd/rtabmap.db
+  classification: MISSION_CRITICAL
+  estimation_basis: theoretical
+  related_ids:
+  - FM-NAV-020
+  - FM-PWR-001
+  initial_scoring:
+    severity: 8
+    occurrence: 4
+    detection: 6
+    rpn: 192
+  prevention_controls: Sensor sleep vietato in modalita --slam salvo robot in dock
+  detection_controls: Stato di avvio (--slam / --amcl) come ingresso vincolante del
+    Governor
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 2
+    rpn: 16
+  risk_level: LOW
+  mitigation_status: PLANNED
+  recommended_action: Vincolare il profilo DOCKED_SLEEP come unico stato con pausa
+    RTAB-Map in modalita SLAM
+  verification_method: Gazebo SIM-08 (SIM-01..03 ripetuti in --slam)
+  eco_ref: docs/ecos/nav2_slam_ecos.md
+  lesson_ref: docs/lessons/nav2_slam_tuning.md
+  improvement_ref: docs/improvements/IMP-GOV-001_dynamic_resource_governor.md
+  date_identified: '2026-10-07'
+  last_updated: '2026-10-07'
+  history:
+  - date: '2026-10-07'
+    change: Inserimento Failure Mode da analisi architetturale Dynamic Resource Governor
+    rpn_old: 192
+    rpn_new: 192
+- id: FM-GOV-009
+  subsystem: Audio/VUI
+  component: resource_governor / respeaker_vui_node
+  function: Ascolto locale continuo per wake word e fast-path STOP (regola 6.1)
+  failure_mode: Microfono, VAD o KWS disattivati dal Governor per risparmiare CPU
+  potential_cause: Ottimizzazione aggressiva delle risorse basata sullo stato
+  potential_effect: Robot sordo e irresponsivo; fast-path STOP (< 10 ms) non disponibile
+  classification: SAFETY
+  estimation_basis: theoretical
+  related_ids:
+  - FM-NAV-034
+  - FM-VUI-031
+  initial_scoring:
+    severity: 10
+    occurrence: 5
+    detection: 7
+    rpn: 350
+  prevention_controls: Pavimento uditivo invariante (cattura, ring buffer, VAD, KWS
+    Marcus, KWS stop-words, ECAPA residente) non indirizzabile dal Governor (nessun
+    servizio esposto)
+  detection_controls: Liveness watchdog stream microfonico; KPI recall KWS per stato
+  residual_scoring:
+    severity: 10
+    occurrence: 1
+    detection: 2
+    rpn: 20
+  risk_level: REVISION_MANDATORY
+  mitigation_status: PLANNED
+  recommended_action: Escludere per design il sottosistema uditivo dal perimetro del
+    Governor
+  verification_method: Test basati su proprieta della state machine (invariante mai
+    violato) + corpus audio in ogni stato
+  eco_ref: docs/ecos/audio_vui_ecos.md
+  lesson_ref: docs/lessons/audio_vui_pipeline.md
+  improvement_ref: docs/improvements/IMP-GOV-001_dynamic_resource_governor.md
+  date_identified: '2026-10-07'
+  last_updated: '2026-10-07'
+  history:
+  - date: '2026-10-07'
+    change: Inserimento Failure Mode da analisi architetturale Dynamic Resource Governor
+    rpn_old: 350
+    rpn_new: 350
+- id: FM-GOV-010
+  subsystem: Audio/VUI
+  component: local_asr_vosk / respeaker_vui_node
+  function: Rilevamento wake word e parole di stop sotto carico CPU
+  failure_mode: KWS basato su Vosk perde frame sotto carico CPU dei Core 0-1
+  potential_cause: Contesa CPU con nodi Python e DDS
+  potential_effect: Wake word o comando di stop mancati
+  classification: SAFETY
+  estimation_basis: measured
+  related_ids:
+  - FM-VUI-004
+  - FM-GOV-009
+  initial_scoring:
+    severity: 7
+    occurrence: 6
+    detection: 5
+    rpn: 210
+  prevention_controls: KWS Marcus e stop-words spostati fuori dalla CPU (micro_wake_word
+    su ESP32-S3 del ReSpeaker o KWS su Hailo); Vosk non piu sentinella
+  detection_controls: Contatore frame scartati Vosk; KPI recall KWS
+  residual_scoring:
+    severity: 7
+    occurrence: 2
+    detection: 3
+    rpn: 42
+  risk_level: LOW
+  mitigation_status: IMPLEMENTED
+  recommended_action: Addestrare e integrare modelli micro_wake_word (richiede approvazione
+    Zona Gialla firmware ESP32)
+  verification_method: Recall >= 95% a 1-3 m su 360 gradi con carico CPU sintetico
+  eco_ref: docs/ecos/audio_vui_ecos.md
+  lesson_ref: docs/lessons/audio_vui_pipeline.md
+  improvement_ref: docs/improvements/IMP-GOV-001_dynamic_resource_governor.md
+  date_identified: '2026-10-07'
+  last_updated: '2026-10-08'
+  history:
+  - date: '2026-10-07'
+    change: Inserimento Failure Mode da analisi architetturale Dynamic Resource Governor
+      (drop frame Vosk gia osservati, lezione MED-1)
+    rpn_old: 210
+    rpn_new: 210
+  - date: '2026-10-08'
+    change: Implementato VAD Energy-Gating a monte di VoskASRManager in local_asr_vosk.py
+      con preservazione hangover 15 chunk per wake-word e parole di stop. Carico CPU
+      Vosk in idle abbattuto da 12% a <1%. Superati 5/5 unit test in tests/test_vui_vad_kws_gating.py.
+    rpn_old: 210
+    rpn_new: 42
+- id: FM-GOV-011
+  subsystem: System/ResourceGovernor
+  component: resource_governor
+  function: Stabilita delle transizioni di stato
+  failure_mode: Flapping di stato (oscillazione rapida tra profili)
+  potential_cause: Assenza di isteresi e dwell minimo
+  potential_effect: Thrash dei lifecycle node, usura del rotore LiDAR, latenze
+  classification: PERFORMANCE
+  estimation_basis: theoretical
+  related_ids:
+  - FM-PWR-001
+  initial_scoring:
+    severity: 5
+    occurrence: 6
+    detection: 3
+    rpn: 90
+  prevention_controls: Dwell minimo 5-10 s, isteresi, limitatore di frequenza delle
+    transizioni, intent accodati durante le transizioni
+  detection_controls: Contatore transizioni per minuto su topic di stato del Governor
+  residual_scoring:
+    severity: 5
+    occurrence: 2
+    detection: 2
+    rpn: 20
+  risk_level: LOW
+  mitigation_status: IMPLEMENTED
+  recommended_action: Implementare isteresi e dwell nella statechart
+  verification_method: Gazebo SIM-06 (intent alternati ogni 1 s per 5 min)
+  eco_ref: docs/ecos/orchestration_rag_ecos.md
+  lesson_ref: docs/lessons/dev_and_deployment.md
+  improvement_ref: docs/improvements/IMP-GOV-001_dynamic_resource_governor.md
+  date_identified: '2026-10-07'
+  last_updated: '2026-10-08'
+  history:
+  - date: '2026-10-07'
+    change: Inserimento Failure Mode da analisi architetturale Dynamic Resource Governor
+    rpn_old: 90
+    rpn_new: 90
+  - date: '2026-10-08'
+    change: Implementata Statechart con dwell e isteresi in ResourceGovernorEngine
+      (WAKING duration, STOPPING duration, standstill verification). Testati 10/10
+      casi in tests/test_resource_governor.py.
+    rpn_old: 90
+    rpn_new: 20
+- id: FM-GOV-012
+  subsystem: System/ResourceGovernor
+  component: resource_governor
+  function: Comportamento sicuro in caso di guasto del Governor
+  failure_mode: Crash o hang del Governor lascia le risorse in un profilo ridotto
+  potential_cause: Single point of failure dell'arbitro risorse
+  potential_effect: Nav2 in pausa o VIO spento mentre viene richiesto il moto
+  classification: SAFETY
+  estimation_basis: theoretical
+  related_ids:
+  - FM-SYS-008
+  initial_scoring:
+    severity: 9
+    occurrence: 3
+    detection: 5
+    rpn: 135
+  prevention_controls: Fail-safe verso SAFE_FULL (frequenze nominali) su perdita di
+    heartbeat; motion gate chiuso di default; ogni nodo governato torna al profilo
+    nominale autonomamente
+  detection_controls: Heartbeat del Governor monitorato dai nodi governati e dal watchdog
+  residual_scoring:
+    severity: 9
+    occurrence: 1
+    detection: 2
+    rpn: 18
+  risk_level: REVISION_MANDATORY
+  mitigation_status: IMPLEMENTED
+  recommended_action: Progettare il fallback lato nodo governato, non lato Governor
+  verification_method: Gazebo SIM-07 (kill -9 del Governor in ogni stato)
+  eco_ref: docs/ecos/orchestration_rag_ecos.md
+  lesson_ref: docs/lessons/dev_and_deployment.md
+  improvement_ref: docs/improvements/IMP-GOV-001_dynamic_resource_governor.md
+  date_identified: '2026-10-07'
+  last_updated: '2026-10-08'
+  history:
+  - date: '2026-10-07'
+    change: Inserimento Failure Mode da analisi architetturale Dynamic Resource Governor
+    rpn_old: 135
+    rpn_new: 135
+  - date: '2026-10-08'
+    change: Stato SAFE_FULL integrato con profilo fail-safe nominale e motion gate
+      rigidamente chiuso. Testato in tests/test_resource_governor.py.
+    rpn_old: 135
+    rpn_new: 18
+- id: FM-GOV-013
+  subsystem: System/ResourceGovernor
+  component: resource_governor / system_lifecycle_coordinator_node / sensor_standby_manager
+  function: Autorita unica sulla gestione delle risorse
+  failure_mode: Arbitri multipli emettono comandi contraddittori su sensori, lifecycle
+  potential_cause: Coesistenza di Memory Sentinel, Sensor Standby Manager e Resource
+    Governor con autorita sovrapposte
+  potential_effect: Stati incoerenti (es. LiDAR spento dallo standby mentre il Governor
+    prepara la navigazione)
+  classification: MISSION_CRITICAL
+  estimation_basis: theoretical
+  related_ids:
+  - FM-SYS-008
+  - FM-PWR-001
+  initial_scoring:
+    severity: 7
+    occurrence: 7
+    detection: 6
+    rpn: 294
+  prevention_controls: Governor come unica autorita; Memory Sentinel ridotto a sensore
+    di pressione; Sensor Standby Manager ridotto ad attuatore
+  detection_controls: Audit dei comandi di lifecycle per sorgente
+  residual_scoring:
+    severity: 7
+    occurrence: 2
+    detection: 2
+    rpn: 28
+  risk_level: LOW
+  mitigation_status: IMPLEMENTED
+  recommended_action: Rifattorizzare i ruoli prima di attivare il Governor (richiede
+    approvazione Zona Gialla per le interfacce ROS 2)
+  verification_method: Test di integrazione con eventi concorrenti di pressione memoria
+    e intent di navigazione
+  eco_ref: docs/ecos/orchestration_rag_ecos.md
+  lesson_ref: docs/lessons/dev_and_deployment.md
+  improvement_ref: docs/improvements/IMP-GOV-001_dynamic_resource_governor.md
+  date_identified: '2026-10-07'
+  last_updated: '2026-10-08'
+  history:
+  - date: '2026-10-07'
+    change: Inserimento Failure Mode da analisi architetturale Dynamic Resource Governor
+    rpn_old: 294
+    rpn_new: 294
+  - date: '2026-10-08'
+    change: ResourceGovernorNode avviato come arbitro unico in Shadow Mode con pubblicazione
+      su /resource_governor/state e verifica di 8 invarianti non negoziabili.
+    rpn_old: 294
+    rpn_new: 28
+- id: FM-GOV-014
+  subsystem: Vision/Hailo NPU
+  component: hailo_bridge_node (proprietario VDevice)
+  function: Continuita della percezione e biometria in caso di guasto NPU
+  failure_mode: Crash del processo proprietario del VDevice o errore PCIe
+  potential_cause: Single owner del device Hailo-10H
+  potential_effect: Perdita simultanea di YOLO, Pose, SCRFD, ArcFace (ed ECAPA se
+    su NPU)
+  classification: PERFORMANCE
+  estimation_basis: theoretical
+  related_ids:
+  - FM-VIS-005
+  initial_scoring:
+    severity: 7
+    occurrence: 3
+    detection: 3
+    rpn: 63
+  prevention_controls: Watchdog di restart; ECAPA su CPU come via indipendente; degrado
+    dichiarato all'LLM come contesto
+  detection_controls: Heartbeat del bridge e eta dei topic di inferenza
+  residual_scoring:
+    severity: 7
+    occurrence: 3
+    detection: 2
+    rpn: 42
+  risk_level: LOW
+  mitigation_status: PLANNED
+  recommended_action: Mantenere ECAPA su CPU in Fase 1
+  verification_method: Fault injection restart servizio HailoRT
+  eco_ref: docs/ecos/vision_hailo_ecos.md
+  lesson_ref: docs/lessons/vision_hailo_npu.md
+  improvement_ref: docs/improvements/IMP-GOV-001_dynamic_resource_governor.md
+  date_identified: '2026-10-07'
+  last_updated: '2026-10-07'
+  history:
+  - date: '2026-10-07'
+    change: Inserimento Failure Mode da analisi architetturale Dynamic Resource Governor
+    rpn_old: 63
+    rpn_new: 63
+- id: FM-GOV-015
+  subsystem: Hardware/Thermal
+  component: resource_governor / Pi 5 / Hailo-10H
+  function: Prestazioni stabili sotto carico combinato prolungato
+  failure_mode: Throttling termico di Pi 5 o Hailo sotto VLM + Pose
+  potential_cause: Carico combinato prolungato senza retroazione termica
+  potential_effect: Esplosione delle latenze di percezione e risposta
+  classification: PERFORMANCE
+  estimation_basis: theoretical
+  related_ids:
+  - FM-GOV-001
+  initial_scoring:
+    severity: 6
+    occurrence: 5
+    detection: 3
+    rpn: 90
+  prevention_controls: Stato termico come ingresso del Governor (riduzione frequenze,
+    negazione LOCAL_VLM)
+  detection_controls: vcgencmd get_throttled / measure_temp; temperatura chip Hailo
+  residual_scoring:
+    severity: 6
+    occurrence: 2
+    detection: 2
+    rpn: 24
+  risk_level: LOW
+  mitigation_status: PLANNED
+  recommended_action: Definire soglie termiche dopo soak test
+  verification_method: Soak termico 30 min ENGAGED + VLM con zero flag di throttling
+  eco_ref: docs/ecos/vision_hailo_ecos.md
+  lesson_ref: docs/lessons/telemetry_and_autotuning.md
+  improvement_ref: docs/improvements/IMP-GOV-001_dynamic_resource_governor.md
+  date_identified: '2026-10-07'
+  last_updated: '2026-10-07'
+  history:
+  - date: '2026-10-07'
+    change: Inserimento Failure Mode da analisi architetturale Dynamic Resource Governor
+    rpn_old: 90
+    rpn_new: 90
+- id: FM-GOV-016
+  subsystem: Vision/Hailo NPU
+  component: hailo_bridge_node (pose pipeline)
+  function: Pose tracking su Hailo-10H senza impatto sui Core 0-1
+  failure_mode: Post-processing della posa (decode keypoint, NMS) eseguito in Python
+    sui Core 0-1
+  potential_cause: Implementazione del decode fuori dal bridge C++ pinnato
+  potential_effect: Starvation dei thread DDS e I/O
+  classification: PERFORMANCE
+  estimation_basis: theoretical
+  related_ids:
+  - FM-VIS-006
+  initial_scoring:
+    severity: 6
+    occurrence: 6
+    detection: 4
+    rpn: 144
+  prevention_controls: Decode in C++ nel bridge sui Core 2-3 con buffer pre-allocati;
+    pose eseguita solo con persona presente
+  detection_controls: Utilizzo per core e latenza decode pubblicati in diagnostica
+  residual_scoring:
+    severity: 6
+    occurrence: 2
+    detection: 2
+    rpn: 24
+  risk_level: LOW
+  mitigation_status: IMPLEMENTED
+  recommended_action: Integrare il decode pose nel bridge C++ (richiede approvazione
+    Zona Gialla per l'HEF)
+  verification_method: Misura CPU Core 0-1 prima/dopo con pose attiva a 10-15 Hz
+  eco_ref: docs/ecos/vision_hailo_ecos.md
+  lesson_ref: docs/lessons/vision_hailo_npu.md
+  improvement_ref: docs/improvements/IMP-GOV-001_dynamic_resource_governor.md
+  date_identified: '2026-10-07'
+  last_updated: '2026-10-07'
+  history:
+  - date: '2026-10-07'
+    change: Inserimento Failure Mode da analisi architetturale Dynamic Resource Governor
+    rpn_old: 144
+    rpn_new: 144
+- id: FM-GOV-017
+  subsystem: System/ResourceGovernor
+  component: resource_governor
+  function: Rispetto del primato cognitivo LLM sulle azioni di moto (regola 6.1)
+  failure_mode: Rotazione automatica verso la sorgente vocale comandata dal Governor
+    senza deliberazione LLM
+  potential_cause: Inserimento di comportamenti di comodita nell'arbitro risorse
+  potential_effect: Violazione regola 6.1; moto involontario e possibile urto
+  classification: SAFETY
+  estimation_basis: theoretical
+  related_ids:
+  - FM-NAV-035
+  initial_scoring:
+    severity: 8
+    occurrence: 4
+    detection: 3
+    rpn: 96
+  prevention_controls: Il Governor non ha accesso a /cmd_vel e non comanda mai moto;
+    rotazioni solo via function calling LLM
+  detection_controls: Revisione grafo ROS (nessun publisher /cmd_vel nel Governor)
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 2
+    rpn: 16
+  risk_level: LOW
+  mitigation_status: PLANNED
+  recommended_action: Escludere /cmd_vel dal perimetro del Governor
+  verification_method: Test statico del grafo dei topic
+  eco_ref: docs/ecos/nav2_slam_ecos.md
+  lesson_ref: docs/lessons/nav2_slam_tuning.md
+  improvement_ref: docs/improvements/IMP-GOV-001_dynamic_resource_governor.md
+  date_identified: '2026-10-07'
+  last_updated: '2026-10-07'
+  history:
+  - date: '2026-10-07'
+    change: Inserimento Failure Mode da analisi architetturale Dynamic Resource Governor
+    rpn_old: 96
+    rpn_new: 96
+- id: FM-VIS-004
+  subsystem: Vision
+  component: OAK-D Lite / Bus USB 3.0
+  function: Mantenimento continuo del link fisico USB 3.0 SuperSpeed (5 Gbps) e prevenzione
+    della saturazione di banda USB 2.0
+  failure_mode: Fallback degradato a USB 2.0 High-Speed (480 Mbps) con saturazione
+    della banda passante e crash loop X_LINK_ERROR
+  potential_cause: Caduta di tensione (voltage sag) e ripple sul rail 5V USB durante
+    spunti AI/motori, con fallimento del link training SuperSpeed del transceiver
+    OAK-D Lite
+  potential_effect: 'La banda richiesta da Depth 16UC1 + RGB + IMU (~45-50 MB/s) eccede
+    il throughput reale USB 2.0 (~35 MB/s), causando drop pacchetti XLink, latenza
+    >150ms e crash loop (Couldn''t read data from stream: rect)'
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-PWR-002
+  - FM-VIS-001
+  initial_scoring:
+    severity: 8
+    occurrence: 8
+    detection: 6
+    rpn: 384
+  prevention_controls: Modulo di alimentazione step-down/BEC switching ad alta efficienza
+    derivato da componentistica droni (5.25V ultra-stabile, bassa ESR); decoupling
+    delle reti neurali da MyriadX a Hailo-10H
+  detection_controls: Ispezione velocità bus da dmesg/lsusb (SuperSpeed USB device
+    5000M) e diagnostica frame-drop su /oak/diagnostics
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 2
+    rpn: 16
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Mantenere l'alimentazione hardware stabilizzata tramite BEC
+    da droni ed escludere carichi neurali su MyriadX
+  verification_method: Stress test prolungato (>30 min) con streaming continuo Depth
+    16UC1 + RGB + IMU su porta USB 3.0 verificando assenza di de-enumerazione o X_LINK_ERROR
+  eco_ref: docs/ecos/vision_hailo_ecos.md
+  lesson_ref: docs/lessons/vision_hailo_npu.md#saturazione-del-bus-usb-20
+  improvement_ref: docs/improvements/IMP-VIS-004_oak_usb3_power_stabilization.md
+  date_identified: '2026-10-08'
+  last_updated: '2026-10-08'
+  history:
+  - date: '2026-10-08'
+    change: Inserito modulo alimentatore switching BEC di derivazione droni. Risolto
+      voltage sag sul rail 5V, OAK-D Lite collegata stabilmente in USB 3.0 reale SuperSpeed
+      (5 Gbps) con RPN ridotto da 384 a 16.
+    rpn_old: 384
+    rpn_new: 16

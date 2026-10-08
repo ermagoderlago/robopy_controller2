@@ -71,17 +71,7 @@ class OAKDriverNode(Node):
         # setBlocking(False) is critical
         self.q_depth = self.device.getOutputQueue("depth", maxSize=1, blocking=False)
         self.q_conf = self.device.getOutputQueue("confidence", maxSize=1, blocking=False)
-        # self.q_rgb_preview = self.device.getOutputQueue("rgb_preview", maxSize=1, blocking=False) # Logic on host, needs preview
-        self.q_yolo = self.device.getOutputQueue("yolo_detections", maxSize=1, blocking=False)
-        
-        # SuperPoint Output (raw tensors)
-        # Assuming we output raw from NN, we need to parse them.
-        # But wait, SuperPoint usually outputs 'keypoints' and 'descriptors' or similar blobs
-        # Adjust based on blob output names. Standard SuperPoint: 'output_keypoints', 'output_descriptors'?
-        # Let's assume generic names or single stream if condensed?
-        # User prompt example used: node.io['keypoints'].get() ...
-        # I will look for 'superpoint_raw' or similar.
-        self.q_sp = self.device.getOutputQueue("superpoint_raw", maxSize=1, blocking=False)
+        # Note: Neural networks (YOLO, SuperPoint, Pose) decoupled to Hailo-10H NPU (SPEC-03, FM-VIS-001)
         self.q_imu = self.device.getOutputQueue("imu", maxSize=2, blocking=False)
 
         # Timers
@@ -141,38 +131,6 @@ class OAKDriverNode(Node):
         xoutConf.input.setQueueSize(1)
         stereo.confidenceMap.link(xoutConf.input)
         
-        # --- SUPERPOINT (Mono Left High Res) ---
-        sp_nn = pipeline.create(dai.node.NeuralNetwork)
-        # Using available model 'superpoint_480x360_raw.blob'
-        sp_nn.setBlobPath("/home/robopy/robopy/robopi_controller/robopy_controller_host/robopy_controller/models/superpoint_480x360_raw.blob") 
-        sp_nn.setNumInferenceThreads(2)
-        sp_nn.input.setBlocking(False)
-        
-        manip_sp = pipeline.create(dai.node.ImageManip)
-        manip_sp.initialConfig.setResize(480, 360) # Match model input
-        manip_sp.initialConfig.setFrameType(dai.ImgFrame.Type.GRAY8)
-        monoLeft.out.link(manip_sp.inputImage)
-        manip_sp.out.link(sp_nn.input)
-        
-        xoutSP = pipeline.create(dai.node.XLinkOut)
-        xoutSP.setStreamName("superpoint_raw")
-        xoutSP.input.setBlocking(False)
-        sp_nn.out.link(xoutSP.input)
-
-        # --- YOLO ---
-        # Note: Switched to NeuralNetwork to handle YOLOv8 segmentation blob without crashing
-        yolo_nn = pipeline.create(dai.node.NeuralNetwork)
-        yolo_nn.setBlobPath("/home/robopy/robopy/robopi_controller/robopy_controller_host/robopy_controller/models/yolo_seg.blob")
-        yolo_nn.setNumInferenceThreads(2)
-        yolo_nn.input.setBlocking(False)
-        
-        camRgb.preview.link(yolo_nn.input)
-        
-        xoutYolo = pipeline.create(dai.node.XLinkOut)
-        xoutYolo.setStreamName("yolo_detections")
-        xoutYolo.input.setBlocking(False)
-        yolo_nn.out.link(xoutYolo.input)
-        
         # --- IMU ---
         imu = pipeline.create(dai.node.IMU)
         imu.enableIMUSensor(dai.IMUSensor.ACCELEROMETER_RAW, 200)
@@ -219,52 +177,6 @@ class OAKDriverNode(Node):
             # Add to sync buffer
             self.sync_buffer.add_depth(d_roi, roi_coords, valid_ratio, ts_depth)
         
-        # SuperPoint
-        if self.q_sp.has():
-            sp_pkt = self.q_sp.get()
-            ts_sp = sp_pkt.getTimestamp().total_seconds()
-            
-            # Decode NN output (Assume 'output_keypoints' and 'output_scores' 'output_descriptors')
-            # Example parsing (dependent on blob structure)
-            # data = sp_pkt.getFirstLayerFp16() # naive
-            # Let's assume generic access for now or user knows format.
-            # Pseudo-parsing:
-            try:
-                layer_names = sp_pkt.getAllLayerNames()
-                # Dummy implementation for blob parsing
-                # In reality: convert layers to numpy
-                # Placeholder:
-                kps = np.array([]) # Nx3
-                desc = np.zeros((0, 256)) 
-                
-                # --- LOGIC: SPATIAL BUCKETING ---
-                kps_b, desc_b = bucket_keypoints(kps, desc)
-                
-                # --- LOGIC: DELTA ENCODING ---
-                desc_mode, desc_data = self.delta_encoder.encode(desc_b)
-                
-                self.sync_buffer.add_keypoints(kps_b, {'mode': desc_mode, 'data': desc_data}, ts_sp)
-            except Exception as e:
-                # self.get_logger().warn(f"SP Parse error: {e}")
-                pass
-
-        # YOLO
-        if self.q_yolo.has():
-            y_pkt = self.q_yolo.get()
-            ts_yolo = y_pkt.getTimestamp().total_seconds()
-            
-            # --- LOGIC: YOLO DECODING (Placeholder / Host Side) ---
-            # Raw NNData from segmentation model.
-            # To properly decode YOLOv8-seg, we need complex post-processing (transpose, NMS, mask processing).
-            # For System Stability verification (Task 1), we send empty detections or minimal parsing.
-            # Implementing robust decoding on host is computationally expensive in python.
-            # We will pass empty detections to keep sync buffer alive for now.
-            # TODO: Implement full YOLOv8-seg decoding.
-            
-            detections = [] 
-            # If we want to at least keep the timestamp:
-            self.sync_buffer.add_yolo(detections, ts_yolo)
-            
         # IMU (Direct publish, no sync needed for frame usually, or sync separately)
         if self.q_imu.has():
             imu_pkt = self.q_imu.get()
@@ -276,15 +188,10 @@ class OAKDriverNode(Node):
 
         # DEBUG: Log status periodically
         if self.health_monitor.frame_count % 30 == 0:
-             self.get_logger().info(f"Queues - Depth: {self.q_depth.has()}, SP: {self.q_sp.has()}, YOLO: {self.q_yolo.has()}")
+             self.get_logger().info(f"Queues - Depth: {self.q_depth.has()}, IMU: {self.q_imu.has()}")
              if not synced:
-                 # Calculate delays
                  t_depth = self.sync_buffer.depth_buf[-1]['ts'] if self.sync_buffer.depth_buf else 0
-                 t_kp = self.sync_buffer.kp_buf[-1]['ts'] if self.sync_buffer.kp_buf else 0
-                 t_yolo = self.sync_buffer.yolo_buf[-1]['ts'] if self.sync_buffer.yolo_buf else 0
-                 
-                 self.get_logger().warn(f"Sync failed. TS: D={t_depth:.3f}, KP={t_kp:.3f}, Y={t_yolo:.3f}")
-                 self.get_logger().warn(f"Deltas: D-KP={t_depth-t_kp:.3f}, Y-KP={t_yolo-t_kp:.3f}")
+                 self.get_logger().warn(f"Sync pending. TS Depth: {t_depth:.3f}")
         
         if synced:
             # 3. HEALTH MONITOR

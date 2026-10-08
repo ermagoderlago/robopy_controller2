@@ -31,7 +31,7 @@ def generate_launch_description():
 <CycloneDDS xmlns="https://cdds.io/config" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://cdds.io/config https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
     <Domain id="any">
         <General>
-            <NetworkInterfaceAddress>auto</NetworkInterfaceAddress>
+            <NetworkInterfaceAddress>lo</NetworkInterfaceAddress>
             <AllowMulticast>true</AllowMulticast>
         </General>
         <Discovery>

@@ -132,6 +132,7 @@ ament_target_dependencies(hailo_bridge_node_cpp
   sensor_msgs
   geometry_msgs
   vision_msgs
+  visualization_msgs
   cv_bridge
   image_transport
 )

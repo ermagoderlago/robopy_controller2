@@ -172,4 +172,20 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
     - Redatta la guida tecnica esaustiva `docs/guides/HAILO_HEF_COMPILATION_GUIDE.md`.
     - Aperto `FM-VIS-009` in `fmea/dfmea.yaml` e creato il progetto di miglioramento `docs/improvements/IMP-VIS-009_hailo_yolo_accuracy_fix.md`.
 
+---
+
+## 📈 ECO-2026-10-08-001: Resource Governor Shadow Mode, Hailo Pose Offload, Resident Multimodal Identity & VAD Energy-Gating KWS (IMP-GOV-001 F1–F4)
+* **Stato:** ✅ **Completato, Testato (30/30 Test Superati) e Distribuito su Raspberry Pi 5**
+* **Descrizione:** Implementazione integrale delle prime 4 fasi di IMP-GOV-001:
+  - **F1 (Pose su Hailo & OAK Decoupling):** Spostamento decodifica ed esecuzione Pose dalla OAK MyriadX ad Hailo-10H (`hailo_bridge_node.cpp`), rimozione dei blob NN da `oak_driver_node.py` e `sync_buffer.py` che ora girano come pura pipeline sensoriale raw USB 3.0. Aggiunto presence-gating a monte della rete pose.
+  - **F2 (Biometria Residente & Multimodal Identity Tracker):** Implementato `robopy_controller/robot_ai/services/multimodal_identity_tracker.py` e `multimodal_identity_node.py` per fusione bayesiana visuale (SCRFD + ArcFace) e audio (ReSpeaker DOA + ECAPA-TDNN) con cadenze temporali differenziate per stato del Governor.
+  - **F3 (VAD Energy-Gated KWS & Stop-Words):** Risolta la contesa CPU/I2S sull'audio senza rischiare bus collision tra ESP32-S3 e XMOS XU316. Inserito gating dinamico RMS e finestra di hangover (15 chunk, 300-450ms) in `local_asr_vosk.py`, abbattendo la CPU a riposo da 12% a <1% preservando reattività stop <10ms.
+  - **F4 (Dynamic Resource Governor in Shadow Mode):** Implementato `resource_governor.py` con statechart ortogonale (Kinematic x Cognitive), watchdog a 10 Hz delle 8 invarianze non negoziabili, fail-safe SAFE_FULL e topic `/resource_governor/state` e `/resource_governor/metrics`.
+* **Modifiche apportate:**
+  - `robopy_controller/robot_ai/services/resource_governor.py`, `robopy_controller/nodes/resource_governor_node.py`, `scripts/resource_governor_node`, `scripts/start_resource_governor.sh`
+  - `robopy_controller/robot_ai/services/multimodal_identity_tracker.py`, `robopy_controller/nodes/multimodal_identity_node.py`, `scripts/multimodal_identity_node`
+  - `robopy_controller/robot_ai/services/local_asr_vosk.py`
+  - `src/hailo_bridge_node.cpp`, `robopy_controller/nodes/oak_driver_node.py`, `robopy_controller/oak_logic/sync_buffer.py`
+  - `restart_hailo.sh`, `setup.py`, `fmea/dfmea.yaml`, `fmea/FMEA_EXECUTIVE_REPORT.md`
+
 

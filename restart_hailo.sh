@@ -26,7 +26,7 @@ ENABLE_HAILO="${ENABLE_HAILO:-true}"
 USE_AMCL="${USE_AMCL:-true}"
 ENABLE_WATCHDOG="${ENABLE_WATCHDOG:-false}"
 SOFT_START="${SOFT_START:-true}"
-TARGET_CPU_FREQ="${TARGET_CPU_FREQ:-1500000}"
+TARGET_CPU_FREQ="${TARGET_CPU_FREQ:-2400000}"
 if [ -z "$MAP_FILE" ]; then
     if [ -f "/mnt/ssd/maps/piano_terra_opt.yaml" ]; then
         MAP_FILE="/mnt/ssd/maps/piano_terra_opt.yaml"
@@ -113,6 +113,9 @@ cat << 'EOF' > /tmp/cyclonedds_robopy.xml
 <?xml version="1.0" encoding="UTF-8" ?>
 <CycloneDDS xmlns="https://cdds.io/config" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://cdds.io/config https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
     <Domain id="any">
+        <General>
+            <NetworkInterfaceAddress>lo</NetworkInterfaceAddress>
+        </General>
         <Discovery>
             <MaxAutoParticipantIndex>200</MaxAutoParticipantIndex>
         </Discovery>
@@ -144,6 +147,8 @@ pkill -9 -f localization_fuser_node || true
 pkill -9 -f battery_manager_node || true
 pkill -9 -f cloud_watchdog_node || true
 pkill -9 -f speaker_id_node || true
+pkill -9 -f multimodal_identity_node || true
+pkill -9 -f resource_governor_node || true
 pkill -9 -f foxglove_bridge || true
 pkill -9 -f foxglove_nav2_bridge || true
 pkill -9 -f frontier_explorer_node || true
@@ -400,6 +405,7 @@ if [ "$ENABLE_HAILO" = "true" ]; then
         -p rgb_topic:=/rgb/image \
         -p vlm_rate_hz:=5.0 \
         -p conf_threshold:=0.55 \
+        -p enable_pose:=True \
         > /home/robopy/robopy/logs/hailo_bridge_node.log 2>&1 &
 else
     echo "💤 [POWER-SAFE] Salto avvio hailo_bridge_node_cpp (ENABLE_HAILO=false)."
@@ -439,6 +445,17 @@ if [ "$ENABLE_HAILO" = "true" ]; then
     nohup ros2 run robopy_controller speaker_id_node --ros-args \
         -p speaker_hef_path:=/mnt/ssd/models/ecapa_tdnn.hef \
         > /home/robopy/robopy/logs/speaker_id_node.log 2>&1 &
+
+    echo "👤 Starting multimodal_identity_node (Face & Voice Fusion F2)..."
+    > /home/robopy/robopy/logs/multimodal_identity_node.log
+    nohup ros2 run robopy_controller multimodal_identity_node \
+        > /home/robopy/robopy/logs/multimodal_identity_node.log 2>&1 &
+
+    echo "⚖️ Starting resource_governor_node (Dynamic Resource Governor F4 Shadow Mode)..."
+    > /home/robopy/robopy/logs/resource_governor_node.log
+    nohup ros2 run robopy_controller resource_governor_node \
+        --ros-args -p shadow_mode:=true \
+        > /home/robopy/robopy/logs/resource_governor_node.log 2>&1 &
 else
     echo "💤 [POWER-SAFE] Salto avvio speaker_id_node (ENABLE_HAILO=false)."
 fi

@@ -29,6 +29,10 @@
 #include <vision_msgs/msg/detection2_d_array.hpp>
 #include <vision_msgs/msg/detection2_d.hpp>
 #include <vision_msgs/msg/object_hypothesis_with_pose.hpp>
+#include <visualization_msgs/msg/marker_array.hpp>
+#include <visualization_msgs/msg/marker.hpp>
+#include <geometry_msgs/msg/point.hpp>
+#include <array>
 
 #include <opencv2/opencv.hpp>
 
@@ -161,6 +165,25 @@ struct DetectionBBox {
     std::string label;
 };
 
+struct Keypoint2D {
+    float x{0.0f};
+    float y{0.0f};
+    float confidence{0.0f};
+};
+
+// Standard 17 COCO Keypoint Skeleton Connections
+static const std::vector<std::pair<int, int>> COCO_SKELETON_PAIRS = {
+    {0, 1}, {0, 2}, {1, 3}, {2, 4}, {0, 5}, {0, 6},
+    {5, 6}, {5, 7}, {7, 9}, {6, 8}, {8, 10},
+    {5, 11}, {6, 12}, {11, 12},
+    {11, 13}, {13, 15}, {12, 14}, {14, 16}
+};
+
+struct PersonPose {
+    DetectionBBox bbox;
+    std::array<Keypoint2D, 17> keypoints;
+};
+
 class HailoBridgeNodeCpp : public rclcpp::Node {
 public:
     HailoBridgeNodeCpp() : Node("hailo_bridge_node_cpp"), num_frames_processed_(0) {
@@ -171,14 +194,23 @@ public:
         this->declare_parameter<double>("vlm_rate_hz", 5.0);
         this->declare_parameter<double>("conf_threshold", 0.55);
 
+        // Pose Tracking parameters (F1 Upgrade - Hailo-10H)
+        this->declare_parameter<bool>("enable_pose", true);
+        this->declare_parameter<std::string>("pose_hef_path", "/mnt/ssd/models/yolov8s_pose.hef");
+        this->declare_parameter<double>("pose_conf_threshold", 0.50);
+
         hef_path_ = this->get_parameter("hef_path").as_string();
         sim_mode_ = this->get_parameter("sim_mode").as_bool();
         rgb_topic_ = this->get_parameter("rgb_topic").as_string();
         vlm_rate_hz_ = this->get_parameter("vlm_rate_hz").as_double();
         conf_threshold_ = static_cast<float>(this->get_parameter("conf_threshold").as_double());
 
-        RCLCPP_INFO(this->get_logger(), "🚀 Starting Hailo Bridge Node C++ (HEF: %s, Rate: %.1f Hz, ConfThresh: %.2f)",
-                    hef_path_.c_str(), vlm_rate_hz_, conf_threshold_);
+        enable_pose_ = this->get_parameter("enable_pose").as_bool();
+        pose_hef_path_ = this->get_parameter("pose_hef_path").as_string();
+        pose_conf_threshold_ = static_cast<float>(this->get_parameter("pose_conf_threshold").as_double());
+
+        RCLCPP_INFO(this->get_logger(), "🚀 Starting Hailo Bridge Node C++ (HEF: %s, Rate: %.1f Hz, Pose: %s)",
+                    hef_path_.c_str(), vlm_rate_hz_, enable_pose_ ? "ENABLED" : "DISABLED");
 
         // Initialize Hailo NPU Device if available
         init_hailo_npu();
@@ -208,8 +240,14 @@ public:
         pub_semantic_objects_ = this->create_publisher<robopy_controller::msg::SemanticObjectArray>("/hailo/semantic_objects", 10);
         pub_vlad_ = this->create_publisher<std_msgs::msg::Float32MultiArray>("/hailo/vlad_descriptor", 10);
 
+        if (enable_pose_) {
+            pub_pose_markers_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("/hailo/pose/skeletons", 10);
+            pub_pose_detections_ = this->create_publisher<vision_msgs::msg::Detection2DArray>("/hailo/pose/detections", 10);
+        }
+
         last_inference_time_ = std::chrono::steady_clock::now();
-        RCLCPP_INFO(this->get_logger(), "✅ Hailo Bridge C++ Node initialized successfully.");
+        RCLCPP_INFO(this->get_logger(), "✅ Hailo Bridge C++ Node initialized successfully (Pose: %s).",
+                    enable_pose_ ? "ON" : "OFF");
     }
 
     ~HailoBridgeNodeCpp() override {
@@ -346,6 +384,71 @@ private:
             RCLCPP_INFO(this->get_logger(), "🔍 YOLO Head Layers: %s (stride 8), %s (stride 16), %s (stride 32)",
                         scales_[0].cls_layer.c_str(), scales_[1].cls_layer.c_str(), scales_[2].cls_layer.c_str());
 
+            // Initialize Pose InferModel on Shared VDevice (SPEC-03 F1 Upgrade)
+            if (enable_pose_) {
+                auto infer_model_pose_expected = vdevice_->create_infer_model(pose_hef_path_);
+                if (!infer_model_pose_expected) {
+                    RCLCPP_WARN(this->get_logger(), "⚠️ Failed to create Pose InferModel from %s: %d (Pose disabled)",
+                                pose_hef_path_.c_str(), infer_model_pose_expected.status());
+                    hailo_pose_ready_ = false;
+                } else {
+                    infer_model_pose_ = infer_model_pose_expected.release();
+                    infer_model_pose_->set_batch_size(1);
+
+                    const auto &pose_inputs = infer_model_pose_->inputs();
+                    if (!pose_inputs.empty()) {
+                        pose_input_name_ = pose_inputs[0].name();
+                        auto in_shape = infer_model_pose_->input(pose_input_name_)->shape();
+                        pose_input_h_ = in_shape.height;
+                        pose_input_w_ = in_shape.width;
+                        RCLCPP_INFO(this->get_logger(), "📦 Pose Input Stream: %s (%dx%dx%d)",
+                                    pose_input_name_.c_str(), pose_input_w_, pose_input_h_, in_shape.features);
+                    }
+
+                    for (const auto &outp : infer_model_pose_->outputs()) {
+                        auto out_stream_exp = infer_model_pose_->output(outp.name());
+                        if (out_stream_exp) {
+                            out_stream_exp->set_format_type(HAILO_FORMAT_TYPE_FLOAT32);
+                        }
+                    }
+
+                    auto configured_pose_expected = infer_model_pose_->configure();
+                    if (configured_pose_expected) {
+                        configured_infer_model_pose_ = std::make_unique<hailort::ConfiguredInferModel>(configured_pose_expected.release());
+                        auto bindings_pose_expected = configured_infer_model_pose_->create_bindings();
+                        if (bindings_pose_expected) {
+                            bindings_pose_ = std::make_unique<hailort::ConfiguredInferModel::Bindings>(bindings_pose_expected.release());
+
+                            for (const auto &inp : infer_model_pose_->inputs()) {
+                                std::string name = inp.name();
+                                size_t frame_size_bytes = inp.get_frame_size();
+                                pose_input_buffers_[name].resize(frame_size_bytes, 0);
+                                auto in_stream = bindings_pose_->input(name);
+                                if (in_stream) {
+                                    in_stream->set_buffer(hailort::MemoryView(
+                                        pose_input_buffers_[name].data(), pose_input_buffers_[name].size()
+                                    ));
+                                }
+                            }
+
+                            for (const auto &outp : infer_model_pose_->outputs()) {
+                                std::string name = outp.name();
+                                size_t frame_size_bytes = outp.get_frame_size();
+                                pose_output_buffers_[name].resize(frame_size_bytes / sizeof(float));
+                                auto out_stream = bindings_pose_->output(name);
+                                if (out_stream) {
+                                    out_stream->set_buffer(hailort::MemoryView(
+                                        pose_output_buffers_[name].data(), pose_output_buffers_[name].size() * sizeof(float)
+                                    ));
+                                }
+                            }
+                            hailo_pose_ready_ = true;
+                            RCLCPP_INFO(this->get_logger(), "🕺 Hailo-10H Pose InferModel configured successfully on shared VDevice!");
+                        }
+                    }
+                }
+            }
+
             RCLCPP_INFO(this->get_logger(), "🧠 Hailo-10H NPU Hardware & InferModel configured successfully C++!");
             hailo_ready_ = true;
         } catch (const std::exception &e) {
@@ -433,6 +536,65 @@ private:
             detections.push_back({0.34f, 0.28f, 0.95f, 0.88f, 0.91f, 60, "dining table"});
             detections.push_back({0.19f, 0.58f, 0.32f, 0.68f, 0.82f, 62, "tv"});
             detections.push_back({0.01f, 0.48f, 0.12f, 0.57f, 0.79f, 58, "potted plant"});
+            if (enable_pose_) {
+                detections.push_back({0.35f, 0.12f, 0.65f, 0.88f, 0.93f, 0, "person"});
+            }
+        }
+
+        // 🧍 PRESENCE-GATED POSE ESTIMATION (IMP-GOV-001, FM-GOV-016)
+        std::vector<PersonPose> poses;
+        bool has_person = false;
+        for (const auto &det : detections) {
+            if (det.label == "person" || det.class_id == 0) {
+                has_person = true;
+                break;
+            }
+        }
+
+        if (enable_pose_ && (has_person || sim_mode_)) {
+            if (hailo_pose_ready_) {
+#if HAILO_CPP_AVAILABLE
+                if (!pose_input_name_.empty() && pose_input_buffers_.count(pose_input_name_)) {
+                    if (pose_input_w_ == yolo_input_w_ && pose_input_h_ == yolo_input_h_) {
+                        std::memcpy(pose_input_buffers_[pose_input_name_].data(),
+                                    input_buffers_[yolo_input_name_].data(),
+                                    pose_input_buffers_[pose_input_name_].size());
+                    } else {
+                        float p_scale = std::min(static_cast<float>(pose_input_w_) / frame.cols,
+                                                static_cast<float>(pose_input_h_) / frame.rows);
+                        int p_unpad_w = std::clamp(static_cast<int>(std::round(frame.cols * p_scale)), 1, pose_input_w_);
+                        int p_unpad_h = std::clamp(static_cast<int>(std::round(frame.rows * p_scale)), 1, pose_input_h_);
+                        int p_pad_x = (pose_input_w_ - p_unpad_w) / 2;
+                        int p_pad_y = (pose_input_h_ - p_unpad_h) / 2;
+
+                        cv::Mat p_letterbox(pose_input_h_, pose_input_w_, CV_8UC3, pose_input_buffers_[pose_input_name_].data());
+                        p_letterbox.setTo(cv::Scalar(114, 114, 114));
+                        cv::Mat p_resized;
+                        cv::resize(frame, p_resized, cv::Size(p_unpad_w, p_unpad_h));
+                        cv::Mat p_roi = p_letterbox(cv::Rect(p_pad_x, p_pad_y, p_unpad_w, p_unpad_h));
+                        cv::cvtColor(p_resized, p_roi, cv::COLOR_BGR2RGB);
+                    }
+
+                    hailo_status p_status = configured_infer_model_pose_->run(*bindings_pose_, std::chrono::milliseconds(1000));
+                    if (p_status == HAILO_SUCCESS) {
+                        poses = decode_pose_outputs();
+                        if (!poses.empty()) {
+                            RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                                "🕺 [HAILO-POSE] Tracciate %zu persone con skeleton keypoints", poses.size());
+                        }
+                    } else {
+                        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000,
+                            "Hailo Pose InferModel::run failed with status %d", p_status);
+                    }
+                }
+#endif
+            } else if (sim_mode_) {
+                poses = generate_sim_poses(detections);
+            }
+
+            if (!poses.empty()) {
+                publish_poses(msg->header, poses, frame.cols, frame.rows);
+            }
         }
 
         // Publish Detection Messages to ROS 2 topics
@@ -471,6 +633,30 @@ private:
                           cv::Scalar(0, 255, 0), cv::FILLED);
             cv::putText(annotated_frame, label_str, cv::Point(text_x + 2, text_y - 4),
                         cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0), 1);
+        }
+
+        // Render Pose Skeletons if available
+        if (enable_pose_ && !poses.empty()) {
+            for (const auto &p : poses) {
+                // Skeleton bone links
+                for (const auto &pair : COCO_SKELETON_PAIRS) {
+                    const auto &kp1 = p.keypoints[pair.first];
+                    const auto &kp2 = p.keypoints[pair.second];
+                    if (kp1.confidence >= pose_conf_threshold_ && kp2.confidence >= pose_conf_threshold_) {
+                        cv::Point pt1(static_cast<int>(kp1.x * frame.cols), static_cast<int>(kp1.y * frame.rows));
+                        cv::Point pt2(static_cast<int>(kp2.x * frame.cols), static_cast<int>(kp2.y * frame.rows));
+                        cv::line(annotated_frame, pt1, pt2, cv::Scalar(0, 215, 255), 2, cv::LINE_AA);
+                    }
+                }
+                // Joint keypoints
+                for (const auto &kp : p.keypoints) {
+                    if (kp.confidence >= pose_conf_threshold_) {
+                        cv::Point pt(static_cast<int>(kp.x * frame.cols), static_cast<int>(kp.y * frame.rows));
+                        cv::circle(annotated_frame, pt, 4, cv::Scalar(0, 255, 255), -1, cv::LINE_AA);
+                        cv::circle(annotated_frame, pt, 5, cv::Scalar(0, 0, 0), 1, cv::LINE_AA);
+                    }
+                }
+            }
         }
 
         // Publish Annotated Raw Image if subscribed
@@ -666,6 +852,321 @@ private:
         pub_semantic_objects_->publish(sem_array_msg);
     }
 
+    std::vector<PersonPose> decode_pose_outputs() {
+        std::vector<PersonPose> candidates;
+        const float conf_thresh = pose_conf_threshold_;
+        float orig_w = (last_scale_ > 0.0f && last_img_w_ > 0) ? static_cast<float>(last_img_w_) : 640.0f;
+        float orig_h = (last_scale_ > 0.0f && last_img_h_ > 0) ? static_cast<float>(last_img_h_) : 480.0f;
+
+        // 1. Single concatenated output tensor format: (8400, 56)
+        for (const auto &kv : pose_output_buffers_) {
+            const auto &buf = kv.second;
+            if (buf.size() == 8400 * 56) {
+                for (int i = 0; i < 8400; ++i) {
+                    const float *row = buf.data() + (i * 56);
+                    float score = row[4];
+                    if (score < conf_thresh) continue;
+
+                    float cx = row[0];
+                    float cy = row[1];
+                    float w = row[2];
+                    float h = row[3];
+
+                    float x1 = cx - w * 0.5f;
+                    float y1 = cy - h * 0.5f;
+                    float x2 = cx + w * 0.5f;
+                    float y2 = cy + h * 0.5f;
+
+                    float xmin = std::clamp((x1 - last_pad_x_) / (last_scale_ * orig_w), 0.0f, 1.0f);
+                    float ymin = std::clamp((y1 - last_pad_y_) / (last_scale_ * orig_h), 0.0f, 1.0f);
+                    float xmax = std::clamp((x2 - last_pad_x_) / (last_scale_ * orig_w), 0.0f, 1.0f);
+                    float ymax = std::clamp((y2 - last_pad_y_) / (last_scale_ * orig_h), 0.0f, 1.0f);
+
+                    if (xmax <= xmin || ymax <= ymin) continue;
+
+                    PersonPose pose;
+                    pose.bbox = {xmin, ymin, xmax, ymax, score, 0, "person"};
+                    const float *kpt_raw = row + 5;
+                    for (int k = 0; k < 17; ++k) {
+                        float kx = kpt_raw[k * 3 + 0];
+                        float ky = kpt_raw[k * 3 + 1];
+                        float ks = kpt_raw[k * 3 + 2];
+                        float norm_x = std::clamp((kx - last_pad_x_) / (last_scale_ * orig_w), 0.0f, 1.0f);
+                        float norm_y = std::clamp((ky - last_pad_y_) / (last_scale_ * orig_h), 0.0f, 1.0f);
+                        pose.keypoints[k] = {norm_x, norm_y, ks};
+                    }
+                    candidates.push_back(pose);
+                }
+                break;
+            }
+        }
+
+        // 2. Multi-scale separate heads format (strides 8, 16, 32)
+        if (candidates.empty()) {
+            std::vector<std::tuple<int, int, int>> scale_defs = {
+                {8,  80, 80},
+                {16, 40, 40},
+                {32, 20, 20}
+            };
+
+            for (const auto &sc : scale_defs) {
+                int stride = std::get<0>(sc);
+                int gh = std::get<1>(sc);
+                int gw = std::get<2>(sc);
+                int num_cells = gh * gw;
+
+                const float *cls_ptr = nullptr;
+                const float *bbox_ptr = nullptr;
+                const float *kpt_ptr = nullptr;
+                bool is_dfl = false;
+
+                for (const auto &kv : pose_output_buffers_) {
+                    const auto &buf = kv.second;
+                    if (buf.size() == static_cast<size_t>(num_cells * 51)) {
+                        kpt_ptr = buf.data();
+                    } else if (buf.size() == static_cast<size_t>(num_cells * 64)) {
+                        bbox_ptr = buf.data();
+                        is_dfl = true;
+                    } else if (buf.size() == static_cast<size_t>(num_cells * 4)) {
+                        bbox_ptr = buf.data();
+                        is_dfl = false;
+                    } else if (buf.size() == static_cast<size_t>(num_cells * 1) || buf.size() == static_cast<size_t>(num_cells * 80)) {
+                        cls_ptr = buf.data();
+                    }
+                }
+
+                if (!kpt_ptr || !bbox_ptr || !cls_ptr) continue;
+
+                for (int gy = 0; gy < gh; ++gy) {
+                    for (int gx = 0; gx < gw; ++gx) {
+                        int cell_idx = gy * gw + gx;
+                        float logit = cls_ptr[cell_idx];
+                        float score = 1.0f / (1.0f + std::exp(-std::clamp(logit, -10.0f, 10.0f)));
+                        if (score < conf_thresh) continue;
+
+                        float x1, y1, x2, y2;
+                        if (is_dfl) {
+                            const float *bbox_cell = bbox_ptr + (cell_idx * 64);
+                            float dfl[4];
+                            for (int b = 0; b < 4; ++b) {
+                                const float *reg = bbox_cell + (b * 16);
+                                float max_val = -1e9f;
+                                for (int i = 0; i < 16; ++i) max_val = std::max(max_val, reg[i]);
+                                float sum_exp = 0.0f;
+                                float exp_v[16];
+                                for (int i = 0; i < 16; ++i) {
+                                    exp_v[i] = std::exp(reg[i] - max_val);
+                                    sum_exp += exp_v[i];
+                                }
+                                float val = 0.0f;
+                                for (int i = 0; i < 16; ++i) val += (exp_v[i] / sum_exp) * i;
+                                dfl[b] = val;
+                            }
+                            x1 = (gx + 0.5f - dfl[0]) * stride;
+                            y1 = (gy + 0.5f - dfl[1]) * stride;
+                            x2 = (gx + 0.5f + dfl[2]) * stride;
+                            y2 = (gy + 0.5f + dfl[3]) * stride;
+                        } else {
+                            const float *bbox_cell = bbox_ptr + (cell_idx * 4);
+                            x1 = (gx + 0.5f - bbox_cell[0]) * stride;
+                            y1 = (gy + 0.5f - bbox_cell[1]) * stride;
+                            x2 = (gx + 0.5f + bbox_cell[2]) * stride;
+                            y2 = (gy + 0.5f + bbox_cell[3]) * stride;
+                        }
+
+                        float xmin = std::clamp((x1 - last_pad_x_) / (last_scale_ * orig_w), 0.0f, 1.0f);
+                        float ymin = std::clamp((y1 - last_pad_y_) / (last_scale_ * orig_h), 0.0f, 1.0f);
+                        float xmax = std::clamp((x2 - last_pad_x_) / (last_scale_ * orig_w), 0.0f, 1.0f);
+                        float ymax = std::clamp((y2 - last_pad_y_) / (last_scale_ * orig_h), 0.0f, 1.0f);
+
+                        if (xmax <= xmin || ymax <= ymin) continue;
+
+                        PersonPose pose;
+                        pose.bbox = {xmin, ymin, xmax, ymax, score, 0, "person"};
+
+                        const float *kpt_cell = kpt_ptr + (cell_idx * 51);
+                        for (int k = 0; k < 17; ++k) {
+                            float kx = kpt_cell[k * 3 + 0];
+                            float ky = kpt_cell[k * 3 + 1];
+                            float kscore_raw = kpt_cell[k * 3 + 2];
+                            float kp_score = 1.0f / (1.0f + std::exp(-std::clamp(kscore_raw, -10.0f, 10.0f)));
+
+                            float px = (kx * 2.0f + gx) * stride;
+                            float py = (ky * 2.0f + gy) * stride;
+                            float norm_x = std::clamp((px - last_pad_x_) / (last_scale_ * orig_w), 0.0f, 1.0f);
+                            float norm_y = std::clamp((py - last_pad_y_) / (last_scale_ * orig_h), 0.0f, 1.0f);
+                            pose.keypoints[k] = {norm_x, norm_y, kp_score};
+                        }
+                        candidates.push_back(pose);
+                    }
+                }
+            }
+        }
+
+        // NMS on candidates (IoU 0.45)
+        std::sort(candidates.begin(), candidates.end(), [](const PersonPose &a, const PersonPose &b) {
+            return a.bbox.confidence > b.bbox.confidence;
+        });
+
+        std::vector<PersonPose> nms_results;
+        for (const auto &cand : candidates) {
+            bool keep = true;
+            for (const auto &selected : nms_results) {
+                float ix1 = std::max(cand.bbox.xmin, selected.bbox.xmin);
+                float iy1 = std::max(cand.bbox.ymin, selected.bbox.ymin);
+                float ix2 = std::min(cand.bbox.xmax, selected.bbox.xmax);
+                float iy2 = std::min(cand.bbox.ymax, selected.bbox.ymax);
+                float iw = std::max(0.0f, ix2 - ix1);
+                float ih = std::max(0.0f, iy2 - iy1);
+                float inter_area = iw * ih;
+                float area_a = (cand.bbox.xmax - cand.bbox.xmin) * (cand.bbox.ymax - cand.bbox.ymin);
+                float area_b = (selected.bbox.xmax - selected.bbox.xmin) * (selected.bbox.ymax - selected.bbox.ymin);
+                float union_area = area_a + area_b - inter_area;
+                float iou = (union_area > 0.0f) ? (inter_area / union_area) : 0.0f;
+                if (iou > 0.45f) {
+                    keep = false;
+                    break;
+                }
+            }
+            if (keep) nms_results.push_back(cand);
+        }
+
+        return nms_results;
+    }
+
+    std::vector<PersonPose> generate_sim_poses(const std::vector<DetectionBBox> &detections) {
+        std::vector<PersonPose> sim_poses;
+        for (const auto &det : detections) {
+            if (det.label == "person" || det.class_id == 0) {
+                PersonPose pose;
+                pose.bbox = det;
+                float cx = (det.xmin + det.xmax) * 0.5f;
+                float bw = (det.xmax - det.xmin);
+                float bh = (det.ymax - det.ymin);
+
+                // Anatomically plausible 17 COCO keypoints
+                pose.keypoints[0]  = {cx, det.ymin + bh * 0.10f, 0.95f}; // nose
+                pose.keypoints[1]  = {cx - bw * 0.08f, det.ymin + bh * 0.08f, 0.92f}; // left_eye
+                pose.keypoints[2]  = {cx + bw * 0.08f, det.ymin + bh * 0.08f, 0.92f}; // right_eye
+                pose.keypoints[3]  = {cx - bw * 0.16f, det.ymin + bh * 0.10f, 0.88f}; // left_ear
+                pose.keypoints[4]  = {cx + bw * 0.16f, det.ymin + bh * 0.10f, 0.88f}; // right_ear
+                pose.keypoints[5]  = {cx - bw * 0.28f, det.ymin + bh * 0.22f, 0.94f}; // left_shoulder
+                pose.keypoints[6]  = {cx + bw * 0.28f, det.ymin + bh * 0.22f, 0.94f}; // right_shoulder
+                pose.keypoints[7]  = {cx - bw * 0.35f, det.ymin + bh * 0.40f, 0.90f}; // left_elbow
+                pose.keypoints[8]  = {cx + bw * 0.35f, det.ymin + bh * 0.40f, 0.90f}; // right_elbow
+                pose.keypoints[9]  = {cx - bw * 0.38f, det.ymin + bh * 0.58f, 0.89f}; // left_wrist
+                pose.keypoints[10] = {cx + bw * 0.38f, det.ymin + bh * 0.58f, 0.89f}; // right_wrist
+                pose.keypoints[11] = {cx - bw * 0.20f, det.ymin + bh * 0.55f, 0.92f}; // left_hip
+                pose.keypoints[12] = {cx + bw * 0.20f, det.ymin + bh * 0.55f, 0.92f}; // right_hip
+                pose.keypoints[13] = {cx - bw * 0.22f, det.ymin + bh * 0.75f, 0.91f}; // left_knee
+                pose.keypoints[14] = {cx + bw * 0.22f, det.ymin + bh * 0.75f, 0.91f}; // right_knee
+                pose.keypoints[15] = {cx - bw * 0.24f, det.ymin + bh * 0.95f, 0.87f}; // left_ankle
+                pose.keypoints[16] = {cx + bw * 0.24f, det.ymin + bh * 0.95f, 0.87f}; // right_ankle
+
+                sim_poses.push_back(pose);
+            }
+        }
+        return sim_poses;
+    }
+
+    void publish_poses(const std_msgs::msg::Header &header,
+                       const std::vector<PersonPose> &poses,
+                       int img_width, int img_height) {
+        if (!enable_pose_ || poses.empty()) return;
+
+        // 1. Detection2DArray for Pose
+        if (pub_pose_detections_ && pub_pose_detections_->get_subscription_count() > 0) {
+            vision_msgs::msg::Detection2DArray det_array;
+            det_array.header = header;
+            for (const auto &p : poses) {
+                vision_msgs::msg::Detection2D det;
+                det.header = header;
+                det.bbox.center.position.x = (p.bbox.xmin + p.bbox.xmax) * 0.5 * img_width;
+                det.bbox.center.position.y = (p.bbox.ymin + p.bbox.ymax) * 0.5 * img_height;
+                det.bbox.size_x = (p.bbox.xmax - p.bbox.xmin) * img_width;
+                det.bbox.size_y = (p.bbox.ymax - p.bbox.ymin) * img_height;
+
+                vision_msgs::msg::ObjectHypothesisWithPose hyp;
+                hyp.hypothesis.class_id = "person_pose";
+                hyp.hypothesis.score = p.bbox.confidence;
+                det.results.push_back(hyp);
+                det_array.detections.push_back(det);
+            }
+            pub_pose_detections_->publish(det_array);
+        }
+
+        // 2. Visualization Markers for Skeletons (RViz / Foxglove 3D & 2D)
+        if (pub_pose_markers_ && pub_pose_markers_->get_subscription_count() > 0) {
+            visualization_msgs::msg::MarkerArray marker_array;
+            
+            for (size_t i = 0; i < poses.size(); ++i) {
+                const auto &p = poses[i];
+
+                // Spheres for Joints
+                visualization_msgs::msg::Marker joints_marker;
+                joints_marker.header = header;
+                joints_marker.header.frame_id = "camera_optical_frame";
+                joints_marker.ns = "skeleton_joints";
+                joints_marker.id = static_cast<int>(i * 2);
+                joints_marker.type = visualization_msgs::msg::Marker::SPHERE_LIST;
+                joints_marker.action = visualization_msgs::msg::Marker::ADD;
+                joints_marker.scale.x = 0.04;
+                joints_marker.scale.y = 0.04;
+                joints_marker.scale.z = 0.04;
+                joints_marker.color.r = 0.0f;
+                joints_marker.color.g = 1.0f;
+                joints_marker.color.b = 0.8f;
+                joints_marker.color.a = 0.9f;
+                joints_marker.lifetime = rclcpp::Duration::from_seconds(0.5);
+
+                for (const auto &kp : p.keypoints) {
+                    if (kp.confidence >= pose_conf_threshold_) {
+                        geometry_msgs::msg::Point pt;
+                        pt.x = (kp.x - 0.5f) * 1.5f;
+                        pt.y = (kp.y - 0.5f) * 1.5f;
+                        pt.z = 1.5f;
+                        joints_marker.points.push_back(pt);
+                    }
+                }
+                marker_array.markers.push_back(joints_marker);
+
+                // Lines for Bones
+                visualization_msgs::msg::Marker bones_marker;
+                bones_marker.header = header;
+                bones_marker.header.frame_id = "camera_optical_frame";
+                bones_marker.ns = "skeleton_bones";
+                bones_marker.id = static_cast<int>(i * 2 + 1);
+                bones_marker.type = visualization_msgs::msg::Marker::LINE_LIST;
+                bones_marker.action = visualization_msgs::msg::Marker::ADD;
+                bones_marker.scale.x = 0.02; // Bone line width
+                bones_marker.color.r = 1.0f;
+                bones_marker.color.g = 0.85f;
+                bones_marker.color.b = 0.0f;
+                bones_marker.color.a = 0.85f;
+                bones_marker.lifetime = rclcpp::Duration::from_seconds(0.5);
+
+                for (const auto &pair : COCO_SKELETON_PAIRS) {
+                    const auto &kp1 = p.keypoints[pair.first];
+                    const auto &kp2 = p.keypoints[pair.second];
+                    if (kp1.confidence >= pose_conf_threshold_ && kp2.confidence >= pose_conf_threshold_) {
+                        geometry_msgs::msg::Point pt1, pt2;
+                        pt1.x = (kp1.x - 0.5f) * 1.5f;
+                        pt1.y = (kp1.y - 0.5f) * 1.5f;
+                        pt1.z = 1.5f;
+                        pt2.x = (kp2.x - 0.5f) * 1.5f;
+                        pt2.y = (kp2.y - 0.5f) * 1.5f;
+                        pt2.z = 1.5f;
+                        bones_marker.points.push_back(pt1);
+                        bones_marker.points.push_back(pt2);
+                    }
+                }
+                marker_array.markers.push_back(bones_marker);
+            }
+
+            pub_pose_markers_->publish(marker_array);
+        }
+    }
+
     // Parameters
     std::string hef_path_;
     bool sim_mode_;
@@ -699,11 +1200,30 @@ private:
     rclcpp::Publisher<robopy_controller::msg::SemanticObjectArray>::SharedPtr pub_semantic_objects_;
     rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr pub_vlad_;
 
+    // Pose Tracking on Shared VDevice (SPEC-03 F1 Upgrade)
+    bool enable_pose_{false};
+    std::string pose_hef_path_;
+    float pose_conf_threshold_{0.50f};
+    bool hailo_pose_ready_{false};
+
+    std::string pose_input_name_;
+    int pose_input_h_{640};
+    int pose_input_w_{640};
+    std::unordered_map<std::string, std::vector<uint8_t>> pose_input_buffers_;
+    std::unordered_map<std::string, std::vector<float>> pose_output_buffers_;
+
+    rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr pub_pose_markers_;
+    rclcpp::Publisher<vision_msgs::msg::Detection2DArray>::SharedPtr pub_pose_detections_;
+
 #if HAILO_CPP_AVAILABLE
     std::unique_ptr<hailort::VDevice> vdevice_;
     std::shared_ptr<hailort::InferModel> infer_model_;
     std::unique_ptr<hailort::ConfiguredInferModel> configured_infer_model_;
     std::unique_ptr<hailort::ConfiguredInferModel::Bindings> bindings_;
+
+    std::shared_ptr<hailort::InferModel> infer_model_pose_;
+    std::unique_ptr<hailort::ConfiguredInferModel> configured_infer_model_pose_;
+    std::unique_ptr<hailort::ConfiguredInferModel::Bindings> bindings_pose_;
 #endif
 };
 

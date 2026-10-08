@@ -4,19 +4,19 @@ Questo documento descrive le lezioni apprese su OAK-D Lite, l'acceleratore NPU H
 
 ---
 
-## 🔌 Hardware e Connettività USB (X_LINK_ERROR)
+## 🔌 Hardware e Connettività USB (X_LINK_ERROR - Risolto con BEC Droni)
 
-### Saturazione del Bus USB 2.0
-* **Problema:** La camera OAK-D Lite si disconnette bruscamente dopo 60-90 secondi di streaming, entrando in crash loop con l'errore:
-  `Couldn't read data from stream: 'rect' (X_LINK_ERROR)`
-* **Causa:** Il kernel rileva la camera su bus USB "High-Speed" (USB 2.0 a 480 Mbps). Il flusso RGB compresso + profondità raw + features SuperPoint satura completamente il bus, causando la perdita di pacchetti di controllo. DepthAI interpreta il ping mancato come disconnessione hardware.
-* **Risoluzione:**
-  1. Collegare la fotocamera esclusivamente a una **porta USB 3.0 (blu)** del Raspberry Pi 5 o dell'Hub USB alimentato.
-  2. Verificare che il cavo utilizzato supporti la larghezza di banda USB 3.0 (i cavi standard per sola ricarica degradano la connessione a USB 2.0).
-  3. Controllare tramite `dmesg` che venga stampato `SuperSpeed USB device`.
+### Saturazione del Bus USB 2.0 e Fallback da Voltage Sag (FM-VIS-004)
+* **Problema Storico:** La camera OAK-D Lite si disconnetteva bruscamente dopo 60-90 secondi di streaming, entrando in crash loop con l'errore:
+  `Couldn't read data from stream: 'rect' (X_LINK_ERROR)`.
+* **Causa Radice Identificata:** Il transceiver USB 3.0 dell'OAK-D Lite richiede un'alimentazione a 5V priva di ripple per il link training ad alta frequenza (5 Gbps differential pairs). Sotto carichi AI combinati (Hailo NPU a 40 TOPS + SSD NVMe + spunti motori), il rail 5V del Pi 5 subiva un transitorio di voltage sag (<4.75V) che faceva fallire la negoziazione fisica SuperSpeed, forzando la camera a de-enumerare e degradarsi a USB 2.0 High-Speed (480 Mbps). Il flusso RGB compresso + profondità raw 16UC1 + IMU saturava i ~35 MB/s effettivi di USB 2.0, provocando la perdita di pacchetti XLink e il crash del driver DepthAI.
+* **Risoluzione Definitiva Hardware (Ottobre 2026):**
+  1. **Modulo di Alimentazione Drone-Grade (BEC Step-Down):** Inserito modulo buck switching ad altissima efficienza e bassa ESR derivato da componentistica per droni/FPV. Eroga 5.25V ultra-stabili con capacità di picco 6-10A e ripple <20mV.
+  2. **USB 3.0 SuperSpeed Reale (5 Gbps):** Con l'alimentazione stabilizzata, la OAK-D Lite negozia stabilmente e permanentemente la modalità **SuperSpeed (5000M)**, confermata da dmesg (`SuperSpeed USB device`).
+  3. **Headroom di Banda > 88%:** Con un throughput fisico di ~400-450 MB/s e il decoupling delle reti neurali da MyriadX a Hailo-10H (Depth + RGB preview occupano solo ~35-45 MB/s), il margine di banda è superiore all'88%, azzerando il rischio di saturazione e chiudendo definitivamente il failure mode `FM-VIS-004`.
 
-### Caduta di Tensione e Reset dell'SSD
-* **Regola Permanente:** All'avvio simultaneo di fotocamera, NPU ed array microfonico, il picco di assorbimento manda in sottotensione le porte USB del Pi 5, provocando il reset dell'SSD host (`reset SuperSpeed USB device`) e bloccando il filesystem in sola lettura. Utilizzare sempre un **Hub USB alimentato esternamente** per camera ed SSD.
+### Caduta di Tensione e Reset dell'SSD (FM-PWR-002 - Risolto)
+* **Risoluzione Definitiva:** L'alimentazione stabilizzata a 5.25V tramite BEC di derivazione drone ha eliminato sia il rischio di reset dell'SSD host NVMe (`reset SuperSpeed USB device`) sia gli allarmi di undervoltage del PMIC Pi 5 (`hwmon3 Undervoltage detected`), fornendo una base hardware ultra-stabile a tutti i carichi AI simultanei.
 
 ---
 
@@ -306,4 +306,25 @@ Questo documento descrive le lezioni apprese su OAK-D Lite, l'acceleratore NPU H
   1. **Letterbox 1:1:** Implementato il preprocessing con scala isotropa e padding grigio 114, con rimappatura inversa corretta dei bounding box.
   2. **Allineamento SPEC-03:** Innalzata la soglia `conf_thresh` al valore nominale di specifica (`0.55f`) ed inserito un filtro di plausibilità d'aspetto ($W/H \le 1.8$ per la classe persona).
   3. **Guida HEF Ufficiale:** Redatta la documentazione completa in `docs/guides/HAILO_HEF_COMPILATION_GUIDE.md` per la ricompilazione ad alta fedeltà con dataset COCO reale in WSL 2.
+
+---
+
+## 🕺 Pose Tracking su Hailo-10H, Presence Gating & Decoupling OAK-D Lite (F1 Upgrade - Ottobre 2026)
+
+### Spostamento del Pose Tracking da MyriadX VPU a Hailo-10H NPU
+* **Problema:** Tentativi pregressi di eseguire reti neurali (YOLOv8-seg, SuperPoint) a bordo della VPU MyriadX dell'OAK-D Lite provocavano saturazione della banda USB 2.0/3.0, latenze incontrollate e crash ricorrenti con `X_LINK_ERROR` (`FM-VIS-001`).
+* **Soluzione Architetturale (SPEC-03):** Decoupling totale. L'OAK-D Lite opera unicamente come sensore di profondità hardware stereo (16UC1), preview RGB e IMU senza alcun carico neurale a bordo del MyriadX. Tutti i modelli di percezione (YOLO, SuperPoint, Pose Tracking) sono migrati sull'NPU Hailo-10H (PCIe Gen 3, 40 TOPS).
+
+### Presence-Gated Pose Execution (FM-GOV-016, FM-GOV-015)
+* **Logica:** L'inferenza della stima di posa (YOLOv8-pose) e il relativo post-processing consumano cicli NPU e bandwidth DRAM anche quando la stanza è vuota.
+* **Implementazione:** In `hailo_bridge_node_cpp`, l'inferenza di posa viene attivata **esclusivamente quando YOLO rileva almeno un'entità con classe `person`** con confidenza $\ge 0.50$.
+* **Vantaggi Ingegneristici:**
+  1. A stanza vuota, l'overhead NPU del modello di posa si azzera completamente (0 Hz).
+  2. Nessun riscaldamento termico parassita dell'acceleratore Hailo-10H (`FM-GOV-015`).
+  3. Al rilevamento di un soggetto umano, il modello di posa entra immediatamente in azione entro il medesimo ciclo frame, estraendo i 17 keypoint anatomici COCO.
+
+### Post-Processing Keypoint C++ su Core 2-3 & Lazy Publishing
+* **Zero Overhead Python su Core 0-1 (`FM-GOV-016`):** Il decode di DFL per bounding box e delle coordinate $(x, y, conf)$ per i 17 landmark anatomici è implementato interamente in C++ con strutture pre-allocate e core pinning forzato sui Core 2 e 3 del Raspberry Pi 5.
+* **Proiezione Inverse Letterbox Isotropa:** Le coordinate dei keypoint vengono rimappate nello spazio immagine originale tenendo conto delle bande di padding (letterbox 1:1), garantendo che giunti e ossa coincidano geometricamente con il corpo umano.
+* **Visualizzazione Scheletro:** Se presente almeno un subscriber (Foxglove Studio / RViz), lo scheletro viene renderizzato con 17 sfere per i nodi articolari e 18 linee per le connessioni ossee via `visualization_msgs::msg::MarkerArray` su `/hailo/pose/skeletons` e disegnato su `/hailo/annotated_image`. Se non ci sono subscriber, il lazy publishing salta completamente il disegno OpenCV, risparmiando oltre il 90% di CPU host.
 

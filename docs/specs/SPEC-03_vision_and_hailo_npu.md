@@ -11,7 +11,7 @@
 - **File Modelli HEF / HAR:**
   - `joined_yolo_superpoint_netvlad.hef`, `yolov8s_seg.hef`, `superpoint_128d.hef`
 - **Hardware Diretto:** OAK-D Lite (MyriadX), Raspberry Pi AI HAT+ (Hailo-10H NPU da 40 TOPS), Hub USB 3.0 alimentato.
-- **DFMEA Correlati:** `FM-VIS-001` (Saturazione USB 2.0 e `X_LINK_ERROR`), `FM-VIS-004` (Caduta tensione e reset SSD), `FM-VIS-005` (API Hailo legacy non implementate), `FM-VIS-006` (Contesa CPU senza Core Pinning), `FM-LLM-005` (Fallback VLM su NPU).
+- **DFMEA Correlati:** `FM-VIS-001` (Mismatch risoluzione SuperPoint), `FM-VIS-004` (Saturazione banda USB 2.0 ed errore `X_LINK_ERROR`), `FM-PWR-002` (Caduta tensione e reset PMIC/SSD), `FM-VIS-005` (API Hailo legacy non implementate), `FM-VIS-006` (Contesa CPU senza Core Pinning), `FM-LLM-005` (Fallback VLM su NPU).
 
 ---
 
@@ -19,7 +19,7 @@
 
 ```mermaid
 graph TD
-    CAM["OAK-D Lite Camera (USB 3.0 SuperSpeed)"] -->|RGB 640x480 / Depth 16UC1| OAK["oak_driver_node.py / DepthAI"]
+    CAM["OAK-D Lite Camera (USB 3.0 SuperSpeed 5Gbps Reale, BEC Droni 5.25V)"] -->|RGB 640x480 / Depth 16UC1| OAK["oak_driver_node.py / DepthAI"]
     OAK -->|Zero-Copy Shared Memory / ROS| BRIDGE["hailo_bridge_node (HailoRT C++)"]
     
     subgraph "Hailo-10H NPU (40 TOPS PCIe Gen 3)"
@@ -50,8 +50,8 @@ Le seguenti prescrizioni sono necessarie per prevenire crash del bus PCIe, disco
 
 | Vincolo Hardware / Software | Regola Inviolabile | Rischio Ingegneristico | DFMEA |
 | :--- | :--- | :--- | :--- |
-| **Connettività OAK-D Lite** | **Porta USB 3.0 SuperSpeed (Blu)** obbligatoria | `X_LINK_ERROR` e crash loop dopo 60 secondi di streaming | FM-VIS-001 |
-| **Alimentazione USB & SSD** | **Hub USB alimentato esternamente** per camera | Reset hardware dell'SSD host con filesystem in read-only | FM-VIS-004 |
+| **Connettività OAK-D Lite** | **Porta USB 3.0 SuperSpeed (5 Gbps reale)** obbligatoria | Saturazione banda USB 2.0 (480 Mbps) e crash loop `X_LINK_ERROR` | FM-VIS-004 |
+| **Alimentazione Pi 5 & OAK** | **Modulo step-down/BEC droni (5.25V ultra-stabile)** | Voltage sag, de-enumerazione USB 3.0 e reset SSD/PMIC | FM-PWR-002, FM-VIS-004 |
 | **CPU Core Pinning C++** | Vincolo categorico ai **Core CPU 2 e 3** su Pi 5 | Trashing della CPU; blocco thread real-time I/O (Core 0-1) | FM-VIS-006 |
 | **Zero Allocazioni in Callback** | Strutture dati e buffer Eigen rigorosamente pre-allocati | Garbage collection pauses e latenze oltre i 100 ms | FM-SYS-001 |
 | **Hailo-10H API Standard** | Solo `InferModel` via `VDevice.create_infer_model` | `HAILO_NOT_IMPLEMENTED` immediato su chiamate legacy | FM-VIS-005 |

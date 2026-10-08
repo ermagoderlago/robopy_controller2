@@ -24,6 +24,7 @@ class EnvironmentSnapshot:
         self.exploration_mode: str = "IDLE"  # IDLE, EXPLORE, HUNT
         self.exploration_target: Optional[str] = None
         self.remaining_frontiers: int = 0
+        self.biometrics_summary: Optional[str] = None
         self.last_update: float = time.time()
 
     def update_location(
@@ -68,10 +69,15 @@ class EnvironmentSnapshot:
         self.remaining_frontiers = max(0, int(remaining_frontiers))
         self.last_update = time.time()
 
+    def update_biometrics(self, summary: str) -> None:
+        """Updates multimodal biometric identity for CAG LLM grounding."""
+        self.biometrics_summary = summary
+        self.last_update = time.time()
+
     def to_text(self) -> str:
         """
         Returns a concise, token-efficient environmental summary for LLM CAG.
-        Example: [ENV] Room: salotto (near centroid 0.4m) | Map: casa_piano1 | AMCL cov: 0.042 | Exploration: HUNT(persona, frontiers=3)
+        Example: [ENV] Room: salotto (near centroid 0.4m) | Map: casa_piano1 | AMCL cov: 0.042 | Biometrics: Active: Luca (fused 95%)
         """
         if self.dist_to_centroid is not None:
             room_desc = f"{self.room_name} (near centroid {self.dist_to_centroid:.1f}m)"
@@ -84,7 +90,9 @@ class EnvironmentSnapshot:
             f"AMCL cov: {self.covariance_trace:.3f}"
         ]
         
-        if self.recognized_humans:
+        if self.biometrics_summary:
+            parts.append(self.biometrics_summary.replace("[BIOMETRICS] ", ""))
+        elif self.recognized_humans:
             parts.append(f"Humans: {','.join(self.recognized_humans)}")
             
         if self.visual_objects:
