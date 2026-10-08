@@ -14,8 +14,10 @@ import time
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String, Bool, Header
+from std_srvs.srv import SetBool
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import BatteryState
+from geometry_msgs.msg import PoseWithCovarianceStamped
 
 from robopy_controller.robot_ai.services.resource_governor import (
     ResourceGovernorEngine,
@@ -47,9 +49,15 @@ class ResourceGovernorNode(Node):
             shadow_mode=self.shadow_mode
         )
 
-        # Publisher telemetrici
+        # Publisher telemetrici e di controllo
         self.pub_state = self.create_publisher(String, '/resource_governor/state', 10)
         self.pub_metrics = self.create_publisher(String, '/resource_governor/metrics', 10)
+        self.pub_vlm_enable = self.create_publisher(Bool, '/resource_governor/vlm_enable', 10)
+
+        # Service di controllo esplicito LOCAL_VLM (F6)
+        self.srv_request_vlm = self.create_service(
+            SetBool, '/resource_governor/request_local_vlm', self._handle_request_vlm
+        )
 
         # Subscriber telemetrici
         self.sub_odom = self.create_subscription(
@@ -72,6 +80,12 @@ class ResourceGovernorNode(Node):
         )
         self.sub_stop = self.create_subscription(
             Bool, '/safety/emergency_stop', self._on_emergency_stop, 10
+        )
+        self.sub_cloud_status = self.create_subscription(
+            Bool, '/cloud/status', self._on_cloud_status, 10
+        )
+        self.sub_amcl_pose = self.create_subscription(
+            PoseWithCovarianceStamped, '/amcl_pose', self._on_amcl_pose, 10
         )
 
         # Timer principale a 10 Hz
@@ -134,6 +148,31 @@ class ResourceGovernorNode(Node):
             self.get_logger().warning("🛑 [ResourceGovernor] Fast-path STOP intercettato!")
             self.engine.trigger_emergency_stop()
 
+    def _on_cloud_status(self, msg: Bool):
+        """Monitor stato connettività cloud (F6 fallback a LOCAL_VLM se False)."""
+        self.engine.cloud_connected = bool(msg.data)
+
+    def _on_amcl_pose(self, msg: PoseWithCovarianceStamped):
+        """
+        Monitor covarianza di localizzazione AMCL (Invariante 7 & F7).
+        Se traccia covarianza P_xx + P_yy >= 0.08, localizzazione inconsistente.
+        """
+        cov = msg.pose.covariance
+        trace = cov[0] + cov[7]
+        is_consistent = (trace < 0.08)
+        self.engine.scan_consistency_ok = is_consistent
+
+    def _handle_request_vlm(self, request, response):
+        """Handler per richiesta esplicita di attivazione/disattivazione LOCAL_VLM (F6)."""
+        ok = self.engine.request_local_vlm(request.data)
+        response.success = ok
+        if ok:
+            action = "abilitato" if request.data else "disabilitato"
+            response.message = f"LOCAL_VLM {action} con successo."
+        else:
+            response.message = "Richiesta LOCAL_VLM rifiutata: il robot non è in stato STATIONARY."
+        return response
+
     def _on_cycle(self):
         try:
             profile = self.engine.evaluate_cycle()
@@ -168,6 +207,11 @@ class ResourceGovernorNode(Node):
         msg_metrics = String()
         msg_metrics.data = json.dumps(metrics_payload)
         self.pub_metrics.publish(msg_metrics)
+
+        # Pubblica flag di abilitazione VLM (F6)
+        msg_vlm = Bool()
+        msg_vlm.data = bool(profile.vlm_loaded)
+        self.pub_vlm_enable.publish(msg_vlm)
 
 
 def main(args=None):

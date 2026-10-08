@@ -726,3 +726,12 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
   2. *Protezione Dispersione Globale in `auto_relocalize.py`:* Modificata la condizione in `run_routine()` affinché `/reinitialize_global_localization` venga invocato ESCLUSIVAMENTE se esplicitamente richiesto (`--force-global`) o in assenza di file di posa. Se una posa è stata iniettata con successo, il cluster viene preservato.
   3. *Espansione Finestra di Tolleranza Scan-to-Map:* Ampliata la finestra di ricerca inliers da 3x3 cells ($\pm 5\text{cm}$) a 5x5 cells ($\pm 10\text{cm}$) sulla griglia 0.05m per assorbire lo spessore delle pareti e la dispersione dei fasci ToF.
   4. *Calibrazione Noise Parameters:* Abbassati `alpha1`, `alpha2`, `alpha3`, `alpha4` da 0.5 a 0.2 in `nav2_params_jazzy.yaml`, riflettendo l'effettiva precisione della cinematica con encoder PCNT e fusione gyro.
+
+---
+
+### 🛡️ Integrazione Resource Governor & Sensor Standby Manager (Ottobre 2026 - FM-GOV-005..008, IMP-GOV-001 F7)
+* **Sintomo & Rischio Storico:** `sensor_standby_manager.py` arrestava autonomamente il LiDAR dopo 120s di inattività anche se il robot si trovava fermo sul pavimento (fuori dock), violando l'Invariante 6 di sistema e inducendo falsi ostacoli o perdita della localizzazione se il robot veniva urtato o sollevato.
+* **Soluzione Implementata (F7):**
+  1. *Autorità Unica del Governor (Invariante 4):* `sensor_standby_manager.py` agisce ora come attuatore subordinato alla Statechart del Resource Governor, sottoscrivendo `/resource_governor/state`.
+  2. *Invariante 6 Rigida (LiDAR fermo solo in dock):* Lo standby hardware (arresto motore RPLiDAR C1 e pausa RTAB-Map) viene attivato ESCLUSIVAMENTE quando `kinematic_state == 'DOCKED_SLEEP'` e il robot è alimentato dalla base di ricarica (`is_docked == True`). Fuori dock il LiDAR rimane costantemente vigile.
+  3. *Invariante 7 (Scan-to-Map Consistency Guard su AMCL):* `resource_governor_node.py` monitora la traccia della matrice di covarianza AMCL ($P_{xx} + P_{yy} < 0.08$) su `/amcl_pose`. Qualsiasi kidnapping o scivolamento passivo durante lo sleep forza la deviazione verso `RELOCALIZING`, bloccando il motion gate finché il cluster particellare non è coerente con la mappa.

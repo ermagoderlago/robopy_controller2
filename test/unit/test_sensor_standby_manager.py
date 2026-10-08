@@ -110,9 +110,10 @@ class TestSensorStandbyManager(unittest.TestCase):
         self.assertTrue(self.node.last_gate_published)
 
     def test_02_idle_timeout_triggers_standby(self):
-        """After 120s of inactivity, supervisor must transition to STANDBY and lock Motion Gate."""
+        """After 120s of inactivity in dock (FM-PWR-001, Invariante 6), supervisor transitions to STANDBY."""
         now = time.time()
-        # Simulate 121 seconds of inactivity
+        # Simulate 121 seconds of inactivity while docked
+        self.node.is_docked = True
         self.node.last_activity_time = now - 121.0
         
         self.node.supervisor_step()
@@ -121,6 +122,19 @@ class TestSensorStandbyManager(unittest.TestCase):
         self.assertFalse(self.node.last_gate_published)
         self.node.stop_motor_cli.call_async.assert_called()
         self.node.pause_rtabmap_cli.call_async.assert_called()
+
+    def test_02b_idle_timeout_outside_dock_preserves_lidar(self):
+        """Invariante 6: Fuori dal dock, l'inattività NON deve mai spegnere il LiDAR."""
+        now = time.time()
+        self.node.is_docked = False
+        self.node.state = 'ACTIVE'
+        self.node.last_activity_time = now - 121.0
+        
+        self.node.supervisor_step()
+        
+        # Il LiDAR resta attivo e il robot resta ACTIVE
+        self.assertEqual(self.node.state, 'ACTIVE')
+        self.assertTrue(self.node.last_gate_published)
 
     def test_03_imu_disturbance_wakes_from_standby(self):
         """External acceleration (bump/lift/push) must awaken sensors from STANDBY."""
@@ -202,6 +216,32 @@ class TestSensorStandbyManager(unittest.TestCase):
         
         self.assertEqual(self.node.state, 'WAKING_UP')
         self.assertTrue(res.success)
+
+    def test_08_governor_docked_sleep_directive(self):
+        """[F7] Governor state DOCKED_SLEEP must trigger standby on sensor_standby_manager."""
+        import json
+        self.node.state = 'ACTIVE'
+        msg = MagicMock()
+        msg.data = json.dumps({"kinematic_state": "DOCKED_SLEEP", "in_dock": True})
+        
+        self.node.governor_state_callback(msg)
+        
+        self.assertEqual(self.node.state, 'STANDBY')
+        self.assertFalse(self.node.last_gate_published)
+        self.node.stop_motor_cli.call_async.assert_called()
+
+    def test_09_governor_waking_directive(self):
+        """[F7] Governor state WAKING or STATIONARY must trigger spin-up wakeup on sensor_standby_manager."""
+        import json
+        self.node.state = 'STANDBY'
+        msg = MagicMock()
+        msg.data = json.dumps({"kinematic_state": "WAKING", "in_dock": True})
+        
+        self.node.governor_state_callback(msg)
+        
+        self.assertEqual(self.node.state, 'WAKING_UP')
+        self.assertFalse(self.node.last_gate_published)
+        self.node.start_motor_cli.call_async.assert_called()
 
 
 if __name__ == '__main__':

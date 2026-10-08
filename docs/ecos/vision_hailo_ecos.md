@@ -188,4 +188,27 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
   - `src/hailo_bridge_node.cpp`, `robopy_controller/nodes/oak_driver_node.py`, `robopy_controller/oak_logic/sync_buffer.py`
   - `restart_hailo.sh`, `setup.py`, `fmea/dfmea.yaml`, `fmea/FMEA_EXECUTIVE_REPORT.md`
 
+---
+
+## 📈 ECO-2026-10-08-002: Local VLM Interlock & Standby Manager Dock Integration (IMP-GOV-001 F6 & F7)
+* **Stato:** ✅ **Completato, Testato (42/42 Test Superati) e Distribuito**
+* **Descrizione:** Implementazione delle fasi F6 ed F7 di IMP-GOV-001:
+  - **F6 (LOCAL_VLM Interlock & Break-Before-Make):**
+    - Interlock hardware ed architetturale per Qwen2-VL su Hailo-10H: ammesso SOLO ed esclusivamente in `STATIONARY`.
+    - Implementato break-before-make: all'arrivo di intent di navigazione o moto, il Governor disattiva e scarica istantaneamente il VLM (`vlm_enable = False`) prima di iniziare la sequenza di spin-up (`PREP_NAV` -> `MOVING`).
+    - Aggiornato `hailo_vlm_node.py` con sottoscrizione a `/resource_governor/vlm_enable`: inibisce ed isola le query VQA durante gli stati non ammessi per prevenire contesa su NPU e starvation di YOLO.
+    - Esposto service `/resource_governor/request_local_vlm` (`SetBool`) per attivazione/disattivazione controllata.
+  - **F7 (Integrazione Sleep in Dock & Invarianti 6 e 7):**
+    - `sensor_standby_manager.py` integrato come attuatore subordinato alla Statechart del Governor (Invariante 4).
+    - Invariante 6 garantita: inibito l'arresto automatico del LiDAR e la pausa di RTAB-Map su inattività quando il robot è fuori dal dock. Standby hardware attivato unicamente in `DOCKED_SLEEP`.
+    - Invariante 7 garantita: `resource_governor_node.py` monitora la traccia di covarianza AMCL ($P_{xx} + P_{yy} < 0.08$) e blocca il motion gate su deviazione verso `RELOCALIZING` in caso di kidnapping o disallineamento durante lo sleep.
+* **Modifiche apportate:**
+  - `robopy_controller/robot_ai/services/resource_governor.py`, `robopy_controller/nodes/resource_governor_node.py`
+  - `robopy_controller/nodes/hailo_vlm_node.py`
+  - `robopy_controller/nodes/sensor_standby_manager.py`
+  - `test/unit/test_sensor_standby_manager.py`, `tests/test_resource_governor.py`
+  - `docs/lessons/nav2_slam_tuning.md`, `docs/improvements/IMP-GOV-001_dynamic_resource_governor.md`
+  - `fmea/dfmea.yaml`, `fmea/FMEA_EXECUTIVE_REPORT.md`
+
+
 

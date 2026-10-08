@@ -52,10 +52,10 @@ Piano architetturale completo (discussione RE/QE/SME, statechart, sequenze, tele
 | F1 | Pose su Hailo (HEF + decode C++ nel bridge, decoupling OAK) | 🟡 SPEC-03 §5.1 | ✅ DEPLOYED & VERIFICATO SU HW |
 | F2 | Biometria residente + identity tracker multimodale | 🟡 interfacce ROS | ✅ DEPLOYED & VERIFICATO SU HW |
 | F3 | VAD Energy-Gated KWS + stop-words (<1% CPU in idle) | 🟢 SPEC-04 | ✅ IMPLEMENTATO & TESTATO (5/5 unit test OK) |
-| F4 | Governor in shadow mode (Statechart ortogonale + Invariants) | 🟡 interfacce ROS | ✅ IMPLEMENTATO & TESTATO (10/10 unit test OK) |
+| F4 | Governor in shadow mode (Statechart ortogonale + Invariants) | 🟡 interfacce ROS | ✅ DEPLOYED & ATTIVO IN SHADOW MODE |
 | F5 | Governor attivo (frequenze + lifecycle Nav2) | 🟡 | — |
-| F6 | Stato LOCAL_VLM | 🟡 | Solo se G0 superato |
-| F7 | Integrazione sleep in dock | 🟢 range SPEC-02 | — |
+| F6 | Stato LOCAL_VLM (Interlock Qwen2-VL, break-before-make) | 🟡 SPEC-03 | ✅ IMPLEMENTATO & TESTATO |
+| F7 | Integrazione sleep in dock (sensor_standby_manager attuatore) | 🟢 range SPEC-02 | ✅ IMPLEMENTATO & TESTATO |
 
 ---
 

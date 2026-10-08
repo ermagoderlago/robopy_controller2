@@ -8018,7 +8018,7 @@
     detection: 2
     rpn: 32
   risk_level: LOW
-  mitigation_status: PLANNED
+  mitigation_status: IMPLEMENTED
   recommended_action: Eseguire il Gate G0 (coesistenza GenAI + InferModel sullo stesso
     device) prima di qualsiasi attivazione del VLM; in caso di esito negativo confinare
     Qwen2-VL a stato esclusivo a robot fermo
@@ -8028,12 +8028,17 @@
   lesson_ref: docs/lessons/vision_hailo_npu.md
   improvement_ref: docs/improvements/IMP-GOV-001_dynamic_resource_governor.md
   date_identified: '2026-10-07'
-  last_updated: '2026-10-07'
+  last_updated: '2026-10-08'
   history:
   - date: '2026-10-07'
     change: Inserimento Failure Mode da analisi architetturale Dynamic Resource Governor
     rpn_old: 240
     rpn_new: 240
+  - date: '2026-10-08'
+    change: 'Fase F6 completata: Interlock LOCAL_VLM esclusivo in STATIONARY con break-before-make
+      preemption al moto e vlm_enable gating'
+    rpn_old: 240
+    rpn_new: 32
 - id: FM-GOV-002
   subsystem: System/ResourceGovernor
   component: resource_governor / voiceprint_manager / face_recognition
@@ -8204,7 +8209,7 @@
     detection: 2
     rpn: 28
   risk_level: LOW
-  mitigation_status: PLANNED
+  mitigation_status: IMPLEMENTED
   recommended_action: Registrare il delta odometrico accumulato in sleep come ingresso
     del controllo al risveglio
   verification_method: Gazebo SIM-01 (wrench con rotolamento 0.3/0.8 m)
@@ -8212,12 +8217,17 @@
   lesson_ref: docs/lessons/nav2_slam_tuning.md
   improvement_ref: docs/improvements/IMP-GOV-001_dynamic_resource_governor.md
   date_identified: '2026-10-07'
-  last_updated: '2026-10-07'
+  last_updated: '2026-10-08'
   history:
   - date: '2026-10-07'
     change: Inserimento Failure Mode da analisi architetturale Dynamic Resource Governor
     rpn_old: 112
     rpn_new: 112
+  - date: '2026-10-08'
+    change: 'Fase F7 completata: Integrazione sensor_standby_manager come attuatore,
+      odometria integrata attiva e consistency check scan-to-map al risveglio'
+    rpn_old: 112
+    rpn_new: 28
 - id: FM-GOV-006
   subsystem: Navigation/SensorSleep
   component: resource_governor / AMCL / Nav2
@@ -8251,7 +8261,7 @@
     detection: 2
     rpn: 48
   risk_level: LOW
-  mitigation_status: PLANNED
+  mitigation_status: IMPLEMENTED
   recommended_action: Non affidare il rilevamento del kidnapping al solo IMU
   verification_method: Gazebo SIM-02/03/04 (slittamento laterale, teletrasporto senza
     firma IMU, cross-room) con campagna Monte Carlo >= 100 casi
@@ -8259,12 +8269,18 @@
   lesson_ref: docs/lessons/nav2_slam_tuning.md
   improvement_ref: docs/improvements/IMP-GOV-001_dynamic_resource_governor.md
   date_identified: '2026-10-07'
-  last_updated: '2026-10-07'
+  last_updated: '2026-10-08'
   history:
   - date: '2026-10-07'
     change: Inserimento Failure Mode da analisi architetturale Dynamic Resource Governor
     rpn_old: 168
     rpn_new: 168
+  - date: '2026-10-08'
+    change: 'Fase F7 completata: Invariante 7 implementata nel Governor - consistency
+      check scan-to-map con gating del moto e loop RELOCALIZING automatico su covarianza
+      alta'
+    rpn_old: 168
+    rpn_new: 48
 - id: FM-GOV-007
   subsystem: Navigation/SensorSleep
   component: resource_governor / Nav2 costmap
@@ -8294,19 +8310,24 @@
     detection: 2
     rpn: 24
   risk_level: LOW
-  mitigation_status: PLANNED
+  mitigation_status: IMPLEMENTED
   recommended_action: Applicare la sequenza di spin-up ordinata per grafo di dipendenze
   verification_method: Gazebo SIM-05 (ostacolo dinamico inserito durante WAKING)
   eco_ref: docs/ecos/nav2_slam_ecos.md
   lesson_ref: docs/lessons/nav2_slam_tuning.md
   improvement_ref: docs/improvements/IMP-GOV-001_dynamic_resource_governor.md
   date_identified: '2026-10-07'
-  last_updated: '2026-10-07'
+  last_updated: '2026-10-08'
   history:
   - date: '2026-10-07'
     change: Inserimento Failure Mode da analisi architetturale Dynamic Resource Governor
     rpn_old: 144
     rpn_new: 144
+  - date: '2026-10-08'
+    change: 'Fase F7 completata: Scarto scan di spin-up con min_scans_to_wake=2 e
+      motion gate locked fino a scansione confermata e stabile'
+    rpn_old: 144
+    rpn_new: 24
 - id: FM-GOV-008
   subsystem: Navigation/SLAM
   component: rtabmap / sensor_standby_manager
@@ -8334,7 +8355,7 @@
     detection: 2
     rpn: 16
   risk_level: LOW
-  mitigation_status: PLANNED
+  mitigation_status: IMPLEMENTED
   recommended_action: Vincolare il profilo DOCKED_SLEEP come unico stato con pausa
     RTAB-Map in modalita SLAM
   verification_method: Gazebo SIM-08 (SIM-01..03 ripetuti in --slam)
@@ -8342,12 +8363,17 @@
   lesson_ref: docs/lessons/nav2_slam_tuning.md
   improvement_ref: docs/improvements/IMP-GOV-001_dynamic_resource_governor.md
   date_identified: '2026-10-07'
-  last_updated: '2026-10-07'
+  last_updated: '2026-10-08'
   history:
   - date: '2026-10-07'
     change: Inserimento Failure Mode da analisi architetturale Dynamic Resource Governor
     rpn_old: 192
     rpn_new: 192
+  - date: '2026-10-08'
+    change: 'Fase F7 completata: Invariante 6 garantita - sensor_standby_manager inibisce
+      spegnimento LiDAR e pausa RTAB-Map su inattivita fuori dal dock'
+    rpn_old: 192
+    rpn_new: 16
 - id: FM-GOV-009
   subsystem: Audio/VUI
   component: resource_governor / respeaker_vui_node

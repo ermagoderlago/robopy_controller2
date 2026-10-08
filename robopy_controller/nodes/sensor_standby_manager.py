@@ -16,12 +16,13 @@ Enforces motion gating: holds wheel motion until the RPLIDAR C1 has spun up and 
 valid 360-degree laser scans, ensuring safe navigation resumption.
 """
 
+import json
 import time
 import math
 import rclpy
 from rclpy.node import Node
 from rclpy.callback_groups import ReentrantCallbackGroup
-from sensor_msgs.msg import Imu, LaserScan
+from sensor_msgs.msg import Imu, LaserScan, BatteryState
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from std_msgs.msg import Bool, String
@@ -52,6 +53,7 @@ class SensorStandbyManager(Node):
         # --- Internal States ---
         # States: 'ACTIVE', 'STANDBY', 'WAKING_UP'
         self.state = 'ACTIVE'
+        self.is_docked = False
         self.last_activity_time = time.time()
         self.wake_start_time = 0.0
         self.wake_scans_count = 0
@@ -75,8 +77,11 @@ class SensorStandbyManager(Node):
         self.create_subscription(Twist, '/cmd_vel', self.cmd_vel_callback, 10, callback_group=self.callback_group)
         self.create_subscription(Odometry, '/odom_wheel', self.odom_callback, 10, callback_group=self.callback_group)
         self.create_subscription(LaserScan, '/scan', self.scan_callback, 10, callback_group=self.callback_group)
+        self.create_subscription(BatteryState, '/battery_state', self.battery_callback, 10, callback_group=self.callback_group)
         # [v2.0] Docking trigger: ferma lidar IMMEDIATAMENTE al rientro alla base di ricarica
         self.create_subscription(Bool, '/robot/docking/trigger', self.docking_trigger_callback, 10, callback_group=self.callback_group)
+        # [F7] Integrazione Resource Governor come Attuatore Hardware
+        self.create_subscription(String, '/resource_governor/state', self.governor_state_callback, 10, callback_group=self.callback_group)
         
         # --- Service Clients ---
         self.stop_motor_cli = self.create_client(Empty, '/stop_motor', callback_group=self.callback_group)
@@ -216,8 +221,33 @@ class SensorStandbyManager(Node):
                 self.get_logger().warn(f"Service call {srv_name} failed: {e}")
         future.add_done_callback(_done_cb)
 
+    def battery_callback(self, msg: BatteryState):
+        """Monitor stato di carica dal BMS (FM-PWR-001, Invariante 6)."""
+        is_charging = (msg.power_supply_status == BatteryState.POWER_SUPPLY_STATUS_CHARGING) or (msg.voltage >= 12.70)
+        self.is_docked = is_charging
+
+    def governor_state_callback(self, msg: String):
+        """[F7] Riceve direttive dal Resource Governor: attua sleep solo in DOCKED_SLEEP."""
+        try:
+            data = json.loads(msg.data)
+            k_state = data.get("kinematic_state", "")
+            in_dock = data.get("in_dock", self.is_docked)
+            self.is_docked = in_dock
+            
+            if k_state == "DOCKED_SLEEP":
+                if self.state == "ACTIVE":
+                    self.get_logger().info("💤 [StandbyManager] Ricevuta direttiva Governor: DOCKED_SLEEP -> Spegnimento LiDAR.")
+                    self.trigger_standby()
+            elif k_state in ("WAKING", "STATIONARY", "PREP_NAV", "MOVING"):
+                if self.state == "STANDBY":
+                    self.get_logger().info(f"⚡ [StandbyManager] Ricevuta direttiva Governor: {k_state} -> Avvio e spin-up LiDAR.")
+                    self.trigger_wakeup(f"Governor {k_state}")
+        except Exception as e:
+            self.get_logger().error(f"Errore parsing stato Governor: {e}")
+
     def docking_trigger_callback(self, msg: Bool):
         """[v2.0] Ferma il LIDAR immediatamente quando il BMS segnala rientro alla base di ricarica."""
+        self.is_docked = bool(msg.data)
         if msg.data and self.state == 'ACTIVE':
             self.get_logger().info(
                 "🔌 [DOCKING] Trigger di rientro alla base ricevuto: "
@@ -227,7 +257,7 @@ class SensorStandbyManager(Node):
 
     def trigger_standby(self):
         """Enters power-saving STANDBY state."""
-        self.get_logger().info("💤 Entering Smart Standby (Idle > 2 min): stopping LiDAR and pausing RTAB-Map...")
+        self.get_logger().info("💤 Entering Smart Standby (Docked Idle): stopping LiDAR and pausing RTAB-Map...")
         self.state = 'STANDBY'
         
         # Lock wheels
@@ -280,7 +310,8 @@ class SensorStandbyManager(Node):
         
         if self.state == 'ACTIVE':
             idle_duration = now - self.last_activity_time
-            if idle_duration >= self.idle_timeout_sec:
+            # Invariante 6: LiDAR fermo SOLO in DOCKED_SLEEP (vietato fermare il LiDAR fuori dal dock)
+            if idle_duration >= self.idle_timeout_sec and self.is_docked:
                 self.trigger_standby()
             else:
                 self.publish_motion_gate(True)

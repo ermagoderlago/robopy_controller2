@@ -19,6 +19,7 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 
 import cv2
 import numpy as np
+from std_msgs.msg import Bool
 from sensor_msgs.msg import CompressedImage, Image
 from cv_bridge import CvBridge
 from robopy_controller.srv import AskVisualQuestion
@@ -70,12 +71,25 @@ class HailoVlmNode(Node):
             CompressedImage, '/rgb/image/compressed', self.rgb_callback, qos_best_effort
         )
 
+        # Governor Interlock (F6)
+        self.vlm_enabled = True
+        self.sub_vlm_enable = self.create_subscription(
+            Bool, '/resource_governor/vlm_enable', self._vlm_enable_callback, 10
+        )
+
         # Service Server
         self.srv_ask_question = self.create_service(
             AskVisualQuestion, '/hailo/vlm/ask_question', self.handle_ask_question
         )
 
-        self.get_logger().info("✅ Node Hailo VLM pronto.")
+        self.get_logger().info("✅ Node Hailo VLM pronto con Interlock Governor.")
+
+    def _vlm_enable_callback(self, msg: Bool):
+        with self.lock:
+            if self.vlm_enabled != msg.data:
+                self.vlm_enabled = msg.data
+                state_str = "ABILITATO" if msg.data else "DISABILITATO (preemption di sicurezza)"
+                self.get_logger().info(f"🛡️ [HailoVLM] Interlock Resource Governor: VLM {state_str}")
 
     def init_hailo_vlm(self):
         """Inizializzazione del dispositivo Hailo NPU e del modello Qwen2-VL"""
@@ -110,8 +124,13 @@ class HailoVlmNode(Node):
         question = request.question
         self.get_logger().info(f"❓ Domanda VLM ricevuta: '{question}'")
 
-        # Recupera l'ultimo frame
+        # Verifica Interlock del Resource Governor (F6)
         with self.lock:
+            if not self.vlm_enabled:
+                self.get_logger().warn("⛔ Query VLM rifiutata: interlock Governor attivo (robot non in STATIONARY).")
+                response.success = False
+                response.answer = "VLM locale non disponibile: inibito dal Resource Governor per sicurezza (robot in movimento o risorsa prelazionata)."
+                return response
             img = self.latest_bgr.copy() if self.latest_bgr is not None else None
 
         if img is None:

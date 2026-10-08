@@ -176,3 +176,54 @@ def test_safe_full_profile():
     assert profile.hearing_floor_active is True
     assert profile.yolo_hz == 5.0
     assert profile.camera_fps == 15
+
+
+def test_f6_explicit_vlm_request_and_preemption():
+    """F6: Richiesta esplicita di LOCAL_VLM ammessa in STATIONARY, rifiutata in MOVING."""
+    gov = ResourceGovernorEngine()
+    assert gov.kinematic_state == KinematicState.STATIONARY
+
+    # In STATIONARY: richiesta ammessa
+    ok = gov.request_local_vlm(True)
+    assert ok is True
+    assert gov.cognitive_state == CognitiveState.LOCAL_VLM
+    profile = gov.evaluate_cycle()
+    assert profile.vlm_loaded is True
+    assert profile.yolo_hz == 1.0  # Percezione alleggerita
+    assert profile.scrfd_hz == 2.0
+    assert profile.motion_gate_open is False
+
+    # Richiesta moto: break-before-make prelaziona il VLM
+    gov.request_navigation()
+    assert gov.cognitive_state != CognitiveState.LOCAL_VLM
+    profile = gov.evaluate_cycle()
+    assert profile.vlm_loaded is False
+
+    # In MOVING: richiesta esplicita rifiutata
+    gov.evaluate_cycle()  # PREP_NAV -> MOVING
+    assert gov.kinematic_state == KinematicState.MOVING
+    rejected = gov.request_local_vlm(True)
+    assert rejected is False
+    assert gov.cognitive_state != CognitiveState.LOCAL_VLM
+
+
+def test_f7_scan_consistency_relocalization_guard():
+    """F7 (Invariante 7): Disallineamento scan-to-map blocca il moto e devia in RELOCALIZING."""
+    gov = ResourceGovernorEngine()
+    gov.update_telemetry(linear_speed=0.0, is_charging_or_docked=False, scan_to_map_match_ok=False)
+
+    gov.request_navigation()
+    profile = gov.evaluate_cycle()
+
+    # Mismatch scan-to-map: Governor deve deviare in RELOCALIZING e tenere Motion Gate chiuso
+    assert gov.kinematic_state == KinematicState.RELOCALIZING
+    assert profile.motion_gate_open is False
+    assert profile.lidar_active is True  # LiDAR attivo per rilocalizzare
+
+    # Quando la rilocalizzazione ha successo:
+    gov.update_telemetry(linear_speed=0.0, is_charging_or_docked=False, scan_to_map_match_ok=True)
+    gov.evaluate_cycle()
+    assert gov.kinematic_state == KinematicState.PREP_NAV
+    profile = gov.evaluate_cycle()
+    assert gov.kinematic_state == KinematicState.MOVING
+    assert profile.motion_gate_open is True

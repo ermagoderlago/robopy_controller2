@@ -132,6 +132,7 @@ class ResourceGovernorEngine:
         self.cloud_connected = True
         self.scan_consistency_ok = True
         self.nav_intent_active = False
+        self.explicit_vlm_requested = False
 
         # Storico transizioni e audit invarianti
         self.transition_history: List[Dict[str, Any]] = []
@@ -173,6 +174,7 @@ class ResourceGovernorEngine:
     def request_navigation(self):
         """Notifica un intent di navigazione da TRINITY / Gemini Live."""
         self.nav_intent_active = True
+        self.explicit_vlm_requested = False
         if self.cognitive_state == CognitiveState.LOCAL_VLM:
             # Break-before-make: scarica VLM prima di qualsiasi avvio al moto
             self._transition_cognitive(CognitiveState.ENGAGED, reason="nav_intent_preemption")
@@ -192,6 +194,25 @@ class ResourceGovernorEngine:
         if self.kinematic_state in (KinematicState.MOVING, KinematicState.PREP_NAV):
             self._transition_kinematic(KinematicState.STOPPING, reason="fast_path_stop")
 
+    def request_local_vlm(self, enable: bool) -> bool:
+        """
+        Richiesta di attivazione/disattivazione esplicita dello stato LOCAL_VLM (F6).
+        Restituisce True se la transizione è consentita ed eseguita, False altrimenti.
+        """
+        if enable:
+            if self.kinematic_state != KinematicState.STATIONARY:
+                # Invariante 8: VLM vietato in movimento o durante transizioni
+                return False
+            self.explicit_vlm_requested = True
+            if self.cognitive_state != CognitiveState.LOCAL_VLM:
+                self._transition_cognitive(CognitiveState.LOCAL_VLM, reason="explicit_vlm_request")
+            return True
+        else:
+            self.explicit_vlm_requested = False
+            if self.cognitive_state == CognitiveState.LOCAL_VLM:
+                self._transition_cognitive(CognitiveState.ENGAGED, reason="explicit_vlm_release")
+            return True
+
     def evaluate_cycle(self) -> ResourceProfile:
         """Esegue un ciclo deterministico di aggiornamento della Statechart (10 Hz)."""
         now = time.monotonic()
@@ -204,10 +225,11 @@ class ResourceGovernorEngine:
                 self._transition_cognitive(CognitiveState.LOCAL_VLM, reason="cloud_offline_fallback")
 
         elif self.cognitive_state == CognitiveState.LOCAL_VLM:
-            if self.cloud_connected:
+            if not self.explicit_vlm_requested and self.cloud_connected:
                 self._transition_cognitive(CognitiveState.ENGAGED, reason="cloud_restored")
             elif self.kinematic_state != KinematicState.STATIONARY:
                 # Invariante 8: VLM vietato fuori da STATIONARY
+                self.explicit_vlm_requested = False
                 self._transition_cognitive(CognitiveState.ENGAGED, reason="motion_preemption")
 
         # 2. Valutazione Regione Cinematica
