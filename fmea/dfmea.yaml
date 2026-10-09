@@ -5825,6 +5825,13 @@
       ~66°C con ampio margine sotto gli 80°C di safety).
     rpn_old: 9
     rpn_new: 9
+  - date: '2026-10-09'
+    change: Test a 2.4 GHz sotto pieno carico simultaneo AI (YOLO 8.5 Hz + OAK-D Lite
+      USB 3.0 + Nav2) ha causato ciclici allarmi hwmon3 e brownout cutoff. Stabilizzata
+      frequenza massima nominale a 2.0 GHz (TARGET_CPU_FREQ=2000000 in restart_hailo.sh)
+      con azzeramento allarmi undervoltage in steady state.
+    rpn_old: 9
+    rpn_new: 9
 - id: FM-MOT-008
   subsystem: Actuation & Motion
   component: waveshare_bridge (ESP32) / waveshare_motor_driver

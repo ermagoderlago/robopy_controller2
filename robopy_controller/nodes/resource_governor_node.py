@@ -82,7 +82,7 @@ class ResourceGovernorNode(Node):
             Bool, '/safety/emergency_stop', self._on_emergency_stop, 10
         )
         self.sub_cloud_status = self.create_subscription(
-            Bool, '/cloud/status', self._on_cloud_status, 10
+            String, '/cloud/status', self._on_cloud_status, 10
         )
         self.sub_amcl_pose = self.create_subscription(
             PoseWithCovarianceStamped, '/amcl_pose', self._on_amcl_pose, 10
@@ -148,9 +148,10 @@ class ResourceGovernorNode(Node):
             self.get_logger().warning("🛑 [ResourceGovernor] Fast-path STOP intercettato!")
             self.engine.trigger_emergency_stop()
 
-    def _on_cloud_status(self, msg: Bool):
-        """Monitor stato connettività cloud (F6 fallback a LOCAL_VLM se False)."""
-        self.engine.cloud_connected = bool(msg.data)
+    def _on_cloud_status(self, msg: String):
+        """Monitor stato connettività cloud (F6 fallback a LOCAL_VLM se OFFLINE)."""
+        val = str(msg.data).strip().upper()
+        self.engine.cloud_connected = (val in ["ONLINE", "DEGRADED", "TRUE", "1"])
 
     def _on_amcl_pose(self, msg: PoseWithCovarianceStamped):
         """

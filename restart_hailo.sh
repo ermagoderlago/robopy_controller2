@@ -26,7 +26,7 @@ ENABLE_HAILO="${ENABLE_HAILO:-true}"
 USE_AMCL="${USE_AMCL:-true}"
 ENABLE_WATCHDOG="${ENABLE_WATCHDOG:-false}"
 SOFT_START="${SOFT_START:-true}"
-TARGET_CPU_FREQ="${TARGET_CPU_FREQ:-2400000}"
+TARGET_CPU_FREQ="${TARGET_CPU_FREQ:-2000000}"
 if [ -z "$MAP_FILE" ]; then
     if [ -f "/mnt/ssd/maps/piano_terra_opt.yaml" ]; then
         MAP_FILE="/mnt/ssd/maps/piano_terra_opt.yaml"
@@ -77,6 +77,9 @@ for arg in "$@"; do
             ;;
         --turbo|--2.4ghz)
             TARGET_CPU_FREQ="2400000"
+            ;;
+        --2.0ghz|--cap-2ghz)
+            TARGET_CPU_FREQ="2000000"
             ;;
         --eco|--1.6ghz)
             TARGET_CPU_FREQ="1600000"
