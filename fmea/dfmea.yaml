@@ -8864,3 +8864,9 @@
       flood di falsi positivi. RPN abbattuto da 162 a 6.
     rpn_old: 162
     rpn_new: 6
+  - date: '2026-10-10'
+    change: Ottimizzata resa anatomica scheletro COCO (16 coppie ossee ufficiali Hailo,
+      connessione naturale collo naso-spalle, segmenti colorati per distretti anatomici,
+      soglia giunti 0.35 e prior multiscala stride 16/32 per corpo intero).
+    rpn_old: 6
+    rpn_new: 6

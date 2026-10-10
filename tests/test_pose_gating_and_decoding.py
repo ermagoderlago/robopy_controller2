@@ -15,7 +15,7 @@ import os
 
 
 COCO_SKELETON_PAIRS = [
-    (0, 1), (0, 2), (1, 3), (2, 4), (0, 5), (0, 6),
+    (0, 1), (0, 2), (1, 3), (2, 4),
     (5, 6), (5, 7), (7, 9), (6, 8), (8, 10),
     (5, 11), (6, 12), (11, 12),
     (11, 13), (13, 15), (12, 14), (14, 16)
@@ -98,9 +98,9 @@ def test_presence_gating_disabled_flag():
 
 
 def test_coco_skeleton_topology_integrity():
-    """Verify COCO 17 keypoint definition and 18 skeleton connection graph."""
+    """Verify COCO 17 keypoint definition and 16 skeleton connection graph."""
     assert len(COCO_KEYPOINTS) == 17, "Standard COCO skeleton must define exactly 17 keypoints"
-    assert len(COCO_SKELETON_PAIRS) == 18, "Standard COCO skeleton must define exactly 18 bone connections"
+    assert len(COCO_SKELETON_PAIRS) == 16, "Standard COCO skeleton must define exactly 16 bone connections (Hailo official)"
 
     # Verify all bone pairs connect valid keypoints in range [0, 16]
     for idx, (p1, p2) in enumerate(COCO_SKELETON_PAIRS):

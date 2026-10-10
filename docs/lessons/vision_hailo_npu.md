@@ -351,8 +351,19 @@ Questo documento descrive le lezioni apprese su OAK-D Lite, l'acceleratore NPU H
   1. **Vincolo Geometrico Stretto ai Box YOLOv8:** Invece di scansionare cieco l'intera griglia dell'immagine, `decode_pose_outputs` riceve la lista dei bounding box reali delle persone già identificate da YOLOv8. La ricerca delle celle NPU dei keypoint viene circoscritta **esclusivamente alle celle la cui proiezione spaziale cade all'interno del box della persona** (con un margine di tolleranza geometrica del 15%).
   2. **Associazione 1-to-1 Determinista:** Per ciascuna persona rilevata da YOLO, viene selezionata la singola cella che massimizza la confidenza aggregata dei keypoint pesata per la vicinanza al centroide del box (`quality = sum_kps * dist_weight`). In questo modo viene prodotta **al massimo 1 posa per ciascuna persona reale rilevata** (0 persone rilevate ➔ 0 pose; 1 persona rilevata ➔ esattamente 1 scheletro).
   3. **Innalzamento Soglia Confidenza Giunti:** Portata la soglia nominale `pose_conf_threshold_` a $0.55$ sia come default del nodo che nei parametri ROS 2. In `annotate_and_publish_image`, le connessioni ossee e i cerchi articolari vengono disegnati solo per keypoint con confidenza $\ge 0.55$, respingendo categoricamente il rumore non attivato a $0.50$.
-  4. **Performance Host:** Il numero di celle esaminate crolla da 8400 a sole 20-50 per persona, abbattendo la latenza di post-processing da ~20ms a <0.5ms su Raspberry Pi 5.
-
-
-
-
+### Resa Grafica Anatomica COCO, Eliminazione Cross-Link Naso-Spalle e Ponderazione Multiscala (Ottobre 2026)
+* **Sintomo Segnalato:** Dopo l'eliminazione del flood di falsi positivi con il Top-Down YOLO Gating, l'annotazione visiva della persona presentava un poligono/ragnatela grottesco sul viso e sul mento, mentre gli arti inferiori e il corpo apparivano incompleti o mancanti.
+* **Diagnosi delle Cause Radice:**
+  1. **Connessioni Ossee Errate (`COCO_SKELETON_PAIRS`):** Erano presenti le coppie fittizie `{0, 5}` e `{0, 6}` che collegavano il Naso direttamente alla Spalla Sinistra e alla Spalla Destra. In congiunzione con `{5, 6}` (spalla-spalla) e con le connessioni facciali occhi-naso-orecchie, questo generava un triangolo chiuso che nelle viste di profilo tagliava diagonalmente mento e guance. Nel benchmark ufficiale Hailo (`yolov8pose_postprocess.cpp`), tali connessioni non esistono.
+  2. **Soglia di Rendering Sovradimensionata (0.55):** Mentre i punti del volto ad alto contrasto superavano facilmente 0.55, i giunti di braccia, bacino e gambe in penombra o con vestiti scuri avevano logit stabili tra 0.32 e 0.48. Con soglia 0.55 venivano interamente soppressi dal disegno, lasciando visibile solo la testa.
+  3. **Bias di Stride 8 su Oggetti Grandi:** Senza prior di scala, celle di Stride 8 (con campo recettivo locale a 32px) centrate sugli occhi potevano vincere numericamente su celle di Stride 16 e 32 (che catturano la persona a figura intera) grazie a piccoli picchi locali di confidenza facciale.
+* **Risoluzione Definitiva Architetturale:**
+  1. **Topologia Ufficiale COCO a 16 Connessioni Ossee:** Rimosse le connessioni `{0, 5}` e `{0, 6}`. Introdotto il segmento anatomico del collo congiungendo il Naso (0) al punto medio esatto delle due spalle (`(p[5] + p[6]) * 0.5f`).
+  2. **Palette Grafica per Distretti Corporei:**
+     - Testa e Collo: Giallo Oro (`Scalar(0, 220, 255)`)
+     - Torso, Clavicole e Bacino: Verde Lime (`Scalar(0, 255, 128)`)
+     - Lato Sinistro (Braccio e Gamba sx): Ciano Brillante (`Scalar(255, 200, 0)`) e Celeste
+     - Lato Destro (Braccio e Gamba dx): Arancione Intenso (`Scalar(0, 140, 255)`) e Corallo
+     - Punti Articolari: Cerchio solido a raggio 3px con bordo nero 4px per massimo contrasto visivo.
+  3. **Ponderazione Multiscala & Completezza Corporea:** Nelle persone con altezza box $> 100\text{ px}$, applicato un moltiplicatore di prior di scala a Stride 16 (1.25x) e Stride 32 (1.45x) e un bonus progressivo di completezza basato sul conteggio dei landmark corporei validi ($k \ge 5$).
+  4. **Allineamento Soglia Visualizzazione:** Portata la soglia nominale dei keypoint visualizzati a $0.35$ (standard ufficiale Hailo/Ultralytics), consentendo il rendering continuo e naturale dell'intero scheletro anatomico della persona.

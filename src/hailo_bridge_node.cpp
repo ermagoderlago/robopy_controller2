@@ -171,9 +171,9 @@ struct Keypoint2D {
     float confidence{0.0f};
 };
 
-// Standard 17 COCO Keypoint Skeleton Connections
+// Standard 16 COCO Keypoint Skeleton Connections (Hailo official - no nose-shoulder cross-links)
 static const std::vector<std::pair<int, int>> COCO_SKELETON_PAIRS = {
-    {0, 1}, {0, 2}, {1, 3}, {2, 4}, {0, 5}, {0, 6},
+    {0, 1}, {0, 2}, {1, 3}, {2, 4},
     {5, 6}, {5, 7}, {7, 9}, {6, 8}, {8, 10},
     {5, 11}, {6, 12}, {11, 12},
     {11, 13}, {13, 15}, {12, 14}, {14, 16}
@@ -197,7 +197,7 @@ public:
         // Pose Tracking parameters (F1 Upgrade - Hailo-10H)
         this->declare_parameter<bool>("enable_pose", true);
         this->declare_parameter<std::string>("pose_hef_path", "/mnt/ssd/models/yolov8s_pose.hef");
-        this->declare_parameter<double>("pose_conf_threshold", 0.55);
+        this->declare_parameter<double>("pose_conf_threshold", 0.35);
 
         hef_path_ = this->get_parameter("hef_path").as_string();
         sim_mode_ = this->get_parameter("sim_mode").as_bool();
@@ -639,25 +639,84 @@ private:
                         cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0), 1);
         }
 
-        // Render Pose Skeletons if available
+        // Render Pose Skeletons if available (Anatomical Color-Coded COCO Skeleton)
         if (enable_pose_ && !poses.empty()) {
+            struct BoneSegment {
+                int p1;
+                int p2;
+                cv::Scalar color;
+            };
+
+            static const std::vector<BoneSegment> ANATOMICAL_BONES = {
+                // Head (Gold)
+                {0, 1, cv::Scalar(0, 220, 255)},
+                {0, 2, cv::Scalar(0, 220, 255)},
+                {1, 3, cv::Scalar(0, 220, 255)},
+                {2, 4, cv::Scalar(0, 220, 255)},
+
+                // Torso & Pelvis (Lime Green)
+                {5, 6, cv::Scalar(0, 255, 128)},
+                {5, 11, cv::Scalar(0, 255, 128)},
+                {6, 12, cv::Scalar(0, 255, 128)},
+                {11, 12, cv::Scalar(0, 255, 128)},
+
+                // Left Arm (Bright Cyan)
+                {5, 7, cv::Scalar(255, 200, 0)},
+                {7, 9, cv::Scalar(255, 200, 0)},
+
+                // Right Arm (Bright Orange)
+                {6, 8, cv::Scalar(0, 140, 255)},
+                {8, 10, cv::Scalar(0, 140, 255)},
+
+                // Left Leg (Sky Blue)
+                {11, 13, cv::Scalar(255, 160, 50)},
+                {13, 15, cv::Scalar(255, 160, 50)},
+
+                // Right Leg (Coral Red)
+                {12, 14, cv::Scalar(50, 100, 255)},
+                {14, 16, cv::Scalar(50, 100, 255)}
+            };
+
+            const float render_kp_thresh = std::min(pose_conf_threshold_, 0.35f);
+
             for (const auto &p : poses) {
-                // Skeleton bone links
-                for (const auto &pair : COCO_SKELETON_PAIRS) {
-                    const auto &kp1 = p.keypoints[pair.first];
-                    const auto &kp2 = p.keypoints[pair.second];
-                    if (kp1.confidence >= pose_conf_threshold_ && kp2.confidence >= pose_conf_threshold_) {
+                // 1. Draw anatomical neck link (nose to shoulders midpoint)
+                const auto &nose = p.keypoints[0];
+                const auto &ls = p.keypoints[5];
+                const auto &rs = p.keypoints[6];
+                if (nose.confidence >= render_kp_thresh && ls.confidence >= render_kp_thresh && rs.confidence >= render_kp_thresh) {
+                    cv::Point pt_nose(static_cast<int>(nose.x * frame.cols), static_cast<int>(nose.y * frame.rows));
+                    cv::Point pt_neck(static_cast<int>((ls.x + rs.x) * 0.5f * frame.cols), static_cast<int>((ls.y + rs.y) * 0.5f * frame.rows));
+                    cv::line(annotated_frame, pt_nose, pt_neck, cv::Scalar(0, 220, 255), 2, cv::LINE_AA);
+                }
+
+                // 2. Draw anatomical bone connections
+                for (const auto &bone : ANATOMICAL_BONES) {
+                    const auto &kp1 = p.keypoints[bone.p1];
+                    const auto &kp2 = p.keypoints[bone.p2];
+                    if (kp1.confidence >= render_kp_thresh && kp2.confidence >= render_kp_thresh) {
                         cv::Point pt1(static_cast<int>(kp1.x * frame.cols), static_cast<int>(kp1.y * frame.rows));
                         cv::Point pt2(static_cast<int>(kp2.x * frame.cols), static_cast<int>(kp2.y * frame.rows));
-                        cv::line(annotated_frame, pt1, pt2, cv::Scalar(0, 215, 255), 2, cv::LINE_AA);
+                        cv::line(annotated_frame, pt1, pt2, bone.color, 2, cv::LINE_AA);
                     }
                 }
-                // Joint keypoints
-                for (const auto &kp : p.keypoints) {
-                    if (kp.confidence >= pose_conf_threshold_) {
+
+                // 3. Draw joint keypoints with district coloring and high-contrast border
+                for (int k = 0; k < 17; ++k) {
+                    const auto &kp = p.keypoints[k];
+                    if (kp.confidence >= render_kp_thresh) {
                         cv::Point pt(static_cast<int>(kp.x * frame.cols), static_cast<int>(kp.y * frame.rows));
-                        cv::circle(annotated_frame, pt, 4, cv::Scalar(0, 255, 255), -1, cv::LINE_AA);
-                        cv::circle(annotated_frame, pt, 5, cv::Scalar(0, 0, 0), 1, cv::LINE_AA);
+                        cv::Scalar joint_col;
+                        if (k <= 4) joint_col = cv::Scalar(0, 220, 255); // Head
+                        else if (k == 5 || k == 6 || k == 11 || k == 12) joint_col = cv::Scalar(0, 255, 128); // Torso
+                        else if (k == 7 || k == 9) joint_col = cv::Scalar(255, 200, 0); // Left arm
+                        else if (k == 8 || k == 10) joint_col = cv::Scalar(0, 140, 255); // Right arm
+                        else if (k == 13 || k == 15) joint_col = cv::Scalar(255, 160, 50); // Left leg
+                        else joint_col = cv::Scalar(50, 100, 255); // Right leg
+
+                        // Outer 4px black circle for contrast, inner 3px colored solid circle
+                        cv::circle(annotated_frame, pt, 4, cv::Scalar(0, 0, 0), -1, cv::LINE_AA);
+                        cv::circle(annotated_frame, pt, 3, joint_col, -1, cv::LINE_AA);
                     }
                 }
             }
@@ -1015,6 +1074,13 @@ private:
                 int min_gy = std::clamp(static_cast<int>(box_min_y / stride), 0, sc.gh - 1);
                 int max_gy = std::clamp(static_cast<int>(box_max_y / stride), 0, sc.gh - 1);
 
+                // SCALE PRIOR: Large person boxes (>100px) require Stride 16/32 receptive fields
+                float scale_prior = 1.0f;
+                if (pb_h > 100.0f) {
+                    if (stride == 16) scale_prior = 1.25f;
+                    else if (stride == 32) scale_prior = 1.45f;
+                }
+
                 for (int gy = min_gy; gy <= max_gy; ++gy) {
                     for (int gx = min_gx; gx <= max_gx; ++gx) {
                         int cell_idx = gy * sc.gw + gx;
@@ -1022,6 +1088,7 @@ private:
 
                         // Inspect keypoints in this cell
                         int valid_kps = 0;
+                        int body_kps = 0; // Torso and limbs (k >= 5)
                         float sum_valid_kp_score = 0.0f;
                         std::array<Keypoint2D, 17> decoded_kpts;
 
@@ -1038,13 +1105,16 @@ private:
 
                             decoded_kpts[k] = {norm_x, norm_y, kp_score};
 
-                            if (kp_score >= conf_thresh) {
+                            if (kp_score >= 0.30f) {
                                 valid_kps++;
                                 sum_valid_kp_score += kp_score;
+                                if (k >= 5) {
+                                    body_kps++;
+                                }
                             }
                         }
 
-                        // Must have at least 4 keypoints above confidence threshold
+                        // Must have at least 4 keypoints with score >= 0.30
                         if (valid_kps < 4) continue;
 
                         // Center distance weighting: prefer cells near person centroid
@@ -1055,7 +1125,10 @@ private:
                         float dist_norm = std::sqrt(dist_x * dist_x + dist_y * dist_y);
                         float dist_weight = std::clamp(1.0f - dist_norm * 0.5f, 0.2f, 1.0f);
 
-                        float quality = sum_valid_kp_score * dist_weight;
+                        // Body completeness multiplier: rewarding cells that resolve torso and limbs
+                        float completeness_bonus = 1.0f + 0.08f * body_kps;
+
+                        float quality = sum_valid_kp_score * dist_weight * scale_prior * completeness_bonus;
                         if (quality > best_quality) {
                             best_quality = quality;
                             best_pose.bbox = person; // Lock to high-precision YOLO person bbox
@@ -1148,6 +1221,8 @@ private:
             for (size_t i = 0; i < poses.size(); ++i) {
                 const auto &p = poses[i];
 
+                const float render_marker_thresh = std::min(pose_conf_threshold_, 0.35f);
+
                 // Spheres for Joints
                 visualization_msgs::msg::Marker joints_marker;
                 joints_marker.header = header;
@@ -1156,9 +1231,9 @@ private:
                 joints_marker.id = static_cast<int>(i * 2);
                 joints_marker.type = visualization_msgs::msg::Marker::SPHERE_LIST;
                 joints_marker.action = visualization_msgs::msg::Marker::ADD;
-                joints_marker.scale.x = 0.04;
-                joints_marker.scale.y = 0.04;
-                joints_marker.scale.z = 0.04;
+                joints_marker.scale.x = 0.03;
+                joints_marker.scale.y = 0.03;
+                joints_marker.scale.z = 0.03;
                 joints_marker.color.r = 0.0f;
                 joints_marker.color.g = 1.0f;
                 joints_marker.color.b = 0.8f;
@@ -1166,7 +1241,7 @@ private:
                 joints_marker.lifetime = rclcpp::Duration::from_seconds(0.5);
 
                 for (const auto &kp : p.keypoints) {
-                    if (kp.confidence >= pose_conf_threshold_) {
+                    if (kp.confidence >= render_marker_thresh) {
                         geometry_msgs::msg::Point pt;
                         pt.x = (kp.x - 0.5f) * 1.5f;
                         pt.y = (kp.y - 0.5f) * 1.5f;
@@ -1184,17 +1259,33 @@ private:
                 bones_marker.id = static_cast<int>(i * 2 + 1);
                 bones_marker.type = visualization_msgs::msg::Marker::LINE_LIST;
                 bones_marker.action = visualization_msgs::msg::Marker::ADD;
-                bones_marker.scale.x = 0.02; // Bone line width
+                bones_marker.scale.x = 0.015; // Bone line width
                 bones_marker.color.r = 1.0f;
                 bones_marker.color.g = 0.85f;
                 bones_marker.color.b = 0.0f;
                 bones_marker.color.a = 0.85f;
                 bones_marker.lifetime = rclcpp::Duration::from_seconds(0.5);
 
+                // Neck connection
+                const auto &nose = p.keypoints[0];
+                const auto &ls = p.keypoints[5];
+                const auto &rs = p.keypoints[6];
+                if (nose.confidence >= render_marker_thresh && ls.confidence >= render_marker_thresh && rs.confidence >= render_marker_thresh) {
+                    geometry_msgs::msg::Point pt_n, pt_neck;
+                    pt_n.x = (nose.x - 0.5f) * 1.5f;
+                    pt_n.y = (nose.y - 0.5f) * 1.5f;
+                    pt_n.z = 1.5f;
+                    pt_neck.x = ((ls.x + rs.x) * 0.5f - 0.5f) * 1.5f;
+                    pt_neck.y = ((ls.y + rs.y) * 0.5f - 0.5f) * 1.5f;
+                    pt_neck.z = 1.5f;
+                    bones_marker.points.push_back(pt_n);
+                    bones_marker.points.push_back(pt_neck);
+                }
+
                 for (const auto &pair : COCO_SKELETON_PAIRS) {
                     const auto &kp1 = p.keypoints[pair.first];
                     const auto &kp2 = p.keypoints[pair.second];
-                    if (kp1.confidence >= pose_conf_threshold_ && kp2.confidence >= pose_conf_threshold_) {
+                    if (kp1.confidence >= render_marker_thresh && kp2.confidence >= render_marker_thresh) {
                         geometry_msgs::msg::Point pt1, pt2;
                         pt1.x = (kp1.x - 0.5f) * 1.5f;
                         pt1.y = (kp1.y - 0.5f) * 1.5f;
