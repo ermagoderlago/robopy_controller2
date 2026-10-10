@@ -409,6 +409,7 @@ if [ "$ENABLE_HAILO" = "true" ]; then
         -p vlm_rate_hz:=5.0 \
         -p conf_threshold:=0.55 \
         -p enable_pose:=True \
+        -p pose_conf_threshold:=0.55 \
         > /home/robopy/robopy/logs/hailo_bridge_node.log 2>&1 &
 else
     echo "💤 [POWER-SAFE] Salto avvio hailo_bridge_node_cpp (ENABLE_HAILO=false)."

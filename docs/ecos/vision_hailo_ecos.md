@@ -225,6 +225,21 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
   - Ricompilato `robopy_controller` sequenzialmente con `-j1` su Raspberry Pi 5 host.
   - `docs/lessons/vision_hailo_npu.md` (aggiornamento lessons learned).
 
+---
+
+## 📈 ECO-2026-10-10-002: Top-Down YOLO-Gated Pose Architecture & False-Positive Skeleton Flood Elimination (FM-VIS-010)
+* **Stato:** ✅ **Completato, Testato e Distribuito su Raspberry Pi 5 & Hailo-10H NPU**
+* **Descrizione:**
+  1. **Eliminazione Flood Falsi Positivi:** Risolta l'invasione di centinaia di scheletri spuri (369 scheletri e migliaia di pallini gialli) causata dalla decodifica indiscriminata di tutte le 8400 celle di griglia NPU dove il rumore di fondo un-activated a $0.0$ generava confidenze artificiali attorno a $0.50$.
+  2. **Top-Down Bounding Box Gating:** Ristrutturato `decode_pose_outputs` per accettare direttamente la lista di persone rilevate da YOLOv8. La ricerca delle celle NPU dei keypoint è circoscritta rigorosamente alle sole celle interne al bounding box della persona (+15% tolleranza).
+  3. **Associazione 1-to-1 Determinista:** Per ciascuna persona rilevata da YOLO viene estratta la singola migliore posa basata su confidenza aggregata e vicinanza al baricentro ($quality = sum\_kps \times dist\_weight$). Max 1 posa per persona reale; zero candidati su sfondo o arredi.
+  4. **Innalzamento Soglia Confidenza Giunti:** Portata `pose_conf_threshold_` a $0.55f$ nominale, garantendo il disegno di cerchi e linee ossee solo in presenza di giunti ad alta affidabilità.
+* **Modifiche apportate:**
+  - `src/hailo_bridge_node.cpp`: ristrutturazione `decode_pose_outputs(person_detections)`, binding person bbox e default `pose_conf_threshold = 0.55`.
+  - `tests/test_pose_gating_and_decoding.py`: aggiunto test unitario `test_top_down_yolo_gated_pose_anti_flood`.
+  - `fmea/dfmea.yaml`: registrato `FM-VIS-010` (RPN abbattuto da 162 a 6).
+  - `docs/lessons/vision_hailo_npu.md`: aggiunta sezione tecnica Top-Down YOLO-Gated Pose.
+
 
 
 

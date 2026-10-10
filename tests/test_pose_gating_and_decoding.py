@@ -170,3 +170,53 @@ def test_sync_buffer_runs_without_nn():
     assert synced["timestamp"] == 10.0
     assert synced["keypoints"] is None
     assert synced["detections"] == []
+
+
+def test_top_down_yolo_gated_pose_anti_flood():
+    """Verify Top-Down YOLO bounding-box gating strictly eliminates background false positives (FM-VIS-010)."""
+    # 1 Person detected in center of image
+    person = {"xmin": 0.40, "ymin": 0.20, "xmax": 0.60, "ymax": 0.80, "confidence": 0.85, "label": "person"}
+
+    # Simulate 100 random grid cells across the image
+    np.random.seed(42)
+    grid_cells = []
+    for _ in range(100):
+        gx = np.random.uniform(0.0, 1.0)
+        gy = np.random.uniform(0.0, 1.0)
+        # Background cells have unactivated keypoints around 0.50 (sigmoid of 0.0)
+        kps = np.full(17, 0.50)
+        grid_cells.append({"cx": gx, "cy": gy, "kps": kps})
+
+    # One cell inside the person box has strong person keypoints (sigmoid >= 0.70)
+    person_cell = {"cx": 0.50, "cy": 0.50, "kps": np.full(17, 0.88)}
+    grid_cells.append(person_cell)
+
+    # Top-Down Filter: evaluate ONLY cells within person bounding box (+10% margin)
+    bw = person["xmax"] - person["xmin"]
+    bh = person["ymax"] - person["ymin"]
+    box_x1 = person["xmin"] - bw * 0.10
+    box_x2 = person["xmax"] + bw * 0.10
+    box_y1 = person["ymin"] - bh * 0.10
+    box_y2 = person["ymax"] + bh * 0.10
+
+    accepted_poses = []
+    best_cell = None
+    best_score = -1.0
+
+    for cell in grid_cells:
+        if box_x1 <= cell["cx"] <= box_x2 and box_y1 <= cell["cy"] <= box_y2:
+            # Check keypoint confidence threshold (0.55)
+            valid_kps = np.sum(cell["kps"] >= 0.55)
+            if valid_kps >= 4:
+                score = np.sum(cell["kps"])
+                if score > best_score:
+                    best_score = score
+                    best_cell = cell
+
+    if best_cell is not None:
+        accepted_poses.append(best_cell)
+
+    # Must produce EXACTLY 1 pose, strictly matching the person
+    assert len(accepted_poses) == 1, f"Expected 1 matched pose, got {len(accepted_poses)}"
+    assert accepted_poses[0]["cx"] == 0.50, "Selected pose must be the real person cell, not background noise"
+

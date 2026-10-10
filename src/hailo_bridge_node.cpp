@@ -197,7 +197,7 @@ public:
         // Pose Tracking parameters (F1 Upgrade - Hailo-10H)
         this->declare_parameter<bool>("enable_pose", true);
         this->declare_parameter<std::string>("pose_hef_path", "/mnt/ssd/models/yolov8s_pose.hef");
-        this->declare_parameter<double>("pose_conf_threshold", 0.30);
+        this->declare_parameter<double>("pose_conf_threshold", 0.55);
 
         hef_path_ = this->get_parameter("hef_path").as_string();
         sim_mode_ = this->get_parameter("sim_mode").as_bool();
@@ -543,15 +543,17 @@ private:
             }
         }
 
-        // 🧍 PRESENCE-GATED POSE ESTIMATION (IMP-GOV-001, FM-GOV-016)
+        // 🧍 PRESENCE-GATED POSE ESTIMATION (IMP-GOV-001, FM-GOV-016, FM-VIS-010)
         std::vector<PersonPose> poses;
-        bool has_person = false;
+        std::vector<DetectionBBox> person_detections;
         for (const auto &det : detections) {
             if (det.label == "person" || det.class_id == 0) {
-                has_person = true;
-                break;
+                if (det.confidence >= conf_threshold_) {
+                    person_detections.push_back(det);
+                }
             }
         }
+        bool has_person = !person_detections.empty();
 
         if (enable_pose_ && (has_person || sim_mode_)) {
             if (hailo_pose_ready_) {
@@ -579,7 +581,7 @@ private:
 
                     hailo_status p_status = configured_infer_model_pose_->run(*bindings_pose_, std::chrono::milliseconds(1000));
                     if (p_status == HAILO_SUCCESS) {
-                        poses = decode_pose_outputs();
+                        poses = decode_pose_outputs(person_detections);
                         if (!poses.empty()) {
                             RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
                                 "🕺 [HAILO-POSE] Tracciate %zu persone con skeleton keypoints", poses.size());
@@ -591,7 +593,7 @@ private:
                 }
 #endif
             } else if (sim_mode_) {
-                poses = generate_sim_poses(detections);
+                poses = generate_sim_poses(person_detections);
             }
 
             if (!poses.empty()) {
@@ -854,8 +856,12 @@ private:
         pub_semantic_objects_->publish(sem_array_msg);
     }
 
-    std::vector<PersonPose> decode_pose_outputs() {
-        std::vector<PersonPose> candidates;
+    std::vector<PersonPose> decode_pose_outputs(const std::vector<DetectionBBox> &person_detections) {
+        std::vector<PersonPose> result_poses;
+        if (person_detections.empty()) {
+            return result_poses;
+        }
+
         const float conf_thresh = pose_conf_threshold_;
         float orig_w = (last_scale_ > 0.0f && last_img_w_ > 0) ? static_cast<float>(last_img_w_) : 640.0f;
         float orig_h = (last_scale_ > 0.0f && last_img_h_ > 0) ? static_cast<float>(last_img_h_) : 480.0f;
@@ -863,7 +869,7 @@ private:
         static auto last_pose_log_time = std::chrono::steady_clock::now();
         auto now_log = std::chrono::steady_clock::now();
         bool should_log = false;
-        if (std::chrono::duration<double>(now_log - last_pose_log_time).count() >= 1.0) {
+        if (std::chrono::duration<double>(now_log - last_pose_log_time).count() >= 2.0) {
             should_log = true;
             last_pose_log_time = now_log;
         }
@@ -872,189 +878,152 @@ private:
         for (const auto &kv : pose_output_buffers_) {
             const auto &buf = kv.second;
             if (buf.size() == 8400 * 56) {
-                for (int i = 0; i < 8400; ++i) {
-                    const float *row = buf.data() + (i * 56);
-                    float score = row[4];
-                    if (score < conf_thresh) continue;
+                for (const auto &person : person_detections) {
+                    float best_person_score = -1.0f;
+                    PersonPose best_person_pose;
+                    bool found = false;
 
-                    float cx = row[0];
-                    float cy = row[1];
-                    float w = row[2];
-                    float h = row[3];
+                    for (int i = 0; i < 8400; ++i) {
+                        const float *row = buf.data() + (i * 56);
+                        float score = row[4];
+                        if (score < conf_thresh) continue;
 
-                    float x1 = cx - w * 0.5f;
-                    float y1 = cy - h * 0.5f;
-                    float x2 = cx + w * 0.5f;
-                    float y2 = cy + h * 0.5f;
+                        float cx = row[0];
+                        float cy = row[1];
+                        float norm_cx = std::clamp((cx - last_pad_x_) / (last_scale_ * orig_w), 0.0f, 1.0f);
+                        float norm_cy = std::clamp((cy - last_pad_y_) / (last_scale_ * orig_h), 0.0f, 1.0f);
 
-                    float xmin = std::clamp((x1 - last_pad_x_) / (last_scale_ * orig_w), 0.0f, 1.0f);
-                    float ymin = std::clamp((y1 - last_pad_y_) / (last_scale_ * orig_h), 0.0f, 1.0f);
-                    float xmax = std::clamp((x2 - last_pad_x_) / (last_scale_ * orig_w), 0.0f, 1.0f);
-                    float ymax = std::clamp((y2 - last_pad_y_) / (last_scale_ * orig_h), 0.0f, 1.0f);
+                        // Check containment inside this person's bounding box (+10% margin)
+                        float bw = person.xmax - person.xmin;
+                        float bh = person.ymax - person.ymin;
+                        if (norm_cx < person.xmin - bw * 0.10f || norm_cx > person.xmax + bw * 0.10f ||
+                            norm_cy < person.ymin - bh * 0.10f || norm_cy > person.ymax + bh * 0.10f) {
+                            continue;
+                        }
 
-                    if (xmax <= xmin || ymax <= ymin) continue;
-
-                    PersonPose pose;
-                    pose.bbox = {xmin, ymin, xmax, ymax, score, 0, "person"};
-                    const float *kpt_raw = row + 5;
-                    for (int k = 0; k < 17; ++k) {
-                        float kx = kpt_raw[k * 3 + 0];
-                        float ky = kpt_raw[k * 3 + 1];
-                        float ks = kpt_raw[k * 3 + 2];
-                        float norm_x = std::clamp((kx - last_pad_x_) / (last_scale_ * orig_w), 0.0f, 1.0f);
-                        float norm_y = std::clamp((ky - last_pad_y_) / (last_scale_ * orig_h), 0.0f, 1.0f);
-                        pose.keypoints[k] = {norm_x, norm_y, ks};
+                        if (score > best_person_score) {
+                            best_person_score = score;
+                            best_person_pose.bbox = person;
+                            const float *kpt_raw = row + 5;
+                            for (int k = 0; k < 17; ++k) {
+                                float kx = kpt_raw[k * 3 + 0];
+                                float ky = kpt_raw[k * 3 + 1];
+                                float ks = kpt_raw[k * 3 + 2];
+                                float norm_x = std::clamp((kx - last_pad_x_) / (last_scale_ * orig_w), 0.0f, 1.0f);
+                                float norm_y = std::clamp((ky - last_pad_y_) / (last_scale_ * orig_h), 0.0f, 1.0f);
+                                best_person_pose.keypoints[k] = {norm_x, norm_y, ks};
+                            }
+                            found = true;
+                        }
                     }
-                    candidates.push_back(pose);
+                    if (found) {
+                        result_poses.push_back(best_person_pose);
+                    }
                 }
-                break;
+                return result_poses;
             }
         }
 
         // 2. Multi-scale separate heads format (strides 8, 16, 32)
-        // 2. Multi-scale separate heads format (strides 8, 16, 32)
-        if (candidates.empty()) {
-            struct PoseHeadDef {
-                int stride;
-                int gh;
-                int gw;
-                std::string bbox_pattern;
-                std::string cls_pattern;
-                std::string kpt_pattern;
-            };
+        struct PoseHeadDef {
+            int stride;
+            int gh;
+            int gw;
+            std::string bbox_pattern;
+            std::string cls_pattern;
+            std::string kpt_pattern;
+        };
 
-            std::vector<PoseHeadDef> scale_defs = {
-                {8,  80, 80, "conv43", "conv44", "conv45"},
-                {16, 40, 40, "conv57", "conv58", "conv59"},
-                {32, 20, 20, "conv70", "conv71", "conv72"}
-            };
+        std::vector<PoseHeadDef> scale_defs = {
+            {8,  80, 80, "conv43", "conv44", "conv45"},
+            {16, 40, 40, "conv57", "conv58", "conv59"},
+            {32, 20, 20, "conv70", "conv71", "conv72"}
+        };
 
-            if (should_log) {
-                // Inspect all 9 pose output buffer stats
-                for (const auto &kv : pose_output_buffers_) {
-                    float b_min = 1e9f, b_max = -1e9f;
-                    size_t non_zero = 0;
-                    for (float v : kv.second) {
-                        if (v < b_min) b_min = v;
-                        if (v > b_max) b_max = v;
-                        if (std::abs(v) > 1e-6f) non_zero++;
-                    }
-                    RCLCPP_INFO(this->get_logger(),
-                        "📊 [POSE-TENSOR] %s: size=%zu, min=%.4f, max=%.4f, non_zero=%zu/%zu",
-                        kv.first.c_str(), kv.second.size(), b_min, b_max, non_zero, kv.second.size());
+        struct ScalePointers {
+            int stride;
+            int gh;
+            int gw;
+            const float *bbox_ptr{nullptr};
+            const float *kpt_ptr{nullptr};
+            bool is_dfl{true};
+        };
+
+        std::vector<ScalePointers> active_scales;
+        for (const auto &sc : scale_defs) {
+            int num_cells = sc.gh * sc.gw;
+            const float *b_ptr = nullptr;
+            const float *k_ptr = nullptr;
+            bool is_dfl = true;
+
+            for (const auto &kv : pose_output_buffers_) {
+                const std::string &name = kv.first;
+                const auto &buf = kv.second;
+
+                if (name.find(sc.bbox_pattern) != std::string::npos ||
+                    (sc.stride == 8 && name.find("output_layer1") != std::string::npos) ||
+                    (sc.stride == 16 && name.find("output_layer4") != std::string::npos) ||
+                    (sc.stride == 32 && name.find("output_layer7") != std::string::npos)) {
+                    b_ptr = buf.data();
+                    is_dfl = (buf.size() == static_cast<size_t>(num_cells * 64));
+                } else if (name.find(sc.kpt_pattern) != std::string::npos ||
+                           (sc.stride == 8 && name.find("output_layer3") != std::string::npos) ||
+                           (sc.stride == 16 && name.find("output_layer6") != std::string::npos) ||
+                           (sc.stride == 32 && name.find("output_layer9") != std::string::npos)) {
+                    k_ptr = buf.data();
                 }
             }
 
-            for (const auto &sc : scale_defs) {
+            if (b_ptr && k_ptr) {
+                active_scales.push_back({sc.stride, sc.gh, sc.gw, b_ptr, k_ptr, is_dfl});
+            }
+        }
+
+        if (active_scales.empty()) {
+            return result_poses;
+        }
+
+        // TOP-DOWN YOLO-GATED POSE: Iterate over each detected person
+        for (const auto &person : person_detections) {
+            // Convert normalized person bbox [0.0, 1.0] to letterboxed model coordinate space [0, 640]
+            float px1_model = person.xmin * orig_w * last_scale_ + last_pad_x_;
+            float py1_model = person.ymin * orig_h * last_scale_ + last_pad_y_;
+            float px2_model = person.xmax * orig_w * last_scale_ + last_pad_x_;
+            float py2_model = person.ymax * orig_h * last_scale_ + last_pad_y_;
+
+            float pb_w = px2_model - px1_model;
+            float pb_h = py2_model - py1_model;
+            if (pb_w <= 0.0f || pb_h <= 0.0f) continue;
+
+            float pc_x = (px1_model + px2_model) * 0.5f;
+            float pc_y = (py1_model + py2_model) * 0.5f;
+
+            // Expand person box by 15% tolerance margin
+            float box_min_x = std::max(0.0f, px1_model - pb_w * 0.15f);
+            float box_max_x = std::min(static_cast<float>(yolo_input_w_), px2_model + pb_w * 0.15f);
+            float box_min_y = std::max(0.0f, py1_model - pb_h * 0.15f);
+            float box_max_y = std::min(static_cast<float>(yolo_input_h_), py2_model + pb_h * 0.15f);
+
+            float best_quality = -1.0f;
+            PersonPose best_pose;
+            bool found_pose = false;
+
+            for (const auto &sc : active_scales) {
                 int stride = sc.stride;
-                int gh = sc.gh;
-                int gw = sc.gw;
-                int num_cells = gh * gw;
+                int min_gx = std::clamp(static_cast<int>(box_min_x / stride), 0, sc.gw - 1);
+                int max_gx = std::clamp(static_cast<int>(box_max_x / stride), 0, sc.gw - 1);
+                int min_gy = std::clamp(static_cast<int>(box_min_y / stride), 0, sc.gh - 1);
+                int max_gy = std::clamp(static_cast<int>(box_max_y / stride), 0, sc.gh - 1);
 
-                const float *cls_ptr = nullptr;
-                const float *bbox_ptr = nullptr;
-                const float *kpt_ptr = nullptr;
-                bool is_dfl = true; // YOLOv8 pose uses 64-dim DFL bbox heads
-
-                for (const auto &kv : pose_output_buffers_) {
-                    const std::string &name = kv.first;
-                    const auto &buf = kv.second;
-
-                    if (name.find(sc.bbox_pattern) != std::string::npos || (sc.stride == 8 && name.find("output_layer1") != std::string::npos) || (sc.stride == 16 && name.find("output_layer4") != std::string::npos) || (sc.stride == 32 && name.find("output_layer7") != std::string::npos)) {
-                        bbox_ptr = buf.data();
-                        is_dfl = (buf.size() == static_cast<size_t>(num_cells * 64));
-                    } else if (name.find(sc.cls_pattern) != std::string::npos || (sc.stride == 8 && name.find("output_layer2") != std::string::npos) || (sc.stride == 16 && name.find("output_layer5") != std::string::npos) || (sc.stride == 32 && name.find("output_layer8") != std::string::npos)) {
-                        cls_ptr = buf.data();
-                    } else if (name.find(sc.kpt_pattern) != std::string::npos || (sc.stride == 8 && name.find("output_layer3") != std::string::npos) || (sc.stride == 16 && name.find("output_layer6") != std::string::npos) || (sc.stride == 32 && name.find("output_layer9") != std::string::npos)) {
-                        kpt_ptr = buf.data();
-                    }
-                }
-
-                if (!kpt_ptr || !bbox_ptr || !cls_ptr) {
-                    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
-                        "⚠️ [POSE-STRIDE %d] MISSING PTR! cls=%p bbox=%p kpt=%p",
-                        stride, (void*)cls_ptr, (void*)bbox_ptr, (void*)kpt_ptr);
-                    continue;
-                }
-
-                float stride_max_raw = -999.0f;
-                float stride_max_score = -999.0f;
-                float stride_max_kpt = -999.0f;
-                int stride_candidates = 0;
-
-                for (int gy = 0; gy < gh; ++gy) {
-                    for (int gx = 0; gx < gw; ++gx) {
-                        int cell_idx = gy * gw + gx;
-                        float raw_val = cls_ptr[cell_idx];
-                        if (raw_val > stride_max_raw) stride_max_raw = raw_val;
-                        float score = (raw_val >= 0.0f && raw_val <= 1.0f)
-                                      ? raw_val
-                                      : (1.0f / (1.0f + std::exp(-std::clamp(raw_val, -10.0f, 10.0f))));
-                        if (score > stride_max_score) stride_max_score = score;
+                for (int gy = min_gy; gy <= max_gy; ++gy) {
+                    for (int gx = min_gx; gx <= max_gx; ++gx) {
+                        int cell_idx = gy * sc.gw + gx;
+                        const float *kpt_cell = sc.kpt_ptr + (cell_idx * 51);
 
                         // Inspect keypoints in this cell
-                        const float *kpt_cell = kpt_ptr + (cell_idx * 51);
-                        float max_kp_score = 0.0f;
-                        float sum_kp_score = 0.0f;
                         int valid_kps = 0;
-                        for (int k = 0; k < 17; ++k) {
-                            float kscore_raw = kpt_cell[k * 3 + 2];
-                            float kp_score = 1.0f / (1.0f + std::exp(-std::clamp(kscore_raw, -10.0f, 10.0f)));
-                            if (kp_score > max_kp_score) max_kp_score = kp_score;
-                            sum_kp_score += kp_score;
-                            if (kp_score >= 0.25f) valid_kps++;
-                        }
-                        float avg_kp_score = sum_kp_score / 17.0f;
-                        if (max_kp_score > stride_max_kpt) stride_max_kpt = max_kp_score;
-
-                        // Dual gating: either classification head score >= thresh OR strong keypoints detected
-                        float effective_score = std::max(score, avg_kp_score);
-                        if (effective_score < conf_thresh && valid_kps < 4) continue;
-
-                        float x1, y1, x2, y2;
-                        if (is_dfl) {
-                            const float *bbox_cell = bbox_ptr + (cell_idx * 64);
-                            float dfl[4];
-                            for (int b = 0; b < 4; ++b) {
-                                const float *reg = bbox_cell + (b * 16);
-                                float max_val = -1e9f;
-                                for (int i = 0; i < 16; ++i) max_val = std::max(max_val, reg[i]);
-                                float sum_exp = 0.0f;
-                                float exp_v[16];
-                                for (int i = 0; i < 16; ++i) {
-                                    exp_v[i] = std::exp(reg[i] - max_val);
-                                    sum_exp += exp_v[i];
-                                }
-                                float val = 0.0f;
-                                for (int i = 0; i < 16; ++i) val += (exp_v[i] / sum_exp) * i;
-                                dfl[b] = val;
-                            }
-                            x1 = (gx + 0.5f - dfl[0]) * stride;
-                            y1 = (gy + 0.5f - dfl[1]) * stride;
-                            x2 = (gx + 0.5f + dfl[2]) * stride;
-                            y2 = (gy + 0.5f + dfl[3]) * stride;
-                        } else {
-                            const float *bbox_cell = bbox_ptr + (cell_idx * 4);
-                            x1 = (gx + 0.5f - bbox_cell[0]) * stride;
-                            y1 = (gy + 0.5f - bbox_cell[1]) * stride;
-                            x2 = (gx + 0.5f + bbox_cell[2]) * stride;
-                            y2 = (gy + 0.5f + bbox_cell[3]) * stride;
-                        }
-
-                        float xmin = std::clamp((x1 - last_pad_x_) / (last_scale_ * orig_w), 0.0f, 1.0f);
-                        float ymin = std::clamp((y1 - last_pad_y_) / (last_scale_ * orig_h), 0.0f, 1.0f);
-                        float xmax = std::clamp((x2 - last_pad_x_) / (last_scale_ * orig_w), 0.0f, 1.0f);
-                        float ymax = std::clamp((y2 - last_pad_y_) / (last_scale_ * orig_h), 0.0f, 1.0f);
-
-                        if (xmax <= xmin || ymax <= ymin) continue;
-
-                        // Sanity check: humans are vertical, reject extreme horizontal boxes (FM-VIS-009)
-                        float box_w = (xmax - xmin) * orig_w;
-                        float box_h = (ymax - ymin) * orig_h;
-                        if (box_w > 1.8f * box_h) continue;
-
-                        PersonPose pose;
-                        pose.bbox = {xmin, ymin, xmax, ymax, std::max(effective_score, 0.50f), 0, "person"};
+                        float sum_valid_kp_score = 0.0f;
+                        std::array<Keypoint2D, 17> decoded_kpts;
 
                         for (int k = 0; k < 17; ++k) {
                             float kx = kpt_cell[k * 3 + 0];
@@ -1066,60 +1035,49 @@ private:
                             float py = (ky * 2.0f + gy) * stride;
                             float norm_x = std::clamp((px - last_pad_x_) / (last_scale_ * orig_w), 0.0f, 1.0f);
                             float norm_y = std::clamp((py - last_pad_y_) / (last_scale_ * orig_h), 0.0f, 1.0f);
-                            pose.keypoints[k] = {norm_x, norm_y, kp_score};
+
+                            decoded_kpts[k] = {norm_x, norm_y, kp_score};
+
+                            if (kp_score >= conf_thresh) {
+                                valid_kps++;
+                                sum_valid_kp_score += kp_score;
+                            }
                         }
-                        candidates.push_back(pose);
-                        stride_candidates++;
+
+                        // Must have at least 4 keypoints above confidence threshold
+                        if (valid_kps < 4) continue;
+
+                        // Center distance weighting: prefer cells near person centroid
+                        float cell_center_x = (gx + 0.5f) * stride;
+                        float cell_center_y = (gy + 0.5f) * stride;
+                        float dist_x = (cell_center_x - pc_x) / pb_w;
+                        float dist_y = (cell_center_y - pc_y) / pb_h;
+                        float dist_norm = std::sqrt(dist_x * dist_x + dist_y * dist_y);
+                        float dist_weight = std::clamp(1.0f - dist_norm * 0.5f, 0.2f, 1.0f);
+
+                        float quality = sum_valid_kp_score * dist_weight;
+                        if (quality > best_quality) {
+                            best_quality = quality;
+                            best_pose.bbox = person; // Lock to high-precision YOLO person bbox
+                            best_pose.keypoints = decoded_kpts;
+                            found_pose = true;
+                        }
                     }
                 }
-                if (should_log) {
-                    RCLCPP_INFO(this->get_logger(),
-                        "🔍 [POSE-STRIDE %d] max_raw=%.3f, max_cls=%.3f, max_kpt=%.3f (thresh=%.2f), candidates=%d, ptrs: cls=%p bbox=%p kpt=%p",
-                        stride, stride_max_raw, stride_max_score, stride_max_kpt, conf_thresh, stride_candidates,
-                        (void*)cls_ptr, (void*)bbox_ptr, (void*)kpt_ptr);
-                }
             }
-            if (should_log) {
-                RCLCPP_INFO(this->get_logger(),
-                    "🔍 [POSE-SUMMARY] Total raw candidates: %zu", candidates.size());
-            }
-        }
 
-        // NMS on candidates (IoU 0.45)
-        std::sort(candidates.begin(), candidates.end(), [](const PersonPose &a, const PersonPose &b) {
-            return a.bbox.confidence > b.bbox.confidence;
-        });
-
-        std::vector<PersonPose> nms_results;
-        for (const auto &cand : candidates) {
-            bool keep = true;
-            for (const auto &selected : nms_results) {
-                float ix1 = std::max(cand.bbox.xmin, selected.bbox.xmin);
-                float iy1 = std::max(cand.bbox.ymin, selected.bbox.ymin);
-                float ix2 = std::min(cand.bbox.xmax, selected.bbox.xmax);
-                float iy2 = std::min(cand.bbox.ymax, selected.bbox.ymax);
-                float iw = std::max(0.0f, ix2 - ix1);
-                float ih = std::max(0.0f, iy2 - iy1);
-                float inter_area = iw * ih;
-                float area_a = (cand.bbox.xmax - cand.bbox.xmin) * (cand.bbox.ymax - cand.bbox.ymin);
-                float area_b = (selected.bbox.xmax - selected.bbox.xmin) * (selected.bbox.ymax - selected.bbox.ymin);
-                float union_area = area_a + area_b - inter_area;
-                float iou = (union_area > 0.0f) ? (inter_area / union_area) : 0.0f;
-                if (iou > 0.45f) {
-                    keep = false;
-                    break;
-                }
+            if (found_pose) {
+                result_poses.push_back(best_pose);
             }
-            if (keep) nms_results.push_back(cand);
         }
 
         if (should_log) {
             RCLCPP_INFO(this->get_logger(),
-                "🔍 [POSE-SUMMARY] Total raw candidates: %zu, After NMS: %zu",
-                candidates.size(), nms_results.size());
+                "🕺 [TOPDOWN-POSE] Persons input: %zu, Poses matched: %zu (conf_thresh=%.2f)",
+                person_detections.size(), result_poses.size(), conf_thresh);
         }
 
-        return nms_results;
+        return result_poses;
     }
 
     std::vector<PersonPose> generate_sim_poses(const std::vector<DetectionBBox> &detections) {
@@ -1291,7 +1249,7 @@ private:
     // Pose Tracking on Shared VDevice (SPEC-03 F1 Upgrade)
     bool enable_pose_{false};
     std::string pose_hef_path_;
-    float pose_conf_threshold_{0.50f};
+    float pose_conf_threshold_{0.55f};
     bool hailo_pose_ready_{false};
 
     std::string pose_input_name_;

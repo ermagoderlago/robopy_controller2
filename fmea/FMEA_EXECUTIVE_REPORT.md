@@ -1,5 +1,5 @@
 # 📊 Report Esecutivo DFMEA - Marcus AI Robot Platform
-**Data Generazione:** 2026-10-10 09:02:37  
+**Data Generazione:** 2026-10-10 09:15:38  
 **Metodologia:** AIAG-VDA FMEA Standard con Regola Override Severità ($S \ge 9 \implies$ REVISION_MANDATORY)
 
 ---
@@ -8,8 +8,8 @@
 
 | Metrica | Valore | Note / Impatto |
 | :--- | :---: | :--- |
-| **Totale Modalità di Guasto (FM)** | **185** | Copertura integrata dei sottosistemi Marcus |
-| **🟢 Risk Level LOW** | **142** | $RPN_{res} \le 50$ (Sotto controllo) |
+| **Totale Modalità di Guasto (FM)** | **186** | Copertura integrata dei sottosistemi Marcus |
+| **🟢 Risk Level LOW** | **143** | $RPN_{res} \le 50$ (Sotto controllo) |
 | **🟡 Risk Level MEDIUM** | **10** | $51 \le RPN_{res} \le 199$ (Monitoraggio attivo) |
 | **🟠 Risk Level HIGH** | **2** | $200 \le RPN_{res} \le 349$ (Mitigazione obbligatoria) |
 | **🔴 Risk Level CRITICAL** | **0** | $RPN_{res} \ge 350$ (Blocco rilasci) |
@@ -19,7 +19,7 @@
 - **System/DDS:** 5 failure modes
 - **Nav2:** 20 failure modes
 - **VUI Audio:** 26 failure modes
-- **Vision:** 5 failure modes
+- **Vision:** 6 failure modes
 - **Hardware/Power:** 9 failure modes
 - **ESP32:** 1 failure modes
 - **AI/LangGraph:** 7 failure modes
@@ -293,6 +293,7 @@
 | **FM-COG-004** | Orchestration & RAG | `conversation, metaprompt_fusion, memory_manager & memory_info_skill` | Mancato recupero fatti appresi (echo loop su 'non ho visto nulla di nuovo'), allucinazione etimologica latina/dio Marte sul nome MARCUS, crash MemoryInfoSkill (AttributeError get_stats) e muting vocale su chat | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#FM-COG-004`](docs/lessons/orchestration_and_rag.md#FM-COG-004) |
 | **FM-NAV-028** | Nav2 & SLAM | `rtabmap` | Sdoppiamento transitorio della mappa a ventaglio/stella durante le curve e ritardo nella chiusura d'anello | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#loop-closure-submap-matching`](docs/lessons/nav2_slam_tuning.md#loop-closure-submap-matching) |
 | **FM-VUI-027** | Voice/Audio | `llm_service / live_connection_manager` | Soppressione spuria delle risposte vocali sotto tag IGNORE_TURN quando l'utente parla naturalmente senza prefisso Marcus | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#ignore-turn-prompt`](docs/lessons/audio_vui_pipeline.md#ignore-turn-prompt) |
+| **FM-VIS-010** | Vision | `hailo_bridge_node_cpp / Pose Decoder` | Flood di falsi positivi scheletrici e sovrapposizione incontrollata di punti e connessioni ossee su sfondo, arredi e pavimento | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/vision_hailo_npu.md#top-down-yolo-gated-pose`](docs/lessons/vision_hailo_npu.md#top-down-yolo-gated-pose) |
 | **FM-VUI-025** | Voice/Audio | `marcus_voice_nav` | Saturazione del buffer audio, scarto delle richieste vocali sovrapposte e silenzio durante la navigazione | 5 | 1 | 1 | **5** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#gemini-live-pacing`](docs/lessons/audio_vui_pipeline.md#gemini-live-pacing) |
 | **FM-VUI-028** | Voice/Audio | `respeaker_vui_node` | Volume vocale assordante da sovrascrittura incondizionata a 0.80 di enable_auto_volume | 5 | 1 | 1 | **5** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#auto-volume-override`](docs/lessons/audio_vui_pipeline.md#auto-volume-override) |
 | **FM-LLM-001** | AI/LangGraph | `respeaker_vui_node` | Effetto 'Darth Vader' / 'Chipmunk' (audio accelerato o gravemente alterato) in riproduzione | 4 | 1 | 1 | **4** | `LOW` | `CLOSED` | [`marcus_core_rules.md#3-pipeline-vui-e-audio-pcm-streaming`](marcus_core_rules.md#3-pipeline-vui-e-audio-pcm-streaming) |

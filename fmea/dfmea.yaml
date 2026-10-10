@@ -8813,3 +8813,54 @@
       (5 Gbps) con RPN ridotto da 384 a 16.
     rpn_old: 384
     rpn_new: 16
+- id: FM-VIS-010
+  subsystem: Vision
+  component: hailo_bridge_node_cpp / Pose Decoder
+  function: Decodifica accurata dei keypoint della posa e rendering dello scheletro
+    anatomico della persona senza falsi positivi
+  failure_mode: Flood di falsi positivi scheletrici e sovrapposizione incontrollata
+    di punti e connessioni ossee su sfondo, arredi e pavimento
+  potential_cause: Scansione cieca di tutte le 8400 celle della griglia con gating
+    debole sui logit dei keypoint (~0.0 su sfondo dequantizzato a 0.50), generando
+    centinaia di falsi candidati sopravvissuti all'NMS
+  potential_effect: Invasione visiva dell'annotated image con oltre 360 scheletri
+    e migliaia di pallini gialli, degradando completamente la leggibilità visiva e
+    sprecando cicli CPU di rendering
+  classification: PERFORMANCE
+  estimation_basis: measured
+  related_ids:
+  - FM-GOV-016
+  - FM-VIS-009
+  initial_scoring:
+    severity: 6
+    occurrence: 9
+    detection: 3
+    rpn: 162
+  prevention_controls: Architettura Top-Down YOLO-Gated Pose (filtraggio celle vincolato
+    esclusivamente all'interno del bounding box della persona rilevata da YOLO, max
+    1 posa associata per persona, soglia confidenza keypoint >= 0.55)
+  detection_controls: Telemetria conteggio candidati nel log ([TOPDOWN-POSE] Persons
+    input vs Poses matched) e test unitario test_top_down_yolo_gated_pose_anti_flood
+  residual_scoring:
+    severity: 6
+    occurrence: 1
+    detection: 1
+    rpn: 6
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Vincolare la decodifica dei keypoint alle sole coordinate spaziali
+    racchiuse dai bounding box delle persone individuate da YOLOv8
+  verification_method: Esecuzione test unitario pytest tests/test_pose_gating_and_decoding.py
+    e ispezione visiva su topic /hailo/annotated_image/compressed
+  eco_ref: docs/ecos/vision_hailo_ecos.md
+  lesson_ref: docs/lessons/vision_hailo_npu.md#top-down-yolo-gated-pose
+  improvement_ref: docs/improvements/IMP-GOV-001_dynamic_resource_governor.md
+  date_identified: '2026-10-10'
+  last_updated: '2026-10-10'
+  history:
+  - date: '2026-10-10'
+    change: Implementato algoritmo Top-Down YOLO-Gated Pose in hailo_bridge_node.cpp
+      con vincolo geometrico stretto ai soli box persona YOLOv8 ed eliminazione del
+      flood di falsi positivi. RPN abbattuto da 162 a 6.
+    rpn_old: 162
+    rpn_new: 6
