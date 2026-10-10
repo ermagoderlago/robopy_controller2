@@ -1004,6 +1004,7 @@ private:
             int gh;
             int gw;
             const float *bbox_ptr{nullptr};
+            const float *cls_ptr{nullptr};
             const float *kpt_ptr{nullptr};
             bool is_dfl{true};
         };
@@ -1012,6 +1013,7 @@ private:
         for (const auto &sc : scale_defs) {
             int num_cells = sc.gh * sc.gw;
             const float *b_ptr = nullptr;
+            const float *c_ptr = nullptr;
             const float *k_ptr = nullptr;
             bool is_dfl = true;
 
@@ -1025,6 +1027,11 @@ private:
                     (sc.stride == 32 && name.find("output_layer7") != std::string::npos)) {
                     b_ptr = buf.data();
                     is_dfl = (buf.size() == static_cast<size_t>(num_cells * 64));
+                } else if (name.find(sc.cls_pattern) != std::string::npos ||
+                           (sc.stride == 8 && name.find("output_layer2") != std::string::npos) ||
+                           (sc.stride == 16 && name.find("output_layer5") != std::string::npos) ||
+                           (sc.stride == 32 && name.find("output_layer8") != std::string::npos)) {
+                    c_ptr = buf.data();
                 } else if (name.find(sc.kpt_pattern) != std::string::npos ||
                            (sc.stride == 8 && name.find("output_layer3") != std::string::npos) ||
                            (sc.stride == 16 && name.find("output_layer6") != std::string::npos) ||
@@ -1034,7 +1041,7 @@ private:
             }
 
             if (b_ptr && k_ptr) {
-                active_scales.push_back({sc.stride, sc.gh, sc.gw, b_ptr, k_ptr, is_dfl});
+                active_scales.push_back({sc.stride, sc.gh, sc.gw, b_ptr, c_ptr, k_ptr, is_dfl});
             }
         }
 
@@ -1063,9 +1070,18 @@ private:
             float box_min_y = std::max(0.0f, py1_model - pb_h * 0.15f);
             float box_max_y = std::min(static_cast<float>(yolo_input_h_), py2_model + pb_h * 0.15f);
 
+            // Sanity check: Discard absurd/flat person boxes (e.g. wall patterns, floor noise)
+            if (pb_h < 80.0f || (pb_w / pb_h) > 1.3f) {
+                continue;
+            }
+
             float best_quality = -1.0f;
             PersonPose best_pose;
             bool found_pose = false;
+            int win_stride = 0;
+            int win_gx = 0, win_gy = 0;
+            float win_cls = 0.0f;
+            std::array<float, 6> dbg_kps{}; // nose, shoulder_l
 
             for (const auto &sc : active_scales) {
                 int stride = sc.stride;
@@ -1074,16 +1090,28 @@ private:
                 int min_gy = std::clamp(static_cast<int>(box_min_y / stride), 0, sc.gh - 1);
                 int max_gy = std::clamp(static_cast<int>(box_max_y / stride), 0, sc.gh - 1);
 
-                // SCALE PRIOR: Large person boxes (>100px) require Stride 16/32 receptive fields
+                // SCALE PRIOR: When a person is tall (>120px), Stride 16/32 have receptive fields for whole body
                 float scale_prior = 1.0f;
-                if (pb_h > 100.0f) {
-                    if (stride == 16) scale_prior = 1.25f;
-                    else if (stride == 32) scale_prior = 1.45f;
+                if (pb_h > 120.0f) {
+                    if (stride == 16) scale_prior = 1.30f;
+                    else if (stride == 32) scale_prior = 1.60f;
                 }
 
                 for (int gy = min_gy; gy <= max_gy; ++gy) {
                     for (int gx = min_gx; gx <= max_gx; ++gx) {
                         int cell_idx = gy * sc.gw + gx;
+
+                        // Pose classifier validation (conv44/conv58/conv71)
+                        float cell_cls_score = 1.0f;
+                        if (sc.cls_ptr) {
+                            cell_cls_score = sc.cls_ptr[cell_idx];
+                            if (cell_cls_score < 0.0f || cell_cls_score > 1.0f) {
+                                cell_cls_score = 1.0f / (1.0f + std::exp(-std::clamp(cell_cls_score, -10.0f, 10.0f)));
+                            }
+                            // Reject cells where pose classifier has no human presence
+                            if (cell_cls_score < 0.25f) continue;
+                        }
+
                         const float *kpt_cell = sc.kpt_ptr + (cell_idx * 51);
 
                         // Inspect keypoints in this cell
@@ -1105,7 +1133,7 @@ private:
 
                             decoded_kpts[k] = {norm_x, norm_y, kp_score};
 
-                            if (kp_score >= 0.30f) {
+                            if (kp_score >= 0.25f) {
                                 valid_kps++;
                                 sum_valid_kp_score += kp_score;
                                 if (k >= 5) {
@@ -1114,26 +1142,22 @@ private:
                             }
                         }
 
-                        // Must have at least 4 keypoints with score >= 0.30
+                        // Must have at least 4 keypoints with score >= 0.25
                         if (valid_kps < 4) continue;
 
-                        // Center distance weighting: prefer cells near person centroid
-                        float cell_center_x = (gx + 0.5f) * stride;
-                        float cell_center_y = (gy + 0.5f) * stride;
-                        float dist_x = (cell_center_x - pc_x) / pb_w;
-                        float dist_y = (cell_center_y - pc_y) / pb_h;
-                        float dist_norm = std::sqrt(dist_x * dist_x + dist_y * dist_y);
-                        float dist_weight = std::clamp(1.0f - dist_norm * 0.5f, 0.2f, 1.0f);
-
-                        // Body completeness multiplier: rewarding cells that resolve torso and limbs
-                        float completeness_bonus = 1.0f + 0.08f * body_kps;
-
-                        float quality = sum_valid_kp_score * dist_weight * scale_prior * completeness_bonus;
+                        // Pose quality: driven by classifier confidence, body completeness and scale prior
+                        float quality = cell_cls_score * sum_valid_kp_score * scale_prior * (1.0f + 0.12f * body_kps);
                         if (quality > best_quality) {
                             best_quality = quality;
                             best_pose.bbox = person; // Lock to high-precision YOLO person bbox
                             best_pose.keypoints = decoded_kpts;
                             found_pose = true;
+                            win_stride = stride;
+                            win_gx = gx;
+                            win_gy = gy;
+                            win_cls = cell_cls_score;
+                            dbg_kps[0] = kpt_cell[0]; dbg_kps[1] = kpt_cell[1]; dbg_kps[2] = kpt_cell[2]; // nose
+                            dbg_kps[3] = kpt_cell[5*3]; dbg_kps[4] = kpt_cell[5*3+1]; dbg_kps[5] = kpt_cell[5*3+2]; // shoulder
                         }
                     }
                 }
@@ -1141,6 +1165,13 @@ private:
 
             if (found_pose) {
                 result_poses.push_back(best_pose);
+                if (should_log) {
+                    RCLCPP_INFO(this->get_logger(),
+                        "🔍 [POSE-DEBUG] Win stride=%d cell=(%d,%d) cls=%.2f | Nose: raw=(%.2f,%.2f,%.2f) norm=(%.2f,%.2f) | ShL: raw=(%.2f,%.2f) norm=(%.2f,%.2f)",
+                        win_stride, win_gx, win_gy, win_cls,
+                        dbg_kps[0], dbg_kps[1], dbg_kps[2], best_pose.keypoints[0].x, best_pose.keypoints[0].y,
+                        dbg_kps[3], dbg_kps[4], best_pose.keypoints[5].x, best_pose.keypoints[5].y);
+                }
             }
         }
 
