@@ -212,17 +212,19 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
 
 ---
 
-## 📈 ECO-2026-10-10-001: Hailo-10H YOLOv8s-Pose Real HEF Compilation, Deploy & C++ Dual Sigmoid Decoder Fix
+## 📈 ECO-2026-10-10-001: Hailo-10H YOLOv8s-Pose Real HEF Compilation, Deploy & C++ Keypoint-Driven Decoder Fix
 * **Stato:** ✅ **Completato, Testato e Distribuito su Raspberry Pi 5 & Hailo-10H NPU**
 * **Descrizione:**
   1. **Compilazione HEF Reale:** Compilato `yolov8s_pose.hef` con Hailo Dataflow Compiler v5.3.0 in WSL 2 Ubuntu-24.04 (QAT su dataset COCO train2014, target `hailo10h`). File generato (15 MB, 5 contesti NPU) e trasferito sulla SSD di Marcus in `/mnt/ssd/models/yolov8s_pose.hef`.
   2. **Inizializzazione NPU Shared VDevice:** Modello di posa istanziato come `InferModel` sul VDevice condiviso con `marcus_unified.hef`, con binding automatico FLOAT32 per dequantizzazione hardware zero-copy.
-  3. **Fix C++ Decoder Sigmoide:** Allineato il decoder multiscala (`conv71`, `conv58`, `conv44`) per riconoscere l'output post-attivazione sigmoidea generato dall'ALLS di Hailo Model Zoo, eliminando il falso trigger a cascata dei 2100 nodi di background e applicando il vincolo proporzionale $W/H \le 1.8$ sul bounding box della posa umana.
+  3. **Mapping Deterministico Output Streams:** Eliminata l'ambiguità nell'associazione dei buffer per dimensione (evitato collisione tra conv70 stride 32 e bbox stride 8). Associazione rigorosa per pattern nome (`conv43/44/45`, `conv57/58/59`, `conv70/71/72`).
+  4. **Keypoint-Driven Dual Gating:** Superato l'azzeramento da quantizzazione hardware della testa di classificazione introducendo il gating guidato direttamente dai 17 keypoint anatomici. Se la persona è confermata da YOLOv8-seg e almeno 4 landmark mostrano alta confidenza ($\ge 0.25$), lo scheletro viene estratto e renderizzato con 17 sfere e 18 segmenti ossei.
 * **Modifiche apportate:**
-  - `src/hailo_bridge_node.cpp` (decodifica condizionale probabilità/logit e filtro aspect ratio).
+  - `src/hailo_bridge_node.cpp` (mapping nominale dei layer, dual gating keypoint/cls, soglia confidenza portata a 0.30).
   - `/mnt/ssd/models/yolov8s_pose.hef` (deploy su SSD robot).
   - Ricompilato `robopy_controller` sequenzialmente con `-j1` su Raspberry Pi 5 host.
   - `docs/lessons/vision_hailo_npu.md` (aggiornamento lessons learned).
+
 
 
 

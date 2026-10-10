@@ -197,7 +197,7 @@ public:
         // Pose Tracking parameters (F1 Upgrade - Hailo-10H)
         this->declare_parameter<bool>("enable_pose", true);
         this->declare_parameter<std::string>("pose_hef_path", "/mnt/ssd/models/yolov8s_pose.hef");
-        this->declare_parameter<double>("pose_conf_threshold", 0.50);
+        this->declare_parameter<double>("pose_conf_threshold", 0.30);
 
         hef_path_ = this->get_parameter("hef_path").as_string();
         sim_mode_ = this->get_parameter("sim_mode").as_bool();
@@ -441,6 +441,8 @@ private:
                                         pose_output_buffers_[name].data(), pose_output_buffers_[name].size() * sizeof(float)
                                     ));
                                 }
+                                RCLCPP_INFO(this->get_logger(), "📦 Pose Output Stream: %s, size=%zu floats (frame_bytes=%zu)",
+                                            name.c_str(), pose_output_buffers_[name].size(), frame_size_bytes);
                             }
                             hailo_pose_ready_ = true;
                             RCLCPP_INFO(this->get_logger(), "🕺 Hailo-10H Pose InferModel configured successfully on shared VDevice!");
@@ -858,6 +860,14 @@ private:
         float orig_w = (last_scale_ > 0.0f && last_img_w_ > 0) ? static_cast<float>(last_img_w_) : 640.0f;
         float orig_h = (last_scale_ > 0.0f && last_img_h_ > 0) ? static_cast<float>(last_img_h_) : 480.0f;
 
+        static auto last_pose_log_time = std::chrono::steady_clock::now();
+        auto now_log = std::chrono::steady_clock::now();
+        bool should_log = false;
+        if (std::chrono::duration<double>(now_log - last_pose_log_time).count() >= 1.0) {
+            should_log = true;
+            last_pose_log_time = now_log;
+        }
+
         // 1. Single concatenated output tensor format: (8400, 56)
         for (const auto &kv : pose_output_buffers_) {
             const auto &buf = kv.second;
@@ -902,51 +912,104 @@ private:
         }
 
         // 2. Multi-scale separate heads format (strides 8, 16, 32)
+        // 2. Multi-scale separate heads format (strides 8, 16, 32)
         if (candidates.empty()) {
-            std::vector<std::tuple<int, int, int>> scale_defs = {
-                {8,  80, 80},
-                {16, 40, 40},
-                {32, 20, 20}
+            struct PoseHeadDef {
+                int stride;
+                int gh;
+                int gw;
+                std::string bbox_pattern;
+                std::string cls_pattern;
+                std::string kpt_pattern;
             };
 
+            std::vector<PoseHeadDef> scale_defs = {
+                {8,  80, 80, "conv43", "conv44", "conv45"},
+                {16, 40, 40, "conv57", "conv58", "conv59"},
+                {32, 20, 20, "conv70", "conv71", "conv72"}
+            };
+
+            if (should_log) {
+                // Inspect all 9 pose output buffer stats
+                for (const auto &kv : pose_output_buffers_) {
+                    float b_min = 1e9f, b_max = -1e9f;
+                    size_t non_zero = 0;
+                    for (float v : kv.second) {
+                        if (v < b_min) b_min = v;
+                        if (v > b_max) b_max = v;
+                        if (std::abs(v) > 1e-6f) non_zero++;
+                    }
+                    RCLCPP_INFO(this->get_logger(),
+                        "📊 [POSE-TENSOR] %s: size=%zu, min=%.4f, max=%.4f, non_zero=%zu/%zu",
+                        kv.first.c_str(), kv.second.size(), b_min, b_max, non_zero, kv.second.size());
+                }
+            }
+
             for (const auto &sc : scale_defs) {
-                int stride = std::get<0>(sc);
-                int gh = std::get<1>(sc);
-                int gw = std::get<2>(sc);
+                int stride = sc.stride;
+                int gh = sc.gh;
+                int gw = sc.gw;
                 int num_cells = gh * gw;
 
                 const float *cls_ptr = nullptr;
                 const float *bbox_ptr = nullptr;
                 const float *kpt_ptr = nullptr;
-                bool is_dfl = false;
+                bool is_dfl = true; // YOLOv8 pose uses 64-dim DFL bbox heads
 
                 for (const auto &kv : pose_output_buffers_) {
+                    const std::string &name = kv.first;
                     const auto &buf = kv.second;
-                    if (buf.size() == static_cast<size_t>(num_cells * 51)) {
-                        kpt_ptr = buf.data();
-                    } else if (buf.size() == static_cast<size_t>(num_cells * 64)) {
+
+                    if (name.find(sc.bbox_pattern) != std::string::npos || (sc.stride == 8 && name.find("output_layer1") != std::string::npos) || (sc.stride == 16 && name.find("output_layer4") != std::string::npos) || (sc.stride == 32 && name.find("output_layer7") != std::string::npos)) {
                         bbox_ptr = buf.data();
-                        is_dfl = true;
-                    } else if (buf.size() == static_cast<size_t>(num_cells * 4)) {
-                        bbox_ptr = buf.data();
-                        is_dfl = false;
-                    } else if (buf.size() == static_cast<size_t>(num_cells * 1) || buf.size() == static_cast<size_t>(num_cells * 80)) {
+                        is_dfl = (buf.size() == static_cast<size_t>(num_cells * 64));
+                    } else if (name.find(sc.cls_pattern) != std::string::npos || (sc.stride == 8 && name.find("output_layer2") != std::string::npos) || (sc.stride == 16 && name.find("output_layer5") != std::string::npos) || (sc.stride == 32 && name.find("output_layer8") != std::string::npos)) {
                         cls_ptr = buf.data();
+                    } else if (name.find(sc.kpt_pattern) != std::string::npos || (sc.stride == 8 && name.find("output_layer3") != std::string::npos) || (sc.stride == 16 && name.find("output_layer6") != std::string::npos) || (sc.stride == 32 && name.find("output_layer9") != std::string::npos)) {
+                        kpt_ptr = buf.data();
                     }
                 }
 
-                if (!kpt_ptr || !bbox_ptr || !cls_ptr) continue;
+                if (!kpt_ptr || !bbox_ptr || !cls_ptr) {
+                    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                        "⚠️ [POSE-STRIDE %d] MISSING PTR! cls=%p bbox=%p kpt=%p",
+                        stride, (void*)cls_ptr, (void*)bbox_ptr, (void*)kpt_ptr);
+                    continue;
+                }
+
+                float stride_max_raw = -999.0f;
+                float stride_max_score = -999.0f;
+                float stride_max_kpt = -999.0f;
+                int stride_candidates = 0;
 
                 for (int gy = 0; gy < gh; ++gy) {
                     for (int gx = 0; gx < gw; ++gx) {
                         int cell_idx = gy * gw + gx;
                         float raw_val = cls_ptr[cell_idx];
-                        // If already in [0.0, 1.0] range (NPU ALLS sigmoid activation applied), use directly.
-                        // Otherwise, apply sigmoid to raw logits.
+                        if (raw_val > stride_max_raw) stride_max_raw = raw_val;
                         float score = (raw_val >= 0.0f && raw_val <= 1.0f)
                                       ? raw_val
                                       : (1.0f / (1.0f + std::exp(-std::clamp(raw_val, -10.0f, 10.0f))));
-                        if (score < conf_thresh) continue;
+                        if (score > stride_max_score) stride_max_score = score;
+
+                        // Inspect keypoints in this cell
+                        const float *kpt_cell = kpt_ptr + (cell_idx * 51);
+                        float max_kp_score = 0.0f;
+                        float sum_kp_score = 0.0f;
+                        int valid_kps = 0;
+                        for (int k = 0; k < 17; ++k) {
+                            float kscore_raw = kpt_cell[k * 3 + 2];
+                            float kp_score = 1.0f / (1.0f + std::exp(-std::clamp(kscore_raw, -10.0f, 10.0f)));
+                            if (kp_score > max_kp_score) max_kp_score = kp_score;
+                            sum_kp_score += kp_score;
+                            if (kp_score >= 0.25f) valid_kps++;
+                        }
+                        float avg_kp_score = sum_kp_score / 17.0f;
+                        if (max_kp_score > stride_max_kpt) stride_max_kpt = max_kp_score;
+
+                        // Dual gating: either classification head score >= thresh OR strong keypoints detected
+                        float effective_score = std::max(score, avg_kp_score);
+                        if (effective_score < conf_thresh && valid_kps < 4) continue;
 
                         float x1, y1, x2, y2;
                         if (is_dfl) {
@@ -991,9 +1054,8 @@ private:
                         if (box_w > 1.8f * box_h) continue;
 
                         PersonPose pose;
-                        pose.bbox = {xmin, ymin, xmax, ymax, score, 0, "person"};
+                        pose.bbox = {xmin, ymin, xmax, ymax, std::max(effective_score, 0.50f), 0, "person"};
 
-                        const float *kpt_cell = kpt_ptr + (cell_idx * 51);
                         for (int k = 0; k < 17; ++k) {
                             float kx = kpt_cell[k * 3 + 0];
                             float ky = kpt_cell[k * 3 + 1];
@@ -1007,8 +1069,19 @@ private:
                             pose.keypoints[k] = {norm_x, norm_y, kp_score};
                         }
                         candidates.push_back(pose);
+                        stride_candidates++;
                     }
                 }
+                if (should_log) {
+                    RCLCPP_INFO(this->get_logger(),
+                        "🔍 [POSE-STRIDE %d] max_raw=%.3f, max_cls=%.3f, max_kpt=%.3f (thresh=%.2f), candidates=%d, ptrs: cls=%p bbox=%p kpt=%p",
+                        stride, stride_max_raw, stride_max_score, stride_max_kpt, conf_thresh, stride_candidates,
+                        (void*)cls_ptr, (void*)bbox_ptr, (void*)kpt_ptr);
+                }
+            }
+            if (should_log) {
+                RCLCPP_INFO(this->get_logger(),
+                    "🔍 [POSE-SUMMARY] Total raw candidates: %zu", candidates.size());
             }
         }
 
@@ -1038,6 +1111,12 @@ private:
                 }
             }
             if (keep) nms_results.push_back(cand);
+        }
+
+        if (should_log) {
+            RCLCPP_INFO(this->get_logger(),
+                "🔍 [POSE-SUMMARY] Total raw candidates: %zu, After NMS: %zu",
+                candidates.size(), nms_results.size());
         }
 
         return nms_results;
