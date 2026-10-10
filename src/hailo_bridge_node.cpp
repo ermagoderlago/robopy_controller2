@@ -940,8 +940,12 @@ private:
                 for (int gy = 0; gy < gh; ++gy) {
                     for (int gx = 0; gx < gw; ++gx) {
                         int cell_idx = gy * gw + gx;
-                        float logit = cls_ptr[cell_idx];
-                        float score = 1.0f / (1.0f + std::exp(-std::clamp(logit, -10.0f, 10.0f)));
+                        float raw_val = cls_ptr[cell_idx];
+                        // If already in [0.0, 1.0] range (NPU ALLS sigmoid activation applied), use directly.
+                        // Otherwise, apply sigmoid to raw logits.
+                        float score = (raw_val >= 0.0f && raw_val <= 1.0f)
+                                      ? raw_val
+                                      : (1.0f / (1.0f + std::exp(-std::clamp(raw_val, -10.0f, 10.0f))));
                         if (score < conf_thresh) continue;
 
                         float x1, y1, x2, y2;
@@ -980,6 +984,11 @@ private:
                         float ymax = std::clamp((y2 - last_pad_y_) / (last_scale_ * orig_h), 0.0f, 1.0f);
 
                         if (xmax <= xmin || ymax <= ymin) continue;
+
+                        // Sanity check: humans are vertical, reject extreme horizontal boxes (FM-VIS-009)
+                        float box_w = (xmax - xmin) * orig_w;
+                        float box_h = (ymax - ymin) * orig_h;
+                        if (box_w > 1.8f * box_h) continue;
 
                         PersonPose pose;
                         pose.bbox = {xmin, ymin, xmax, ymax, score, 0, "person"};

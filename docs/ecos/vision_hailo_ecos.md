@@ -210,5 +210,20 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
   - `docs/lessons/nav2_slam_tuning.md`, `docs/improvements/IMP-GOV-001_dynamic_resource_governor.md`
   - `fmea/dfmea.yaml`, `fmea/FMEA_EXECUTIVE_REPORT.md`
 
+---
+
+## 📈 ECO-2026-10-10-001: Hailo-10H YOLOv8s-Pose Real HEF Compilation, Deploy & C++ Dual Sigmoid Decoder Fix
+* **Stato:** ✅ **Completato, Testato e Distribuito su Raspberry Pi 5 & Hailo-10H NPU**
+* **Descrizione:**
+  1. **Compilazione HEF Reale:** Compilato `yolov8s_pose.hef` con Hailo Dataflow Compiler v5.3.0 in WSL 2 Ubuntu-24.04 (QAT su dataset COCO train2014, target `hailo10h`). File generato (15 MB, 5 contesti NPU) e trasferito sulla SSD di Marcus in `/mnt/ssd/models/yolov8s_pose.hef`.
+  2. **Inizializzazione NPU Shared VDevice:** Modello di posa istanziato come `InferModel` sul VDevice condiviso con `marcus_unified.hef`, con binding automatico FLOAT32 per dequantizzazione hardware zero-copy.
+  3. **Fix C++ Decoder Sigmoide:** Allineato il decoder multiscala (`conv71`, `conv58`, `conv44`) per riconoscere l'output post-attivazione sigmoidea generato dall'ALLS di Hailo Model Zoo, eliminando il falso trigger a cascata dei 2100 nodi di background e applicando il vincolo proporzionale $W/H \le 1.8$ sul bounding box della posa umana.
+* **Modifiche apportate:**
+  - `src/hailo_bridge_node.cpp` (decodifica condizionale probabilità/logit e filtro aspect ratio).
+  - `/mnt/ssd/models/yolov8s_pose.hef` (deploy su SSD robot).
+  - Ricompilato `robopy_controller` sequenzialmente con `-j1` su Raspberry Pi 5 host.
+  - `docs/lessons/vision_hailo_npu.md` (aggiornamento lessons learned).
+
+
 
 

@@ -328,3 +328,15 @@ Questo documento descrive le lezioni apprese su OAK-D Lite, l'acceleratore NPU H
 * **Proiezione Inverse Letterbox Isotropa:** Le coordinate dei keypoint vengono rimappate nello spazio immagine originale tenendo conto delle bande di padding (letterbox 1:1), garantendo che giunti e ossa coincidano geometricamente con il corpo umano.
 * **Visualizzazione Scheletro:** Se presente almeno un subscriber (Foxglove Studio / RViz), lo scheletro viene renderizzato con 17 sfere per i nodi articolari e 18 linee per le connessioni ossee via `visualization_msgs::msg::MarkerArray` su `/hailo/pose/skeletons` e disegnato su `/hailo/annotated_image`. Se non ci sono subscriber, il lazy publishing salta completamente il disegno OpenCV, risparmiando oltre il 90% di CPU host.
 
+### Compilazione HEF Reale YOLOv8s-Pose, Quantizzazione QAT e Sigmoid NPU Decoder (Ottobre 2026)
+* **Pipeline di Compilazione (WSL 2 Ubuntu-24.04 con Hailo DFC 5.3.0):**
+  1. **Parsing:** `hailomz parse yolov8s_pose --ckpt ./yolov8s_pose.onnx --hw-arch hailo10h` ➔ Generazione di `yolov8s_pose.har` (architettura Hailo-10H).
+  2. **Quantizzazione QAT con Dataset Reale:** `hailomz optimize yolov8s_pose --har ./yolov8s_pose.har --calib-path /home/robopy/datasets/COCO/train2014 --hw-arch hailo10h`. *Nota per l'ambiente WSL:* Impostare `CUDA_VISIBLE_DEVICES=""` per eseguire l'ottimizzazione in CPU-mode, bypassando l'assenza di `libdevice.10.bc` nel DirectML di WSL2.
+  3. **Compilazione HEF:** `hailomz compile yolov8s_pose --har ./yolov8s_pose.har --hw-arch hailo10h` ➔ HEF finale `yolov8s_pose.hef` (15 MB, 5 contesti NPU, multiscale 80x80, 40x40, 20x20).
+* **Trappola Architetturale del Sigmoid nei File ALLS:**
+  - Nel file `yolov8s_pose.alls` ufficiale di Hailo Model Zoo, la direttiva `change_output_activation(convXX, sigmoid)` applica la funzione sigmoidea direttamente nell'hardware NPU per i layer di classificazione (`conv44`, `conv58`, `conv71`).
+  - I tensori in uscita in FLOAT32 contengono già probabilità in $[0.0, 1.0]$.
+  - L'applicazione di un secondo sigmoide software nel decoding C++ (`1 / (1 + exp(-x))`) trasformava i valori di sfondo vicini a $0.0$ in $0.50$, facendo superare a tutte le 8400 celle di griglia la soglia confidenza ($\ge 0.50$) e saturando la scena con oltre 2000 falsi candidati.
+  - **Fix:** Rilevare se il valore estratto dal tensore si trova già nell'intervallo $[0.0, 1.0]$. Se sì, usare direttamente la probabilità; altrimenti applicare la sigmoide ai logit grezzi. Inoltre, applicare il filtro proporzionale $W/H \le 1.8$ sul bounding box prima del gating NMS.
+
+
