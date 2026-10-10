@@ -1070,8 +1070,8 @@ private:
             float box_min_y = std::max(0.0f, py1_model - pb_h * 0.15f);
             float box_max_y = std::min(static_cast<float>(yolo_input_h_), py2_model + pb_h * 0.15f);
 
-            // Sanity check: Discard absurd/flat person boxes (e.g. wall patterns, floor noise)
-            if (pb_h < 80.0f || (pb_w / pb_h) > 1.3f) {
+            // Basic sanity check: person must have at least 40px height
+            if (pb_h < 40.0f) {
                 continue;
             }
 
@@ -1101,21 +1101,19 @@ private:
                     for (int gx = min_gx; gx <= max_gx; ++gx) {
                         int cell_idx = gy * sc.gw + gx;
 
-                        // Pose classifier validation (conv44/conv58/conv71)
                         float cell_cls_score = 1.0f;
                         if (sc.cls_ptr) {
                             cell_cls_score = sc.cls_ptr[cell_idx];
                             if (cell_cls_score < 0.0f || cell_cls_score > 1.0f) {
                                 cell_cls_score = 1.0f / (1.0f + std::exp(-std::clamp(cell_cls_score, -10.0f, 10.0f)));
                             }
-                            // Reject cells where pose classifier has no human presence
-                            if (cell_cls_score < 0.25f) continue;
                         }
 
                         const float *kpt_cell = sc.kpt_ptr + (cell_idx * 51);
 
                         // Inspect keypoints in this cell
                         int valid_kps = 0;
+                        int inside_box_kps = 0;
                         int body_kps = 0; // Torso and limbs (k >= 5)
                         float sum_valid_kp_score = 0.0f;
                         std::array<Keypoint2D, 17> decoded_kpts;
@@ -1139,14 +1137,19 @@ private:
                                 if (k >= 5) {
                                     body_kps++;
                                 }
+                                // Check if predicted keypoint lies within the person bounding box (+15% margin)
+                                if (norm_x >= person.xmin - 0.15f && norm_x <= person.xmax + 0.15f &&
+                                    norm_y >= person.ymin - 0.15f && norm_y <= person.ymax + 0.15f) {
+                                    inside_box_kps++;
+                                }
                             }
                         }
 
-                        // Must have at least 4 keypoints with score >= 0.25
-                        if (valid_kps < 4) continue;
+                        // Must have at least 4 valid keypoints located INSIDE the person box
+                        if (inside_box_kps < 4) continue;
 
-                        // Pose quality: driven by classifier confidence, body completeness and scale prior
-                        float quality = cell_cls_score * sum_valid_kp_score * scale_prior * (1.0f + 0.12f * body_kps);
+                        // Pose quality: driven by keypoint completeness, box containment and scale prior
+                        float quality = sum_valid_kp_score * (0.5f + 0.5f * cell_cls_score) * scale_prior * (1.0f + 0.12f * body_kps);
                         if (quality > best_quality) {
                             best_quality = quality;
                             best_pose.bbox = person; // Lock to high-precision YOLO person bbox
