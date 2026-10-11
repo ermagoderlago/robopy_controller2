@@ -39,14 +39,15 @@ amcl:
     beam_skip_distance: 0.5
     beam_skip_error_threshold: 0.9
     beam_skip_threshold: 0.3
-    do_beamskip: false
+    do_beamskip: true
     global_frame_id: "map"
     lambda_short: 0.1
-    laser_likelihood_max_dist: 2.5
+    laser_likelihood_max_dist: 3.5
     laser_max_range: 12.0
     laser_min_range: 0.05
     laser_model_type: "likelihood_field"
-    max_beams: 120
+    # Aumentato da 120 a 240 fasci per sfruttare l'alta risoluzione di RPLIDAR C1 (720 raggi @ 10Hz)
+    max_beams: 240
     # FIX 2026-09-23: aumentate da 2000/500 a 4000/1000 per convergenza
     # globale robusta in appartamento (serve piu copertura dello spazio
     # delle pose quando si chiama reinitialize_global_localization)
@@ -60,7 +61,8 @@ amcl:
     resample_interval: 1
     robot_model_type: "nav2_amcl::DifferentialMotionModel"
     save_pose_rate: 0.5
-    sigma_hit: 0.15
+    # Affilata sigma_hit da 0.15m a 0.08m per vincolare i muri con precisione ToF millimetrica
+    sigma_hit: 0.08
     tf_broadcast: true
     transform_tolerance: 1.0
     # FIX 2026-09-23: abbassato update_min_a da 0.08 a 0.05 per aggiornare

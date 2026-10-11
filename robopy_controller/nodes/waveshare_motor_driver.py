@@ -867,7 +867,7 @@ class WaveshareMotorDriver(Node):
                 try:
                     line_str = line.decode('utf-8', errors='ignore').strip()
                     if line_str:
-                        self.get_logger().info(f"🔌 Serial RX: {line_str}", throttle_duration_sec=1.0)
+                        self.get_logger().debug(f"🔌 Serial RX: {line_str}", throttle_duration_sec=5.0)
                 except Exception as de:
                     self.get_logger().error(f"Decode error: {de}")
                     continue
@@ -944,7 +944,7 @@ class WaveshareMotorDriver(Node):
         delta_ticks_right = right_ticks - self.prev_right_ticks # odr -> physical right
         
         if abs(delta_ticks_right) > 0 or abs(delta_ticks_left) > 0:
-            self.get_logger().info(f"[ENCODER_RAW] d_left={delta_ticks_left}, d_right={delta_ticks_right}", throttle_duration_sec=0.2)
+            self.get_logger().debug(f"[ENCODER_RAW] d_left={delta_ticks_left}, d_right={delta_ticks_right}", throttle_duration_sec=2.0)
         
         meters_per_tick = (2.0 * math.pi * self.wheel_radius) / self.ticks_per_rev
         safe_dt = max(dt, 0.02)

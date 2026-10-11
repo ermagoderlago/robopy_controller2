@@ -28,7 +28,9 @@ ENABLE_WATCHDOG="${ENABLE_WATCHDOG:-false}"
 SOFT_START="${SOFT_START:-true}"
 TARGET_CPU_FREQ="${TARGET_CPU_FREQ:-2000000}"
 if [ -z "$MAP_FILE" ]; then
-    if [ -f "/mnt/ssd/maps/piano_terra_opt.yaml" ]; then
+    if [ -f "/mnt/ssd/maps/pianoterra2.yaml" ]; then
+        MAP_FILE="/mnt/ssd/maps/pianoterra2.yaml"
+    elif [ -f "/mnt/ssd/maps/piano_terra_opt.yaml" ]; then
         MAP_FILE="/mnt/ssd/maps/piano_terra_opt.yaml"
     elif [ -f "/mnt/ssd/maps/piano_terra.yaml" ]; then
         MAP_FILE="/mnt/ssd/maps/piano_terra.yaml"
@@ -157,6 +159,7 @@ pkill -9 -f foxglove_nav2_bridge || true
 pkill -9 -f frontier_explorer_node || true
 pkill -9 -f vpr_topological_graph_node || true
 pkill -9 -f sensor_standby_manager || true
+pkill -9 -f robot_state_publisher || true
 
 # Kill camera & navigation nodes
 pkill -9 -f sllidar_node || true
@@ -238,6 +241,12 @@ nohup ros2 run robopy_controller waveshare_motor_driver --ros-args \
     -p odom_topic:=/odom \
     > /home/robopy/robopy/logs/waveshare_motor_driver.log 2>&1 &
 
+
+echo "🤖 Starting robot_state_publisher (URDF 3D Model & /robot_description)..."
+> /home/robopy/robopy/logs/robot_state_publisher.log
+nohup ros2 run robot_state_publisher robot_state_publisher /mnt/ssd/robopy_controller_host/urdf/robopy.urdf \
+    --ros-args -p publish_frequency:=5.0 \
+    > /home/robopy/robopy/logs/robot_state_publisher.log 2>&1 &
 
 echo "📐 Starting CAD static TF publishers (OAK-D Lite 8° pitch UP, Z=0.2616m, RPLIDAR C1 Z=0.18m, yaw 180°)..."
 nohup ros2 run tf2_ros static_transform_publisher \
@@ -339,7 +348,7 @@ fi
 RTAB_EXTRA_ARGS=""
 if [ "$USE_AMCL" = "true" ]; then
     echo "🗺️ [OPZIONE A] Modalità AMCL 2D attiva: disattivata pubblicazione TF map->odom e incremental memory in RTAB-Map (REP-105)."
-    RTAB_EXTRA_ARGS="-p publish_tf:=false -p Mem/IncrementalMemory:=false"
+    RTAB_EXTRA_ARGS="-p publish_tf:=false -p Mem/IncrementalMemory:=\"false\""
 else
     echo "🗺️ [SLAM] Modalità standard SLAM attiva: RTAB-Map è autorità map->odom."
 fi
@@ -354,11 +363,16 @@ if [ -f "/mnt/ssd/robopy_controller_host/robopy_controller/config/nav2_params_ja
     cp -u /mnt/ssd/robopy_controller_host/robopy_controller/config/nav2_params_jazzy.yaml \
           /mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_controller/config/nav2_params_jazzy.yaml 2>/dev/null || true
 fi
+if [ -f "/mnt/ssd/robopy_controller_host/robopy_controller/config/battery_params.yaml" ]; then
+    cp -u /mnt/ssd/robopy_controller_host/robopy_controller/config/battery_params.yaml \
+          /mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_controller/config/battery_params.yaml 2>/dev/null || true
+fi
 
 nohup taskset -c 2,3 ros2 run rtabmap_slam rtabmap $DELETE_DB_FLAG --ros-args \
     --params-file /mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_controller/config/rtabmap.yaml \
     -p database_path:=/mnt/ssd/rtabmap.db \
     $RTAB_EXTRA_ARGS \
+    --log-level error \
     -r rgb/image:=/rgb/image \
     -r rgb/camera_info:=/camera/camera_info \
     -r depth/image:=/camera/depth/image_raw \
@@ -386,7 +400,7 @@ nohup ros2 run robopy_controller respeaker_vui_node --ros-args \
     -p use_sim_time:=False \
     -p stt_gain:=2.2 \
     -p noise_gate_threshold:=90.0 \
-    -p listen_timeout_sec:=8.0 \
+    -p listen_timeout_sec:=20.0 \
     -p wakeword_sensitivity:=0.95 \
     -p enable_barge_in:=true \
     -p barge_in_min_tts_ms:=2500.0 \

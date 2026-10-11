@@ -149,7 +149,7 @@ class ReSpeakerVUINode(Node):
         self.declare_parameter('noise_gate_threshold',  90.0)
         self.declare_parameter('wakeword_sensitivity',  0.92)  # default alzato
         self.declare_parameter('playback_prebuffer',    2)
-        self.declare_parameter('listen_timeout_sec',    8.0)    # [v22.0] Finestra conversazione 8s (5-10s) dopo parola chiave, poi standby
+        self.declare_parameter('listen_timeout_sec',    20.0)   # [v22.1 / FM-VUI-044] Finestra conversazione 20s dopo parola chiave / follow-up, poi standby
         self.declare_parameter('max_silence_frames',    35)     # 35 * 20ms = 700ms di pausa naturale
         self.declare_parameter('device_name',            'ReSpeaker')
         self.declare_parameter('sample_rate',            16000)
@@ -748,7 +748,9 @@ class ReSpeakerVUINode(Node):
             self.set_led('SUCCESS')
         else:
             if self._ev_listening.is_set():
-                # [v21.0] Riavvia il timer di ascolto esteso (180s) a fine risposta AI per consentire follow-up diretti
+                # [v21.0 / FM-VUI-021 / FM-VUI-044] Riavvia il timer di ascolto esteso a fine risposta AI per consentire follow-up diretti
+                self._session_start_time = time.monotonic()
+                self._listen_timer_start = time.monotonic()
                 self._start_listen_timer()
                 self.set_led('LISTENING')
             else:
@@ -900,9 +902,9 @@ class ReSpeakerVUINode(Node):
         elapsed = now - getattr(self, '_listen_timer_start', now)
         session_elapsed = now - getattr(self, '_session_start_time', now)
 
-        # Tetto massimo assoluto per sessione d'ascolto (15s): previene loop infinito di ascolto da rumore di fondo.
-        # Estendi SOLO se la sessione non ha superato i 15s E la voce dell'utente è REALMENTE ancora attiva.
-        if session_elapsed < 15.0 and elapsed < self._listen_timeout_sec and self.turn_manager.is_speech_active:
+        # Tetto massimo per singolo turno continuativo d'ascolto (25s): previene loop infinito di ascolto da rumore di fondo.
+        # Estendi SOLO se la sessione non ha superato i 25s E la voce dell'utente è REALMENTE ancora attiva.
+        if session_elapsed < 25.0 and elapsed < self._listen_timeout_sec and self.turn_manager.is_speech_active:
             self.get_logger().debug(f"⏳ Timer prolungato: voce attiva in corso, ultimo frame {(elapsed):.1f}s fa.")
             self._stop_listen_timer()
             remaining = max(0.5, self._listen_timeout_sec - elapsed)
@@ -914,10 +916,9 @@ class ReSpeakerVUINode(Node):
         self._stop_listen_timer()
         self._ev_listening.clear()
 
-        # Se la voce era attiva a fine finestra, invia End-of-Speech pulito per non lasciare il LLM appeso
+        # [FM-VUI-043] A timeout scaduto, resetta lo stato VAD senza scatenare risposte spurie da Gemini
         if self.turn_manager.is_speech_active:
             self.turn_manager.reset_state()
-            self._publish_end_of_speech()
         # [v19.5] Beep di chiusura conversazione emesso dopo 30s di silenzio vocale
         if self.enable_audio_beeps and not self._is_tts_speaking and not getattr(self, '_is_playing_out', False):
             try:

@@ -42,9 +42,9 @@ Le seguenti soglie di tensione e temperatura sono limiti fisici di sopravvivenza
 
 | Parametro / Soglia Fisica | Valore Inviolabile | Rischio Ingegneristico | DFMEA |
 | :--- | :--- | :--- | :--- |
-| **Soglia Spegnimento Critico**| **9.60 V** (Persistenza: **3.0 s**) / istantaneo **<= 9.50 V** | Con immediato taglio motori ($I=0$), si elimina la caduta $I \cdot R_{int}$ garantendo margine prima dell'intervento hardware cutoff BMS (~9.74V sotto carico) | FM-SYS-004, FM-PWR-005 |
-| **Soglia Docking Batteria** | **9.90 V** (Persistenza: **3.0 s**) | Rientro preventivo alla base di ricarica con riserva energetica sufficiente per il percorso | FM-SYS-003, FM-PWR-004 |
-| **Soglia Modalità ECO** | **10.20 V** (Persistenza: **3.0 s**) | Limitazione della velocità al 50% per ridurre lo spike di corrente e prolungare l'autonomia residua | FM-SYS-006 |
+| **Soglia Spegnimento Critico**| **9.85 V** (Persistenza: **2.0 s**) / istantaneo **<= 9.78 V** | Con immediato taglio motori ($I=0$), si elimina la caduta $I \cdot R_{int}$ garantendo margine prima dell'intervento hardware cutoff BMS (~9.74V sotto carico) | FM-SYS-004, FM-PWR-005 |
+| **Soglia Docking Batteria** | **10.15 V** (Persistenza: **2.0 s**) | Rientro preventivo alla base di ricarica con riserva energetica sufficiente per il percorso | FM-SYS-003, FM-PWR-004 |
+| **Soglia Modalità ECO** | **10.40 V** (Persistenza: **2.0 s**) | Limitazione della velocità al 50% per ridurre lo spike di corrente e prolungare l'autonomia residua | FM-SYS-006 |
 | **Piena Carica (18650 3S2P)**| $\mathbf{12.10\text{ V} - 12.20\text{ V}}$ | Range di riposo/carico base calibrato per compensare la caduta per resistenza interna | FM-SYS-003 |
 | **Rilevamento Alimentatore Rete**| Tensione $V \ge \mathbf{12.70\text{ V}}$ | Conflitto logico docking durante alimentazione esterna / bus a 12.80V | FM-SYS-007 |
 | **Filtro Anti-Sag Motori** | Minimo **20 campioni (5Hz)** & finestra **3.0s** | Falsi spegnimenti d'emergenza su normali spunti di spinta transitori | FM-SYS-006 |

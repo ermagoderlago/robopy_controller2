@@ -87,7 +87,7 @@ class LiveConnectionManager:
         self.last_successful_turn_time = 0.0
         self.last_wakeword_time = 0.0
         self.turns_since_wakeword = 0
-        self.active_session_timeout = 8.0
+        self.active_session_timeout = 20.0
         self.recent_user_transcripts = []
         self._last_mic_audio_time = 0.0
 
@@ -672,13 +672,15 @@ class LiveConnectionManager:
                         break
 
             if ignore_detected or "<ignore_turn>" in self._current_live_response["text"].lower():
-                self.logger.info("🤫 [Live Model] Rilevato <IGNORE_TURN> (conversazione non rivolta a Marcus). Soppressione risposta vocale e svuotamento buffer speaker.")
+                self.logger.info("🤫 [Live Model] Rilevato <IGNORE_TURN> (conversazione non rivolta a Marcus). Soppressione silenziosa risposta vocale (sessione preservata per follow-up).")
                 if self.on_interrupt:
                     try:
                         self.on_interrupt(True)
                     except Exception:
                         pass
-                self._turn_in_progress = False  # sblocca nuovi activity_start per i prossimi turni
+                # SPEC-04 Green Zone & IMP-VUI-021: Non mutare il microfono e non azzerare last_wakeword_time!
+                # La soppressione di <IGNORE_TURN> avviene in silenzio mantenendo la sessione aperta.
+                self._turn_in_progress = False
                 self._turn_in_progress_time = 0.0
                 self._current_user_text = ""
                 self._current_live_response = {"text": "", "actions": []}

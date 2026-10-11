@@ -677,7 +677,7 @@ private:
                 {14, 16, cv::Scalar(50, 100, 255)}
             };
 
-            const float render_kp_thresh = std::min(pose_conf_threshold_, 0.35f);
+            const float render_kp_thresh = std::min(pose_conf_threshold_, 0.18f);
 
             for (const auto &p : poses) {
                 // 1. Draw anatomical neck link (nose to shoulders midpoint)
@@ -1049,118 +1049,115 @@ private:
             return result_poses;
         }
 
-        // TOP-DOWN YOLO-GATED POSE: Iterate over each detected person
+        // TOP-DOWN DFL BOX IOU MATCHING & DIRECT OFFICIAL KEYPOINT DECODING (FM-VIS-010, SPEC-03)
+        // Uses YOLOv8-seg's accurate person detection and pairs it with the YOLOv8-pose cell
+        // whose decoded DFL bounding box has maximum IoU with the person. Keypoints are extracted
+        // using the official Hailo/Ultralytics formula: (2*kx + gx)*stride without artificial distortion!
         for (const auto &person : person_detections) {
-            // Convert normalized person bbox [0.0, 1.0] to letterboxed model coordinate space [0, 640]
             float px1_model = person.xmin * orig_w * last_scale_ + last_pad_x_;
             float py1_model = person.ymin * orig_h * last_scale_ + last_pad_y_;
             float px2_model = person.xmax * orig_w * last_scale_ + last_pad_x_;
             float py2_model = person.ymax * orig_h * last_scale_ + last_pad_y_;
-
-            float pb_w = px2_model - px1_model;
-            float pb_h = py2_model - py1_model;
-            if (pb_w <= 0.0f || pb_h <= 0.0f) continue;
-
-            float pc_x = (px1_model + px2_model) * 0.5f;
-            float pc_y = (py1_model + py2_model) * 0.5f;
-
-            // Expand person box by 15% tolerance margin
-            float box_min_x = std::max(0.0f, px1_model - pb_w * 0.15f);
-            float box_max_x = std::min(static_cast<float>(yolo_input_w_), px2_model + pb_w * 0.15f);
-            float box_min_y = std::max(0.0f, py1_model - pb_h * 0.15f);
-            float box_max_y = std::min(static_cast<float>(yolo_input_h_), py2_model + pb_h * 0.15f);
-
-            // Basic sanity check: person must have at least 40px height
-            if (pb_h < 40.0f) {
-                continue;
-            }
+            float p_w = px2_model - px1_model;
+            float p_h = py2_model - py1_model;
+            float p_area = std::max(1.0f, p_w * p_h);
 
             float best_quality = -1.0f;
             PersonPose best_pose;
             bool found_pose = false;
-            int win_stride = 0;
-            int win_gx = 0, win_gy = 0;
-            float win_cls = 0.0f;
-            std::array<float, 6> dbg_kps{}; // nose, shoulder_l
+            int win_stride = 0, win_gx = 0, win_gy = 0;
+            float win_iou = 0.0f;
 
             for (const auto &sc : active_scales) {
                 int stride = sc.stride;
-                int min_gx = std::clamp(static_cast<int>(box_min_x / stride), 0, sc.gw - 1);
-                int max_gx = std::clamp(static_cast<int>(box_max_x / stride), 0, sc.gw - 1);
-                int min_gy = std::clamp(static_cast<int>(box_min_y / stride), 0, sc.gh - 1);
-                int max_gy = std::clamp(static_cast<int>(box_max_y / stride), 0, sc.gh - 1);
+                const float *bbox_ptr = sc.bbox_ptr;
+                const float *kpt_ptr = sc.kpt_ptr;
 
-                // SCALE PRIOR: When a person is tall (>120px), Stride 16/32 have receptive fields for whole body
-                float scale_prior = 1.0f;
-                if (pb_h > 120.0f) {
-                    if (stride == 16) scale_prior = 1.30f;
-                    else if (stride == 32) scale_prior = 1.60f;
-                }
+                // Search area: cells covering the person's bounding box (+10% margin)
+                int min_gx = std::clamp(static_cast<int>(std::floor((px1_model - p_w * 0.10f) / stride)), 0, sc.gw - 1);
+                int max_gx = std::clamp(static_cast<int>(std::ceil((px2_model + p_w * 0.10f) / stride)), 0, sc.gw - 1);
+                int min_gy = std::clamp(static_cast<int>(std::floor((py1_model - p_h * 0.10f) / stride)), 0, sc.gh - 1);
+                int max_gy = std::clamp(static_cast<int>(std::ceil((py2_model + p_h * 0.10f) / stride)), 0, sc.gh - 1);
 
                 for (int gy = min_gy; gy <= max_gy; ++gy) {
                     for (int gx = min_gx; gx <= max_gx; ++gx) {
                         int cell_idx = gy * sc.gw + gx;
+                        float center_x = (static_cast<float>(gx) + 0.5f) * stride;
+                        float center_y = (static_cast<float>(gy) + 0.5f) * stride;
 
-                        float cell_cls_score = 1.0f;
-                        if (sc.cls_ptr) {
-                            cell_cls_score = sc.cls_ptr[cell_idx];
-                            if (cell_cls_score < 0.0f || cell_cls_score > 1.0f) {
-                                cell_cls_score = 1.0f / (1.0f + std::exp(-std::clamp(cell_cls_score, -10.0f, 10.0f)));
+                        // 1. DFL Decode for bounding box
+                        const float *bbox_cell = bbox_ptr + (cell_idx * 64);
+                        float dfl[4];
+                        for (int b = 0; b < 4; ++b) {
+                            const float *reg = bbox_cell + (b * 16);
+                            float max_val = -1e9f;
+                            for (int i = 0; i < 16; ++i) max_val = std::max(max_val, reg[i]);
+                            float sum_exp = 0.0f;
+                            float exp_v[16];
+                            for (int i = 0; i < 16; ++i) {
+                                exp_v[i] = std::exp(reg[i] - max_val);
+                                sum_exp += exp_v[i];
                             }
+                            float val = 0.0f;
+                            for (int i = 0; i < 16; ++i) val += (exp_v[i] / sum_exp) * i;
+                            dfl[b] = val;
                         }
 
-                        const float *kpt_cell = sc.kpt_ptr + (cell_idx * 51);
+                        float bx1 = center_x - dfl[0] * stride;
+                        float by1 = center_y - dfl[1] * stride;
+                        float bx2 = center_x + dfl[2] * stride;
+                        float by2 = center_y + dfl[3] * stride;
 
-                        // Inspect keypoints in this cell
-                        int valid_kps = 0;
-                        int inside_box_kps = 0;
-                        int body_kps = 0; // Torso and limbs (k >= 5)
-                        float sum_valid_kp_score = 0.0f;
+                        // IoU between decoded box and person box
+                        float inter_x1 = std::max(px1_model, bx1);
+                        float inter_y1 = std::max(py1_model, by1);
+                        float inter_x2 = std::min(px2_model, bx2);
+                        float inter_y2 = std::min(py2_model, by2);
+                        float inter_w = std::max(0.0f, inter_x2 - inter_x1);
+                        float inter_h = std::max(0.0f, inter_y2 - inter_y1);
+                        float inter_area = inter_w * inter_h;
+
+                        float b_area = std::max(0.0f, (bx2 - bx1) * (by2 - by1));
+                        float union_area = p_area + b_area - inter_area;
+                        float iou = (union_area > 0.0f) ? (inter_area / union_area) : 0.0f;
+
+                        // 2. Decode 17 keypoints using official Hailo formula: (2*kx + gx)*stride
+                        const float *kpt_cell = kpt_ptr + (cell_idx * 51);
                         std::array<Keypoint2D, 17> decoded_kpts;
+                        int high_conf_kps = 0;
+                        float sum_kp_score = 0.0f;
 
                         for (int k = 0; k < 17; ++k) {
                             float kx = kpt_cell[k * 3 + 0];
                             float ky = kpt_cell[k * 3 + 1];
-                            float kscore_raw = kpt_cell[k * 3 + 2];
-                            float kp_score = 1.0f / (1.0f + std::exp(-std::clamp(kscore_raw, -10.0f, 10.0f)));
+                            float ks_raw = kpt_cell[k * 3 + 2];
 
-                            float px = (kx * 2.0f + gx) * stride;
-                            float py = (ky * 2.0f + gy) * stride;
-                            float norm_x = std::clamp((px - last_pad_x_) / (last_scale_ * orig_w), 0.0f, 1.0f);
-                            float norm_y = std::clamp((py - last_pad_y_) / (last_scale_ * orig_h), 0.0f, 1.0f);
+                            float kp_px = (kx * 2.0f + static_cast<float>(gx)) * stride;
+                            float kp_py = (ky * 2.0f + static_cast<float>(gy)) * stride;
+                            float kp_score = 1.0f / (1.0f + std::exp(-std::clamp(ks_raw, -10.0f, 10.0f)));
+
+                            // Direct 1:1 inverse letterbox mapping to camera image normalized [0..1]
+                            float norm_x = std::clamp((kp_px - last_pad_x_) / (last_scale_ * orig_w), 0.0f, 1.0f);
+                            float norm_y = std::clamp((kp_py - last_pad_y_) / (last_scale_ * orig_h), 0.0f, 1.0f);
 
                             decoded_kpts[k] = {norm_x, norm_y, kp_score};
-
                             if (kp_score >= 0.25f) {
-                                valid_kps++;
-                                sum_valid_kp_score += kp_score;
-                                if (k >= 5) {
-                                    body_kps++;
-                                }
-                                // Check if predicted keypoint lies within the person bounding box (+15% margin)
-                                if (norm_x >= person.xmin - 0.15f && norm_x <= person.xmax + 0.15f &&
-                                    norm_y >= person.ymin - 0.15f && norm_y <= person.ymax + 0.15f) {
-                                    inside_box_kps++;
-                                }
+                                high_conf_kps++;
+                                sum_kp_score += kp_score;
                             }
                         }
 
-                        // Must have at least 4 valid keypoints located INSIDE the person box
-                        if (inside_box_kps < 4) continue;
-
-                        // Pose quality: driven by keypoint completeness, box containment and scale prior
-                        float quality = sum_valid_kp_score * (0.5f + 0.5f * cell_cls_score) * scale_prior * (1.0f + 0.12f * body_kps);
-                        if (quality > best_quality) {
+                        // Quality metric: combination of box overlap (IoU) and joint activations
+                        float quality = (iou * 2.5f + 0.10f * sum_kp_score) * (1.0f + 0.15f * high_conf_kps);
+                        if (high_conf_kps >= 3 && quality > best_quality) {
                             best_quality = quality;
-                            best_pose.bbox = person; // Lock to high-precision YOLO person bbox
+                            best_pose.bbox = person;
                             best_pose.keypoints = decoded_kpts;
                             found_pose = true;
                             win_stride = stride;
                             win_gx = gx;
                             win_gy = gy;
-                            win_cls = cell_cls_score;
-                            dbg_kps[0] = kpt_cell[0]; dbg_kps[1] = kpt_cell[1]; dbg_kps[2] = kpt_cell[2]; // nose
-                            dbg_kps[3] = kpt_cell[5*3]; dbg_kps[4] = kpt_cell[5*3+1]; dbg_kps[5] = kpt_cell[5*3+2]; // shoulder
+                            win_iou = iou;
                         }
                     }
                 }
@@ -1169,19 +1166,23 @@ private:
             if (found_pose) {
                 result_poses.push_back(best_pose);
                 if (should_log) {
+                    const auto &nose = best_pose.keypoints[0];
+                    const auto &sh_l = best_pose.keypoints[5];
+                    const auto &ank_l = best_pose.keypoints[15];
                     RCLCPP_INFO(this->get_logger(),
-                        "🔍 [POSE-DEBUG] Win stride=%d cell=(%d,%d) cls=%.2f | Nose: raw=(%.2f,%.2f,%.2f) norm=(%.2f,%.2f) | ShL: raw=(%.2f,%.2f) norm=(%.2f,%.2f)",
-                        win_stride, win_gx, win_gy, win_cls,
-                        dbg_kps[0], dbg_kps[1], dbg_kps[2], best_pose.keypoints[0].x, best_pose.keypoints[0].y,
-                        dbg_kps[3], dbg_kps[4], best_pose.keypoints[5].x, best_pose.keypoints[5].y);
+                        "🕺 [HAILO-POSE-MATCH] Stride=%d cell=(%d,%d) IoU=%.2f qual=%.2f | Nose=(%.2f,%.2f conf=%.2f) ShL=(%.2f,%.2f conf=%.2f) AnkL=(%.2f,%.2f conf=%.2f)",
+                        win_stride, win_gx, win_gy, win_iou, best_quality,
+                        nose.x, nose.y, nose.confidence,
+                        sh_l.x, sh_l.y, sh_l.confidence,
+                        ank_l.x, ank_l.y, ank_l.confidence);
                 }
             }
         }
 
-        if (should_log) {
+        if (should_log && !result_poses.empty()) {
             RCLCPP_INFO(this->get_logger(),
-                "🕺 [TOPDOWN-POSE] Persons input: %zu, Poses matched: %zu (conf_thresh=%.2f)",
-                person_detections.size(), result_poses.size(), conf_thresh);
+                "🕺 [HAILO-POSE-OFFICIAL] Poses tracked: %zu (persons input: %zu)",
+                result_poses.size(), person_detections.size());
         }
 
         return result_poses;

@@ -735,3 +735,20 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
   1. *Autorità Unica del Governor (Invariante 4):* `sensor_standby_manager.py` agisce ora come attuatore subordinato alla Statechart del Resource Governor, sottoscrivendo `/resource_governor/state`.
   2. *Invariante 6 Rigida (LiDAR fermo solo in dock):* Lo standby hardware (arresto motore RPLiDAR C1 e pausa RTAB-Map) viene attivato ESCLUSIVAMENTE quando `kinematic_state == 'DOCKED_SLEEP'` e il robot è alimentato dalla base di ricarica (`is_docked == True`). Fuori dock il LiDAR rimane costantemente vigile.
   3. *Invariante 7 (Scan-to-Map Consistency Guard su AMCL):* `resource_governor_node.py` monitora la traccia della matrice di covarianza AMCL ($P_{xx} + P_{yy} < 0.08$) su `/amcl_pose`. Qualsiasi kidnapping o scivolamento passivo durante lo sleep forza la deviazione verso `RELOCALIZING`, bloccando il motion gate finché il cluster particellare non è coerente con la mappa.
+
+---
+
+### 🧱 Risoluzione Muri Doppi & Offline Graph Reprocessing RTAB-Map (Ottobre 2026 - FM-NAV-016)
+* **Sintomo:** Mappa esportata con muri sdoppiati (pareti doppie parallele a 25-35 cm di distanza) e mancata chiusura d'anello al rientro del robot al punto di partenza del tour di scansione.
+* **Causa Radice:**
+  1. *Drift Odometrico vs Soglia ICP Online:* Durante la scansione continua in ambienti ampi (es. perimetro di oltre 35 metri), il lieve slittamento delle ruote accumula circa 30-35 cm di drift odometrico.
+  2. *Soglia di Corrispondenza Insufficiente:* Con `Icp/MaxCorrespondenceDistance` online impostato a 0.25 m e `Kp/MaxFeatures: 0` (SLAM laser 2D puro), al rientro all'origine l'errore supera la tolleranza del bacino d'attrazione ICP. L'algoritmo rigetta l'associazione scan-to-map e RTAB-Map traccia un percorso disallineato parallelo anziché chiudere il loop.
+* **Soluzione e Pipeline Offline Implementata:**
+  1. *Reprocessing Offline con `rtabmap-reprocess`:* Esecuzione offline del tool sul database grezzo persistito su SSD NVMe (`rtabmap_pianoterra2_raw.db`), sfruttando le risorse computazionali complete senza vincoli di latenza real-time a bordo:
+     - Ampliamento del raggio di cattura ICP a 0.45 m: `--Icp/MaxCorrespondenceDistance 0.45` e `--Icp/CorrespondenceRatio 0.15`.
+     - Ricerca di prossimità a 360° con raggio esteso: `--RGBD/LocalRadius 6.0`, `--RGBD/ProximityAngle 360`, `--RGBD/NeighborLinkRefining true`.
+     - Ottimizzatore globale GTSAM 2D: `--Optimizer/Strategy 1`, `--Optimizer/Slam2D true`, `--Optimizer/Iterations 50`.
+  2. *Esito dell'Ottimizzazione:* Chiusura immediata di **48 loop closures** (0 rigetti), 166 ottimizzazioni globali del grafo e fusione perfetta dei segmenti duplicati in singoli muri netti e coerenti.
+  3. *Generazione Griglia Nav2 Standard:* Parametro `-g2` per estrazione diretta dell'occupancy grid 2D ad alta fedeltà (0.05m/pixel) e allineamento con l'origine metrica Nav2.
+  4. *Quoting Parametri ROS 2 (`restart_hailo.sh`):* Corretto il passaggio di parametri con prefisso namespace da riga di comando: `Mem/IncrementalMemory:="false"` (deve essere quotato come stringa esplicita per evitare l'eccezione `InvalidParameterTypeException` sollevata da `rclcpp`).
+  5. *Visualizzazione Robot (`robot_description`):* Garantita l'esecuzione di `robot_state_publisher` con il file URDF completo di Marcus affinché Foxglove visualizzi la sagoma 3D del robot orientata correttamente sulla mappa.

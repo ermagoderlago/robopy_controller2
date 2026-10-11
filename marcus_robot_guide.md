@@ -137,6 +137,8 @@ Marcus si muove su una base mobile differenziale, gestendo il movimento e la map
   * *Hardware Motion Gating:* Trattiene il moto delle ruote (`/robot/motion_gate == False`) durante lo spin-up del rotore LiDAR (~1.0s), consentendo il movimento solo quando la mappa e le scansioni a 360° sono pienamente operative.
 * **Allocazione Vincolante Database SLAM su SSD NVMe (FM-NAV-020):**
   Il database RTAB-Map risiede tassativamente ed esclusivamente su `/mnt/ssd/rtabmap.db`. È severamente vietata qualsiasi scrittura di mappe sulla MicroSD interna per prevenire la saturazione del disco (`[Errno 28] No space left on device`) e runaway log.
+* **Visualizzazione 3D & Modello URDF (`robot_description` & `robot_state_publisher`):**
+  Il nodo ROS 2 standard `robot_state_publisher` è configurato per caricare l'URDF completo del robot (`urdf/robopy.urdf`) e pubblicare il topic `/robot_description` a 5.0 Hz unitamente all'albero delle trasformate cinematiche su `/tf_static`. In Foxglove Studio o RViz, il modello 3D del robot (corpo chassis, cingoli/ruote differenziali, torretta ToF RPLIDAR C1 a Z=0.18m, gruppo OAK-D Lite a Z=0.2616m e mesh STL `Marcus.stl`) compare posizionato e orientato correttamente in tempo reale sulla mappa e rispetto a `/odom`.
 * **Sicurezza Attiva:** Il modulo `reactive_safety.py` gestisce l'arresto d'emergenza in caso di rilevamento ostacolo immediato tramite il sensore a ultrasuoni (`ultrasonic_sensor`) o disconnessioni della telecamera.
 * **Percezione Autonoma, Mappatura a Frontiera & Navigazione Ibrida Gerarchica (Book-to-Skill V2 / Milestones 1-6):**
   Marcus integra un'architettura completa per l'autonomia spaziale e semantica in ambienti interni complessi:
@@ -255,7 +257,7 @@ Marcus combina tre paradigmi armonizzati di memoria e contesto gestiti dal motor
 ## 🛡️ Governance & Auto-Evoluzione con Antigravity
 
 Per consentire l'evoluzione autonoma del codice di Marcus direttamente a bordo del Raspberry Pi 5 tramite l'agente **Antigravity (Gemini 3.8)**, l'architettura è regolata dalla suite di **Schede Tecniche di Sviluppo e Sicurezza** ([/docs/specs/INDEX_SCHEDE_TECNICHE.md](file:///c:/Users/lsuffia/OneDrive%20-%20BRUGOLA%20OEB%20INDUSTRIALE%20SPA/Documents/robopy/antigravity/docs/specs/INDEX_SCHEDE_TECNICHE.md)):
-* 🔴 **Zona Rossa (Hard Constraints):** Vincoli fisici, limiti termici/elettrici, arresto nodi pre-build, compilazione sequenziale `colcon build -j1`, divieto STVL 3D e soglie BMS a 9.60V (shutdown)/9.90V (docking)/10.20V (ECO) inviolabili dall'agente. Zero forzature consentite sul robot.
+* 🔴 **Zona Rossa (Hard Constraints):** Vincoli fisici, limiti termici/elettrici, arresto nodi pre-build, compilazione sequenziale `colcon build -j1`, divieto STVL 3D e soglie BMS a 9.85V (shutdown)/10.15V (docking)/10.40V (ECO) inviolabili dall'agente. Zero forzature consentite sul robot.
 * 🟢 **Zona Verde (Auto-Evolution):** Ottimizzazione autonoma di algoritmi interni, tuning iperparametri entro intervalli validati, prompt engineering TRINITY, caching e test unitari.
 * 🟡 **Zona Gialla (Human Gate):** Modifiche a contratti ROS 2 (topics, services, action messages), pinout hardware o modelli compilati HEF, che richiedono approvazione umana esplicita.
 

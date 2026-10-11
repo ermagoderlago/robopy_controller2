@@ -819,4 +819,38 @@ A seguito dell'analisi incrociata tra le linee guida generiche per array ReSpeak
   5. **Interrupt Immediato su `<IGNORE_TURN>`:** Se Gemini classifica l'enunciato come conversazione non rivolta a Marcus, invia segnale di interrupt che svuota istantaneamente la coda altoparlante, evitando che frammenti iniziali vengano riprodotti.
   6. **Volume al 10%:** `playback_volume` fissato a `0.10` in `respeaker_vui_node.py`, `scripts/restart_vui_ai.sh` e `restart_hailo.sh`.
 
+### [FIX-13] Default Silence, Zero Lamentela su Rumore, Chiusura Istantanea VUI su `<IGNORE_TURN>` e Pre-gate RMS a 150.0 (FM-VUI-043)
+* **Problema Riscontrato (Analisi Log del 10 Ottobre 2026):**
+  1. Marcus interveniva vocalmente a sproposito fino a 77 volte al giorno, intromettendosi nelle conversazioni private della casa (es. preparazione della cena, discorsi sul giornale) e sui dialoghi della televisione.
+  2. Quando l'audio era distante o frammentario, Marcus pronunciava frasi fastidiose come *"Non riesco a capire..."*, *"C'è troppo rumore..."*, *"Cosa bolle in pentola?"*, *"Cosa si fa?"*.
+  3. Su frammenti di parole della TV o esclamazioni di frustrazione dell'utente, la LLM allucinava comandi operativi, avviando autonomamente calibrazioni motori e navigazione autonoma Nav2 per la casa.
+* **Causa Radice 1 (System Prompt Permissivo e Sovra-Interpretativo):**
+  Nel prompt di sistema originario, l'istruzione imponeva di *"interpretare sempre qualsiasi parlato dell'utente come italiano, anche in presenza di imperfezioni fonetiche o rumore"* e confinava `<IGNORE_TURN>` a *"ESCLUSIVAMENTE se l'audio contiene solo ed unicamente silenzio assoluto"*. Questa formulazione spingeva il modello a cercare un senso a qualunque sillaba della TV o rumore e a voler rispondere a tutti i costi.
+* **Causa Radice 2 (Mancata Chiusura della Finestra VUI su `<IGNORE_TURN>`):**
+  Quando Gemini Live emetteva `<IGNORE_TURN>`, `live_connection_manager.py` sopprimeva la risposta vocale ma non notificava `mic_mute(True)` al nodo VUI, lasciando attiva la finestra conversazionale (`_ev_listening = True`). Prima che il timer scadesse, la successiva battuta della TV riattivava il VAD in un ciclo infinito.
+* **Causa Radice 3 (Pre-gate RMS a 110.0 e Falso EOS a Timeout):**
+  La voce della televisione a 2-3 metri di distanza produceva picchi tra 115 e 135 RMS, superando il pre-gate di 110.0. Inoltre, allo scadere del timeout di 8 secondi, `respeaker_vui_node.py` controllava `is_speech_active` e, se la TV stava parlando, forzava un finto `_publish_end_of_speech()` che innescava una risposta a vanvera da Gemini.
+* **Soluzione Implementata:**
+  1. **Regola Cardinale del Default Silence:** Nel system prompt (`llm_service.py`), introdotta la regola categorica del silenzio predefinito. Se l'audio proviene dalla TV, da terzi, o da frasi lontane e frammentate, Marcus risponde **unicamente con `<IGNORE_TURN>` e zero audio**.
+  2. **Divieto Assoluto di Commentare Rumore:** Vietato tassativamente dire frasi come *"non riesco a capire"*, *"c'è troppo rumore"*, *"cosa vuoi fare?"*. Se l'audio non è chiaramente per Marcus: silenzio assoluto (`<IGNORE_TURN>`).
+  3. **Chiusura Istantanea VUI su `<IGNORE_TURN>`:** In `live_connection_manager.py`, all'arrivo di `<IGNORE_TURN>`, viene invocato `on_mic_mute(True)` e resettata la sessione (`last_wakeword_time = 0.0`), rimettendo immediatamente Marcus in standby Wakeword senza attendere il timeout.
+  4. **Pre-gate RMS a 150.0:** In `turn_manager.py`, la soglia minima RMS di WebRTC VAD è stata alzata da 110.0 a 150.0 per filtrare a monte l'audio della TV a distanza.
+  5. **Soppressione EOS a Timeout:** In `respeaker_vui_node.py`, rimosso l'invio di `_publish_end_of_speech()` alla scadenza del timeout, resettando unicamente lo stato VAD.
+
+### [FIX-14] Risoluzione Trappola di Auto-Silenziamento, Gating Non-Distruttivo e Ricalibrazione Pre-Gate a 110.0 (FM-VUI-044)
+* **Problema Riscontrato (11 Ottobre 2026):**
+  1. Dopo le modifiche di FIX-13 per fermare gli interventi a sproposito sulla TV, Marcus è diventato **completamente muto**: non rispondeva più a nessuna domanda dell'utente, pur emettendo regolarmente il beep di attivazione wake word.
+  2. L'esperienza di botta e risposta vocale risultava del tutto compromessa ("non parla nemmeno più").
+* **Cause Radici Identificate:**
+  1. **Trappola del Prompt sul Turno Post-Wakeword:** Nel prompt di FIX-13 era prescritto *"Rispondi vocalmente solo se l'utente ti chiama espressamente per nome ('Marcus') o se sta rispondendo a una tua specifica domanda precedente"*. Nel normale uso umano, l'utente dice *"Marcus"* -> attende il beep -> poi chiede *"Che tempo fa?"* (senza ripetere il nome). Gemini Live non vedendo il nome emetteva `<IGNORE_TURN>`.
+  2. **Violazione Regola Verde SPEC-04 / IMP-VUI-021 in `live_connection_manager.py`:** All'arrivo di `<IGNORE_TURN>`, FIX-13 chiamava `self.on_mic_mute(True)` e `self.last_wakeword_time = 0.0`. Questo inviava un segnale di spegnimento a `respeaker_vui_node`, emettendo il doppio beep calante di chiusura e uccidendo la sessione all'istante al primissimo turno.
+  3. **Over-Clamping RMS Pre-Gate a 150.0:** In `turn_manager.py`, le consonanti non vocalizzate iniziali (s, t, p, c, f, ch) e il parlato a 1-2m hanno un'energia di 80-130 RMS. Il clamp a 150 azzerava l'isteresi VAD, troncando le parole sul nascere.
+  4. **Timeout Eccessivamente Stretto (8.0s) & Session Ceiling 15s:** Dopo 8 secondi di silenzio, Marcus chiudeva brutalmente la sessione. Inoltre in `respeaker_vui_node.py`, `_session_start_time` non veniva resettato a fine risposta AI, facendo scattare il ceiling a 15s dopo il primo turno.
+  5. **Blocco Quota Mensile Google AI Studio (429 RESOURCE_EXHAUSTED):** Alle 11:24 del 11/10/2026, Google AI Studio ha bloccato le chiamate con errore 1011 / 429 (`Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend`).
+* **Soluzioni Implementate:**
+  1. **Prompt Ricalibrato per Interazione Naturale:** Nel system prompt (`llm_service.py`), chiarito che all'attivazione da wake word l'utente sta parlando direttamente a Marcus e deve ricevere risposta immediata anche senza ripetere "Marcus". `<IGNORE_TURN>` è riservato rigorosamente a conversazioni tra terzi, TV e rumori.
+  2. **Soppressione Non-Distruttiva di `<IGNORE_TURN>`:** In `live_connection_manager.py`, `<IGNORE_TURN>` drena silenziosamente la coda audio altoparlante tramite `on_interrupt(True)` e cancella il testo, ma **NON silenzia il microfono e NON resetta la finestra di conversazione**, preservando l'ascolto per le richieste successive.
+  3. **Ripristino Pre-Gate RMS a 110.0:** In `turn_manager.py`, la soglia pre-gate è stata riportata da 150.0 a 110.0, garantendo il passaggio dell'attacco delle consonanti e affidando a WebRTC VAD Mode 3 e al prompt il rigetto della TV.
+  4. **Finestra Conversazionale a 20.0s con Reset Multi-Turn:** `active_session_timeout` e `listen_timeout_sec` armonizzati a 20.0s. `_session_start_time` viene riavviato atomicamente al completamento del TTS (`_tts_speaking_cb: False`), offrendo 20s puliti per ogni follow-up.
+
 

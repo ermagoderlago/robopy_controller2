@@ -152,7 +152,7 @@ class TurnManager:
             return self.is_speech_active
                 
         elif self.vad is not None:
-            # RMS Pre-Gate: se il livello è tipico del silenzio/ventola/TV lontana (< 110.0), scarta a priori
+            # RMS Pre-Gate: se il livello è tipico del silenzio/ventola/TV lontana (< 110.0), scarta a priori (FM-VUI-042/FM-VUI-044)
             if rms < 110.0:
                 is_voice_frame = False
             else:

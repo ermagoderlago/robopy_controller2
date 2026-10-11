@@ -558,3 +558,13 @@ Questo file costituisce il registro permanente della curiosità, delle indagini 
 - **Esito del Ciclo:** `THEME_SELECTED`
 
 ---
+
+### [DAILY_FOCUS_2026-10-10] AI/LangGraph - 2026-10-10 03:00:08
+- **Failure Mode Riferito:** FM-LLM-004
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema AI/LangGraph.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema giornaliero: Mitigazione FMEA [FM-LLM-004]: Esecuzione di codice auto-generato (Skill) pericoloso, instabile o fuori controllo (AI Code Hazard). Pipeline multi-modello allocata (gemini-3.1-pro + gemini-3.8-flash).
+- **Esito del Ciclo:** `THEME_SELECTED`
+
+---

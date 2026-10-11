@@ -246,14 +246,18 @@ class SensorStandbyManager(Node):
             self.get_logger().error(f"Errore parsing stato Governor: {e}")
 
     def docking_trigger_callback(self, msg: Bool):
-        """[v2.0] Ferma il LIDAR immediatamente quando il BMS segnala rientro alla base di ricarica."""
-        self.is_docked = bool(msg.data)
-        if msg.data and self.state == 'ACTIVE':
+        """
+        [FM-PWR-001/FM-ACT-005 FIX] Richiesta rientro alla cuccia per batteria scarica.
+        NON arrestare il LiDAR e NON bloccare le ruote: il robot deve poter navigare autonomamente verso la base!
+        Lo standby del LiDAR si attiva solo quando la carica effettiva è in corso (is_docked / V >= 12.70V)
+        oppure su direttiva esplicita Governor (DOCKED_SLEEP).
+        """
+        if msg.data:
             self.get_logger().info(
-                "🔌 [DOCKING] Trigger di rientro alla base ricevuto: "
-                "arresto immediato del LIDAR e standby."
+                "🪫 [DOCKING] Segnale richiesta rientro alla base ricevuto dal BMS. "
+                "Sensori e motion gate rimangono attivi per consentire la navigazione verso la cuccia.",
+                throttle_duration_sec=10.0
             )
-            self.trigger_standby()
 
     def trigger_standby(self):
         """Enters power-saving STANDBY state."""

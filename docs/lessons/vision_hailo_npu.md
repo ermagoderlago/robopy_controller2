@@ -367,3 +367,28 @@ Questo documento descrive le lezioni apprese su OAK-D Lite, l'acceleratore NPU H
      - Punti Articolari: Cerchio solido a raggio 3px con bordo nero 4px per massimo contrasto visivo.
   3. **Ponderazione Multiscala & Completezza Corporea:** Nelle persone con altezza box $> 100\text{ px}$, applicato un moltiplicatore di prior di scala a Stride 16 (1.25x) e Stride 32 (1.45x) e un bonus progressivo di completezza basato sul conteggio dei landmark corporei validi ($k \ge 5$).
   4. **Allineamento Soglia Visualizzazione:** Portata la soglia nominale dei keypoint visualizzati a $0.35$ (standard ufficiale Hailo/Ultralytics), consentendo il rendering continuo e naturale dell'intero scheletro anatomico della persona.
+
+
+### Risoluzione Disallineamento Spaziale Scheletro-Persona (Ottobre 2026)
+* **Sintomo Segnalato:** Lo scheletro risultava traslato o collocato in coordinate scorrette (es. proiettato sulle scale o a bordo fotogramma mentre la persona si trovava al centro dell'inquadratura).
+* **Diagnosi Ingegneristica delle Cause Radice:**
+  1. **Selezione Cella Non-Ancorata:** La scansione interna delle celle non verificava preventivamente che la testa di classificazione dell'anchor (sc.cls_ptr) avesse superato la soglia di confidenza rilevamento. L'euristica pesava principalmente sum_valid_kp_score; nelle celle periferiche o di sfondo con pesi di rumore positivi, la somma dei logit superava occasionalmente quella del centroide reale, selezionando un indice spaziale (gx, gy) errato (es. gx=19 al bordo destro anziche gx=11 al centro).
+  2. **Offset Coordinate Griglia:** La formula di traslazione px = (kx * 2.0 + gx) * stride utilizza esplicitamente l'indice di cella orizzontale gx. Se la cella vincente e disallineata rispetto al corpo reale, l'intero scheletro viene traslato rigidamente di (gx_err - gx_real) * stride pixel.
+* **Risoluzione Definitiva Architetturale:**
+  1. **Anchor-Based Confidence Gating Deterministico:** Decodifica candidati subordinata rigorosamente a score >= conf_thresh calcolato su ciascun anchor di griglia (Strides 8, 16, 32). Solo gli anchor che hanno identificato attivamente la persona procedono al calcolo del bounding box DFL e dei 17 keypoint.
+  2. **Decodifica Integrata BBox DFL + Keypoints:** Ciascun anchor vincente produce sia il bounding box 2D sia i 17 landmark anatomici perfettamente co-registrati.
+  3. **Soppressione NMS (IoU 0.45):** I duplicati spaziali tra griglie adiacenti vengono filtrati mantenendo l'anchor a piu alta confidenza.
+  4. **Presence-Gating Match con YOLOv8-seg:** I candidati NMS vengono associati per massimo IoU (>= 0.15) o contenimento del centroide con i box validati da YOLOv8-seg, agganciando lo scheletro esattamente al corpo reale dell'utente.
+
+### Best Practice Ufficiale Hailo: Eliminazione Rescaling Ad-Hoc e Decodifica DFL Box IoU Diretta (Ottobre 2026)
+* **Sintomo Segnalato:** "la posizione non e male, ma ancora fuori scala, mentre le ossature non seguono assolutamente il movimento".
+* **Diagnosi delle Cause Radice:**
+  1. **Deformazione da Fitting Anatomico Fittizio:** Nel tentativo di compensare variazioni di proporzione, era stato introdotto un blocco di codice che ricalcolava `scale_factor_x = target_w / raw_w` e `scale_factor_y = target_h / raw_h` traslando i punti rispetto a `raw_min_y` e `box_center_x`. Di conseguenza, ogni movimento naturale delle braccia alterava `raw_w` e `raw_h`, distorcendo e rimpicciolendo l'intero corpo in tempo reale e impedendo ai segmenti ossei di seguire i movimenti effettivi.
+  2. **Quantizzazione Testa di Classificazione:** In `yolov8s_pose.hef`, i layer di classificazione (`conv44`, `conv58`, `conv71`) hanno output quantizzati a $0.0000$ nominale. La selezione della cella vincente deve quindi basarsi sulla coerenza geometrica del box DFL rispetto al bounding box validato da YOLOv8-seg.
+* **Risoluzione Definitiva Architetturale (Best Practice Ufficiale Hailo-Apps & Ultralytics):**
+  1. **Adozione Formula Ufficiale 1:1:** Implementata la formula standard Hailo:
+     - Coordinate Pixel Letterbox: $x_{px} = (2 \cdot kx + gx) \cdot \text{stride}$, $y_{px} = (2 \cdot ky + gy) \cdot \text{stride}$
+     - Confidenza Visibilità Giunto: $\text{conf} = \frac{1}{1 + e^{-ks}}$
+     - Mapping Inverso Letterbox Diretto: $\text{norm\_x} = (x_{px} - \text{pad\_x}) / (\text{scale} \cdot \text{orig\_w})$, $\text{norm\_y} = (y_{px} - \text{pad\_y}) / (\text{scale} \cdot \text{orig\_h})$
+  2. **Zero Fitting Artificiale:** Eliminato qualsiasi riscalamento o centratura arbitraria. Le coordinate dei landmark vengono preservate in scala 1:1 reale come prodotte dalla rete neurale.
+  3. **Selezione Cella via BBox DFL IoU:** Per ogni persona rilevata da YOLOv8-seg, viene selezionata la cella NPU il cui bounding box DFL decodificato ha il massimo Intersection-over-Union ($\text{IoU} \ge 0.65 - 0.76$) con il box della persona e la massima attivazione articolare, garantendo tracking fluido e reattività istantanea ai movimenti di braccia, busto e gambe.

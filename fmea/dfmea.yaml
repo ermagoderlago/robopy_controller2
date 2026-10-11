@@ -4476,19 +4476,19 @@
     DBoW3
   residual_scoring:
     severity: 9
-    occurrence: 2
-    detection: 2
-    rpn: 36
+    occurrence: 1
+    detection: 1
+    rpn: 9
   risk_level: REVISION_MANDATORY
   mitigation_status: CLOSED
-  recommended_action: Applicare la blindatura dei parametri DBoW3 e la maschera ROI
-    anti-riflesso pavimento in rtabmap.yaml
-  verification_method: Test unitario test_dfmea_nav_mitigations.py e verifica parametri
-    rtabmap.yaml
+  recommended_action: Applicare la pipeline offline rtabmap-reprocess su database
+    SSD per chiusura loop con bacino ICP 0.45m e ottimizzatore GTSAM 2D
+  verification_method: Ispezione visiva mappa PNG standard e verifica 48 loop closures
+    risolti
   eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-08-28-NAV-DFMEA-FIXES
   lesson_ref: docs/lessons/nav2_slam_tuning.md#rtabmap-anti-aliasing
   date_identified: '2026-08-28'
-  last_updated: '2026-09-16'
+  last_updated: '2026-10-11'
   history:
   - date: '2026-08-28'
     change: Rafforzata la soglia di similarità e verifica geometrica RANSAC in rtabmap.yaml
@@ -4500,6 +4500,13 @@
       autonoma al buio totale ed eliminazione scorrimento pareti
     rpn_old: 36
     rpn_new: 18
+  - date: '2026-10-11'
+    change: Implementata pipeline offline rtabmap-reprocess con ICP capture basin
+      a 0.45m e ottimizzatore GTSAM 2D per chiusura di 48 loop closures su perimetro
+      completo ed eliminazione muri doppi; estrazione automatica occupancy grid 2D
+      (-g2) per Nav2 AMCL.
+    rpn_old: 18
+    rpn_new: 9
 - id: FM-NAV-017
   subsystem: Nav2
   component: fast_flow_vo_cpp
@@ -8870,3 +8877,113 @@
       soglia giunti 0.35 e prior multiscala stride 16/32 per corpo intero).
     rpn_old: 6
     rpn_new: 6
+  - date: '2026-10-10'
+    change: Risolto disallineamento spaziale scheletro-persona. Sostituita l'euristica
+      di selezione cella con decodifica anchor-based deterministica su soglia confidenza
+      NPU, decodifica DFL delle bounding box del modello di posa, soppressione NMS
+      e associazione per IoU/centroide con la persona rilevata da YOLOv8-seg.
+    rpn_old: 6
+    rpn_new: 6
+- id: FM-VUI-043
+  subsystem: Audio/VUI
+  component: live_connection_manager / llm_service / respeaker_vui_node / turn_manager
+  function: Silenzio assoluto e rigetto di TV/terzi con interruzione immediata della
+    finestra di ascolto
+  failure_mode: Loop persistente di interventi vocali non richiesti su televisione
+    e dialoghi terzi con allucinazione azioni fisiche e lamentele sul rumore
+  potential_cause: System prompt permissivo ('ESCLUSIVAMENTE su silenzio assoluto')
+    che induceva la LLM a rispondere a frasi mozzate o TV e a lamentarsi dell'audio,
+    unito a mancata chiusura di mic_mute su IGNORE_TURN, finto End-of-Speech emesso
+    a timeout e pre-gate RMS basso (110.0)
+  potential_effect: Marcus parla continuamente a sproposito (77 volte al giorno),
+    interrompe conversazioni private, avvia moti o calibrazioni non richieste e disturba
+    pesantemente l'utente
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-VUI-021
+  - FM-VUI-033
+  - FM-VUI-035b
+  - FM-VUI-042
+  initial_scoring:
+    severity: 8
+    occurrence: 9
+    detection: 2
+    rpn: 144
+  prevention_controls: Regola cardinale del Default Silence nel prompt, divieto categorico
+    di lamentarsi del rumore o dichiarare incomprensione, emissione rigorosa di <IGNORE_TURN>,
+    chiusura istantanea della finestra VUI (mic_mute=True) su IGNORE_TURN, pre-gate
+    RMS elevato a 150.0 e soppressione di End-of-Speech a timeout
+  detection_controls: Telemetria log conversazioni (conversations.jsonl) e audit token
+    IGNORE_TURN
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Istruire il modello al Default Silence, troncare la sessione
+    VUI su IGNORE_TURN ed eliminare le estensioni spurie del VAD
+  verification_method: Test unitario pytest suite M4 e analisi comparativa log conversazioni
+  eco_ref: docs/ecos/audio_vui_ecos.md#ECO-2026-10-10-001
+  lesson_ref: docs/lessons/audio_vui_pipeline.md#default-silence-e-anti-tv
+  date_identified: '2026-10-10'
+  last_updated: '2026-10-10'
+  history:
+  - date: '2026-10-10'
+    change: Implementato Default Silence vincolante nel prompt, soppressione frasi
+      su rumore, chiusura immediata sessione su IGNORE_TURN e pre-gate RMS 150.0 (RPN
+      144 -> 8).
+    rpn_old: 144
+    rpn_new: 8
+- id: FM-VUI-044
+  subsystem: Audio/VUI
+  component: live_connection_manager / llm_service / respeaker_vui_node / turn_manager
+  function: Gestione fluida della conversazione botta e risposta post-wakeword senza
+    auto-silenziamento
+  failure_mode: Robot completamente muto dopo risveglio ("non parla nemmeno più")
+    per auto-silenziamento indotto da prompt, mic_mute distruttivo e quota esaurita
+  potential_cause: Prompt di sistema che richiedeva la parola "Marcus" all'interno
+    della domanda, mic_mute(True) invocato su IGNORE_TURN, pre-gate RMS 150.0 che
+    tagliava le consonanti deboli e monthly spend cap raggiunto su Google AI Studio
+    (429)
+  potential_effect: Esperienza vocale totalmente interrotta; Marcus rileva la wake
+    word ma non risponde mai alle domande dell'utente
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-VUI-021
+  - FM-VUI-043
+  initial_scoring:
+    severity: 8
+    occurrence: 8
+    detection: 2
+    rpn: 128
+  prevention_controls: Ricalibrazione prompt per risposta immediata post-wakeword
+    senza ripetere nome, soppressione non-distruttiva di IGNORE_TURN (senza mic_mute
+    nè reset sessione), pre-gate RMS riportato a 110.0, estensione finestra a 20.0s
+    e notifica all'utente per reset spend cap su AI Studio
+  detection_controls: Telemetria VUI (/robopy/vui/diagnostics), log LiveConnectionManager
+    e test pytest M4
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Separare la directed conversation dal post-wakeword, rendere
+    IGNORE_TURN non-distruttivo, ricalibrare pre-gate a 110.0 e sbloccare quota AI
+    Studio
+  verification_method: Suite test pytest M4 (113 passed) e verifica log
+  eco_ref: docs/ecos/audio_vui_ecos.md#ECO-2026-10-11-001
+  lesson_ref: docs/lessons/audio_vui_pipeline.md#fix-14
+  date_identified: '2026-10-11'
+  last_updated: '2026-10-11'
+  history:
+  - date: '2026-10-11'
+    change: Ricalibrato prompt VUI naturale, rimosso mic_mute distruttivo su IGNORE_TURN,
+      pre-gate RMS a 110.0, finestra conversazione 20s (RPN 128 -> 8).
+    rpn_old: 128
+    rpn_new: 8

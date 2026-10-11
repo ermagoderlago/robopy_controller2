@@ -73,9 +73,10 @@ class BatteryManagerNode(Node):
         self.declare_parameter('charging_bus_voltage', 12.80)
         self.declare_parameter('full_voltage', 12.20)               # Piena Carica in esercizio sotto carico (12.10V - 12.20V)
         self.declare_parameter('nominal_voltage', 11.10)
-        self.declare_parameter('eco_voltage', 10.20)                # Modalità ECO (10.20V)
-        self.declare_parameter('docking_voltage', 9.90)             # Soglia Rientro in Cuccia (9.90V)
-        self.declare_parameter('shutdown_voltage', 9.60)            # Shutdown di Sicurezza (9.60V)
+        self.declare_parameter('eco_voltage', 10.40)                # Modalità ECO (10.40V, riduce I*R sag)
+        self.declare_parameter('docking_voltage', 10.15)             # Soglia Rientro in Cuccia (10.15V)
+        self.declare_parameter('shutdown_voltage', 9.85)            # Shutdown di Sicurezza (9.85V per 2.0s)
+        self.declare_parameter('instant_shutdown_voltage', 9.78)    # Spegnimento immediato hardware-preemptive prima del cutoff BMS (9.74V)
 
         # Parametri Batteria Panasonic NCR18650B (3S2P: 6 celle, 6800 mAh, 11.1V nominale)
         self.declare_parameter('total_capacity_ah', 6.80)            # 2x 3400 mAh = 6.8 Ah (75.5 Wh)
@@ -92,9 +93,9 @@ class BatteryManagerNode(Node):
 
         self.declare_parameter('filter_window_size', 20)
         self.declare_parameter('sample_rate_hz', 5.0)
-        self.declare_parameter('persistence_sec', 3.0)
+        self.declare_parameter('persistence_sec', 2.0)
         self.declare_parameter('speed_limit_eco_pct', 50.0)
-        self.declare_parameter('auto_poweroff', True)               # Abilitato per spegnimento controllato a 9.60V
+        self.declare_parameter('auto_poweroff', True)               # Abilitato per spegnimento controllato a 9.85V
         self.declare_parameter('esp32_adc_scale_factor', 2880.95)
 
         # --- Lettura Parametri ---
@@ -115,6 +116,7 @@ class BatteryManagerNode(Node):
         self.v_eco = float(self.get_parameter('eco_voltage').value)
         self.v_docking = float(self.get_parameter('docking_voltage').value)
         self.v_shutdown = float(self.get_parameter('shutdown_voltage').value)
+        self.v_instant_shutdown = float(self.get_parameter('instant_shutdown_voltage').value)
 
         self.total_capacity_ah = float(self.get_parameter('total_capacity_ah').value)
         self.battery_chemistry = str(self.get_parameter('battery_chemistry').value)
@@ -480,12 +482,12 @@ class BatteryManagerNode(Node):
                     self.shutdown_start_time = now
 
                 dur = now - self.shutdown_start_time
-                # Interblocco hardware per prevenire il distacco brutale del BMS (spegnimento istantaneo se V <= v_shutdown)
-                hard_cutoff_threat = (v_filt <= self.v_shutdown)
+                # Interblocco hardware per prevenire il distacco brutale del BMS (spegnimento istantaneo se V <= v_instant_shutdown)
+                hard_cutoff_threat = (v_filt <= getattr(self, 'v_instant_shutdown', 9.78))
                 if dur >= self.persistence_sec or hard_cutoff_threat:
                     self.shutdown_triggered = True
                     self.current_state_str = "CRITICO SHUTDOWN"
-                    reason_msg = f"sottotensione critica ({v_filt:.2f}V <= {self.v_shutdown:.2f}V)" if hard_cutoff_threat else f"{v_filt:.2f}V per {dur:.1f}s"
+                    reason_msg = f"sottotensione istantanea ({v_filt:.2f}V <= {self.v_instant_shutdown:.2f}V)" if hard_cutoff_threat else f"{v_filt:.2f}V per {dur:.1f}s (<= {self.v_shutdown:.2f}V)"
                     self.get_logger().error(
                         f"🚨 [BatteryManager] SOTTOTENSIONE CRITICA ({reason_msg})! Arresto motori e spegnimento OS imminente.",
                         throttle_duration_sec=1.0

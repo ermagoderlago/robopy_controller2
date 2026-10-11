@@ -330,4 +330,36 @@ Questo documento traccia la cronologia delle modifiche ingegneristiche (ECO) app
 | `robopy_controller/robot_ai/orchestration/orchestrator.py` | FIX-12g | Rimossa sottoscrizione duplicata con re-inoltro a `play_raw_pcm` |
 | `scripts/restart_vui_ai.sh` / `restart_hailo.sh` | FIX-12h | `playback_volume` fissato a `0.10` nei parametri di lancio |
 
+---
+
+## 📈 ECO-2026-10-10-001: Default Silence, Zero Lamentela su Rumore, Chiusura Istantanea VUI su `<IGNORE_TURN>` e Pre-gate RMS a 150.0 (FIX-13)
+* **Stato:** ✅ **Completato, Verificato con Test Suite e Pronto per Sync**
+* **Motivazione:** Eliminazione totale del loop in cui Marcus interveniva a sproposito fino a 77 volte al giorno (interrompendo dialoghi privati o TV, dicendo "non riesco a capire / c'è troppo rumore" o allucinando azioni fisiche come calibrazioni motori e navigazione autonoma).
+* **DFMEA Correlati:** FM-VUI-043 (nuovo, RPN 144 -> 8), FM-VUI-021, FM-VUI-033, FM-VUI-042
+
+### File Modificati
+| File | Modifica | Descrizione |
+|:-----|:---------|:------------|
+| `robopy_controller/robot_ai/services/llm_service.py` | FIX-13a | System prompt riscritto imponendo la Regola Cardinale del Default Silence, il divieto categorico di commentare il rumore e la directed conversation (risponde solo se interpellato direttamente o per nome "Marcus", altrimenti emette solo ed esclusivamente `<IGNORE_TURN>`) |
+| `robopy_controller/robot_ai/services/live_connection_manager.py` | FIX-13b | Al rilevamento di `<IGNORE_TURN>`, oltre allo svuotamento speaker, invoca `on_mic_mute(True)` e azzera la sessione attiva (`last_wakeword_time = 0.0`), rimettendo istantaneamente Marcus in standby senza attendere timeout |
+| `robopy_controller/robot_ai/audio/turn_manager.py` | FIX-13c | Pre-gate RMS per WebRTC VAD Mode 3 elevato da 110.0 a 150.0 per filtrare il parlato e i rumori della televisione a distanza |
+| `robopy_controller/nodes/respeaker_vui_node.py` | FIX-13d | In `_on_listen_timeout`, soppresso l'invio forzato di `_publish_end_of_speech()` a fine finestra, evitando che la presenza di rumore/TV scateni un falso turno verso Gemini Live |
+
+---
+
+## 📈 ECO-2026-10-11-001: Risoluzione Trappola di Auto-Silenziamento, Gating Non-Distruttivo e Ricalibrazione Pre-Gate a 110.0 (FIX-14)
+* **Stato:** ✅ **Completato, Verificato con Test Suite e Pronto per Sync (NO RESTART)**
+* **Motivazione:** Risoluzione del problema di totale mutismo di Marcus ("non parla più a sproposito, ma non parla nemmeno più") indotto dalle restrizioni eccessive di FIX-13 (prompt che richiedeva "Marcus" anche nella domanda, silenziamento distruttivo del microfono su `<IGNORE_TURN>`, e pre-gate RMS a 150.0 che tagliava le consonanti iniziali), unito al blocco esterno del limite di spesa mensile su Google AI Studio (429 RESOURCE_EXHAUSTED).
+* **DFMEA Correlati:** FM-VUI-044 (nuovo, RPN 128 -> 8), FM-VUI-021, FM-VUI-043
+
+### File Modificati
+| File | Modifica | Descrizione |
+|:-----|:---------|:------------|
+| `robopy_controller/robot_ai/services/llm_service.py` | FIX-14a | System prompt ricalibrato: riconosce che al risveglio con wake word "Marcus" l'utente sta parlando direttamente a Marcus anche senza ripetere il nome, consentendo risposte immediate e naturali, pur mantenendo silenzio assoluto (<IGNORE_TURN>) su TV e dialoghi tra terzi. |
+| `robopy_controller/robot_ai/services/live_connection_manager.py` | FIX-14b | Ripristinato il gating non-distruttivo di `<IGNORE_TURN>` conforme a SPEC-04 Green Zone e IMP-VUI-021: soppressione silenziosa dell'audio altoparlante tramite `on_interrupt(True)` senza inviare `on_mic_mute(True)` e senza azzerare la sessione attiva. `active_session_timeout` calibrato a 20.0s. |
+| `robopy_controller/robot_ai/audio/turn_manager.py` | FIX-14c | Pre-gate RMS riportato a 110.0 (da 150.0), eliminando il troncamento delle consonanti deboli iniziali (80-130 RMS) del parlato a 1-2m. |
+| `robopy_controller/nodes/respeaker_vui_node.py` | FIX-14d | Parametro `listen_timeout_sec` impostato a 20.0s di default; reset di `_session_start_time` a fine parlato AI (`_tts_speaking_cb: False`) per garantire una finestra di follow-up pulita a ogni scambio; cap per singolo turno esteso a 25.0s. |
+| `restart_hailo.sh` / `scripts/restart_vui_ai.sh` | FIX-14e | Parametro `listen_timeout_sec` aggiornato da 8.0 a 20.0s per coerenza con il nodo. |
+
+
 

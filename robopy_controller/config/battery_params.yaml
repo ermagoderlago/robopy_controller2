@@ -19,16 +19,16 @@ battery_manager_node:
     charging_bus_voltage: 12.80         # Tensione nominale del bus con alimentatore 24V step-down
     full_voltage: 12.20                 # 100% Piena Carica (18650 3S2P calibrata con carico base)
     nominal_voltage: 11.10              # 3.70V / cella (Tensione di riferimento feed-forward)
-    eco_voltage: 10.20                  # <= 20% SoC -> Limitatore velocità e accel al 50% via /speed_limit
-    docking_voltage: 9.90               # <= 12% SoC -> Trigger docking autonomo verso cuccia (/robot/docking/trigger)
-    shutdown_voltage: 9.60              # <= 0% SoC -> Arresto motori immediato (I=0, anti-sag) e Graceful Shutdown con voce e mappe
-    instant_shutdown_voltage: 9.50      # Spegnimento immediato senza delay 3.0s
+    eco_voltage: 10.40                  # <= 20% SoC -> Limitatore velocità e accel al 50% via /speed_limit (riduce I*R sag)
+    docking_voltage: 10.15              # <= 12% SoC -> Trigger docking autonomo verso cuccia (/robot/docking/trigger)
+    shutdown_voltage: 9.85              # <= 0% SoC -> Arresto motori immediato (I=0, anti-sag) e Graceful Shutdown con voce e mappe
+    instant_shutdown_voltage: 9.78      # Spegnimento immediato hardware-preemptive senza delay prima del cutoff BMS (9.74V)
 
     # --- Filtering & Anti-Sag ---
     esp32_adc_scale_factor: 2880.95     # Divisore partitore 3S ESP32 (36300 -> 12.60V @ 100% full)
     filter_window_size: 20              # Campioni ADC per media mobile (Moving Average buffer)
     sample_rate_hz: 5.0                 # Frequenza del ciclo di controllo e pubblicazione (Hz)
-    persistence_sec: 3.0                # Durata minima consecutiva per innescare Docking / Shutdown (secondi)
+    persistence_sec: 2.0                # Durata minima consecutiva per innescare Docking / Shutdown (secondi)
 
     # --- Dynamic Limiter & Safety ---
     speed_limit_eco_pct: 50.0           # Percentuale di riduzione velocità max in modalità ECO (50%)
