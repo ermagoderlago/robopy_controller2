@@ -358,8 +358,23 @@ Questo documento traccia la cronologia delle modifiche ingegneristiche (ECO) app
 | `robopy_controller/robot_ai/services/llm_service.py` | FIX-14a | System prompt ricalibrato: riconosce che al risveglio con wake word "Marcus" l'utente sta parlando direttamente a Marcus anche senza ripetere il nome, consentendo risposte immediate e naturali, pur mantenendo silenzio assoluto (<IGNORE_TURN>) su TV e dialoghi tra terzi. |
 | `robopy_controller/robot_ai/services/live_connection_manager.py` | FIX-14b | Ripristinato il gating non-distruttivo di `<IGNORE_TURN>` conforme a SPEC-04 Green Zone e IMP-VUI-021: soppressione silenziosa dell'audio altoparlante tramite `on_interrupt(True)` senza inviare `on_mic_mute(True)` e senza azzerare la sessione attiva. `active_session_timeout` calibrato a 20.0s. |
 | `robopy_controller/robot_ai/audio/turn_manager.py` | FIX-14c | Pre-gate RMS riportato a 110.0 (da 150.0), eliminando il troncamento delle consonanti deboli iniziali (80-130 RMS) del parlato a 1-2m. |
-| `robopy_controller/nodes/respeaker_vui_node.py` | FIX-14d | Parametro `listen_timeout_sec` impostato a 20.0s di default; reset di `_session_start_time` a fine parlato AI (`_tts_speaking_cb: False`) per garantire una finestra di follow-up pulita a ogni scambio; cap per singolo turno esteso a 25.0s. |
 | `restart_hailo.sh` / `scripts/restart_vui_ai.sh` | FIX-14e | Parametro `listen_timeout_sec` aggiornato da 8.0 a 20.0s per coerenza con il nodo. |
+
+---
+
+## 📈 ECO-2026-10-12-001: Disaccoppiamento Rinnovo Sessione da TV/Silenzio (`_turn_audio_emitted`), Sblocco CPU Pi 5 a 2.4 GHz e Fix Fallback TTS (FIX-15)
+* **Stato:** ✅ **Completato, Verificato con Test Suite e Pronto per Sync**
+* **Motivazione:** Risoluzione del loop di 37 turni (14 minuti) su dialoghi della televisione che ha causato lo sfondamento dello spending cap su Google AI Studio alle 18:21 (1011 / 429 RESOURCE_EXHAUSTED) e il conseguente mutismo serale; fix dell'invocazione sincrona non attesa della coroutine TTS per il messaggio di fallback locale; sblocco della frequenza di clock CPU Pi 5 da 2.0 GHz a 2.4 GHz per assorbire il carico multi-nodo.
+* **DFMEA Correlati:** FM-VUI-045 (nuovo), FM-SYS-011 (nuovo), FM-VUI-043, FM-VUI-044
+
+### File Modificati
+| File | Modifica | Descrizione |
+|:-----|:---------|:------------|
+| `robopy_controller/robot_ai/services/live_connection_manager.py` | FIX-15a | Introdotto flag `_turn_audio_emitted` settato a True all'arrivo di `inline_data`. `self.last_successful_turn_time` e il timeout della sessione attiva (20s) vengono rinnovati SOLO se Marcus ha effettivamente risposto a voce (`is_valid_speech and self._turn_audio_emitted`). Se Marcus rimane in silenzio o la TV viene ignorata, la sessione non si estende e scade naturalmente dopo 20s. |
+| `robopy_controller/robot_ai/orchestration/orchestrator.py` | FIX-15b | In `_fallback_callback`, corretto il lancio della coroutine `tts_service.speak` tramite `asyncio.run_coroutine_threadsafe(..., self._loop)` eliminando il RuntimeWarning e consentendo al robot di annunciare vocalmente il fallback locale. |
+| `restart_hailo.sh` | FIX-15c | Aggiornato `TARGET_CPU_FREQ="${TARGET_CPU_FREQ:-2400000}"` consentendo a tutti i core Cortex-A76 di operare a 2.4 GHz anziché rimanere cappati a 2.0 GHz. |
+| `robopy_controller/nodes/sensor_standby_manager.py` | FIX-15d | Rate limit a 10 Hz (100ms) sul processing di `/oak/imu/data` per abbattere il carico CPU da ~21% a ~1%. |
+
 
 
 

@@ -26,7 +26,7 @@ ENABLE_HAILO="${ENABLE_HAILO:-true}"
 USE_AMCL="${USE_AMCL:-true}"
 ENABLE_WATCHDOG="${ENABLE_WATCHDOG:-false}"
 SOFT_START="${SOFT_START:-true}"
-TARGET_CPU_FREQ="${TARGET_CPU_FREQ:-2000000}"
+TARGET_CPU_FREQ="${TARGET_CPU_FREQ:-2400000}"
 if [ -z "$MAP_FILE" ]; then
     if [ -f "/mnt/ssd/maps/pianoterra2.yaml" ]; then
         MAP_FILE="/mnt/ssd/maps/pianoterra2.yaml"

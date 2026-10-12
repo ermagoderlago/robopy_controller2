@@ -82,6 +82,7 @@ class LiveConnectionManager:
         self._turn_in_progress: bool = False  # True tra activity_end e turn_complete — blocca nuovi activity_start
         self._turn_in_progress_time: float = 0.0
         self._turn_started_within_window: bool = False  # [FIX-01] Gating valutato ad ActivityStart, non ad EOS
+        self._turn_audio_emitted: bool = False  # [FM-VUI-043] True se Marcus ha risposto a voce nel turno corrente
         
         # State timings updated by LLMService
         self.last_successful_turn_time = 0.0
@@ -123,6 +124,7 @@ class LiveConnectionManager:
         self._activity_started = False
         self._turn_in_progress_time = 0.0
         self._turn_started_within_window = True  # [FM-VUI-035b] Inizializza il gate per il nuovo turno post-wakeword
+        self._turn_audio_emitted = False
         # Drena la coda audio per fare spazio all'audio fresco post-wake word
         drained = 0
         if self._audio_in_queue is not None:
@@ -574,6 +576,7 @@ class LiveConnectionManager:
                             self.logger.debug(f"🔇 [Live] Audio scartato: fuori finestra ({last_wakeword_ago:.1f}s dal wakeword, {last_turn_ago:.1f}s dall'ultimo turno).")
                             continue
 
+                        self._turn_audio_emitted = False
                         await session.send_realtime_input(activity_start=types.ActivityStart())
                         self._activity_started = True
                         self.logger.info("🎤 [Live] activity_start inviato — inizio turno vocale.")
@@ -688,6 +691,7 @@ class LiveConnectionManager:
 
             for part in sc.model_turn.parts:
                 if hasattr(part, 'inline_data') and part.inline_data:
+                    self._turn_audio_emitted = True
                     # Dispatch audio to callback
                     if self.on_audio_received:
                         self.on_audio_received(part.inline_data.data)
@@ -710,17 +714,22 @@ class LiveConnectionManager:
             self._turn_in_progress_time = 0.0
 
             user_msg = self._current_user_text.strip()
-            # [FM-VUI-033] Solo se l'utente ha pronunciato parole reali aggiorniamo il timestamp della sessione attiva
+            # [FM-VUI-043 / IMP-VUI-021] Solo se l'utente ha pronunciato parole reali E Marcus ha risposto a voce
+            # aggiorniamo il timestamp della sessione attiva. Se Marcus è rimasto in silenzio (dialoghi terzi, TV, o <IGNORE_TURN>),
+            # il timeout non viene rinnovato per evitare sessioni infinite aperte in background.
             is_valid_speech = bool(user_msg) and not self._is_noise_transcription(user_msg)
+            is_active_spoken_turn = is_valid_speech and self._turn_audio_emitted
 
-            if is_valid_speech:
+            if is_active_spoken_turn:
                 self.turns_since_wakeword += 1
                 self.last_successful_turn_time = time.time()
-                self.logger.info(f"✅ [Live] turn_complete valido (Turno #{self.turns_since_wakeword}) — sblocco nuovo ascolto.")
+                self.logger.info(f"✅ [Live] turn_complete valido con risposta vocale (Turno #{self.turns_since_wakeword}) — sblocco nuovo ascolto.")
             else:
-                self.logger.info(f"🔇 [Live] turn_complete su rumore/silenzio ('{user_msg}') — timeout sessione non rinnovato.")
+                self.logger.info(f"🔇 [Live] turn_complete senza risposta vocale (silenzio/terzi/ignore) ('{user_msg}') — timeout sessione non rinnovato.")
                 # Azzeriamo eventuali azioni allucinate su rumore
                 self._current_live_response["actions"] = []
+
+            self._turn_audio_emitted = False
 
             # Drena i chunk accumulati durante la risposta (rumore ambientale stantio)
             drained = 0

@@ -851,6 +851,22 @@ A seguito dell'analisi incrociata tra le linee guida generiche per array ReSpeak
   1. **Prompt Ricalibrato per Interazione Naturale:** Nel system prompt (`llm_service.py`), chiarito che all'attivazione da wake word l'utente sta parlando direttamente a Marcus e deve ricevere risposta immediata anche senza ripetere "Marcus". `<IGNORE_TURN>` è riservato rigorosamente a conversazioni tra terzi, TV e rumori.
   2. **Soppressione Non-Distruttiva di `<IGNORE_TURN>`:** In `live_connection_manager.py`, `<IGNORE_TURN>` drena silenziosamente la coda audio altoparlante tramite `on_interrupt(True)` e cancella il testo, ma **NON silenzia il microfono e NON resetta la finestra di conversazione**, preservando l'ascolto per le richieste successive.
   3. **Ripristino Pre-Gate RMS a 110.0:** In `turn_manager.py`, la soglia pre-gate è stata riportata da 150.0 a 110.0, garantendo il passaggio dell'attacco delle consonanti e affidando a WebRTC VAD Mode 3 e al prompt il rigetto della TV.
-  4. **Finestra Conversazionale a 20.0s con Reset Multi-Turn:** `active_session_timeout` e `listen_timeout_sec` armonizzati a 20.0s. `_session_start_time` viene riavviato atomicamente al completamento del TTS (`_tts_speaking_cb: False`), offrendo 20s puliti per ogni follow-up.
+### [FIX-15] Disaccoppiamento Rinnovo Sessione da TV/Silenzio (`_turn_audio_emitted`), Sblocco CPU Pi 5 a 2.4 GHz e Fix Fallback TTS (FM-VUI-045 / FM-SYS-011)
+* **Problema Riscontrato (Analisi Log 12 Ottobre 2026):**
+  1. Marcus si è inserito a sproposito durante una conversazione/TV alle 18:21 (Turno #37) rispondendo a una battuta non per lui (*«Dunque, a cosa ti riferisci... "perché?"? All'errore della sveglia?»*).
+  2. Subito dopo (18:21:43), Marcus è diventato completamente muto e quando l'utente lo ha chiamato regolarmente alle 21:57 («markus»), Vosk e VAD hanno rilevato la voce ma Marcus non ha emesso alcun suono.
+  3. Il carico CPU è rimasto al massimo (load average > 30) con frequenza cappata a 2.0 GHz e processi Python come `sensor_standby_manager` al 21% di CPU.
+* **Cause Radici Identificate:**
+  1. **Rinnovo Indiscriminato del Timer Sessione su Parole della TV:** In `live_connection_manager.py`, `last_successful_turn_time` veniva aggiornato a `time.time()` per qualunque `is_valid_speech = True` (testo utente non vuoto). Quando la TV pronunciava battute («Sí», «. Mimi, mio.», «Ó pai, ela.»), anche se Gemini emetteva solo testo interno di pensiero ("Analyzing Input Clarity... I must remain silent") senza audio, il timer veniva rinnovato per altri 20 secondi.
+  2. **Catena di 37 Turni e Sfondamento Spending Cap Google AI Studio:** La sessione è rimasta forzatamente aperta per 14 minuti ininterrotti (833 secondi), inviando streaming audio PCM continuo a Google. Al Turno #37 la TV ha detto *"Allora No, no, perché?"*, Gemini ha risposto a voce, e un secondo dopo Google ha bloccato l'account con errore 1011 / 429 (`Your project has exceeded its monthly spending cap. Please go to AI Studio at https://ai.studio/spend`).
+  3. **Mancato Avviso Vocale Fallback:** All'arrivo dell'errore 1011 da Gemini Live, `orchestrator.py` invocava `self.tts_service.speak(...)` senza await né threadsafe loop, causando un `RuntimeWarning: coroutine 'TTSService.speak' was never awaited` e lasciando Marcus in silenzio totale.
+  4. **CPU Pi 5 Cappata a 2.0 GHz:** In `restart_hailo.sh`, `TARGET_CPU_FREQ` era impostato di default a 2000000 (2.0 GHz) anziché sfruttare i 2.4 GHz nativi del Cortex-A76.
+  5. **Spinning Callback IMU in SensorStandbyManager:** Il nodo calcolava la radice quadrata e norma vettoriale su ogni singolo frame `/oak/imu/data` a 200 Hz anziché a 10 Hz.
+* **Soluzioni Implementate:**
+  1. **Gating della Sessione Vincolato a `_turn_audio_emitted`:** In `live_connection_manager.py`, il timestamp `self.last_successful_turn_time` viene aggiornato SOLO se Marcus ha effettivamente emesso audio vocale (`self._turn_audio_emitted == True`). Se la battuta è della TV o il modello emette `<IGNORE_TURN>` / silenzio, il timer non viene rinnovato e la sessione scade naturalmente dopo 20s dall'ultima vera risposta di Marcus, prevenendo streaming infiniti.
+  2. **Fix Fallback TTSService Speak in Orchestrator:** Invocazione tramite `asyncio.run_coroutine_threadsafe(self.tts_service.speak(...), self._loop)`.
+  3. **Sblocco CPU Pi 5 a 2.4 GHz di Default:** `TARGET_CPU_FREQ` impostato a `2400000` in `restart_hailo.sh`.
+  4. **Rate Limit 10 Hz su IMU:** `imu_callback` in `sensor_standby_manager.py` limitato a intervalli di 100ms.
+
 
 

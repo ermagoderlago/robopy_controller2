@@ -343,7 +343,11 @@ class AIOrchestrator(Node):
             return
         self.ai_logger.warning(f"⚠️ [Orchestrator] Ricevuto segnale di fallback: {msg.data}")
         if self.tts_service:
-            self.tts_service.speak("Gemini non è al momento raggiungibile a causa di un aggiornamento del modello. Rispondo in modalità locale tramite l'NPU.")
+            if getattr(self, '_loop', None) and self._loop.is_running():
+                asyncio.run_coroutine_threadsafe(
+                    self.tts_service.speak("Attenzione. Connessione Gemini non disponibile. Rispondo in modalità locale tramite l'NPU."),
+                    self._loop
+                )
 
     def _direct_audio_chunk_callback(self, data: bytes):
         if self._shutdown_flag:

@@ -8987,3 +8987,145 @@
       pre-gate RMS a 110.0, finestra conversazione 20s (RPN 128 -> 8).
     rpn_old: 128
     rpn_new: 8
+- id: FM-EVO-002
+  subsystem: AI/Evolution
+  component: curiosity_evolution_engine / nightly_dream_service
+  function: Selezione notturna automatica dei focus evolutivi, redazione piani di
+    miglioramento e ripresa differita da blocco quota
+  failure_mode: Loop di ripetizione cieca del Daily Focus (Stagnazione Evolutiva /
+    Analisi Duplicate) e mancata ripresa per blocco quota AI
+  potential_cause: Assenza di filtro anti-duplicazione sulla cronologia delle analisi
+    recenti, mancata generazione di un planning formale strutturato, mancato ripristino
+    automatico delle attività sospese per esaurimento quota/crediti la notte successiva
+  potential_effect: Marcus ripete ogni notte la stessa analisi a vuoto su FM-LLM-004
+    senza compiere alcun progresso reale, non genera documenti di piano per l'utente,
+    e perde il filo delle attività sospese per quota API
+  classification: PERFORMANCE
+  estimation_basis: measured
+  related_ids:
+  - FM-LLM-004
+  - FM-LLM-006
+  - FM-EVO-001
+  initial_scoring:
+    severity: 8
+    occurrence: 8
+    detection: 7
+    rpn: 448
+  prevention_controls: Pre-check anti-duplicazione a 7 giorni su analysis_history.json,
+    daily_focus_notifications.md e docs/evolution/plans/; classificazione automatica
+    del rischio (SPEC-00 ZONA VERDE vs GIALLA/ROSSA); generazione piano formale PLAN-*.md;
+    gestione checkpoint SUSPENDED_QUOTA con resume deterministico la notte successiva.
+  detection_controls: Test unitari dedicati in tests/test_autonomous_evolution.py
+    su esclusione duplicati, rotazione sottosistemi, persistenza piani e quota resumption.
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Introdurre get_recently_analyzed_failure_modes, generazione
+    planning PLAN-*.md, biforcazione di rischio SPEC-00 e checkpointing automatico
+    per resume la notte successiva
+  verification_method: Test unitari 8/8 passati in tests/test_autonomous_evolution.py
+    e verifica isolamento su workspace
+  eco_ref: docs/ecos/orchestration_rag_ecos.md#ECO-2026-10-11-002
+  lesson_ref: docs/lessons/orchestration_and_rag.md#lez-43
+  date_identified: '2026-10-11'
+  last_updated: '2026-10-11'
+  history:
+  - date: '2026-10-11'
+    change: Implementato filtro anti-duplicazione a 7gg, generatore di piani PLAN-*.md,
+      gating rischio SPEC-00 e quota resume per la notte successiva (RPN 448 -> 8).
+    rpn_old: 448
+    rpn_new: 8
+- id: FM-VUI-045
+  subsystem: Audio/VUI
+  component: live_connection_manager / orchestrator
+  failure_mode: Runaway streaming audio bidirezionale e sfondamento spending cap mensile
+    Google AI Studio indotto da rinnovo timer su trascrizioni TV non rivolte a Marcus
+  potential_cause: last_successful_turn_time veniva rinnovato ad ogni turno con is_valid_speech
+    anche quando Marcus rimaneva in silenzio (senza risposta vocale inline_data),
+    prolungando la sessione per 37 turni (14 minuti) su dialoghi della televisione
+    fino all'esaurimento quota
+  potential_effect: Marcus parla a sproposito rispondendo a una battuta TV (Turno
+    37) e subito dopo cade in mutismo assoluto per errore 1011/429 RESOURCE_EXHAUSTED
+    da Google
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-VUI-043
+  - FM-VUI-044
+  initial_scoring:
+    severity: 8
+    occurrence: 8
+    detection: 2
+    rpn: 128
+  prevention_controls: Flag _turn_audio_emitted su inline_data; rinnovo del timeout
+    sessione (20s) vincolato a is_active_spoken_turn (solo se Marcus ha risposto vocalmente
+    all'utente); scadenza deterministica dopo 20s su silenzio/terzi; fix lancio coroutine
+    speak in _fallback_callback
+  detection_controls: Telemetria log conversations.jsonl e monitoraggio errori WebSocket
+    1011
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Vincolare last_successful_turn_time a _turn_audio_emitted e
+    correggere la coroutine di fallback in orchestrator.py
+  verification_method: Pytest test_challenger_m4_dialogue.py e analisi log di fine
+    turno
+  eco_ref: docs/ecos/audio_vui_ecos.md#ECO-2026-10-12-001
+  lesson_ref: docs/lessons/audio_vui_pipeline.md#FIX-15
+  date_identified: '2026-10-12'
+  last_updated: '2026-10-12'
+  history:
+  - date: '2026-10-12'
+    change: Implementato vincolo _turn_audio_emitted su rinnovo timer e corretto dispatch
+      coroutine TTSService in fallback (RPN 128 -> 8).
+    rpn_old: 128
+    rpn_new: 8
+- id: FM-SYS-011
+  subsystem: System/Host
+  component: restart_hailo.sh / sensor_standby_manager
+  failure_mode: Capping CPU Pi 5 Cortex-A76 a 2.0 GHz e sovraccarico elaborazione
+    callback IMU ad alta frequenza
+  potential_cause: TARGET_CPU_FREQ impostato a 2000000 di default in restart_hailo.sh
+    e assenza di rate limit su imu_callback in sensor_standby_manager.py (200 Hz raw)
+  potential_effect: Load average > 30, accodamento thread di elaborazione e latenza
+    di scheduling per VUI e navigazione
+  classification: PERFORMANCE
+  estimation_basis: measured
+  related_ids:
+  - FM-SYS-008
+  initial_scoring:
+    severity: 7
+    occurrence: 8
+    detection: 2
+    rpn: 112
+  prevention_controls: TARGET_CPU_FREQ elevato a 2400000 (2.4 GHz) nativo Pi 5 in
+    restart_hailo.sh; rate limit a 10 Hz (100ms) su imu_callback in sensor_standby_manager.py
+  detection_controls: Telemetria scaling_cur_freq e top CPU usage
+  residual_scoring:
+    severity: 7
+    occurrence: 1
+    detection: 1
+    rpn: 7
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Portare default CPU a 2.4 GHz e aggiungere throttling temporale
+    sul subscriber IMU
+  verification_method: Verifica runtime /sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq
+  eco_ref: docs/ecos/audio_vui_ecos.md#ECO-2026-10-12-001
+  lesson_ref: docs/lessons/audio_vui_pipeline.md#FIX-15
+  date_identified: '2026-10-12'
+  last_updated: '2026-10-12'
+  history:
+  - date: '2026-10-12'
+    change: Sbloccato clock Cortex-A76 a 2.4 GHz e inserito rate-limiting 10 Hz su
+      imu_callback (RPN 112 -> 7).
+    rpn_old: 112
+    rpn_new: 7
