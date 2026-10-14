@@ -231,6 +231,8 @@ class VUIDialogueEngine:
         Validates ReSpeaker 16kHz mono in -> 48kHz hardware DAC out rule.
         Returns True strictly for (16000, 48000), False otherwise.
         """
+        if type(input_rate) is not int or type(output_hw_rate) is not int:
+            return False
         return input_rate == 16000 and output_hw_rate == 48000
 
     def to_json_snapshot(self) -> str:

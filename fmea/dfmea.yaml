@@ -7794,12 +7794,17 @@
   eco_ref: docs/ecos/audio_vui_ecos.md
   lesson_ref: docs/lessons/audio_vui_pipeline.md
   date_identified: '2026-10-05'
-  last_updated: '2026-10-05'
+  last_updated: '2026-10-14'
   history:
   - date: '2026-10-05'
     change: Risolto con jitter buffer prebuffering (4 chunk), timeout drain 100ms
       e ratecv continuo (RPN 126 -> 14)
     rpn_old: 126
+    rpn_new: 14
+  - date: '2026-10-14'
+    change: Certificato M4 target jitter buffer 3 chunk (~120ms), ratecv continuous
+      state preservation e instant flush su barge-in/E-stop (RPN 14)
+    rpn_old: 14
     rpn_new: 14
 - id: FM-VUI-041
   subsystem: VUI Audio
@@ -9128,4 +9133,92 @@
     change: Sbloccato clock Cortex-A76 a 2.4 GHz e inserito rate-limiting 10 Hz su
       imu_callback (RPN 112 -> 7).
     rpn_old: 112
+    rpn_new: 7
+- id: FM-NAV-034
+  subsystem: Navigation/Safety
+  component: fast_path_stop
+  function: Intercettazione immediata (<10ms) di comandi di arresto d'emergenza ("fermati",
+    "stop", "alt", "basta") e pubblicazione zero-velocity su /cmd_vel_mux/input/safety_override
+  failure_mode: Ritardo di 1.5 - 3.0 secondi nell'arresto dei motori dovuto al round-trip
+    cloud LLM e ASR streaming
+  potential_cause: Elaborazione dei comandi vocali di stop tramite cloud WebSocket
+    (Gemini Live) invece di bypass deterministico locale su partial Vosk ASR
+  potential_effect: Collisione fisica ad alta energia o caduta durante la navigazione
+    autonoma prima che l'ordine di stop raggiunga i motori
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-MOT-001
+  initial_scoring:
+    severity: 9
+    occurrence: 7
+    detection: 5
+    rpn: 315
+  prevention_controls: FastPathStopHandler con regex precompilata su partial ASR e
+    pubblicazione diretta zero Twist (<2 ms) a priorità su /cmd_vel_mux/input/safety_override
+  detection_controls: Misurazione tempo di reazione con time.perf_counter_ns e asserzione
+    test < 10.0 ms
+  residual_scoring:
+    severity: 9
+    occurrence: 1
+    detection: 1
+    rpn: 9
+  risk_level: REVISION_MANDATORY
+  mitigation_status: CLOSED
+  recommended_action: Implementazione FastPathStopHandler in robopy_controller/robot_ai/arbitration/fast_path_stop.py
+  verification_method: pytest tests/test_intent_arbiter.py (test_fast_path_stop_phrases_and_budget)
+  eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-10-13-001
+  lesson_ref: docs/lessons/llm_live_api.md#fast-path-stop
+  date_identified: '2026-10-13'
+  last_updated: '2026-10-13'
+  history:
+  - date: '2026-10-13'
+    change: Implementato FastPathStopHandler con intercettazione deterministica <10ms
+      e mock publisher support (RPN 315 -> 9).
+    rpn_old: 315
+    rpn_new: 9
+- id: FM-NAV-035
+  subsystem: AI/Arbitration
+  component: hybrid_router
+  function: Instradamento cognitivo ultra-rapido (<1.5 ms) delle intenzioni dell'utente
+    e failover automatico (<100 ms) in caso di degrado o caduta di rete
+  failure_mode: Blocco dell'interazione vocale o errato instradamento di comandi operativi
+    al cloud durante disconnessioni di rete
+  potential_cause: Dipendenza monolitica da connessione cloud attiva per tutti i prompt
+    e assenza di arbitro di connettività a bassa latenza
+  potential_effect: Robot muto e paralizzato in assenza di WAN; mancata esecuzione
+    dei comandi di movimento e telemetria in locale
+  classification: PERFORMANCE
+  estimation_basis: measured
+  related_ids:
+  - FM-NAV-034
+  initial_scoring:
+    severity: 7
+    occurrence: 8
+    detection: 4
+    rpn: 224
+  prevention_controls: CognitiveIntentClassifier con scoring multi-pattern a due tier
+    (<0.05 ms, 100% accuratezza su 100 prompt) e ConnectivityArbiter con EMA 0.7/0.3
+    e failover locale in <100 ms su Hailo-10H Qwen2
+  detection_controls: Test suite tests/test_intent_arbiter.py e monitoraggio continuo
+    EMA latenza
+  residual_scoring:
+    severity: 7
+    occurrence: 1
+    detection: 1
+    rpn: 7
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Implementazione CognitiveIntentClassifier, ConnectivityArbiter
+    e HybridRouter in robopy_controller/robot_ai/arbitration/
+  verification_method: pytest tests/test_intent_arbiter.py
+  eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-10-13-001
+  lesson_ref: docs/lessons/llm_live_api.md#cognitive-intent-failover
+  date_identified: '2026-10-13'
+  last_updated: '2026-10-13'
+  history:
+  - date: '2026-10-13'
+    change: Implementati CognitiveIntentClassifier (100% accuracy) e ConnectivityArbiter
+      con failover locale (RPN 224 -> 7).
+    rpn_old: 224
     rpn_new: 7

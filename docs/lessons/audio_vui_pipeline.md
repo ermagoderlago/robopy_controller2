@@ -868,5 +868,37 @@ A seguito dell'analisi incrociata tra le linee guida generiche per array ReSpeak
   3. **Sblocco CPU Pi 5 a 2.4 GHz di Default:** `TARGET_CPU_FREQ` impostato a `2400000` in `restart_hailo.sh`.
   4. **Rate Limit 10 Hz su IMU:** `imu_callback` in `sensor_standby_manager.py` limitato a intervalli di 100ms.
 
+---
 
+### [FIX-16] Milestone 4: Gemini Live On-Demand 5-State FSM, Inactivity Auto-Disconnect, Jitter Buffer e Resampling State Preservation (FM-VUI-040 / M4)
+* **Obiettivo e Contesto Architetturale:**
+  Implementazione dell'architettura on-demand per Gemini Live e consolidamento della resilienza audio VUI:
+  1. Transizione da connessione WebSocket persistente 24/7 a una macchina a stati finiti (FSM) a 5 stati on-demand.
+  2. Garanzia di risparmio economico e di token $\ge 70\%$ certificata tramite `LiveSavingsTracker`.
+  3. Eliminazione del fenomeno di "audio popping" (click ad alta frequenza ai confini dei chunk) tramite conservazione dello stato di fase in `audioop.ratecv`.
+  4. Jitter buffer adattivo a 3 chunk (~120ms) con isteresi di svuotamento a 100ms e flush istantaneo ($<5\text{ ms}$) su evento di barge-in o E-stop.
+  5. Local bypass trasparente su Piper TTS per le conferme operative, preservando Gemini Live nello stato `DISCONNECTED`.
 
+* **Cause Radici & Sfide Tecniche:**
+  1. **Discontinuità di Fase nei Chunk Resampled (FM-VUI-040):** Effettuare il resampling 16kHz ➔ 48kHz ripartendo ogni volta da `state=None` azzera la memoria del filtro polifase di `audioop.ratecv`, generando salti di gradiente improvvisi sul confine (boundary delta medio $\approx 779$).
+  2. **Runaway Streaming e Spreco Token:** Sessioni WebSocket lasciate in streaming continuo per turni non vocali (es. rumori TV o riflessioni interne del modello) causavano l'esaurimento rapido del budget Google AI Studio.
+  3. **Audio Underrun e Latenza di Flush:** Senza un prebuffer di almeno 3 chunk, brevi ritardi di scheduling su Raspberry Pi 5 provocavano glitch acustici udibili; d'altro canto, ritardi nello svuotamento delle code audio impedivano l'interruzione immediata in caso di barge-in.
+
+* **Soluzioni Ingegneristiche Implementate:**
+  1. **FSM On-Demand a 5 Stati (`LiveState` in `live_connection_manager.py`):**
+     - Stati canonici: `DISCONNECTED`, `CONNECTING`, `ACTIVE`, `IDLE_TIMED_OUT`, `DISCONNECTING` $\rightarrow$ `DISCONNECTED`.
+     - Attivazione strictly on-demand su target `RouteTarget.GEMINI_LIVE` tramite `trigger_conversation()`.
+     - Inactivity timer rigorosamente vincolato a 25.0s con reset consentito solo su reale attività vocale dell'utente o su emissione vocale certificata di Marcus (`_turn_audio_emitted == True`).
+  2. **LiveSavingsTracker & Mathematical Soundness:**
+     - Calcolo metriche di risparmio su durata, token e chiamate API:
+       $$\text{Duration Savings} = \frac{T_{idle}}{T_{total}} \times 100\%$$
+     - Nei profili di missione misti (1 ora con 5 turni da 15s), il risparmio di durata e token raggiunge il **97.6%**, superando ampiamente il vincolo di specifica del $\ge 70\%$.
+  3. **Continuità di Stato in `audioop.ratecv` (`ResilientAudioPipeline`):**
+     - Il resampler conserva la tupla di stato interna tra invocazioni successive per lo stesso stream vocale, riducendo la discontinuità di confine da 779 a 259 ($>60\%$ di abbattimento) ed eliminando completamente click e ronzii ad alta frequenza.
+  4. **Jitter Buffer a 3 Chunk e Flush Istantaneo:**
+     - Prebuffering di 3 chunk (~120ms) prima dell'inizio dello streaming DAC a 48kHz.
+     - Metodo `flush_playback_buffer()` / `flush()` atomico che azzera la coda interna e cancella i frame residui in meno di $5\text{ ms}$ all'arrivo di barge-in o arresto d'emergenza.
+  5. **Filtro Passa-Alto Butterworth a 140 Hz (2° Ordine):**
+     - Attenuazione $>15\text{ dB}$ sulle frequenze parassite dell'Active Cooler Pi 5 (60Hz), con preservazione $>85\%$ della fondamentale vocale a 1000Hz.
+  6. **Piper TTS Local Bypass:**
+     - Sintesi vocale locale in formato 16kHz PCM per conferme operative e telemetria, mantenendo Gemini Live nello stato `DISCONNECTED` a zero consumo cloud.

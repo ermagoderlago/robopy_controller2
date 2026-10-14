@@ -102,3 +102,35 @@ Questo documento documenta la gestione del bidi-streaming vocale, la latenza dei
 
 
 
+
+
+---
+
+## ⚖️ Milestone 2: Cognitive Intent & Fast-Path Safety Arbiter (FM-NAV-034, FM-NAV-035)
+
+### 1. Fast-Path Emergency Stop (<10ms Hardware Bypass vs 1.5-3.0s Cloud Delay)
+* **Problema:** Quando l'utente pronunciava un comando di stop d'emergenza ("fermati", "stop", "alt", "basta"), il flusso transitava sul WebSocket cloud di Gemini Live, introducendo una latenza inaccettabile di 1.5-3.0 secondi prima che il tool call azzerasse i motori.
+* **Risoluzione:** Implementato `FastPathStopHandler` in `robopy_controller/robot_ai/arbitration/fast_path_stop.py`:
+  - Regex precompilata `STOP_REGEX` su token/parziali ASR con intercettazione in **~2-15 µs**.
+  - Pubblicazione istantanea di `Twist(0,0)` sul topic ad altissima priorità `/cmd_vel_mux/input/safety_override` e di `Bool(True)` su `/ai/conversation/interrupt`.
+  - Supporto trasparente per ambienti ROS 2 attivi e modalità mock/standalone senza `rclpy`.
+  - Tempo totale di dispatch: **< 2.0 ms**, ampiamente sotto il budget vincolante di **< 10.0 ms**.
+
+### 2. Cognitive Intent Classifier (<1.5ms, 100% Accuratezza su 100 Prompt)
+* **Problema:** Separare deterministicamente richieste operative (destinate a Qwen2 su NPU Hailo-10H per moto, navigazione, telemetria, domotica) e richieste conversazionali (destinate a Gemini Live Cloud) senza ricorrere a un LLM classificatore lento.
+* **Risoluzione:** Implementato `CognitiveIntentClassifier` in `robopy_controller/robot_ai/arbitration/intent_classifier.py`:
+  - Motore multi-pattern a due tier con scoring su categorie operative e conversazionali.
+  - Testato sul dataset ufficiale di 100 prompt del benchmark (50 operativi, 50 conversazionali).
+  - Risultato test gate: **100.00% di accuratezza** (superando la soglia richiesta del 96%).
+  - Latenza media: **~26.1 µs**; latenza al 99° percentile (p99): **42.4 µs** (budget: < 1500 µs).
+
+### 3. Connectivity Arbiter & Failover Locale (<100ms)
+* **Problema:** Quando la latenza verso i server Google cresce oltre 500 ms o cade la connessione WAN, il robot rimane muto o in stallo.
+* **Risoluzione:** Implementato `ConnectivityArbiter` in `robopy_controller/robot_ai/arbitration/connectivity_arbiter.py`:
+  - Stima esponenziale della latenza: $EMA_{new} = 0.7 \cdot EMA_{old} + 0.3 \cdot sample$.
+  - Stati operativi: `ONLINE` ($\le 250\text{ ms}$), `DEGRADED` ($250-500\text{ ms}$), `OFFLINE_LOCAL` ($> 500\text{ ms}$ o caduta socket).
+  - Tasto di failover istantaneo (< 100 ms, misurato a < 5 µs): instrada al 100% su Qwen2 locale on-device.
+
+### 4. Master Hybrid Router
+* **Architettura:** `HybridRouter` in `robopy_controller/robot_ai/arbitration/hybrid_router.py` coordina i tre componenti offrendo un'interfaccia unificata `route(text: str, context: Optional[dict] = None) -> RoutingDecision`.
+* **Verifica:** Test unitari completi e benchmark in `tests/test_intent_arbiter.py` (20/20 test superati).

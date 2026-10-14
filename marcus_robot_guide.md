@@ -244,6 +244,13 @@ Marcus combina tre paradigmi armonizzati di memoria e contesto gestiti dal motor
   * Il Default Mode Network (DMN) estrae intenzioni proattive durante l'inattività del robot.
   * Il ciclo del Sogno Notturno esegue la potatura sinaptica fisica su ChromaDB liberando la memoria RAM.
 
+### Milestone 2: Cognitive Intent & Fast-Path Safety Arbiter (Completato)
+* **Obiettivo:** Arbitraggio ibrido ultra-rapido tra moto operativo locale (NPU Hailo-10H Qwen2) e dialogo cloud (Gemini Live), con arresto hardware istantaneo (<10 ms).
+* **Funzionalità:**
+  * **Fast-Path Emergency Stop (<10 ms):** Intercettazione deterministica di frasi di stop su Vosk partial ASR e pubblicazione immediata a priorità di `Twist(0,0)` su `/cmd_vel_mux/input/safety_override` e interrupt conversazione su `/ai/conversation/interrupt` (tempo medio ~26 µs, hardware dispatch < 2 ms).
+  * **Cognitive Intent Classifier (<1.5 ms):** Classificatore pattern-scored a due tier con 100% di accuratezza su 100 prompt categorizzati del benchmark (50 operativi, 50 conversazionali). Latenza p99 di ~42.4 µs.
+  * **Connectivity Arbiter (<100 ms failover):** Monitoraggio latenza di rete con filtro esponenziale smoothed EMA ($0.7 \cdot EMA + 0.3 \cdot sample$) e failover automatico verso Qwen2 locale in caso di latenza > 500 ms o caduta socket.
+  * **Master Hybrid Router:** Entry-point unificato per l'instradamento intelligente e resiliente.
 
 ### Sprint 6: Embedding Locali offline (Medio termine)
 * **Obiettivo:** Eseguire `all-MiniLM-L6-v2` in formato ONNX ottimizzato localmente sulla CPU host tramite ONNX Runtime.
@@ -289,7 +296,7 @@ Marcus può dialogare in linguaggio naturale con l'utente su qualsiasi aspetto d
    * Ogni skill creata o successo evolutivo viene fissato sia in `docs/evolution/evolution_journal.md` che nella tabella SQLite `episodes` e `semantic_facts` di MAG, permettendo a Marcus di ricordare e raccontare con autentico senso di continuità la propria storia e il proprio percorso di auto-miglioramento.
 5. **Project Autopoiesis (Data Mining con Idle Gating e Auto-Miglioramento Continuo):**
    * *Data Mining Misurato (`MarcusDataMiner`):* Raccolta passiva di telemetria a 0.1 Hz (cross-track error, jitter angolare, recovery count, RAM/CPU) con **idle gating categorico: a navigazione spenta e robot fermo, la raccolta è completamente sospesa**, azzerando usura SSD e carico CPU. Buffer limitato a 60 campioni (10 minuti di moto effettivo) e flush transazionale batch su SQLite WAL su SSD.
-   * *Selezione Autonoma Quotidiana (Daily Focus):* Durante il `Nightly Dream Service` (ore 03:00), Marcus sceglie autonomamente il tema ingegneristico più critico incrociando i colli di bottiglia telemetrici reali sul campo con i massimi RPN del database FMEA (`dfmea.yaml`), notificando la scelta su `docs/evolution/daily_focus_notifications.md` e sul topic `/robot_ai/notifications` (senza dipendenze da Home Assistant).
+   * *Selezione Autonoma Quotidiana (Daily Focus Anti-Duplicazione & Planning):* Durante il `Nightly Dream Service` (ore 03:00), Marcus esclude i Failure Mode già analizzati negli ultimi 7 giorni ed estrae il tema ingegneristico più critico incrociando i colli di bottiglia telemetrici reali sul campo con i massimi RPN del database FMEA (`dfmea.yaml`). Redige un **Planning Dettagliato Formale** (`docs/evolution/plans/PLAN-*.md`) e opera una biforcazione di rischio `SPEC-00`: se in **🟢 Zona Verde** esegue la validazione autonoma in sandbox, se in **🔴/🟡 Zona Rossa o Gialla** imposta `READY_FOR_USER_REVIEW` senza alterare codice di produzione, pronto per essere verificato insieme all'utente. In caso di esaurimento quota/crediti, salva un checkpoint persistente per riprendere e completare automaticamente l'attività la notte successiva.
    * *Pipeline Multi-Modello Specializzata:* L'Orchestratore **Gemini 3.1 Pro** sviscera a fondo l'architettura di notte e scompone il problema in micro-task sequenziali; il Coder **Gemini 3.8 Flash** implementa e collauda il codice in sandbox con la massima efficienza di token.
 6. **Interrogazione e Navigazione della Memoria (`QueryMemorySkill` & `MemoryInfoSkill`):**
    * *Ricerche Autobiografiche e Fatti:* Dicendo *"Marcus, accedi ai dati della memoria"*, *"Cosa ti ricordi?"*, o *"Cosa sai di me?"*, Marcus consulta istantaneamente il database autobiografico MAG (SQLite WAL) e la memoria vettoriale ChromaDB, restituendo a voce un riassunto naturale dei ricordi e delle interazioni recenti, e mostrando il dettaglio formattato su Foxglove Studio senza mai rimanere muto.

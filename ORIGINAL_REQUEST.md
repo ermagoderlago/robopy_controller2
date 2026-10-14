@@ -190,3 +190,42 @@ Integrity mode: development
 Nota fondamentale dall'utente: il Raspberry Pi 5 fisico non è attualmente raggiungibile via rete/SSH. Il deploy sul robot avverrà più avanti.
 Non tentare connessioni SSH a Marcus, né esecuzione di `./sync_marcus.sh` o comandi remoti.
 Esegui tutte le modifiche, la pulizia dei moduli NOMAD, le implementazioni dell'anello chiuso/anti-stallo, l'aggiornamento di Nav2 e l'integrazione cognitiva TRINITY esclusivamente in locale nel repository/workspace del PC, convalidando le modifiche tramite i test unitari e di sintassi locali (pytest/python).
+
+## Follow-up — 2026-10-12T20:43:59Z
+
+Progettazione e pianificazione dell'architettura ibrida AI per il robot Marcus: eseguire comandi operativi, navigazione e diagnostica su NPU Hailo-10H (Qwen2 1.5B/0.5B a ZERO carico CPU sul Raspberry Pi 5), riservando Google Gemini Live Cloud per conversazioni complesse e multimodali.
+
+Working directory: c:/Users/lsuffia/OneDrive - BRUGOLA OEB INDUSTRIALE SPA/Documents/robopy/antigravity
+Integrity mode: development
+
+## Requirements
+
+### R1. Isolamento & Validazione Hailo-10H per Qwen (Zero CPU Impact)
+Verificare e collaudare l'esecuzione di Qwen2 (1.5B/0.5B) tramite Hailo GenAI runtime esclusivamente sulla NPU Hailo-10H (40 TOPS), garantendo un delta di carico CPU sul Raspberry Pi 5 inferiore al 5% e nessuna interferenza con la pipeline di visione (YOLO / SuperPoint) sui core 2-3.
+
+### R2. Cognitive Intent & Connectivity Arbiter
+Implementare un modulo di arbitraggio decisionale rapido (<1.5 ms) che instradi le trascrizioni vocali locali (Vosk ASR) verso Qwen (comandi di moto, stato, domotica, o in caso di fallback offline per Wi-Fi debole) oppure verso Gemini Live (conversazioni aperte, reasoning profondo, memoria episodica).
+
+### R3. Structured Function Calling Locale & Sandbox Safety
+Adattare il pre-flight kinematic sandbox di TRINITY (SPEC-05) per convalidare in modo rigoroso le chiamate JSON generate da Qwen locale, con divieto di superare i limiti cinematici o generare movimenti incontrollati.
+
+### R4. Risparmio Sessioni Gemini Live & Pipeline Audio Resiliente
+Modificare il ciclo di vita della connessione WebSocket verso Gemini Live per aprirla solo su richiesta di conversazione o esplicita intenzione dialogica, riducendo di oltre il 70% lo spreco di connessioni idle e token cloud.
+
+## Acceptance Criteria
+
+### Performance & Resource Budget
+- [ ] Il carico medio di CPU aggiunto da Qwen su Raspberry Pi 5 durante l'inferenza è <= 5%.
+- [ ] Il Time-to-First-Token (TTFT) di Qwen su Hailo-10H è <= 400 ms.
+- [ ] Il bridge di visione C++ continua a girare a >= 10 FPS durante l'inferenza di Qwen.
+
+### Routing & Safety Criteria
+- [ ] Il 100% dei comandi di arresto immediato ("fermati", "stop") viene intercettato in < 10 ms dal fast-path senza chiamate LLM.
+- [ ] Il router classifica correttamente >= 96% dei comandi operativi vs conversazionali.
+- [ ] In caso di perdita di rete (ping > 500ms), il 100% delle richieste passa automaticamente su Qwen locale entro 100ms.
+- [ ] Tutti i comandi motori emessi da Qwen passano attraverso la sandbox cinematica con zero violazioni.
+
+### Test Gate Progression
+- [ ] Fase 1 completata e superata con suite di benchmark NPU dedicata prima di toccare il router ROS 2.
+- [ ] Fase 2 completata con unit test su 100 prompt categorizzati prima di integrare le skill in Fase 3.
+- [ ] Fase 3 validata con test JSON prima dell'integrazione audio VUI finale.

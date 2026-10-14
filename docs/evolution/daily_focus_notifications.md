@@ -466,3 +466,33 @@
 * **Stato Esecuzione:** `SCHEDULED_FOR_PRO_ANALYSIS`
 
 ---
+
+### 🎯 Daily Focus (2026-10-11 - 2026-10-11 21:55:41)
+* **Tema:** Mitigazione FMEA [FM-PWR-004]: Esaurimento completo della batteria con robot fermo in punti remoti (Stranding) e scarica profonda distruttiva delle celle 18650 per totale assenza di stazione di ricarica ("cuccia") e procedura di docking
+* **Sottosistema:** `Hardware/Power & Compute`
+* **Sorgente Decisionale:** `FMEA_RPN`
+* **Failure Mode Riferimento:** `FM-PWR-004`
+* **Motivazione:** Failure Mode aperto a massimo RPN nel sottosistema Hardware/Power & Compute.
+* **Azione Raccomandata:** Progettare e realizzare fisicamente la cuccia di ricarica con step-down CC-CV 24V->12.80V e sviluppare il modulo di navigazione e aggancio autonomo Nav2 DockingNavigator
+* **Modello Orchestratore:** `gemini-3.1-pro`
+* **Modello Coder:** `gemini-3.8-flash`
+* **Stato Esecuzione:** `READY_FOR_USER_REVIEW`
+* **Zona di Rischio (SPEC-00):** `YELLOW`
+* **Piano Dettagliato:** `docs/evolution/plans/PLAN-2026-10-11_FM-PWR-004_hardware_power___compute.md`
+
+---
+
+### 🎯 Daily Focus (2026-10-12 - 2026-10-12 03:00:16)
+* **Tema:** Mitigazione FMEA [FM-ACT-007]: Ribaltamento fisico del robot (Tipped Over / Rollover)
+* **Sottosistema:** `Hardware/Power`
+* **Sorgente Decisionale:** `FMEA_RPN`
+* **Failure Mode Riferimento:** `FM-ACT-007`
+* **Motivazione:** Failure Mode aperto a massimo RPN nel sottosistema Hardware/Power.
+* **Azione Raccomandata:** MIGLIORIA: 'Electronic Tilt-Switch Hardware Stop'. L'IMU monitora costantemente Roll e Pitch. Se l'angolo di inclinazione supera i 45 gradi, viene attivato un E-Stop hardware inesorabile che stacca i motori (0 PWM) per prevenire incendi e danni meccanici, emettendo un fischio di SOS dall'altoparlante.
+* **Modello Orchestratore:** `gemini-3.1-pro`
+* **Modello Coder:** `gemini-3.8-flash`
+* **Stato Esecuzione:** `READY_FOR_USER_REVIEW`
+* **Zona di Rischio (SPEC-00):** `YELLOW`
+* **Piano Dettagliato:** `docs/evolution/plans/PLAN-2026-10-12_FM-ACT-007_hardware_power.md`
+
+---

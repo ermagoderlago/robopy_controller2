@@ -353,3 +353,33 @@ L'architettura TRINITY integra i tre paradigmi di memoria e contesto operando a 
 5. **Supporto in `QueryMemorySkill`:**
    - Supporto nativo per query statistiche ("quante volte abbiamo parlato questa settimana?", "frequenza dei ricordi").
    - Risposta assertiva e accurata alla domanda sulla persistenza delle date, con restituzione di date/orari precisi sia a voce che in Markdown.
+
+---
+
+## 🤖 Lezione 43 — Anti-Duplicazione Daily Focus, Generazione Piani di Miglioramento (PLAN-*.md) e Ripresa Differita per Quota Crediti AI (FM-EVO-002, ECO-2026-10-11-002)
+
+### 1. Sintomi & Causa Radice
+* **Sintomo:** Nelle ore notturne (ore 03:00 con `NightlyDreamService`), Marcus eseguiva ripetutamente la medesima analisi ogni notte su `FM-LLM-004` (rischio codice dinamico), stampando template statici con `SCHEDULED_FOR_PRO_ANALYSIS` in `daily_focus_notifications.md` senza compiere alcun progresso reale, senza redigere piani dettagliati e senza ruotare sugli altri 180+ Failure Mode del robot. Inoltre, in caso di esaurimento crediti o rate limit 429 durante la sessione, il task veniva abbandonato senza ripresa automatica la notte successiva.
+* **Causa Radice:**
+  1. `CuriosityEvolutionEngine.select_daily_focus_theme()` ordinava `dfmea.yaml` per severità; avendo `FM-LLM-004` severità 9, si trovava sempre all'indice 0 della lista.
+  2. Mancava qualsiasi controllo sulle analisi svolte negli ultimi N giorni: Marcus non consultava lo storico né i piani esistenti.
+  3. Mancava un generatore di planning dettagliato e strutturato (causa radice, file target, micro-task, test plan).
+  4. Mancava la gestione della biforcazione di rischio `SPEC-00`: Zona Verde (eseguibile in autonomia con sandbox) vs Zona Gialla/Rossa (blocco modifiche a caldo, stato `READY_FOR_USER_REVIEW`).
+  5. Il gestore checkpoint non veniva interpellato dal demone notturno per riprendere i task interrotti dalla quota a 4 ore.
+
+### 2. Risoluzione Architetturale Implementata
+1. **Filtro Anti-Duplicazione & Storico Analisi (`get_recently_analyzed_failure_modes`):**
+   - Ispezione combinata di `daily_focus_notifications.md`, `analysis_history.json` e directory `docs/evolution/plans/`.
+   - Esclusione dei Failure Mode già affrontati negli ultimi 7 giorni (`exclude_ids`). Se tutti i top failure modes aperti sono stati trattati di recente, scatta automaticamente la rotazione di curiosità architetturale sui sottosistemi (`SUBSYSTEM_EXPLORATION`).
+2. **Generatore di Piani Strutturati (`generate_evolution_plan`):**
+   - Generazione deterministica di documenti Markdown isolati in `docs/evolution/plans/PLAN-YYYY-MM-DD_<id>.md`.
+   - Inclusione formale di: analisi causa radice, file coinvolti, vincoli di governance `SPEC-00`, elenco micro-task operativi, piano di collaudo sandbox e criteri di accettazione.
+3. **Classificazione Rischio & Biforcazione Operativa (`classify_theme_risk`):**
+   - **🟢 ZONA VERDE (Auto-Evolution):** Se il task tocca solo nuove skill in sandbox, prompt engineering, tuning consentiti o test, Marcus esegue la validazione autonoma in `SkillSandbox` e assegna stato `VALIDATED_IN_SANDBOX` / `COMPLETED_AUTONOMOUSLY`.
+   - **🔴/🟡 ZONA ROSSA / GIALLA (Human Gate):** Se tocca motori, hardware, alimentazione, contratti ROS 2, modelli HEF o systemd, Marcus **NON altera il codice di produzione** e imposta lo stato su `READY_FOR_USER_REVIEW`, lasciando il piano pronto per essere revisionato con l'utente.
+4. **Resumption Automatica la Notte Successiva su Blocco Quota:**
+   - All'avvio del ciclo, il motore verifica `has_pending_checkpoint()`. Se la quota/crediti è stata ripristinata, Marcus riprende automaticamente il task sospeso (`RESUMED_FROM_QUOTA_CHECKPOINT`) e ne finalizza la validazione, rimuovendo il checkpoint a successo avvenuto.
+   - Se la quota è ancora esaurita, imposta `PAUSED_TOKEN_QUOTA_AWAITING_RESUME` senza accumulare duplicati.
+5. **Test Suite di Validazione (8/8 superati):**
+   - Convalidati in `tests/test_autonomous_evolution.py` con test per: esclusione duplicati, rotazione sottosistemi, persistenza file piano, biforcazione rischio Zona Verde vs Gialla/Rossa, e sospensione/ripresa da checkpoint.
+

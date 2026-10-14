@@ -568,3 +568,23 @@ Questo file costituisce il registro permanente della curiosità, delle indagini 
 - **Esito del Ciclo:** `THEME_SELECTED`
 
 ---
+
+### [DAILY_FOCUS_2026-10-11] Hardware/Power & Compute - 2026-10-11 21:55:43
+- **Failure Mode Riferito:** FM-PWR-004
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema Hardware/Power & Compute.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema: Mitigazione FMEA [FM-PWR-004]: Esaurimento completo della batteria con robot fermo in punti remoti (Stranding) e scarica profonda distruttiva delle celle 18650 per totale assenza di stazione di ricarica ("cuccia") e procedura di docking. Rischio: YELLOW. Piano generato in docs/evolution/plans/PLAN-2026-10-11_FM-PWR-004_hardware_power___compute.md.
+- **Esito del Ciclo:** `READY_FOR_USER_REVIEW`
+
+---
+
+### [DAILY_FOCUS_2026-10-12] Hardware/Power - 2026-10-12 03:00:24
+- **Failure Mode Riferito:** FM-ACT-007
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema Hardware/Power.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema: Mitigazione FMEA [FM-ACT-007]: Ribaltamento fisico del robot (Tipped Over / Rollover). Rischio: YELLOW. Piano generato in docs/evolution/plans/PLAN-2026-10-12_FM-ACT-007_hardware_power.md.
+- **Esito del Ciclo:** `READY_FOR_USER_REVIEW`
+
+---

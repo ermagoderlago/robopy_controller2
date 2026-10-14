@@ -1,0 +1,24 @@
+[
+  {
+    "date": "2026-10-11",
+    "selected_at": "2026-10-11 21:55:41",
+    "failure_mode_id": "FM-PWR-004",
+    "subsystem": "Hardware/Power & Compute",
+    "title": "Mitigazione FMEA [FM-PWR-004]: Esaurimento completo della batteria con robot fermo in punti remoti (Stranding) e scarica profonda distruttiva delle celle 18650 per totale assenza di stazione di ricarica (\"cuccia\") e procedura di docking",
+    "source": "FMEA_RPN",
+    "risk_zone": "YELLOW",
+    "status": "READY_FOR_USER_REVIEW",
+    "plan_file": "docs/evolution/plans/PLAN-2026-10-11_FM-PWR-004_hardware_power___compute.md"
+  },
+  {
+    "date": "2026-10-12",
+    "selected_at": "2026-10-12 03:00:16",
+    "failure_mode_id": "FM-ACT-007",
+    "subsystem": "Hardware/Power",
+    "title": "Mitigazione FMEA [FM-ACT-007]: Ribaltamento fisico del robot (Tipped Over / Rollover)",
+    "source": "FMEA_RPN",
+    "risk_zone": "YELLOW",
+    "status": "READY_FOR_USER_REVIEW",
+    "plan_file": "docs/evolution/plans/PLAN-2026-10-12_FM-ACT-007_hardware_power.md"
+  }
+]

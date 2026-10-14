@@ -12,6 +12,7 @@ Verifica:
 
 import os
 import tempfile
+import datetime
 import pytest
 from pathlib import Path
 
@@ -116,3 +117,130 @@ def test_antigravity_agent_model_roles(test_workspace):
     status = service.get_quota_status()
     assert status["orchestrator_model"] == "gemini-3.1-pro"
     assert status["coder_model"] == "gemini-3.8-flash"
+
+
+def test_anti_duplication_excludes_recently_analyzed(test_workspace):
+    """Verifica che un Failure Mode già analizzato di recente venga escluso e si passi al successivo."""
+    engine = CuriosityEvolutionEngine(workspace_root=test_workspace)
+    miner = MarcusDataMiner(db_path=test_workspace / "telemetry_empty.db")
+
+    # Simuliamo che FM-NAV-008 sia stato analizzato ieri nelle notifiche
+    focus_file = test_workspace / "docs" / "evolution" / "daily_focus_notifications.md"
+    yesterday = (datetime.date.today() - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+    focus_file.write_text(f"""
+### 🎯 Daily Focus ({yesterday} - {yesterday} 03:00:00)
+* **Tema:** Mitigazione FMEA [FM-NAV-008]: Jitter MPPI elevato
+* **Sottosistema:** `Nav2`
+* **Sorgente Decisionale:** `FMEA_RPN`
+* **Failure Mode Riferimento:** `FM-NAV-008`
+* **Stato Esecuzione:** `READY_FOR_USER_REVIEW`
+""", encoding="utf-8")
+
+    recently_analyzed = engine.get_recently_analyzed_failure_modes(days=7)
+    assert "FM-NAV-008" in recently_analyzed
+
+    # La selezione deve scartare FM-NAV-008 e scegliere FM-ACT-001 (il secondo aperto)
+    theme = engine.select_daily_focus_theme(data_miner=miner)
+    assert theme["failure_mode_id"] == "FM-ACT-001"
+    assert "FM-ACT-001" in theme["title"]
+
+
+def test_all_fms_analyzed_triggers_subsystem_rotation(test_workspace):
+    """Verifica che se tutti i FM aperti sono stati analizzati recentemente, si attivi la rotazione curiosità."""
+    engine = CuriosityEvolutionEngine(workspace_root=test_workspace)
+    miner = MarcusDataMiner(db_path=test_workspace / "telemetry_empty.db")
+
+    # Inseriamo nello storico sia FM-NAV-008 che FM-ACT-001
+    focus_file = test_workspace / "docs" / "evolution" / "daily_focus_notifications.md"
+    two_days_ago = (datetime.date.today() - datetime.timedelta(days=2)).strftime("%Y-%m-%d")
+    focus_file.write_text(f"""
+### 🎯 Daily Focus ({two_days_ago} - {two_days_ago} 03:00:00)
+* **Failure Mode Riferimento:** `FM-NAV-008`
+
+### 🎯 Daily Focus ({two_days_ago} - {two_days_ago} 03:05:00)
+* **Failure Mode Riferimento:** `FM-ACT-001`
+""", encoding="utf-8")
+
+    theme = engine.select_daily_focus_theme(data_miner=miner)
+    assert theme["source"] == "SUBSYSTEM_EXPLORATION"
+    assert theme["failure_mode_id"] is None
+    assert theme["subsystem"] in engine.subsystems
+
+
+def test_detailed_plan_generation_and_storage(test_workspace):
+    """Verifica la generazione fisica del file di piano dettagliato in docs/evolution/plans/."""
+    engine = CuriosityEvolutionEngine(workspace_root=test_workspace)
+    miner = MarcusDataMiner(db_path=test_workspace / "telemetry_empty.db")
+
+    theme = engine.select_daily_focus_theme(data_miner=miner)
+    assert "plan_file" in theme
+    assert theme["plan_file"] is not None
+
+    plan_path = test_workspace / theme["plan_file"]
+    assert plan_path.exists()
+    plan_content = plan_path.read_text(encoding="utf-8")
+    assert "Piano di Miglioramento Evolutivo" in plan_content
+    assert "Analisi Causa Radice" in plan_content
+    assert "Micro-Task Pianificati" in plan_content
+    assert "Piano di Collaudo" in plan_content
+
+
+def test_risk_zone_bifurcation(test_workspace):
+    """Verifica la classificazione di rischio (Zona Gialla/Rossa vs Verde) e lo stato."""
+    engine = CuriosityEvolutionEngine(workspace_root=test_workspace)
+
+    # 1. Tema su Nav2 / Actuation (hardware/driver) -> YELLOW / READY_FOR_USER_REVIEW
+    yellow_theme = {
+        "title": "Tuning PID Motori",
+        "subsystem": "Actuation",
+        "recommended_action": "Modifica parametri seriali ESP32",
+        "failure_mode_id": "FM-ACT-001"
+    }
+    risk, spec, rat = engine.classify_theme_risk(yellow_theme)
+    assert risk in ["YELLOW", "RED"]
+
+    # 2. Tema su AI/Cognitive / Skills -> GREEN
+    green_theme = {
+        "title": "Nuova Skill Domotica HA",
+        "subsystem": "AI/LangGraph",
+        "recommended_action": "Sintesi skill isolata in sandbox",
+        "failure_mode_id": "FM-LLM-007"
+    }
+    risk_g, spec_g, rat_g = engine.classify_theme_risk(green_theme)
+    assert risk_g == "GREEN"
+
+
+def test_token_quota_suspension_and_resumption(test_workspace, monkeypatch):
+    """Verifica la sospensione per esaurimento quota/crediti e la ripresa automatica la notte successiva."""
+    engine = CuriosityEvolutionEngine(workspace_root=test_workspace)
+
+    # Creiamo un tema di test Zona Verde
+    sample_fmea = """
+- id: FM-LLM-010
+  subsystem: AI/LangGraph
+  failure_mode: Mancanza skill timer
+  recommended_action: Generare skill timer
+  mitigation_status: OPEN
+  initial_scoring:
+    severity: 7
+    occurrence: 3
+    detection: 2
+    rpn: 42
+"""
+    (test_workspace / "fmea" / "dfmea.yaml").write_text(sample_fmea, encoding="utf-8")
+
+    # 1. Simuliamo blocco quota (quota al 95% / can_start = False)
+    monkeypatch.setattr(engine, "can_start_evolution_cycle", lambda: (False, "Quota 4h al 95% superata"))
+
+    theme = engine.select_daily_focus_theme()
+    assert theme["status"] == "PAUSED_TOKEN_QUOTA_AWAITING_RESUME"
+    assert engine.has_pending_checkpoint() is True
+
+    # 2. Simuliamo la notte successiva: quota ripristinata (can_start = True)
+    monkeypatch.setattr(engine, "can_start_evolution_cycle", lambda: (True, "Quota 4h OK (12%)"))
+
+    resumed_theme = engine.select_daily_focus_theme()
+    assert resumed_theme["status"] in ["RESUMED_FROM_QUOTA_CHECKPOINT", "VALIDATED_IN_SANDBOX"]
+    # Il checkpoint deve essere stato rimosso dopo il completamento
+    assert engine.has_pending_checkpoint() is False
+

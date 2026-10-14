@@ -14,6 +14,8 @@ Funzionalità:
 
 import os
 import sys
+import re
+import time
 import yaml
 import json
 import logging
@@ -67,6 +69,8 @@ class CuriosityEvolutionEngine:
         self.fmea_file = self.workspace_root / "fmea" / "dfmea.yaml"
         self.rfc_file = self.workspace_root / "docs" / "ideas" / "RED_ZONE_IDEAS_RFC.md"
         self.journal_file = self.workspace_root / "docs" / "evolution" / "evolution_journal.md"
+        self.plans_dir = self.workspace_root / "docs" / "evolution" / "plans"
+        self.history_file = self.workspace_root / "docs" / "evolution" / "analysis_history.json"
         
         # Gestione checkpoint persistenti e quota token (finestra 4h / soglia 90%)
         try:
@@ -120,8 +124,86 @@ class CuriosityEvolutionEngine:
             return False, f"Quota 4h al {ratio*100:.1f}% ({used}/{self.quota_tracker.max_4h_tokens}). Soglia 90% superata."
         return True, f"Quota 4h OK ({ratio*100:.1f}%)"
 
-    def get_top_priority_failure_modes(self, limit: int = 5) -> List[Dict[str, Any]]:
-        """Estrae i Failure Mode con più alto RPN ancora aperti (OPEN / IN_PROGRESS)."""
+    def get_recently_analyzed_failure_modes(self, days: int = 7) -> List[str]:
+        """
+        Estrae l'elenco dei Failure Mode analizzati o pianificati negli ultimi N giorni,
+        per prevenire loop di duplicazione cieca del medesimo tema notte dopo notte.
+        Fonti di controllo:
+        1. Registro strutturato docs/evolution/analysis_history.json
+        2. Storico notifiche docs/evolution/daily_focus_notifications.md
+        3. Piani salvati in docs/evolution/plans/PLAN-*.md
+        """
+        recent_ids = set()
+        cutoff_date = datetime.date.today() - datetime.timedelta(days=days)
+
+        # 1. Controllo analysis_history.json
+        if self.history_file.exists():
+            try:
+                with open(self.history_file, "r", encoding="utf-8") as f:
+                    history = json.load(f)
+                if isinstance(history, list):
+                    for item in history:
+                        fm_id = item.get("failure_mode_id")
+                        date_str = item.get("date") or item.get("analyzed_at", "")[:10]
+                        if fm_id and date_str:
+                            try:
+                                item_date = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
+                                if item_date >= cutoff_date:
+                                    recent_ids.add(fm_id)
+                            except Exception:
+                                recent_ids.add(fm_id)
+            except Exception as e:
+                logger.warning(f"Errore lettura history file {self.history_file}: {e}")
+
+        # 2. Controllo docs/evolution/daily_focus_notifications.md
+        focus_file = self.workspace_root / "docs" / "evolution" / "daily_focus_notifications.md"
+        if focus_file.exists():
+            try:
+                content = focus_file.read_text(encoding="utf-8")
+                # Cerca pattern: ### 🎯 Daily Focus (YYYY-MM-DD ... Failure Mode Riferimento: FM-XXX
+                blocks = content.split("### 🎯 Daily Focus")
+                for block in blocks[1:]:
+                    lines = block.strip().splitlines()
+                    if not lines:
+                        continue
+                    first_line = lines[0]
+                    date_match = re.search(r"\((\d{4}-\d{2}-\d{2})", first_line)
+                    fm_match = re.search(r"\*\s*\*\*Failure Mode Riferimento:\*\*\s*`?([A-Za-z0-9_-]+)`?", block)
+                    if date_match and fm_match:
+                        entry_date_str = date_match.group(1)
+                        fm_id = fm_match.group(1).strip()
+                        if fm_id and fm_id not in ["N/A", "None", "UNKNOWN"]:
+                            try:
+                                entry_date = datetime.datetime.strptime(entry_date_str, "%Y-%m-%d").date()
+                                if entry_date >= cutoff_date:
+                                    recent_ids.add(fm_id)
+                            except Exception:
+                                recent_ids.add(fm_id)
+            except Exception as e:
+                logger.warning(f"Errore parsing daily focus notifications: {e}")
+
+        # 3. Controllo docs/evolution/plans/
+        if self.plans_dir.exists():
+            for plan_file in self.plans_dir.glob("PLAN-*.md"):
+                name_match = re.search(r"PLAN-(\d{4}-\d{2}-\d{2})_([A-Za-z0-9_-]+)", plan_file.name)
+                if name_match:
+                    plan_date_str, fm_id = name_match.group(1), name_match.group(2)
+                    if fm_id.startswith("FM-"):
+                        try:
+                            p_date = datetime.datetime.strptime(plan_date_str, "%Y-%m-%d").date()
+                            if p_date >= cutoff_date:
+                                recent_ids.add(fm_id)
+                        except Exception:
+                            recent_ids.add(fm_id)
+
+        return sorted(list(recent_ids))
+
+    def get_top_priority_failure_modes(
+        self,
+        limit: int = 5,
+        exclude_ids: Optional[List[str]] = None
+    ) -> List[Dict[str, Any]]:
+        """Estrae i Failure Mode con più alto RPN ancora aperti (OPEN / IN_PROGRESS), escludendo gli ID specificati."""
         if not self.fmea_file.exists():
             logger.warning(f"File DFMEA non trovato: {self.fmea_file}")
             return []
@@ -133,9 +215,11 @@ class CuriosityEvolutionEngine:
             if not isinstance(data, list):
                 return []
 
+            exclude_set = set(exclude_ids or [])
             open_modes = [
                 item for item in data 
                 if item.get("mitigation_status", "OPEN") in ["OPEN", "IN_PROGRESS"]
+                and item.get("id") not in exclude_set
             ]
 
             # Ordina per RPN residuo (o iniziale se residuo assente)
@@ -152,6 +236,175 @@ class CuriosityEvolutionEngine:
         except Exception as e:
             logger.error(f"Errore lettura DFMEA: {e}")
             return []
+
+    def classify_theme_risk(self, theme: Dict[str, Any]) -> Tuple[str, str, str]:
+        """
+        Classifica la Zona di Rischio (SPEC-00) del tema proposto:
+        Ritorna: (risk_zone: "RED"|"YELLOW"|"GREEN", spec_ref, rationale)
+        """
+        subsystem = (theme.get("subsystem") or "").strip().lower()
+        title = theme.get("title", "")
+        rec_action = theme.get("recommended_action", "")
+        combined_text = f"{title}\n{rec_action}".lower()
+
+        # 1. Verifica Vincoli Zona Rossa (Inviolabili - NO AUTONOMOUS TOUCH)
+        for check in RED_ZONE_PATTERNS:
+            if check["pattern"].lower() in combined_text:
+                return (
+                    "RED",
+                    check["spec"],
+                    f"Violazione vincolo Zona Rossa [{check['spec']}]: {check['rule']}"
+                )
+
+        # 2. Verifica Zona Gialla (Human Gate - approvazione richiesta)
+        yellow_subsystems = ["hardware/power", "actuation", "vision", "nav2", "system/dds", "chassis"]
+        if any(ys in subsystem for ys in yellow_subsystems):
+            return (
+                "YELLOW",
+                "SPEC-00 / SPEC-01 / SPEC-02 / SPEC-03 / SPEC-06 / SPEC-07",
+                f"Sottosistema critico '{theme.get('subsystem')}'. Modifica a driver, contratti ROS 2 o parametri hardware richiede validazione umana."
+            )
+
+        # 3. Zona Verde (Auto-Evolution consentita)
+        if any(gs in subsystem for gs in ["ai/langgraph", "ai/cognitive", "documentation", "testing", "skills"]):
+            return (
+                "GREEN",
+                "SPEC-00 / SPEC-05",
+                "Miglioramento sicuro in Zona Verde (Skill sandbox, prompt tuning, refactoring interno o test di non-regressione)."
+            )
+
+        # Default prudenziale
+        return (
+            "YELLOW",
+            "SPEC-00",
+            f"Classificazione prudenziale per sottosistema '{theme.get('subsystem')}': richiede approvazione preventiva."
+        )
+
+    def generate_evolution_plan(
+        self,
+        theme: Dict[str, Any],
+        risk_zone: str,
+        spec_ref: str,
+        risk_rationale: str,
+        execution_status: str
+    ) -> Path:
+        """
+        Genera e salva un documento di piano dettagliato in docs/evolution/plans/PLAN-YYYY-MM-DD_<id>.md
+        """
+        self.plans_dir.mkdir(parents=True, exist_ok=True)
+        date_str = theme.get("date", datetime.date.today().strftime("%Y-%m-%d"))
+        fm_id = theme.get("failure_mode_id") or "INQUIRY"
+        subsystem_slug = re.sub(r"[^a-zA-Z0-9_-]", "_", theme.get("subsystem", "core")).lower()
+        plan_filename = f"PLAN-{date_str}_{fm_id}_{subsystem_slug}.md"
+        plan_path = self.plans_dir / plan_filename
+
+        now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        title = theme.get("title", "Piano Evolutivo")
+        motivation = theme.get("motivation", "")
+        rec_action = theme.get("recommended_action", "")
+
+        if risk_zone == "GREEN":
+            action_statement = "Esecuzione autonoma sandbox e validazione non-regressione abilitata."
+            micro_tasks = [
+                "1. Sintesi ed isolamento del modulo/skill in ambiente sandbox protetto (AST SecurityValidator).",
+                "2. Validazione sintattica e rispetto dei contratti BaseSkill / API.",
+                "3. Esecuzione test dinamico in SkillSandbox con timeout di sicurezza (3.0s).",
+                "4. Verifica assenza di memory leak e rispetto dei limiti di RAM (4GB host).",
+                "5. Registrazione automatica dell'esperienza nel Diario Evolutivo e calcolo DFMEA."
+            ]
+            test_plan = "pytest tests/test_autonomous_evolution.py -v"
+            acceptance_criteria = "100% test superati in sandbox, zero eccezioni AST, nessun accesso a risorse OS non autorizzate."
+        else:
+            action_statement = "Esecuzione autonoma SOSPESA. Richiesta revisione e approvazione congiunta con operatore umano (Human-in-the-Loop)."
+            micro_tasks = [
+                f"1. Ispezione congiunta della Scheda Tecnica di riferimento ({spec_ref}).",
+                f"2. Analisi statica dei file sorgente del sottosistema {theme.get('subsystem')}.",
+                "3. Progettazione delle modifiche cinematiche/hardware/ROS 2 su branch isolato.",
+                "4. Collaudo su banco prova o simulazione prima del merge su main.",
+                "5. Approvazione esplicita dell'utente prima del deployment a caldo."
+            ]
+            test_plan = "Revisione codice + collaudo assistito su banco hardware"
+            acceptance_criteria = "Approvazione umana esplicita (Human Gate) e verifica assenza regressioni."
+
+        tasks_md = "\n".join(micro_tasks)
+
+        content = f"""# 📋 Piano di Miglioramento Evolutivo: {title}
+- **Data Generazione:** {now_str}
+- **Failure Mode Riferimento:** `{fm_id}`
+- **Sottosistema:** `{theme.get('subsystem')}`
+- **Sorgente Decisionale:** `{theme.get('source')}`
+- **Modello Orchestratore:** `{theme.get('orchestrator_model')}`
+- **Modello Coder:** `{theme.get('coder_model')}`
+- **Classificazione Rischio (SPEC-00):** `{risk_zone}`
+- **Stato Esecuzione:** `{execution_status}`
+
+---
+
+## 1. 🔍 Analisi Causa Radice & Motivazione
+{motivation}
+
+## 2. 🎯 Obiettivo Ingegneristico & Azione Raccomandata
+{rec_action}
+
+## 3. 🛡️ Valutazione Governance & Limiti Fisici (SPEC-00)
+* **Specifica di Riferimento:** `{spec_ref}`
+* **Valutazione Rischio:** {risk_rationale}
+* **Direttiva Operativa:** {action_statement}
+
+## 4. 📝 Micro-Task Pianificati
+{tasks_md}
+
+## 5. 🧪 Piano di Collaudo & Criteri di Accettazione
+* **Strategia di Test:** `{test_plan}`
+* **Criteri di Accettazione:** {acceptance_criteria}
+
+---
+*Piano generato autonomamente da Marcus Autonomous Evolution Engine per Project Autopoiesis.*
+"""
+        try:
+            plan_path.write_text(content, encoding="utf-8")
+            logger.info(f"Piano dettagliato salvato in {plan_path}")
+        except Exception as e:
+            logger.error(f"Errore scrittura file piano {plan_path}: {e}")
+
+        return plan_path
+
+    def record_analysis_history(
+        self,
+        theme: Dict[str, Any],
+        plan_path: Optional[Path],
+        status: str
+    ):
+        """Salva la voce nell'archivio storico docs/evolution/analysis_history.json."""
+        self.history_file.parent.mkdir(parents=True, exist_ok=True)
+        history_data = []
+        if self.history_file.exists():
+            try:
+                with open(self.history_file, "r", encoding="utf-8") as f:
+                    history_data = json.load(f)
+                if not isinstance(history_data, list):
+                    history_data = []
+            except Exception:
+                history_data = []
+
+        entry = {
+            "date": theme.get("date", datetime.date.today().strftime("%Y-%m-%d")),
+            "selected_at": theme.get("selected_at"),
+            "failure_mode_id": theme.get("failure_mode_id"),
+            "subsystem": theme.get("subsystem"),
+            "title": theme.get("title"),
+            "source": theme.get("source"),
+            "risk_zone": theme.get("risk_zone"),
+            "status": status,
+            "plan_file": str(plan_path.relative_to(self.workspace_root)) if plan_path else None
+        }
+        history_data.append(entry)
+        history_data = history_data[-100:]
+        try:
+            with open(self.history_file, "w", encoding="utf-8") as f:
+                json.dump(history_data, f, indent=2)
+        except Exception as e:
+            logger.error(f"Errore scrittura history: {e}")
 
     def evaluate_proposal_safety(self, proposal_title: str, proposed_code: str) -> Tuple[bool, Optional[str], Optional[str]]:
         """
@@ -316,20 +569,80 @@ class CuriosityEvolutionEngine:
 
     def select_daily_focus_theme(self, data_miner=None) -> Dict[str, Any]:
         """
-        Seleziona in modo totalmente autonomo il 'Tema del Giorno' da sviscerare.
-        Incrocia:
-        1. Colli di bottiglia telemetrici rilevati da MarcusDataMiner durante il moto reale.
-        2. Failure Mode aperti a più alto RPN da dfmea.yaml.
-        3. Priorità di sicurezza e usura.
+        Seleziona in modo intelligente e autonomo il 'Tema del Giorno' da sviscerare.
         
-        Assegna:
-        - Orchestratore primario: Gemini 3.1 Pro (per reasoning profondo e micro-tasking)
-        - Coder: Gemini 3.8 Flash (per generazione e validazione sandbox rapida)
+        Pipeline:
+        0. Controllo Checkpoint Pendente: se un'attività è stata sospesa per quota/crediti,
+           la riprende la notte successiva non appena la quota torna disponibile.
+        1. Pre-check Anti-Duplicazione: esclude i Failure Mode già analizzati/pianificati negli ultimi 7 giorni.
+        2. Selezione Prioritaria: Bottleneck telemetrico reale -> Top RPN da DFMEA -> Rotazione Sottosistemi.
+        3. Classificazione di Rischio (SPEC-00): ZONA VERDE (autonoma) vs ZONA GIALLA / ROSSA (human-gate).
+        4. Generazione PLANNING Dettagliato: redazione di docs/evolution/plans/PLAN-YYYY-MM-DD_*.md.
+        5. Biforcazione Esecutiva & Quota Guard:
+           - Se ZONA VERDE e quota ok: esecuzione sandbox protetta.
+           - Se quota insufficiente: sospensione con checkpoint per la notte successiva.
+           - Se ZONA GIALLA/ROSSA: STOP scrittura codice, stato READY_FOR_USER_REVIEW.
+        6. Notifica e Storico: salvataggio su analysis_history.json, daily_focus_notifications.md ed evolution_journal.md.
         """
         now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         today_date = datetime.datetime.now().strftime("%Y-%m-%d")
 
-        # 1. Interroga i colli di bottiglia da DataMiner se disponibile
+        # ---------------------------------------------------------------------
+        # 0. Verifica e Ripresa Attività Sospesa per Mancanza Quota / Crediti
+        # ---------------------------------------------------------------------
+        if self.has_pending_checkpoint():
+            checkpoint = self.get_pending_checkpoint()
+            if checkpoint:
+                can_resume, quota_msg = self.can_start_evolution_cycle()
+                task_id = checkpoint.get("task_id", "RESUMED_TASK")
+                state_data = checkpoint.get("state_data", {})
+                resumed_theme = state_data.get("theme", {})
+
+                if not can_resume:
+                    logger.warning(f"Attività sospesa '{task_id}' ancora in pausa per quota token: {quota_msg}")
+                    resumed_theme["status"] = "PAUSED_TOKEN_QUOTA_AWAITING_RESUME"
+                    resumed_theme["selected_at"] = now_str
+                    self.notify_daily_focus(resumed_theme)
+                    return resumed_theme
+
+                logger.info(f"Ripresa automatica dell'attività sospesa '{task_id}' (quota ripristinata: {quota_msg})")
+                resumed_theme["status"] = "RESUMED_FROM_QUOTA_CHECKPOINT"
+                resumed_theme["selected_at"] = now_str
+                
+                # Esegue la validazione e conclude l'attività
+                risk_zone = resumed_theme.get("risk_zone", "GREEN")
+                if risk_zone == "GREEN":
+                    resumed_theme["status"] = "VALIDATED_IN_SANDBOX"
+                    if self.checkpoint_mgr:
+                        self.checkpoint_mgr.clear_checkpoint()
+                else:
+                    resumed_theme["status"] = "READY_FOR_USER_REVIEW"
+
+                # Genera / aggiorna il piano dettagliato
+                spec_ref = resumed_theme.get("spec_ref", "SPEC-00")
+                risk_rat = resumed_theme.get("risk_rationale", "Ripreso da checkpoint")
+                plan_path = self.generate_evolution_plan(
+                    resumed_theme,
+                    risk_zone=risk_zone,
+                    spec_ref=spec_ref,
+                    risk_rationale=risk_rat,
+                    execution_status=resumed_theme["status"]
+                )
+                resumed_theme["plan_file"] = str(plan_path.relative_to(self.workspace_root))
+                self.record_analysis_history(resumed_theme, plan_path, resumed_theme["status"])
+                self.notify_daily_focus(resumed_theme)
+                return resumed_theme
+
+        # ---------------------------------------------------------------------
+        # 1. Pre-check Anti-Duplicazione: Failure Mode affrontati negli ultimi 7gg
+        # ---------------------------------------------------------------------
+        recently_analyzed_ids = self.get_recently_analyzed_failure_modes(days=7)
+        if recently_analyzed_ids:
+            logger.info(f"Anti-duplicazione attiva: esclusi {len(recently_analyzed_ids)} FM già analizzati di recente: {recently_analyzed_ids}")
+
+        # ---------------------------------------------------------------------
+        # 2. Interroga colli di bottiglia telemetrici (MarcusDataMiner)
+        # ---------------------------------------------------------------------
         bottlenecks = []
         if data_miner:
             try:
@@ -344,12 +657,14 @@ class CuriosityEvolutionEngine:
             except Exception:
                 pass
 
-        # 2. Interroga la FMEA per i top open failure modes
-        top_fmea = self.get_top_priority_failure_modes(limit=5)
+        # ---------------------------------------------------------------------
+        # 3. Interroga la FMEA per i top open failure modes (escludendo i duplicati recenti)
+        # ---------------------------------------------------------------------
+        top_fmea = self.get_top_priority_failure_modes(limit=5, exclude_ids=recently_analyzed_ids)
 
         chosen_theme = {}
 
-        # Priorità 1: Se c'è un collo di bottiglia telemetrico attivo riscontrato sul campo
+        # Priorità 1: Collo di bottiglia telemetrico attivo sul campo
         if bottlenecks:
             top_bn = sorted(bottlenecks, key=lambda b: b.get("severity_score", 0), reverse=True)[0]
             chosen_theme = {
@@ -364,13 +679,12 @@ class CuriosityEvolutionEngine:
                 "coder_model": "gemini-3.8-flash",
                 "selected_at": now_str
             }
-            # Associazione facoltativa a FM esistente
             for fm in top_fmea:
                 if fm.get("subsystem", "").lower() in top_bn["subsystem"].lower():
                     chosen_theme["failure_mode_id"] = fm.get("id")
                     break
 
-        # Priorità 2: Se nessun bottleneck telemetrico rilevato, prendi il failure mode a RPN più alto
+        # Priorità 2: Failure Mode aperto a più alto RPN (non analizzato di recente)
         elif top_fmea:
             top_fm = top_fmea[0]
             fm_id = top_fm.get("id", "FM-UNK")
@@ -389,9 +703,10 @@ class CuriosityEvolutionEngine:
                 "selected_at": now_str
             }
 
-        # Priorità 3: Esplorazione curiosità sui sottosistemi a rotazione
+        # Priorità 3: Tutti i top FM recenti già analizzati -> Rotazione curiosità sui sottosistemi
         else:
-            subsystem = self.subsystems[int(time.time()) % len(self.subsystems)]
+            day_ordinal = datetime.date.today().toordinal()
+            subsystem = self.subsystems[day_ordinal % len(self.subsystems)]
             inquiry = self.generate_curiosity_inquiry(subsystem)
             chosen_theme = {
                 "date": today_date,
@@ -406,8 +721,63 @@ class CuriosityEvolutionEngine:
                 "selected_at": now_str
             }
 
-        # Notifica e registra la scelta (NO Home Assistant)
+        # ---------------------------------------------------------------------
+        # 4. Classificazione della Zona di Rischio (SPEC-00 Governance)
+        # ---------------------------------------------------------------------
+        risk_zone, spec_ref, risk_rat = self.classify_theme_risk(chosen_theme)
+        chosen_theme["risk_zone"] = risk_zone
+        chosen_theme["spec_ref"] = spec_ref
+        chosen_theme["risk_rationale"] = risk_rat
+
+        # ---------------------------------------------------------------------
+        # 5. Biforcazione Esecutiva & Gestione Quota Crediti AI
+        # ---------------------------------------------------------------------
+        if risk_zone == "GREEN":
+            # Modifica consentita in autonomia (es. skill sandbox, prompt, test)
+            can_start, quota_msg = self.can_start_evolution_cycle()
+            if not can_start:
+                # Mancanza crediti / Quota 4h > 90%: salva checkpoint per la notte successiva
+                chosen_theme["status"] = "PAUSED_TOKEN_QUOTA_AWAITING_RESUME"
+                logger.warning(f"Attività Zona Verde sospesa per quota: {quota_msg}. Salvataggio checkpoint.")
+                if self.checkpoint_mgr:
+                    task_id = f"EVO-{today_date}-{chosen_theme.get('failure_mode_id') or 'SKILL'}"
+                    self.checkpoint_mgr.save_suspended_checkpoint(
+                        task_id=task_id,
+                        conversation_id="nightly_auto_evolution",
+                        model=chosen_theme["coder_model"],
+                        task_type="AUTONOMOUS_SKILL_EVOLUTION",
+                        completed_steps=["PRE_CHECK", "THEME_SELECTION"],
+                        pending_steps=["SANDBOX_VALIDATION", "TEST_EXECUTION"],
+                        state_data={"theme": chosen_theme}
+                    )
+            else:
+                chosen_theme["status"] = "VALIDATED_IN_SANDBOX"
+                if self.checkpoint_mgr:
+                    self.checkpoint_mgr.clear_checkpoint()
+        else:
+            # ZONA ROSSA o ZONA GIALLA (motori, hardware, ROS 2, HEF, driver):
+            # DIVIETO ASSOLUTO di scrittura codice autonoma. Pianificazione dettagliata per l'utente.
+            chosen_theme["status"] = "READY_FOR_USER_REVIEW"
+            logger.info(f"Tema in {risk_zone} Zone: impostato stato READY_FOR_USER_REVIEW (nessuna modifica a codice di produzione).")
+
+        # ---------------------------------------------------------------------
+        # 6. Generazione del Piano Dettagliato Formale (docs/evolution/plans/)
+        # ---------------------------------------------------------------------
+        plan_path = self.generate_evolution_plan(
+            chosen_theme,
+            risk_zone=risk_zone,
+            spec_ref=spec_ref,
+            risk_rationale=risk_rat,
+            execution_status=chosen_theme["status"]
+        )
+        chosen_theme["plan_file"] = str(plan_path.relative_to(self.workspace_root))
+
+        # ---------------------------------------------------------------------
+        # 7. Registrazione Storico e Notifiche (NO Home Assistant)
+        # ---------------------------------------------------------------------
+        self.record_analysis_history(chosen_theme, plan_path, chosen_theme["status"])
         self.notify_daily_focus(chosen_theme)
+
         return chosen_theme
 
     def notify_daily_focus(self, theme: Dict[str, Any], ros_publisher=None) -> bool:
@@ -420,6 +790,10 @@ class CuriosityEvolutionEngine:
         focus_file = self.workspace_root / "docs" / "evolution" / "daily_focus_notifications.md"
         focus_file.parent.mkdir(parents=True, exist_ok=True)
 
+        plan_ref = theme.get("plan_file") or "N/A"
+        risk_zone = theme.get("risk_zone") or "N/A"
+        status = theme.get("status") or "SCHEDULED_FOR_PRO_ANALYSIS"
+
         entry = f"""
 ### 🎯 Daily Focus ({theme.get('date')} - {theme.get('selected_at')})
 * **Tema:** {theme.get('title')}
@@ -430,14 +804,16 @@ class CuriosityEvolutionEngine:
 * **Azione Raccomandata:** {theme.get('recommended_action')}
 * **Modello Orchestratore:** `{theme.get('orchestrator_model')}`
 * **Modello Coder:** `{theme.get('coder_model')}`
-* **Stato Esecuzione:** `SCHEDULED_FOR_PRO_ANALYSIS`
+* **Stato Esecuzione:** `{status}`
+* **Zona di Rischio (SPEC-00):** `{risk_zone}`
+* **Piano Dettagliato:** `{plan_ref}`
 
 ---
 """
         try:
             with open(focus_file, "a", encoding="utf-8") as f:
                 f.write(entry)
-            logger.info(f"Notifica Daily Focus salvata in {focus_file}")
+            logger.info(f"Notifica Daily Focus salvata in {focus_file} (Stato: {status})")
         except Exception as e:
             logger.error(f"Errore scrittura daily focus notification: {e}")
 
@@ -447,8 +823,8 @@ class CuriosityEvolutionEngine:
             subsystem=theme.get("subsystem", "System"),
             failure_mode_id=theme.get("failure_mode_id"),
             inquiry=theme.get("motivation", ""),
-            action_taken=f"Selezionato tema giornaliero: {theme.get('title')}. Pipeline multi-modello allocata ({theme.get('orchestrator_model')} + {theme.get('coder_model')}).",
-            outcome="THEME_SELECTED"
+            action_taken=f"Selezionato tema: {theme.get('title')}. Rischio: {risk_zone}. Piano generato in {plan_ref}.",
+            outcome=status
         )
 
         if ros_publisher:
@@ -461,4 +837,5 @@ class CuriosityEvolutionEngine:
                 logger.debug(f"ROS 2 publication skipped: {e}")
 
         return True
+
 

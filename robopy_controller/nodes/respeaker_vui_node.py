@@ -592,7 +592,8 @@ class ReSpeakerVUINode(Node):
                     first_chunk = b""
                     is_first_speech = True
 
-                required_chunks = 4 if is_live else self._prebuffer_size
+                # [SPEC-04 / M4 / FM-VUI-040] 3-chunk jitter buffer (~120ms) before starting DAC playback
+                required_chunks = 3 if is_live else min(3, self._prebuffer_size)
                 
                 # [v4.0] Ottimizzazione dinamica per chunk grandi (TTS) o toni di notifica immediati
                 if len(first_chunk) > 12288 or not is_first_speech:
@@ -720,9 +721,29 @@ class ReSpeakerVUINode(Node):
     def verify_audio_resampling(self, input_rate: int, output_hw_rate: int) -> bool:
         """
         Validates ReSpeaker 16kHz mono in -> 48kHz hardware DAC out rule.
-        Strictly returns True for (16000, 48000), False otherwise (FM-VUI-001).
+        Strictly returns True for (16000, 48000), False otherwise (SPEC-04 / FM-VUI-001).
         """
+        if type(input_rate) is not int or type(output_hw_rate) is not int:
+            return False
         return input_rate == 16000 and output_hw_rate == 48000
+
+    def flush_playback_buffer(self) -> int:
+        """
+        Instant flush on barge-in / emergency stop (SPEC-04 / M4).
+        Drains DAC queue and clears ratecv filter state.
+        """
+        drained = 0
+        if hasattr(self, '_audio_out_queue'):
+            while not self._audio_out_queue.empty():
+                try:
+                    self._audio_out_queue.get_nowait()
+                    drained += 1
+                except Exception:
+                    break
+        self._playback_ratecv_state = None
+        self._is_playing_out = False
+        self._is_playing_tts = False
+        return drained
 
     def set_tts_active(self, is_speaking: bool):
         """
@@ -850,10 +871,19 @@ class ReSpeakerVUINode(Node):
 
             # Converti sempre il sample rate se il rate d'ingresso differisce da quello hardware
             if self.out_stream and input_rate != self._out_hw_rate:
-                audio_converted_bytes, self._playback_ratecv_state = audioop.ratecv(
-                    raw_bytes, 2, 1, input_rate, self._out_hw_rate, self._playback_ratecv_state
-                )
-                audio_np = np.frombuffer(audio_converted_bytes, dtype=np.int16)
+                if audioop is not None:
+                    audio_converted_bytes, self._playback_ratecv_state = audioop.ratecv(
+                        raw_bytes, 2, 1, input_rate, self._out_hw_rate, self._playback_ratecv_state
+                    )
+                    audio_np = np.frombuffer(audio_converted_bytes, dtype=np.int16)
+                else:
+                    samples = np.frombuffer(raw_bytes, dtype=np.int16)
+                    factor = self._out_hw_rate / float(input_rate)
+                    new_len = int(round(len(samples) * factor))
+                    orig_indices = np.arange(len(samples))
+                    new_indices = np.linspace(0, len(samples) - 1, new_len)
+                    resampled = np.interp(new_indices, orig_indices, samples)
+                    audio_np = resampled.astype(np.int16)
             else:
                 audio_np = np.frombuffer(raw_bytes, dtype=np.int16)
 

@@ -1,5 +1,5 @@
 # 📊 Report Esecutivo DFMEA - Marcus AI Robot Platform
-**Data Generazione:** 2026-10-12 22:33:46  
+**Data Generazione:** 2026-10-14 23:38:19  
 **Metodologia:** AIAG-VDA FMEA Standard con Regola Override Severità ($S \ge 9 \implies$ REVISION_MANDATORY)
 
 ---
@@ -8,12 +8,12 @@
 
 | Metrica | Valore | Note / Impatto |
 | :--- | :---: | :--- |
-| **Totale Modalità di Guasto (FM)** | **191** | Copertura integrata dei sottosistemi Marcus |
-| **🟢 Risk Level LOW** | **148** | $RPN_{res} \le 50$ (Sotto controllo) |
+| **Totale Modalità di Guasto (FM)** | **193** | Copertura integrata dei sottosistemi Marcus |
+| **🟢 Risk Level LOW** | **149** | $RPN_{res} \le 50$ (Sotto controllo) |
 | **🟡 Risk Level MEDIUM** | **10** | $51 \le RPN_{res} \le 199$ (Monitoraggio attivo) |
 | **🟠 Risk Level HIGH** | **2** | $200 \le RPN_{res} \le 349$ (Mitigazione obbligatoria) |
 | **🔴 Risk Level CRITICAL** | **0** | $RPN_{res} \ge 350$ (Blocco rilasci) |
-| **🚨 REVISION_MANDATORY** | **31** | **Override Severità ($S \ge 9$)** - Massima Priorità Ingegneristica |
+| **🚨 REVISION_MANDATORY** | **32** | **Override Severità ($S \ge 9$)** - Massima Priorità Ingegneristica |
 
 ### Ripartizione per Sottosistema:
 - **System/DDS:** 5 failure modes
@@ -71,6 +71,8 @@
 - **Vision/Hailo NPU:** 2 failure modes
 - **Hardware/Thermal:** 1 failure modes
 - **System/Host:** 1 failure modes
+- **Navigation/Safety:** 1 failure modes
+- **AI/Arbitration:** 1 failure modes
 
 ---
 
@@ -110,6 +112,7 @@
 | **FM-LLM-008** | AI/LangGraph | `curiosity_evolution_engine & security_validator` | Tentativo di aggiramento indiretto dei vincoli di sicurezza (es. reflection, setattr, comandi mascherati) | 9 ➔ 9 | 54 ➔ **9** | `REVISION_MANDATORY` | `CLOSED` | [`docs/specs/SPEC-00_antigravity_governance.md`](docs/specs/SPEC-00_antigravity_governance.md) |
 | **FM-PWR-002** | Hardware/Power & Compute | `step_down_pi5 / PMIC DA9091` | Undervoltage (<4.63V) e brownout emergency power-off (<4.50V) del PMIC durante picchi di inferenza NPU e streaming sensori | 9 ➔ 9 | 144 ➔ **9** | `REVISION_MANDATORY` | `CLOSED` | [`docs/specs/SPEC-06_power_bms_thermal_safety.md`](docs/specs/SPEC-06_power_bms_thermal_safety.md) |
 | **FM-PWR-003** | Hardware/Power & Compute | `esp32_waveshare_driver / ina219` | Blocco permanente della telemetria tensione batteria a valore fittizio (12.60V) e indicazione ingannevole costante di stato 'DISCHARGING' | 9 ➔ 9 | 243 ➔ **9** | `REVISION_MANDATORY` | `CLOSED` | [`docs/ecos/actuation_ecos.md#ECO-2026-09-25-001`](docs/ecos/actuation_ecos.md#ECO-2026-09-25-001) |
+| **FM-NAV-034** | Navigation/Safety | `fast_path_stop` | Ritardo di 1.5 - 3.0 secondi nell'arresto dei motori dovuto al round-trip cloud LLM e ASR streaming | 9 ➔ 9 | 315 ➔ **9** | `REVISION_MANDATORY` | `CLOSED` | [`docs/ecos/nav2_slam_ecos.md#ECO-2026-10-13-001`](docs/ecos/nav2_slam_ecos.md#ECO-2026-10-13-001) |
 | **FM-MOT-004** | Chassis & Motion | `waveshare_motor_driver & sllidar_node` | Inversione dinamica o collisione delle porte seriali (/dev/ttyUSB0 vs /dev/ttyUSB1) al reboot, con conseguente blocco dei motori o del LiDAR | 9 ➔ 8 | 378 ➔ **8** | `REVISION_MANDATORY` | `CLOSED` | [`docs/ecos/actuation_ecos.md#ECO-2026-09-04-013`](docs/ecos/actuation_ecos.md#ECO-2026-09-04-013) |
 
 ---
@@ -238,6 +241,7 @@
 | **FM-LLM-008** | AI/LangGraph | `curiosity_evolution_engine & security_validator` | Tentativo di aggiramento indiretto dei vincoli di sicurezza (es. reflection, setattr, comandi mascherati) | 9 | 1 | 1 | **9** | `REVISION_MANDATORY` | `CLOSED` | [`docs/specs/SPEC-00_antigravity_governance.md`](docs/specs/SPEC-00_antigravity_governance.md) |
 | **FM-PWR-002** | Hardware/Power & Compute | `step_down_pi5 / PMIC DA9091` | Undervoltage (<4.63V) e brownout emergency power-off (<4.50V) del PMIC durante picchi di inferenza NPU e streaming sensori | 9 | 1 | 1 | **9** | `REVISION_MANDATORY` | `CLOSED` | [`docs/lessons/vision_hailo_npu.md#caduta-di-tensione-e-reset-dellssd`](docs/lessons/vision_hailo_npu.md#caduta-di-tensione-e-reset-dellssd) |
 | **FM-PWR-003** | Hardware/Power & Compute | `esp32_waveshare_driver / ina219` | Blocco permanente della telemetria tensione batteria a valore fittizio (12.60V) e indicazione ingannevole costante di stato 'DISCHARGING' | 9 | 1 | 1 | **9** | `REVISION_MANDATORY` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#39-risoluzione-telemetria-batteria-ina219`](docs/lessons/actuation_motor_driver.md#39-risoluzione-telemetria-batteria-ina219) |
+| **FM-NAV-034** | Navigation/Safety | `fast_path_stop` | Ritardo di 1.5 - 3.0 secondi nell'arresto dei motori dovuto al round-trip cloud LLM e ASR streaming | 9 | 1 | 1 | **9** | `REVISION_MANDATORY` | `CLOSED` | [`docs/lessons/llm_live_api.md#fast-path-stop`](docs/lessons/llm_live_api.md#fast-path-stop) |
 | **FM-NAV-003** | Nav2 | `lifecycle_manager_navigation` | Crash all'avvio dello stack Nav2 per mancata corrispondenza nei nomi dei nodi controllati | 8 | 1 | 1 | **8** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#lifecycle`](docs/lessons/nav2_slam_tuning.md#lifecycle) |
 | **FM-ACT-002** | ESP32 | `waveshare_motor_driver` | Blocco del parser seriale ESP32 e scarto sistematico dei pacchetti di comando di velocità | 8 | 1 | 1 | **8** | `LOW` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#esp32-protocol`](docs/lessons/actuation_motor_driver.md#esp32-protocol) |
 | **FM-ACT-004** | Hardware/Power | `waveshare_motor_driver` | Cancellazione delle velocità differenziali per inversione speculare dei tick dell'encoder destro | 8 | 1 | 1 | **8** | `LOW` | `CLOSED` | [`docs/lessons/actuation_motor_driver.md#kinematics`](docs/lessons/actuation_motor_driver.md#kinematics) |
@@ -291,6 +295,7 @@
 | **FM-VUI-029** | VUI | `marcus_voice_nav` | Robot muto durante esplorazione NoMaD per hang infinito su WebSocket Gemini Live | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#navigation-voice-sync`](docs/lessons/audio_vui_pipeline.md#navigation-voice-sync) |
 | **FM-TRI-009** | TRINITY | `mag_episodic / mag_hybrid_search / mag_database / metaprompt_fusion` | Amnesia temporale ed emissione di risposte allucinate sulla mancata memorizzazione delle date ("Sembra che ci sia un limite alla precisione con cui posso registrare le date esatte dei miei ricordi") | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#amnesia-temporale-e-datatura-dei-ricordi`](docs/lessons/orchestration_and_rag.md#amnesia-temporale-e-datatura-dei-ricordi) |
 | **FM-SYS-011** | System/Host | `restart_hailo.sh / sensor_standby_manager` | Capping CPU Pi 5 Cortex-A76 a 2.0 GHz e sovraccarico elaborazione callback IMU ad alta frequenza | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#FIX-15`](docs/lessons/audio_vui_pipeline.md#FIX-15) |
+| **FM-NAV-035** | AI/Arbitration | `hybrid_router` | Blocco dell'interazione vocale o errato instradamento di comandi operativi al cloud durante disconnessioni di rete | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/llm_live_api.md#cognitive-intent-failover`](docs/lessons/llm_live_api.md#cognitive-intent-failover) |
 | **FM-SYS-002** | System/DDS | `system_scripts` | Errore di esecuzione script: OSError [Errno 8] Exec format error | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`marcus_core_rules.md#1-memoria-ram-e-limite-host`](marcus_core_rules.md#1-memoria-ram-e-limite-host) |
 | **FM-TRI-003** | AI/Trinity | `cag_aggregator` | Latenza eccessiva nella raccolta del contesto CAG (> 500ms) che ritarda l'invio del prompt all'LLM | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#trinity-architecture`](docs/lessons/orchestration_and_rag.md#trinity-architecture) |
 | **FM-VUI-022** | Voice/Orchestration | `nomad_exploration_skill` | Mancato riconoscimento del termine 'NOMAD' da parte dell'ASR e mancata registrazione della skill nell'AI Orchestrator | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#gestione-acronimi-stranieri-e-tolleranza-fonetica-asr`](docs/lessons/audio_vui_pipeline.md#gestione-acronimi-stranieri-e-tolleranza-fonetica-asr) |
