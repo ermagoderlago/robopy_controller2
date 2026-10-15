@@ -9222,3 +9222,51 @@
       con failover locale (RPN 224 -> 7).
     rpn_old: 224
     rpn_new: 7
+- id: FM-LLM-005
+  subsystem: AI/Arbitration
+  component: conversation / respeaker_vui_node
+  function: Failover trasparente immediato verso Qwen2 locale su NPU Hailo-10H in
+    caso di esaurimento quota Gemini Live (429) e contenimento falsi risvegli VUI
+    da rumore
+  failure_mode: Robot bloccato con messaggio 'Non riesco a connettermi al cervello'
+    o mutismo su quota cloud esaurita, e risvegli continui della VUI da rumore ambientale
+  potential_cause: Mancato aggancio del fallback di ConversationManager a HailoQwenClient,
+    retry loop lenti su 429 in llm_circuit_breaker, sensibilità wakeword eccessiva
+    (0.95) e timeout 20s
+  potential_effect: Impossibilità per l'utente di interagire con Marcus in assenza
+    di crediti cloud, e saturazione della sessione VUI da rumori ambientali / TV
+  classification: USABILITY
+  estimation_basis: measured
+  related_ids:
+  - FM-NAV-035
+  - FM-VUI-021
+  initial_scoring:
+    severity: 8
+    occurrence: 9
+    detection: 2
+    rpn: 144
+  prevention_controls: Integrazione HybridRouter e HailoQwenClient in ConversationManager
+    con fail-fast immediato su 429/quota esaurita, calibrazione sensibilità wakeword
+    a 0.75, timeout ascolto a 6.0s e guadagno 1.3x
+  detection_controls: Test suite tests/test_conversation_hybrid_failover.py e log
+    diagnostici VUI
+  residual_scoring:
+    severity: 4
+    occurrence: 1
+    detection: 1
+    rpn: 4
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Attivazione failover Qwen2 locale in conversation.py e calibrazione
+    soglie in respeaker_vui_node.py e restart_hailo.sh
+  verification_method: pytest tests/test_conversation_hybrid_failover.py
+  eco_ref: docs/ecos/system_ecos.md#ECO-2026-10-15-001
+  lesson_ref: docs/lessons/llm_live_api.md#quota-exhausted-failover
+  date_identified: '2026-10-15'
+  last_updated: '2026-10-15'
+  history:
+  - date: '2026-10-15'
+    change: Implementato failover immediato su HailoQwenClient in caso di errore 429/quota
+      cloud e calibrate soglie VUI anti-rumore (RPN 144 -> 4).
+    rpn_old: 144
+    rpn_new: 4

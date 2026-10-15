@@ -49,11 +49,12 @@ Questo documento documenta la gestione del bidi-streaming vocale, la latenza dei
   ```
   Lo script interroga `client.models.list()`, valida la bidi-streaming Live API con `response_modalities=["AUDIO"]` e seleziona il modello funzionante migliore aggiornando il file `.env`.
 
-### Strategia Fallback Locale su Qwen (NPU Hailo-10H)
-* Se la connessione Gemini Live fallisce (modello deprecato, errore 1008/404, spending cap superato o assenza di rete):
-  1. `LiveConnectionManager` rileva l'anomalia ed emette l'evento sul topic `/ai/live/fallback`.
-  2. `AIOrchestrator` intercetta il segnale ed avvisa l'utente via TTS: *"Gemini non è al momento raggiungibile a causa di un aggiornamento del modello. Rispondo in modalità locale tramite l'NPU."*
-  3. L'elaborazione dell'utente viene dirottata sul modello locale **Qwen2-VL** in esecuzione sull'NPU Hailo (`/hailo/vlm/ask_question`), garantendo risposta immediata mentre in background si esegue il ripristino o l'aggiornamento dei modelli Cloud.
+### Strategia Fallback Locale su Qwen (NPU Hailo-10H) & Quota Exhausted Failover (FM-LLM-005)
+* **Diagnosi del Guasto Storico:** Quando il progetto superava lo spending cap mensile o esauriva la quota Gemini (`429 RESOURCE_EXHAUSTED`), il client andava in retry loop con delay fino a 18s e poi falliva su `gemini-2.0-flash` (deprecato con `404 NOT_FOUND`), causando il timeout di 20s e la risposta rigida *"Non riesco a connettermi al cervello."*
+* **Risoluzione Implementata:**
+  1. `llm_circuit_breaker.py`: introdotto fail-fast immediato su stringhe `spending cap`, `RESOURCE_EXHAUSTED` e `429` (zero retry lenti cloud).
+  2. `conversation.py`: `ConversationManager` intercetta immediatamente l'eccezione ed esegue il failover trasparente su `HailoQwenClient` in NPU, sintetizzando la risposta via TTS e pubblicandola su `/ai/conversation/response`.
+  3. `restart_hailo.sh` / `respeaker_vui_node.py`: ridotto `wakeword_sensitivity` da 0.95 a 0.75, `listen_timeout_sec` da 20.0s a 6.0s e `stt_gain` da 2.2x a 1.3x con tetto sessione a 12s, eliminando il loop di riattivazione continuo innescato dalla TV o rumori di fondo.
 
 ---
 

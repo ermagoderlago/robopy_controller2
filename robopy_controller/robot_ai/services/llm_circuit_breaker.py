@@ -48,11 +48,13 @@ def retry_with_backoff(
                         "PERMISSION_DENIED",
                         "API_KEY_INVALID",
                         "INVALID_ARGUMENT",
+                        "spending cap",
+                        "RESOURCE_EXHAUSTED",
                     ]):
+                        self.get_logger().warning(
+                            f"Errore non recuperabile via retry cloud: {e}. Fail-fast immediato per abilitare fallback locale."
+                        )
                         raise
-
-                    if "RESOURCE_EXHAUSTED" in str_e or "429" in str_e:
-                        delay *= 3
 
                     self.get_logger().warning(
                         f"Retry {attempt + 1}/{max_retries} fallito: {e}. "
@@ -155,6 +157,12 @@ class CircuitBreaker:
                 self.last_failure_time  = time.time()
                 self._probe_in_flight   = False
 
-                if self.failures >= self.failure_threshold or self._state == "HALF_OPEN":
+                str_e = str(e)
+                if any(tag in str_e for tag in ("RESOURCE_EXHAUSTED", "spending cap", "429")):
+                    self.failures = self.failure_threshold
+                    self._state = "OPEN"
+                    self.recovery_timeout = 300.0  # 5 min cooldown for quota exhaustion
+                elif self.failures >= self.failure_threshold or self._state == "HALF_OPEN":
                     self._state = "OPEN"
             raise
+

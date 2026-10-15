@@ -497,6 +497,17 @@ class HailoQwenClient:
             text = '{"action": "get_battery_status", "parameters": {}}'
         elif any(w in lower for w in ["stato", "salute", "diagnostica", "health"]):
             text = '{"action": "get_system_health", "parameters": {}}'
+        # Conversational & Greetings
+        elif any(w in lower for w in ["puoi parlare", "mi senti", "ci sei"]):
+            text = "Sì, ti sento! Sono attivo con l'elaborazione locale su NPU Hailo e pronto a dialogare."
+        elif any(w in lower for w in ["ciao", "buongiorno", "buonasera", "salve", "hey marcus", "ehi marcus"]):
+            text = "Ciao! Sono Marcus, sono qui e pronto ad aiutarti."
+        elif any(w in lower for w in ["chi sei", "presentati", "come ti chiami"]):
+            text = "Sono Marcus, il tuo robot rover intelligente equipaggiato con NPU Hailo-10H e ROS 2."
+        elif any(w in lower for w in ["come stai", "come va"]):
+            text = "Tutto bene! I miei sistemi e l'acceleratore NPU sono operativi al cento per cento."
+        elif any(w in lower for w in ["cosa puoi fare", "funzioni", "aiuto"]):
+            text = "Posso navigare per casa, controllare lo stato della batteria, esplorare con Nav2 e rispondere alle tue richieste."
         else:
             text = "Comando ricevuto ed elaborato con successo su Hailo-10H NPU."
 

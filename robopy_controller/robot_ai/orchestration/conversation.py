@@ -59,6 +59,19 @@ class ConversationManager:
             self._logger.warning(f"TrinityEngine initialization failed (using fallback): {e}")
             self.trinity_engine = None
 
+        # Hybrid Architecture: Cognitive Arbiter & Hailo-10H Qwen2 Client
+        try:
+            from ..arbitration.hybrid_router import HybridRouter
+            from ..arbitration.intent_classifier import RouteTarget
+            from ..hailo.hailo_qwen_client import HailoQwenClient
+            self.hailo_client = HailoQwenClient()
+            self.hybrid_router = HybridRouter(node=self.node)
+            self._logger.info("✅ HybridRouter and HailoQwenClient successfully initialized in ConversationManager.")
+        except Exception as e:
+            self._logger.warning(f"HybridRouter/HailoQwenClient initialization failed: {e}")
+            self.hailo_client = None
+            self.hybrid_router = None
+
     def set_latest_frame(self, frame):
         try:
             self._frame_queue.put_nowait(frame)
@@ -80,7 +93,45 @@ class ConversationManager:
 
     async def _handle_emergency(self):
         self.reactive_safety.emergency_stop()
-        await self.tts.speak("Fermo tutto!")
+        msg = "Fermo tutto!"
+        if self.response_callback:
+            self.response_callback(msg)
+        await self.tts.speak(msg)
+
+    async def _handle_local_qwen(self, clean_text: str, should_speak: bool) -> bool:
+        """
+        Executes local inference via Hailo-10H Qwen2 client with Piper/TTS output,
+        bypassing cloud completely or acting as resilient offline/quota failover.
+        """
+        if not self.hailo_client:
+            self._logger.error("HailoQwenClient is not initialized for local processing.")
+            return False
+
+        t0 = time.perf_counter()
+        try:
+            reply_text, telem = await self.hailo_client.generate(prompt=clean_text)
+            latency = time.perf_counter() - t0
+            self.metrics.record_llm_latency(latency)
+            self._logger.info(
+                f"🧠 [LOCAL QWEN2 NPU] Generated response in {latency*1000:.1f}ms: '{reply_text}'"
+            )
+
+            # Record in conversation history
+            self.conversation_history.append({"user": clean_text, "marcus": reply_text})
+
+            # Publish on response callback
+            if self.response_callback:
+                self.response_callback(reply_text)
+
+            # Speak if audio or voice source
+            if should_speak and self.tts:
+                await self.tts.speak(reply_text)
+
+            self.metrics.inc_requests_success()
+            return True
+        except Exception as exc:
+            self._logger.error(f"Local Qwen generation error: {exc}", exc_info=True)
+            return False
 
     async def process_input(self, text: str, source: str):
         self._current_source = source
@@ -127,6 +178,7 @@ class ConversationManager:
                     self.metrics.inc_requests_success()
                 else:
                     self.metrics.inc_requests_failed()
+                return success
         finally:
             self._current_source = ""
 
@@ -303,8 +355,29 @@ class ConversationManager:
 
             return True
 
-        # Offline fallback
-        if self.metrics.connectivity_state == "OFFLINE":
+        # Check HybridRouter routing decision
+        if getattr(self, 'hybrid_router', None):
+            try:
+                from ..arbitration.intent_classifier import RouteTarget
+                routing = self.hybrid_router.route(clean_text)
+                if routing.destination == RouteTarget.LOCAL_QWEN:
+                    self._logger.info(f"⚡ [HYBRID ROUTER] Direct local Qwen2 routing for '{clean_text}' ({routing.reason})")
+                    if self.hailo_client:
+                        return await self._handle_local_qwen(clean_text, should_speak)
+            except Exception as e:
+                self._logger.warning(f"HybridRouter check failed: {e}")
+
+        # Offline or Circuit Breaker Open (Quota Exhausted) Fast-Bypass via Local Qwen2
+        cloud_unavailable = False
+        if getattr(self.metrics, 'connectivity_state', None) == "OFFLINE":
+            cloud_unavailable = True
+        elif hasattr(self.llm, 'circuit_breaker') and self.llm.circuit_breaker.state == "OPEN":
+            cloud_unavailable = True
+
+        if cloud_unavailable:
+            self._logger.info("📡 Cloud is OFFLINE or Circuit Breaker OPEN (quota exhausted): routing request directly to Local Qwen2 on Hailo-10H NPU.")
+            if self.hailo_client:
+                return await self._handle_local_qwen(clean_text, should_speak)
             if should_speak:
                 await self.tts.speak("Sono offline, riprova più tardi.")
             if self.response_callback:
@@ -496,18 +569,20 @@ class ConversationManager:
 
             latency = time.perf_counter() - start
             self.metrics.record_llm_latency(latency)
-        except asyncio.TimeoutError:
-            self.metrics.record_llm_error("timeout")
-            self._logger.error("LLM timeout both Live and Standard.")
+        except (asyncio.TimeoutError, Exception) as exc:
+            self.metrics.record_llm_error("cloud_failover")
+            self._logger.warning(
+                f"⚠️ [CLOUD FAILOVER] Gemini call failed or quota exceeded ({exc}). "
+                f"Executing immediate failover to Local Qwen2 on Hailo-10H NPU..."
+            )
+            if getattr(self, 'hailo_client', None):
+                return await self._handle_local_qwen(clean_text, should_speak)
+
             err_timeout = "Non riesco a connettermi al cervello."
             if should_speak:
                 await self.tts.speak(err_timeout)
             if self.response_callback:
                 self.response_callback(err_timeout)
-            return False
-        except Exception as e:
-            self.metrics.record_llm_error("unexpected")
-            self._logger.error(f"LLM call failed: {e}", exc_info=True)
             return False
 
         # Post LLM validation -> prevent emergency action

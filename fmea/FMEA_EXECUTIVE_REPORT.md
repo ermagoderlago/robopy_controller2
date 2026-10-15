@@ -1,5 +1,5 @@
 # 📊 Report Esecutivo DFMEA - Marcus AI Robot Platform
-**Data Generazione:** 2026-10-14 23:38:19  
+**Data Generazione:** 2026-10-15 22:45:08  
 **Metodologia:** AIAG-VDA FMEA Standard con Regola Override Severità ($S \ge 9 \implies$ REVISION_MANDATORY)
 
 ---
@@ -8,8 +8,8 @@
 
 | Metrica | Valore | Note / Impatto |
 | :--- | :---: | :--- |
-| **Totale Modalità di Guasto (FM)** | **193** | Copertura integrata dei sottosistemi Marcus |
-| **🟢 Risk Level LOW** | **149** | $RPN_{res} \le 50$ (Sotto controllo) |
+| **Totale Modalità di Guasto (FM)** | **194** | Copertura integrata dei sottosistemi Marcus |
+| **🟢 Risk Level LOW** | **150** | $RPN_{res} \le 50$ (Sotto controllo) |
 | **🟡 Risk Level MEDIUM** | **10** | $51 \le RPN_{res} \le 199$ (Monitoraggio attivo) |
 | **🟠 Risk Level HIGH** | **2** | $200 \le RPN_{res} \le 349$ (Mitigazione obbligatoria) |
 | **🔴 Risk Level CRITICAL** | **0** | $RPN_{res} \ge 350$ (Blocco rilasci) |
@@ -72,7 +72,7 @@
 - **Hardware/Thermal:** 1 failure modes
 - **System/Host:** 1 failure modes
 - **Navigation/Safety:** 1 failure modes
-- **AI/Arbitration:** 1 failure modes
+- **AI/Arbitration:** 2 failure modes
 
 ---
 
@@ -310,6 +310,7 @@
 | **FM-LLM-001** | AI/LangGraph | `respeaker_vui_node` | Effetto 'Darth Vader' / 'Chipmunk' (audio accelerato o gravemente alterato) in riproduzione | 4 | 1 | 1 | **4** | `LOW` | `CLOSED` | [`marcus_core_rules.md#3-pipeline-vui-e-audio-pcm-streaming`](marcus_core_rules.md#3-pipeline-vui-e-audio-pcm-streaming) |
 | **FM-NAV-012** | Navigation/Odometry | `waveshare_and_fast_flow_vo` | Movimento convulso e saltellante della camera in Foxglove durante le rotazioni e incoerenza mappe RTAB-Map | 4 | 1 | 1 | **4** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#stabilit-odometria--correzione-dinamica-di-rotazione`](docs/lessons/nav2_slam_tuning.md#stabilit-odometria--correzione-dinamica-di-rotazione) |
 | **FM-SEM-001** | Vision/Hailo | `semantic_costmap_injector` | Ostacoli semantici non visibili nella costmap o scartati per filtro classi restrittivo o centroid_3d mancante | 2 | 1 | 2 | **4** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#semantic-costmap-injection`](docs/lessons/nav2_slam_tuning.md#semantic-costmap-injection) |
+| **FM-LLM-005** | AI/Arbitration | `conversation / respeaker_vui_node` | Robot bloccato con messaggio 'Non riesco a connettermi al cervello' o mutismo su quota cloud esaurita, e risvegli continui della VUI da rumore ambientale | 4 | 1 | 1 | **4** | `LOW` | `CLOSED` | [`docs/lessons/llm_live_api.md#quota-exhausted-failover`](docs/lessons/llm_live_api.md#quota-exhausted-failover) |
 | **FM-VUI-024** | Voice User Interface (VUI) | `respeaker_interface_node` | Mancata apertura o slittamento della porta USB CDC (/dev/ttyACM0 vs /dev/ttyACM1) all'inserimento di nuove periferiche USB (LiDAR), con caduta del controllo LED | 3 | 1 | 1 | **3** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#respeaker-udev-symlink`](docs/lessons/audio_vui_pipeline.md#respeaker-udev-symlink) |
 | **FM-NAV-013** | Navigation/SLAM | `nav2_params_jazzy.yaml` | Topic mismatch tra il publisher VIO (/odom) e il sottoscrittore BT Navigator (/vo/odom) | 2 | 1 | 1 | **2** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#odometry-topics`](docs/lessons/nav2_slam_tuning.md#odometry-topics) |
 | **FM-MEM-011** | Memory/Resources | `semantic_costmap_injector` | Crescita incontrollata (unbounded dict growth) del dizionario active_obstacles durante lunghe sessioni di esplorazione | 2 | 1 | 1 | **2** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#memory-containment`](docs/lessons/nav2_slam_tuning.md#memory-containment) |

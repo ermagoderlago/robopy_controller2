@@ -77,6 +77,19 @@ Questo documento traccia la cronologia delle modifiche ingegneristiche (ECO) app
   * Creata test suite completa in `test/unit/test_cognitive_pipeline_split.py` (7/7 PASS).
   * Registrato il Failure Mode `FM-VUI-023` in `fmea/dfmea.yaml` ed elaborato `IMP-VUI-023_cognitive_pipeline_modularization.md`.
 
+---
+
+## 📈 ECO-2026-10-15-001: Transparent Hailo-10H Qwen2 Failover on Gemini Quota Exhaustion & VUI Calibration
+* **Stato:** ✅ **Completato, Testato (100% Pass) e Pronto per Deploy**
+* **Descrizione:** Risoluzione del mutismo/blocco ("Non riesco a connettermi al cervello") su quota Gemini esaurita (429) e calibrazione VUI anti-falsi risvegli da rumore ambientale.
+* **Modifiche apportate:**
+  * In `robopy_controller/robot_ai/orchestration/conversation.py`, integrati `HybridRouter` e `HailoQwenClient`. Introdotto routing diretto locale per comandi operativi e failover trasparente immediato su Qwen2 NPU in caso di errore 429 (`RESOURCE_EXHAUSTED`), timeout o disconnessione cloud.
+  * In `robopy_controller/robot_ai/services/llm_circuit_breaker.py`, introdotto fail-fast immediato su `spending cap`, `RESOURCE_EXHAUSTED` e `429` (zero retry bloccanti con delay fino a 18s).
+  * In `robopy_controller/robot_ai/services/llm_service.py`, rimosso il modello deprecato `gemini-2.0-flash` (che causava 404 NOT_FOUND) e sostituito con `gemini-2.5-flash`, con propagazione immediata dell'errore quota all'Arbiter.
+  * In `restart_hailo.sh` e `robopy_controller/nodes/respeaker_vui_node.py`, ricalibrati i parametri VUI: `wakeword_sensitivity` ridotta da 0.95 a 0.75, `listen_timeout_sec` ridotto da 20.0s a 6.0s, `stt_gain` ridotto da 2.2 a 1.3 con tetto massimo continuativo di ascolto a 12s per bloccare i loop innescati da audio TV.
+  * Creata test suite `tests/test_conversation_hybrid_failover.py` (2/2 PASS). Aggiornato `fmea/dfmea.yaml` con `FM-LLM-005` (RPN 144 -> 4).
+
+
 
 
 

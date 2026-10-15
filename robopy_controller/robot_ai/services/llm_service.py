@@ -416,6 +416,11 @@ class LLMServiceNode(Node):
         }
         self.pub_stats.publish(String(data=json.dumps(stats)))
 
+    @property
+    def circuit_breaker(self):
+        """Espone il CircuitBreaker per interrogazione stato da ConversationManager."""
+        return self._breaker
+
     def _get_active_system_prompt(self) -> str:
         """
         [v14.2] Costruisce il prompt di sistema definitivo.
@@ -572,7 +577,14 @@ class LLMServiceNode(Node):
                 timeout=20.0
             )
         except (asyncio.TimeoutError, Exception) as e:
-            fallback_model = "gemini-2.0-flash"
+            str_err = str(e)
+            if any(k in str_err for k in ("RESOURCE_EXHAUSTED", "spending cap", "429", "Circuit breaker")):
+                self.get_logger().warning(
+                    f"Circuit breaker aperto o quota cloud esaurita ({e}). Propagazione immediata al router locale per fallback Qwen2 NPU."
+                )
+                raise e
+
+            fallback_model = "gemini-2.5-flash"
             if model_used != fallback_model:
                 self.get_logger().warning(
                     f"Criticità rilevata su {model_used} (latenza >20s o errore: {e}). "

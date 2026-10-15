@@ -145,11 +145,11 @@ class ReSpeakerVUINode(Node):
         # ------------------------------------------------------------------ #
         # Parametri ROS 2
         # ------------------------------------------------------------------ #
-        self.declare_parameter('stt_gain',              2.5)   # [v18.0] Guadagno base 2.5x con AGC dinamico 1.0x-4.0x
+        self.declare_parameter('stt_gain',              1.3)   # [v23.0] Guadagno calibrato 1.3x anti-rumore far-field
         self.declare_parameter('noise_gate_threshold',  90.0)
-        self.declare_parameter('wakeword_sensitivity',  0.92)  # default alzato
+        self.declare_parameter('wakeword_sensitivity',  0.75)  # [v23.0] Sensibilità bilanciata anti-falsi risvegli
         self.declare_parameter('playback_prebuffer',    2)
-        self.declare_parameter('listen_timeout_sec',    20.0)   # [v22.1 / FM-VUI-044] Finestra conversazione 20s dopo parola chiave / follow-up, poi standby
+        self.declare_parameter('listen_timeout_sec',    6.0)   # [v23.0 / SPEC-04] Finestra naturale 6.0s dopo wakeword/turn, poi standby
         self.declare_parameter('max_silence_frames',    35)     # 35 * 20ms = 700ms di pausa naturale
         self.declare_parameter('device_name',            'ReSpeaker')
         self.declare_parameter('sample_rate',            16000)
@@ -932,9 +932,9 @@ class ReSpeakerVUINode(Node):
         elapsed = now - getattr(self, '_listen_timer_start', now)
         session_elapsed = now - getattr(self, '_session_start_time', now)
 
-        # Tetto massimo per singolo turno continuativo d'ascolto (25s): previene loop infinito di ascolto da rumore di fondo.
-        # Estendi SOLO se la sessione non ha superato i 25s E la voce dell'utente è REALMENTE ancora attiva.
-        if session_elapsed < 25.0 and elapsed < self._listen_timeout_sec and self.turn_manager.is_speech_active:
+        # Tetto massimo per singolo turno continuativo d'ascolto (12s): previene loop infinito di ascolto da rumore di fondo.
+        # Estendi SOLO se la sessione non ha superato i 12s E la voce dell'utente è REALMENTE ancora attiva.
+        if session_elapsed < 12.0 and elapsed < self._listen_timeout_sec and self.turn_manager.is_speech_active:
             self.get_logger().debug(f"⏳ Timer prolungato: voce attiva in corso, ultimo frame {(elapsed):.1f}s fa.")
             self._stop_listen_timer()
             remaining = max(0.5, self._listen_timeout_sec - elapsed)
