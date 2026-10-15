@@ -9270,3 +9270,53 @@
       cloud e calibrate soglie VUI anti-rumore (RPN 144 -> 4).
     rpn_old: 144
     rpn_new: 4
+- id: FM-SYS-010
+  subsystem: System/Build
+  component: site-packages_symlink_install
+  function: Propagazione deterministica e immediata delle modifiche a caldo Python
+    da robopy_controller a install/site-packages
+  failure_mode: Mancata applicazione delle correzioni a caldo in runtime ROS 2 per
+    presenza di directory fisiche statiche duplicate in install/.../site-packages
+  potential_cause: Copie fisiche statiche orfane delle cartelle nodes/ e robot_ai/
+    all'interno di install/robopy_controller/lib/python3.11/site-packages/robopy_controller/
+    anziché symlink diretti alla radice sorgente /mnt/ssd/robopy_controller_host/robopy_controller/
+  potential_effect: Esecuzione silenziosa di vecchie versioni obsolete del codice
+    Python durante ros2 run/launch, con regressioni apparenti e fallimento dei controlli
+    di failover
+  classification: SOFTWARE_ARCHITECTURE
+  estimation_basis: measured
+  related_ids:
+  - FM-SYS-001
+  - FM-LLM-005
+  initial_scoring:
+    severity: 8
+    occurrence: 8
+    detection: 3
+    rpn: 192
+  prevention_controls: Architettura a symlink canonici obbligatori (ln -sfn) per robot_ai
+    e nodes in site-packages, integrata sia in restart_hailo.sh che in sync_marcus.sh
+    Hot-Swap
+  detection_controls: Script di verifica post-build in marcus_core_rules.md sez. 8.5
+    e controllo data mtime
+  residual_scoring:
+    severity: 4
+    occurrence: 1
+    detection: 1
+    rpn: 4
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Convertire permanentemente le sottocartelle robot_ai e nodes
+    in install/site-packages/robopy_controller in symlink diretti alla directory sorgente
+    attiva
+  verification_method: ls -l in install/site-packages e test di importazione runtime
+    Python
+  eco_ref: docs/ecos/llm_live_ecos.md#ECO-2026-10-15-002
+  lesson_ref: docs/lessons/dev_and_deployment.md#symlink-hot-swap
+  date_identified: '2026-10-15'
+  last_updated: '2026-10-15'
+  history:
+  - date: '2026-10-15'
+    change: Architettura a symlink canonici su site-packages implementata; eliminato
+      disallineamento statico (RPN 192 -> 4).
+    rpn_old: 192
+    rpn_new: 4

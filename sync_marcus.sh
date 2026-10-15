@@ -154,11 +154,23 @@ ${SSH_CMD} ${TARGET_HOST} "
     # Sincronizza restart_hailo.sh anche nella home dell'utente
     cp -f ${TARGET_DIR}/restart_hailo.sh /home/robopy/restart_hailo.sh 2>/dev/null || true
     chmod +x /home/robopy/restart_hailo.sh 2>/dev/null || true
+
+    # Prevenzione FM-SYS-010: Assicura symlink canonici su install/site-packages
+    PKG_DEST=\"${TARGET_DIR}/${SITE_PKGS}/robopy_controller\"
+    if [ ! -L \"\${PKG_DEST}/robot_ai\" ]; then
+        rm -rf \"\${PKG_DEST}/robot_ai\"
+        ln -sfn \"${TARGET_DIR}/robopy_controller/robot_ai\" \"\${PKG_DEST}/robot_ai\"
+    fi
+    if [ ! -L \"\${PKG_DEST}/nodes\" ]; then
+        rm -rf \"\${PKG_DEST}/nodes\"
+        ln -sfn \"${TARGET_DIR}/robopy_controller/nodes\" \"\${PKG_DEST}/nodes\"
+    fi
+
     # Fix line endings su tutti gli script shell e wrapper in scripts/ (per sicurezza)
     find ${TARGET_DIR} -name '*.sh' -exec sed -i 's/\r$//' {} \; 2>/dev/null || true
     find ${TARGET_DIR}/scripts -type f -exec sed -i 's/\r$//' {} \; 2>/dev/null || true
     sed -i 's/\r$//' /home/robopy/restart_hailo.sh 2>/dev/null || true
-    echo '✅ Permessi impostati.'
+    echo '✅ Permessi e symlink Hot-Swap impostati con successo.'
 "
 
 # --- Fine: chiudi il master SSH esplicitamente ---

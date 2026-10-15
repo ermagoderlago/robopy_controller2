@@ -79,15 +79,23 @@ Questo documento traccia la cronologia delle modifiche ingegneristiche (ECO) app
 
 ---
 
-## 📈 ECO-2026-10-15-001: Transparent Hailo-10H Qwen2 Failover on Gemini Quota Exhaustion & VUI Calibration
-* **Stato:** ✅ **Completato, Testato (100% Pass) e Pronto per Deploy**
-* **Descrizione:** Risoluzione del mutismo/blocco ("Non riesco a connettermi al cervello") su quota Gemini esaurita (429) e calibrazione VUI anti-falsi risvegli da rumore ambientale.
+---
+
+## 📈 ECO-2026-10-15-002: Circuit Breaker Fast-Bypass, Qwen Latency Optimization & ROS Site-Packages Symlink Architecture
+* **Stato:** ✅ **Completato, Collaudato Live su Topic ROS 2 e Deployato**
+* **Descrizione:** Risoluzione del disallineamento silente tra codice sorgente e `install/site-packages` su Marcus (FM-SYS-010) e abbattimento dei tempi di latenza della risposta da >4.7s a 758ms (>84% di speedup) mediante bypass automatico del Cloud Circuit Breaker a favore di Qwen2 locale su NPU Hailo-10H.
 * **Modifiche apportate:**
-  * In `robopy_controller/robot_ai/orchestration/conversation.py`, integrati `HybridRouter` e `HailoQwenClient`. Introdotto routing diretto locale per comandi operativi e failover trasparente immediato su Qwen2 NPU in caso di errore 429 (`RESOURCE_EXHAUSTED`), timeout o disconnessione cloud.
-  * In `robopy_controller/robot_ai/services/llm_circuit_breaker.py`, introdotto fail-fast immediato su `spending cap`, `RESOURCE_EXHAUSTED` e `429` (zero retry bloccanti con delay fino a 18s).
-  * In `robopy_controller/robot_ai/services/llm_service.py`, rimosso il modello deprecato `gemini-2.0-flash` (che causava 404 NOT_FOUND) e sostituito con `gemini-2.5-flash`, con propagazione immediata dell'errore quota all'Arbiter.
-  * In `restart_hailo.sh` e `robopy_controller/nodes/respeaker_vui_node.py`, ricalibrati i parametri VUI: `wakeword_sensitivity` ridotta da 0.95 a 0.75, `listen_timeout_sec` ridotto da 20.0s a 6.0s, `stt_gain` ridotto da 2.2 a 1.3 con tetto massimo continuativo di ascolto a 12s per bloccare i loop innescati da audio TV.
-  * Creata test suite `tests/test_conversation_hybrid_failover.py` (2/2 PASS). Aggiornato `fmea/dfmea.yaml` con `FM-LLM-005` (RPN 144 -> 4).
+  * **Architettura Symlink Canonici su `site-packages`:** Rimosse le copie statiche orfane in `/mnt/ssd/robopy_controller_host/install/robopy_controller/lib/python3.11/site-packages/robopy_controller/` e creati symlink permanenti per `robot_ai` e `nodes` verso la radice sorgente. Aggiornati sia `restart_hailo.sh` che `sync_marcus.sh` per garantire e ripristinare automaticamente i symlink a ogni avvio o sincronizzazione.
+  * **Circuit Breaker Instant Trip & Fast-Bypass:** In `robopy_controller/robot_ai/services/llm_circuit_breaker.py`, impostato il passaggio immediato a stato `OPEN` con cooldown di 300s (5 minuti) al primo errore `RESOURCE_EXHAUSTED` / `spending cap` / `429`, evitando tentativi di retry a vuoto sul cloud.
+  * **Esposizione Proprietà su `LLMService`:** In `robopy_controller/robot_ai/services/llm_service.py`, esposta la property `@property def circuit_breaker` e impedito il fallback su modelli cloud secondari quando il breaker di progetto è già aperto.
+  * **Routing Diretto in `ConversationManager`:** In `robopy_controller/robot_ai/orchestration/conversation.py`, aggiunto il controllo immediato `if hasattr(self.llm, 'circuit_breaker') and self.llm.circuit_breaker.state == "OPEN":` all'inizio del processing, deviando la chiamata istantaneamente su `_handle_local_qwen` senza eseguire la lenta metaprompt fusion cloud né attendere risposte di rete.
+  * **Arresto Rapido di Emergenza:** In `_handle_emergency`, aggiunta la pubblicazione diretta su `response_callback`, garantendo che i comandi come `"Fermati subito"` ricevano risposta immediata su topic (`/ai/conversation/response`) e TTS in 278ms.
+  * **Collaudo Live su Marcus:** Validato con `tests/test_remote_chat.py` su `/robopy/conversation_rx`:
+    - Comandi operativi (`"Qual è lo stato della batteria?"`): **510ms** (funzione strutturata).
+    - Risposte conversazionali (`"Come ti chiami e cosa sai fare?"`): **758ms** (Qwen locale NPU).
+    - Arresto di sicurezza (`"Fermati subito"`): **278ms** (fast-path reattivo).
+  * **Documentazione & DFMEA:** Aggiunto `FM-SYS-010` in `fmea/dfmea.yaml` (RPN abbattuto da 192 a 4). Aggiornati `docs/lessons/dev_and_deployment.md` e `docs/lessons/llm_live_api.md`.
+
 
 
 

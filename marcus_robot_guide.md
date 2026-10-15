@@ -46,6 +46,7 @@ graph TB
         SCRFD["SCRFD Face Detection"]
         ARCF["ArcFace Face Recognition"]
         ECAPA["ECAPA-TDNN (Speaker Verification)"]
+        QWEN["Qwen2 LLM (Edge on Hailo-10H NPU)"]
     end
 
     subgraph "Cloud Services"
@@ -67,7 +68,8 @@ graph TB
     ORCH --> GRAPH
     ORCH --> SKILL
     SKILL --> MOT
-    ORCH --> GEMINI
+    ORCH <-->|Live Voice / Intent Arbiter| GEMINI
+    ORCH <-->|Edge Failover & Local Reasoning| QWEN
     ORCH --> DEEP
     US --> NAV
     LIDAR --> NAV
@@ -192,7 +194,7 @@ L'HAT Hardware Raspberry Pi AI HAT+ ospita una **Hailo-10 NPU** da 40 TOPS colle
 2. **SuperPoint:** Estrattore di feature visive puntiformi integrato nel driver della telecamera per l'odometria visuale C++.
 3. **NetVLAD (Backbone):** Modello di localizzazione globale (VPR) che permette al robot di riconoscere istantaneamente in quale stanza si trova. Il backbone di estrazione gira su NPU e il pooling (soft-assignment) viene eseguito in host CPU tramite NumPy/C++ per aggirare i limiti del compilatore, pubblicando descrittori a 4096 dimensioni su `/hailo/vpr/descriptor`.
 4. **SCRFD + ArcFace (Sprint 3):** Rilevamento dei volti ultra-veloce (SCRFD) e calcolo degli embedding di identificazione a 512 dimensioni (ArcFace) eseguiti in meno di 10ms su NPU.
-5. **Local VLM (Qwen2-VL) (Fase 3):** Vision-Language Model Qwen2-VL-1.5B integrato localmente tramite la suite Hailo GenAI, condividendo l'hardware con l'NPU bridge tramite un VDevice condiviso per consentire analisi visive ed esplorative completamente offline.
+5. **Local LLM & VLM (Qwen2 / Qwen2-VL su Hailo-10H NPU):** Modello di linguaggio e visione integrato localmente tramite la suite Hailo GenAI (`hailo_qwen_client.py`), condividendo l'hardware con l'NPU bridge per garantire operatività e dialogo conversazionale naturale anche in assenza di connessione Internet o quando le quote API cloud risultano temporaneamente esaurite.
 6. **ECAPA-TDNN (Speaker Verification):** Estrazione dell'impronta vocale (embedding 192-dim) per verificare chi sta parlando.
 7. **Requisiti Energetici Hardware (SPEC-06 / FM-PWR-002):** A pieno carico computazionale (NPU + OAK-D + SSD NVMe), il Raspberry Pi 5 richiede **5.10V - 5.25V @ 5A** continui (25W). L'alimentazione deve provenire da step-down sincrono tarato a 5.20V-5.25V collegato direttamente ai pin GPIO 2/4 (5V) e 6/9 (GND) con conduttori 18-20 AWG, per prevenire brownout del PMIC DA9091 causati dalla caduta resistiva dei cavi USB sottili.
 
@@ -222,15 +224,18 @@ Marcus combina tre paradigmi armonizzati di memoria e contesto gestiti dal motor
 
 ## 📈 Stato Attuale (Cosa funziona bene ora)
 
+* **Architettura Ibrida Cloud/Edge & Fast-Bypass (<1s):** Integrazione fluida e resiliente tra Gemini Live API in cloud e Qwen2 su NPU Hailo-10H on-device. In caso di esaurimento quota/spending cap Google Cloud (`429 RESOURCE_EXHAUSTED`), il Circuit Breaker entra istantaneamente in stato `OPEN` (cooldown 300s) e instrada direttamente le query a Qwen2 locale in **758 ms** (>84% di speedup rispetto a oltre 4.7s), senza mai lasciare Marcus muto o in stallo.
 * **Mappatura Semantica e YOLO Real-Time:** Integrazione end-to-end delle rilevazioni YOLO reali dell'NPU Hailo-10H con la costmap Nav2 e il mapper C++ (Visual Fusion), dotata di stima 3D geometrica thread-safe e temporal decay dinamico degli ostacoli.
 * **Riconoscimento Facciale Integrato:** Riconoscimento offline di estranei e persone della casa basato su NPU (SCRFD + ArcFace).
 * **Enrollment Dinamico VUI (Volto):** Dicendo *"Marcus, ti presento Edoardo"*, il robot avvia una sessione di cattura automatica del volto, calcola la media degli embedding estratti su NPU, crea un profilo `.npy` robusto e inizia immediatamente a riconoscere Edoardo nei frame successivi.
 * **Biometria Vocale (Speaker ID):** Riconoscimento dell'identità dell'utente semplicemente ascoltando la sua impronta vocale (192-dim embeddings), consentendo l'identificazione anche a robot di spalle.
 * **Enrollment Dinamico VUI (Voce):** Dicendo *"Marcus, registra la mia voce come Luca"*, il robot avvia la sessione di cattura accumulando segmenti audio puliti, mediando e normalizzando i vettori di embedding vocali per poi salvarli come impronta permanente `.npy`.
-* **Diagnostica Modelli Gemini & Fallback Locale Qwen NPU (`test_gemini_models.py`):** Script di supporto autonomo per verificare ed auto-scoprire i modelli Gemini per la Multimodal Live API (bidi-streaming con Native Audio). Previene blocchi dovuti a deprecazione o rinominamento dei modelli Cloud ed abilita il fallback automatico su Qwen2-VL (Hailo NPU).
-* **DSP Audio Robust:** Il filtro passa-banda e l'algoritmo di residuo catturano frasi pulite anche con rumore di fondo domestico o durante la riproduzione TTS.
+* **DSP Audio Robusto & Calibrazione Far-Field VUI:** Filtro passa-alto a 140 Hz per sopprimere il rumore ventola del Pi 5, pre-roll a 500ms, sensibilità wakeword tarata a 0.75, timeout ascolto a 6.0s e guadagno 1.3x che azzerano i falsi positivi da TV o rumori domestici.
 * **Bassi Consumi RAM/CPU:** LRU Cache ridotta a 64 vettori, uso di float16 reale, core pinning del bridge NPU sui core CPU 2 e 3 e limitazioni del contesto HA mantengono l'utilizzo di memoria stabilmente sotto il tetto critico dei 4GB.
-* **Affidabilità Testata:** Test suite automatica locale ed eseguita su Raspberry Pi con pytest e script specifici (`test_sprint3.py` e `test_sprint4.py`).
+* **Affidabilità e Tempi di Risposta Certificati su ROS 2:**
+  - Richieste operative e telemetria: **510 ms** (funzione diretta).
+  - Risposte conversazionali locali: **758 ms** (Qwen locale su Hailo NPU).
+  - Fast-Path arresto di sicurezza: **278 ms** (comandi "fermati subito").
 
 ---
 
@@ -320,4 +325,5 @@ La sincronizzazione tra macchina di sviluppo (PC) e robot (Raspberry Pi 5) è ge
 * **SSH Multiplexing (ControlMaster):** Una sola richiesta di password SSH per tutta la sessione.
 * **Anti-Flattening Guard (Back-Sync Robot ➔ PC):** Recupera preventivamente dal robot le abilità generate dall'IA (`skills/`), i log, i registri evolutivi (`docs/evolution/`) e la DFMEA (`fmea/dfmea.yaml`), impedendo che una modifica da PC cancelli il lavoro autonomo di Marcus.
 * **Forward-Sync Protetto (PC ➔ Robot):** Utilizza il flag `-u` (`--update`) per sincronizzare solo i file più recenti.
-* **Python Hot-Swap Istantaneo:** Sincronizza `nodes/`, `robot_ai/` e `launch/` direttamente nella cartella di installazione (`install/robopy_controller/lib/python3.x/site-packages/`), permettendo di testare le modifiche senza ricompilare il workspace.
+* **Python Hot-Swap Istantaneo & Symlink Canonici (FM-SYS-010):** Sincronizza `nodes/`, `robot_ai/` e `launch/` direttamente nella directory sorgente e assicura tramite `ln -sfn` che `install/robopy_controller/lib/python3.11/site-packages/robopy_controller/` punti direttamente ai sorgenti attivi. Questo elimina permanentemente il rischio di versioni orfane o statiche duplicate e garantisce l'applicazione istantanea al 100% di ogni modifica al riavvio del nodo.
+

@@ -204,20 +204,34 @@ sleep 1
 echo "⚙️ Starting waveshare_motor_driver..."
 # Auto-sync updated python nodes to install site-packages and lib directory for immediate deployment
 LIB_DEST="/mnt/ssd/robopy_controller_host/install/robopy_controller/lib/robopy_controller"
-SITE_DEST="/mnt/ssd/robopy_controller_host/install/robopy_controller/lib/python3.11/site-packages/robopy_controller/nodes"
-for node_file in waveshare_motor_driver.py semantic_costmap_injector.py frontier_explorer_node.py sensor_standby_manager.py robot_health_supervisor.py battery_manager_node.py; do
-    src_file="/mnt/ssd/robopy_controller_host/robopy_controller/nodes/$node_file"
+PKG_DEST="/mnt/ssd/robopy_controller_host/install/robopy_controller/lib/python3.11/site-packages/robopy_controller"
+SRC_DIR="/mnt/ssd/robopy_controller_host/robopy_controller"
+
+# Prevenzione FM-SYS-010: Assicura che robot_ai e nodes in site-packages siano symlink alla sorgente
+if [ -d "$SRC_DIR/robot_ai" ]; then
+    if [ ! -L "$PKG_DEST/robot_ai" ]; then
+        echo "🔗 [HOT-SWAP] Creazione symlink canonico per $PKG_DEST/robot_ai..."
+        rm -rf "$PKG_DEST/robot_ai"
+        ln -sfn "$SRC_DIR/robot_ai" "$PKG_DEST/robot_ai"
+    fi
+fi
+if [ -d "$SRC_DIR/nodes" ]; then
+    if [ ! -L "$PKG_DEST/nodes" ]; then
+        echo "🔗 [HOT-SWAP] Creazione symlink canonico per $PKG_DEST/nodes..."
+        rm -rf "$PKG_DEST/nodes"
+        ln -sfn "$SRC_DIR/nodes" "$PKG_DEST/nodes"
+    fi
+fi
+
+for node_file in waveshare_motor_driver.py semantic_costmap_injector.py frontier_explorer_node.py sensor_standby_manager.py robot_health_supervisor.py battery_manager_node.py respeaker_vui_node.py; do
+    src_file="$SRC_DIR/nodes/$node_file"
     if [ -f "$src_file" ]; then
-        cp -u "$src_file" "$SITE_DEST/$node_file" 2>/dev/null || true
         node_base="${node_file%.py}"
         cp -u "$src_file" "$LIB_DEST/$node_base" 2>/dev/null || true
         chmod +x "$LIB_DEST/$node_base" 2>/dev/null || true
-        sed -i 's/\r$//' "$LIB_DEST/$node_base" "$SITE_DEST/$node_file" 2>/dev/null || true
+        sed -i 's/\r$//' "$LIB_DEST/$node_base" 2>/dev/null || true
     fi
 done
-if [ -d "/mnt/ssd/robopy_controller_host/robopy_controller/robot_ai" ]; then
-    cp -ru /mnt/ssd/robopy_controller_host/robopy_controller/robot_ai /mnt/ssd/robopy_controller_host/install/robopy_controller/lib/python3.11/site-packages/robopy_controller/ 2>/dev/null || true
-fi
 > /home/robopy/robopy/logs/waveshare_motor_driver.log
 nohup ros2 run robopy_controller waveshare_motor_driver --ros-args \
     -p serial_port:=/dev/motor_driver \

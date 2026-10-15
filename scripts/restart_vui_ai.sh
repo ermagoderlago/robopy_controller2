@@ -17,10 +17,10 @@ echo "🎤 Avvio respeaker_vui_node con watchdog auto-recovery..."
 nohup ros2 run robopy_controller respeaker_vui_node --ros-args \
     -r __node:=respeaker_vui_node \
     -p use_sim_time:=False \
-    -p stt_gain:=2.2 \
+    -p stt_gain:=1.3 \
     -p noise_gate_threshold:=90.0 \
-    -p listen_timeout_sec:=20.0 \
-    -p wakeword_sensitivity:=0.95 \
+    -p listen_timeout_sec:=6.0 \
+    -p wakeword_sensitivity:=0.75 \
     -p enable_barge_in:=true \
     -p barge_in_min_tts_ms:=2500.0 \
     -p barge_in_min_frames:=10 \

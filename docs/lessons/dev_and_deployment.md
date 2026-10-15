@@ -188,3 +188,40 @@ source /mnt/ssd/robopy_controller_host/install/setup.bash 2>/dev/null
    - `robot_health_supervisor.py`: heartbeat throttle a 10 Hz (CPU da 16.4% a ~0.5%).
    - `waveshare_motor_driver.py`: bypass immediato a robot fermo (`motors_stopped=True`) e throttle a 40 Hz in moto.
 6. **Protezione Foxglove Bridge:** Lanciato con parametri difensivi `send_buffer_limit:=10000000`, `max_subscription_rate:=4.0` e `ignore_unresponsive_param_nodes:=true`.
+
+---
+
+## 🔄 Architettura Symlink Hot-Swap in `install/site-packages` e Prevenzione Discrepanze Orfane (FM-SYS-010)
+
+### Sintomo & Diagnosi del Guasto
+* **Sintomo:** Durante lo sviluppo e il collaudo remoto dei nodi Python (es. `robot_ai_node`, `respeaker_vui_node`, `conversation.py`), il codice sorgente modificato in `/mnt/ssd/robopy_controller_host/robopy_controller/` risultava perfettamente allineato al PC e su Git. Tuttavia, all'esecuzione dei comandi `ros2 run robopy_controller ...` o al lancio da `restart_hailo.sh`, il robot continuava a manifestare i vecchi bug (es. timeout di 20s, mancate risposte da Qwen, retry infiniti sul cloud) ignorando completamente il codice modificato.
+* **Causa Radice:**
+  1. **Directory Fisiche Duplicate in `install/`:** In una precedente invocazione di `colcon build` eseguita senza il flag `--symlink-install` (o con opzioni di copia statica), l'ambiente di build aveva duplicato fisicamente le cartelle `robot_ai` e `nodes` all'interno di:
+     `/mnt/ssd/robopy_controller_host/install/robopy_controller/lib/python3.11/site-packages/robopy_controller/`.
+  2. **Precedenza del PYTHONPATH in ROS 2:** Quando viene fatto il `source install/setup.bash`, ROS 2 prepone `install/.../site-packages` nel `sys.path`. Di conseguenza, qualsiasi import di `from robopy_controller.robot_ai...` o `from robopy_controller.nodes...` caricava i file Python congelati e orfani della directory di installazione, mascherando silenziosamente i sorgenti aggiornati.
+  3. **Falsa Sicurezza del Forward-Sync:** Lo script `sync_marcus.sh` eseguiva l'hot-swap copiando i singoli file modificati, ma se una nuova struttura o un refactoring non intercettava tutti i percorsi esatti, o se venivano compilate estensioni, le directory statiche orfane continuavano a generare divergenza.
+
+### Soluzione Architetturale Implementata
+1. **Architettura a Symlink Canonici Forzati:**
+   Le directory `nodes/` e `robot_ai/` dentro `install/robopy_controller/lib/python3.11/site-packages/robopy_controller/` NON devono mai essere cartelle fisiche indipendenti, ma collegamenti simbolici diretti (`ln -sfn`) alla radice sorgente attiva:
+   ```bash
+   SRC_ROOT="/mnt/ssd/robopy_controller_host/robopy_controller"
+   PKG_DEST="/mnt/ssd/robopy_controller_host/install/robopy_controller/lib/python3.11/site-packages/robopy_controller"
+   
+   rm -rf "$PKG_DEST/nodes" "$PKG_DEST/robot_ai"
+   ln -sfn "$SRC_ROOT/nodes" "$PKG_DEST/nodes"
+   ln -sfn "$SRC_ROOT/robot_ai" "$PKG_DEST/robot_ai"
+   ```
+2. **Auto-Riparazione Automatica in `restart_hailo.sh` e `sync_marcus.sh`:**
+   Sia lo script di avvio principale sul robot (`restart_hailo.sh`) che lo script di sincronizzazione dal PC (`sync_marcus.sh`) contengono ora un assertion check preventivo:
+   Se `$PKG_DEST/robot_ai` o `$PKG_DEST/nodes` esistono ma non sono symlink (`[ ! -L "$PKG_DEST/..." ]`), vengono automaticamente rimossi e ricreati come link simbolici verso `$SRC_ROOT`.
+3. **Verifica Permanente Post-Build / Post-Sync:**
+   È possibile verificare istantaneamente la salute dei symlink sul robot con:
+   ```bash
+   ls -la /mnt/ssd/robopy_controller_host/install/robopy_controller/lib/python3.11/site-packages/robopy_controller/
+   # Atteso:
+   # nodes -> /mnt/ssd/robopy_controller_host/robopy_controller/nodes
+   # robot_ai -> /mnt/ssd/robopy_controller_host/robopy_controller/robot_ai
+   ```
+4. **Impatto sul Processo di Sviluppo:**
+   Con i symlink integri, ogni modifica salvata nei sorgenti (o sincronizzata da Windows via `sync_marcus.sh` o rsync) è **immediatamente attiva al 100%** al riavvio del processo ROS 2, senza richiedere `colcon build` e con zero rischio di regressioni silenziose da versioni orfane.
