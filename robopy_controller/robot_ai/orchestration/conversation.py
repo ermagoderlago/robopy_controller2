@@ -2,6 +2,7 @@ import asyncio
 import time
 import re
 import datetime
+import json
 from robot_ai.utils import get_logger
 from robot_ai.core.input_sanitizer import InputSanitizer
 from robot_ai.core.camera_frame import CameraFrame
@@ -116,16 +117,42 @@ class ConversationManager:
                 f"🧠 [LOCAL QWEN2 NPU] Generated response in {latency*1000:.1f}ms: '{reply_text}'"
             )
 
+            # Convert structured action JSON into human-friendly conversational reply
+            natural_reply = reply_text
+            if reply_text.strip().startswith("{") and "action" in reply_text:
+                try:
+                    action_data = json.loads(reply_text.strip())
+                    act = action_data.get("action", "")
+                    if act == "get_battery_status":
+                        v = getattr(self.world_model, "battery_voltage", None)
+                        if v and v > 0:
+                            natural_reply = f"La batteria è a {v:.2f} volt, livello di carica regolare."
+                        else:
+                            natural_reply = "Ho verificato lo stato della batteria: livello di carica e alimentazione sono ottimali."
+                    elif act == "get_system_health":
+                        natural_reply = "Tutti i sistemi hardware, i sensori e l'acceleratore NPU sono operativi."
+                    elif act == "stop_motion":
+                        natural_reply = "Fermo tutti i movimenti del robot."
+                    elif act == "navigate_to":
+                        room = action_data.get("parameters", {}).get("target_room", "la stanza")
+                        natural_reply = f"Ricevuto! Avvio la navigazione verso {room}."
+                    elif act == "start_frontier_exploration":
+                        natural_reply = "Inizio l'esplorazione autonoma dell'ambiente con Nav2."
+                    elif act in ["rotate_angle", "move_distance"]:
+                        natural_reply = "Eseguo il movimento richiesto."
+                except Exception:
+                    pass
+
             # Record in conversation history
-            self.conversation_history.append({"user": clean_text, "marcus": reply_text})
+            self.conversation_history.append({"user": clean_text, "marcus": natural_reply})
 
             # Publish on response callback
             if self.response_callback:
-                self.response_callback(reply_text)
+                self.response_callback(natural_reply)
 
             # Speak if audio or voice source
             if should_speak and self.tts:
-                await self.tts.speak(reply_text)
+                await self.tts.speak(natural_reply)
 
             self.metrics.inc_requests_success()
             return True

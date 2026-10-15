@@ -498,18 +498,26 @@ class HailoQwenClient:
         elif any(w in lower for w in ["stato", "salute", "diagnostica", "health"]):
             text = '{"action": "get_system_health", "parameters": {}}'
         # Conversational & Greetings
-        elif any(w in lower for w in ["puoi parlare", "mi senti", "ci sei"]):
-            text = "Sì, ti sento! Sono attivo con l'elaborazione locale su NPU Hailo e pronto a dialogare."
-        elif any(w in lower for w in ["ciao", "buongiorno", "buonasera", "salve", "hey marcus", "ehi marcus"]):
-            text = "Ciao! Sono Marcus, sono qui e pronto ad aiutarti."
-        elif any(w in lower for w in ["chi sei", "presentati", "come ti chiami"]):
-            text = "Sono Marcus, il tuo robot rover intelligente equipaggiato con NPU Hailo-10H e ROS 2."
-        elif any(w in lower for w in ["come stai", "come va"]):
-            text = "Tutto bene! I miei sistemi e l'acceleratore NPU sono operativi al cento per cento."
-        elif any(w in lower for w in ["cosa puoi fare", "funzioni", "aiuto"]):
-            text = "Posso navigare per casa, controllare lo stato della batteria, esplorare con Nav2 e rispondere alle tue richieste."
+        elif any(w in lower for w in ["puoi parlare", "mi senti", "ci sei", "mi ascolti"]):
+            text = "Sì, ti sento perfettamente! Sono pronto a dialogare."
+        elif any(w in lower for w in ["ciao", "buongiorno", "buonasera", "salve", "hey marcus", "ehi marcus", "buondì"]):
+            text = "Ciao! Sono pronto, dimmi pure cosa posso fare per te."
+        elif any(w in lower for w in ["chi sei", "presentati", "come ti chiami", "tu chi sei", "qual è il tuo nome"]):
+            text = "Sono Marcus, il tuo robot rover intelligente equipaggiato con acceleratore NPU Hailo-10H e ROS 2. Come posso aiutarti?"
+        elif any(w in lower for w in ["come stai", "come va", "come ti senti", "tutto a posto"]):
+            text = "Tutto bene! I miei sistemi operativi e i moduli di percezione sono attivi al cento per cento."
+        elif any(w in lower for w in ["cosa sai fare", "cosa puoi fare", "che sai fare", "cosa fai", "funzioni", "abilità", "capacità", "aiuto", "help"]):
+            text = "Posso muovermi ed esplorare l'ambiente con Nav2 e LiDAR, mappare le stanze in 2.5D, riconoscere volti e oggetti con l'NPU Hailo-10H, monitorare la batteria ed eseguire comandi vocali."
+        elif any(w in lower for w in ["grazie", "grazie mille", "ti ringrazio", "bravo", "ottimo", "ben fatto", "thanks"]):
+            text = "Di nulla! È sempre un piacere esserti d'aiuto."
+        elif lower.strip() in ["ok", "va bene", "d'accordo", "perfetto", "ricevuto", "intesi", "bene", "yes", "sì", "si"]:
+            text = "D'accordo! Sono qui se hai bisogno."
+        elif any(w in lower for w in ["dove sei", "dove ti trovi", "in che stanza sei"]):
+            text = "Mi trovo nella mia posizione corrente sulla mappa. Posso effettuare una navigazione verso una stanza se desideri."
+        elif any(w in lower for w in ["meteo", "che tempo fa", "piove"]):
+            text = "Non ho accesso a internet per il meteo in questo momento, ma tutti i miei sensori di bordo sono attivi e funzionanti."
         else:
-            text = "Comando ricevuto ed elaborato con successo su Hailo-10H NPU."
+            text = "Ho compreso la tua richiesta! Dimmi pure se desideri che mi muova, controlli la batteria o inizi un'esplorazione."
 
         # Break text into realistic subword/word chunks
         words = text.split(" ")
