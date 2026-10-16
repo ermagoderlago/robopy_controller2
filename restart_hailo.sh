@@ -413,7 +413,7 @@ nohup ros2 run robopy_controller respeaker_vui_node --ros-args \
     -r __node:=respeaker_vui_node \
     -p use_sim_time:=False \
     -p stt_gain:=1.3 \
-    -p noise_gate_threshold:=90.0 \
+    -p noise_gate_threshold:=110.0 \
     -p listen_timeout_sec:=6.0 \
     -p wakeword_sensitivity:=0.75 \
     -p enable_barge_in:=true \
@@ -423,7 +423,7 @@ nohup ros2 run robopy_controller respeaker_vui_node --ros-args \
     -p enable_adaptive_silence:=true \
     -p playback_volume:=0.10 \
     -p enable_auto_volume:=false \
-    -p enable_audio_beeps:=true \
+    -p enable_audio_beeps:=false \
     -p diag_mode:=true \
     > /home/robopy/robopy/logs/respeaker_vui_node.log 2>&1 &
 

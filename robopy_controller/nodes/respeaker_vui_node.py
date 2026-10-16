@@ -174,7 +174,7 @@ class ReSpeakerVUINode(Node):
         self.playback_volume           = self.get_parameter('playback_volume').get_parameter_value().double_value
         self._base_playback_volume     = self.playback_volume
         self.enable_auto_volume        = self.get_parameter('enable_auto_volume').get_parameter_value().bool_value
-        self.declare_parameter('enable_audio_beeps', True) # [v19.5] Beep di notifica avvio e chiusura attivi
+        self.declare_parameter('enable_audio_beeps', False) # [v19.5] Default disattivato per silenzio operativo pulito
         self.enable_audio_beeps        = self.get_parameter('enable_audio_beeps').get_parameter_value().bool_value
 
         self._ambient_noise_ema = 300.0
@@ -521,6 +521,9 @@ class ReSpeakerVUINode(Node):
             elif p.name == 'diag_mode':
                 self._cfg_diag_mode = p.value
                 self.get_logger().info(f"Parametro diag_mode aggiornato a: {p.value}")
+            elif p.name == 'enable_audio_beeps':
+                self.enable_audio_beeps = p.value
+                self.get_logger().info(f"Parametro enable_audio_beeps aggiornato a: {p.value}")
         return SetParametersResult(successful=True)
 
     def _ensure_out_stream(self) -> bool:
@@ -804,16 +807,12 @@ class ReSpeakerVUINode(Node):
                     self._audio_out_queue.get_nowait()
                 except queue.Empty:
                     break
-            # Genera ed esegue un beep di disattivazione a due toni calanti
-            try:
-                beep_bytes = self._generate_beep(freq=600.0, duration=0.15) + self._generate_beep(freq=400.0, duration=0.15)
-                self._play_beep(beep_bytes)
-            except Exception:
-                pass
         else:
-            self._ev_listening.set()
-            self.set_led('LISTENING')
-            self._start_listen_timer()  # [FIX] Start auto-timeout when unmuted
+            # Unmute: abilita l'ascolto hardware passivo della wake word senza aprire
+            # forzatamente una finestra di conversazione attiva (gestita unicamente da _on_wakeword_detected)
+            self._stop_listen_timer()
+            self._ev_listening.clear()
+            self.set_led(self._current_mood)
 
     def _interrupt_cb(self, msg: Bool):
         if msg.data:
@@ -923,11 +922,22 @@ class ReSpeakerVUINode(Node):
 
     def _stop_listen_timer(self):
         if self._listen_timer is not None:
-            self._listen_timer.cancel()
+            try:
+                self._listen_timer.cancel()
+            except Exception:
+                pass
+            try:
+                self.destroy_timer(self._listen_timer)
+            except Exception:
+                pass
             self._listen_timer = None
 
-
     def _on_listen_timeout(self):
+        # Guard: se non siamo in ascolto attivo, il timer non deve fare nulla
+        if not self._ev_listening.is_set():
+            self._stop_listen_timer()
+            return
+
         now = time.monotonic()
         elapsed = now - getattr(self, '_listen_timer_start', now)
         session_elapsed = now - getattr(self, '_session_start_time', now)
@@ -941,15 +951,16 @@ class ReSpeakerVUINode(Node):
             self._listen_timer = self.create_timer(remaining, self._on_listen_timeout)
             return
 
-        self.get_logger().info(
-            f"🔔 Finestra conversazione di {self._listen_timeout_sec:.0f}s scaduta (durata totale: {session_elapsed:.1f}s, silenzio: {elapsed:.1f}s): Marcus emette beep di chiusura e torna in standby wakeword.")
         self._stop_listen_timer()
         self._ev_listening.clear()
+
+        self.get_logger().info(
+            f"🔔 Finestra conversazione di {self._listen_timeout_sec:.0f}s scaduta (durata totale: {session_elapsed:.1f}s, silenzio: {elapsed:.1f}s): Marcus torna in standby wakeword.")
 
         # [FM-VUI-043] A timeout scaduto, resetta lo stato VAD senza scatenare risposte spurie da Gemini
         if self.turn_manager.is_speech_active:
             self.turn_manager.reset_state()
-        # [v19.5] Beep di chiusura conversazione emesso dopo 30s di silenzio vocale
+        # [v19.5] Beep di chiusura conversazione emesso dopo silenzio vocale (se abilitato)
         if self.enable_audio_beeps and not self._is_tts_speaking and not getattr(self, '_is_playing_out', False):
             try:
                 chime_bytes = self._generate_beep(freq=600.0, duration=0.15) + self._generate_beep(freq=400.0, duration=0.15)
