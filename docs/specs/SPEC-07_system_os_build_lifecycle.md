@@ -4,6 +4,7 @@
 - **ID Specifica:** `SPEC-07`
 - **Ambito:** Gestione delle risorse fisiche del Raspberry Pi 5 (4GB RAM), disciplina del build system sequenziale, prevenzione dell'OOM Killer del kernel Linux, gestione del ciclo di vita dei nodi ROS 2 e salvaguardia del supporto SSD NVMe.
 - **Nodi & Moduli ROS 2:**
+  - `robopy_controller.nodes.marcus_supervisors_daemon` (Demone unificato che aggrega BatteryManager, RobotHealthSupervisor, SensorStandby, ResourceGovernor, CloudWatchdog, FoxgloveNav2Bridge in un unico processo ed entità DDS)
   - `robopy_controller.nodes.system_lifecycle_coordinator_node`
   - `robopy_controller.nodes.cloud_watchdog_node`
   - `robopy_controller.nodes.performance_monitor`
@@ -75,6 +76,8 @@ L'agente Antigravity può ottimizzare e ricalibrare autonomamente le seguenti co
 | **Target CMakeLists.txt** | Rimozione include ridondanti o librerie C++ non linkate | Riduzione tempi di build senza alterare i binari finali |
 | **Watchdog Heartbeat Rate** | Frequenza di ping telemetrico verso il cloud watchdog | Frequenza: $T_{ping} \in [5\text{ s}, 15\text{ s}]$; default: $10\text{ s}$ |
 | **Ottimizzazione Python Imports** | Lazy loading di librerie pesanti (es. torch, cv2, scipy) | Caricamento solo al primo utilizzo effettivo nel nodo |
+| **Routing Dati DDS Unicast** | `<AllowMulticast>spdp</AllowMulticast>` in CycloneDDS XML per isolare il payload dati su unicast | Discovery SPDP multicast preservata; dati indirizzati solo ai subscriber effettivi |
+| **Consolidamento Demone Supervisori** | Raggruppamento di nodi supervisori leggeri I/O-bound in un unico processo (`marcus_supervisors_daemon`) | Riduzione overhead memory footprint e discovery DDS inter-nodo |
 
 ---
 

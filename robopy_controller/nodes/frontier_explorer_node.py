@@ -451,12 +451,11 @@ class FrontierExplorerNode(Node):
             self.map_callback,
             map_qos
         )
-        self.odom_sub = self.create_subscription(
-            Odometry,
-            "/odom",
-            self.odom_callback,
-            10
-        )
+        # Dynamic subscriptions (only active when is_active is True to save Pi 5 CPU)
+        self.odom_sub = None
+        self.hailo_sub = None
+        self.vlm_sub = None
+
         self.motors_allowed_sub = self.create_subscription(
             Bool,
             "/mapping/motors_allowed",
@@ -475,20 +474,6 @@ class FrontierExplorerNode(Node):
             self.enable_callback,
             10
         )
-
-        if SemanticObjectArray is not None:
-            self.hailo_sub = self.create_subscription(
-                SemanticObjectArray,
-                "/hailo/semantic_objects",
-                self.semantic_objects_callback,
-                10
-            )
-            self.vlm_sub = self.create_subscription(
-                SemanticObjectArray,
-                "/hailo/vlm/semantic_objects",
-                self.semantic_objects_callback,
-                10
-            )
 
         # Publishers
         self.cmd_vel_pub = self.create_publisher(Twist, self.get_parameter("cmd_vel_topic").value, 10)
@@ -509,6 +494,43 @@ class FrontierExplorerNode(Node):
 
         self.get_logger().info("✅ FrontierExplorerNode con Bias Semantico & Anti-Loop inizializzato con successo.")
 
+    def _activate_subscriptions(self):
+        """Attiva le sottoscrizioni pesanti solo quando l'esplorazione è attiva (risparmio CPU Pi 5)."""
+        if self.odom_sub is None:
+            self.odom_sub = self.create_subscription(
+                Odometry,
+                "/odom",
+                self.odom_callback,
+                10
+            )
+        if SemanticObjectArray is not None:
+            if self.hailo_sub is None:
+                self.hailo_sub = self.create_subscription(
+                    SemanticObjectArray,
+                    "/hailo/semantic_objects",
+                    self.semantic_objects_callback,
+                    10
+                )
+            if self.vlm_sub is None:
+                self.vlm_sub = self.create_subscription(
+                    SemanticObjectArray,
+                    "/hailo/vlm/semantic_objects",
+                    self.semantic_objects_callback,
+                    10
+                )
+
+    def _deactivate_subscriptions(self):
+        """Distrugge le sottoscrizioni pesanti quando inattivo per azzerare i risvegli DDS e CPU."""
+        if self.odom_sub is not None:
+            self.destroy_subscription(self.odom_sub)
+            self.odom_sub = None
+        if self.hailo_sub is not None:
+            self.destroy_subscription(self.hailo_sub)
+            self.hailo_sub = None
+        if self.vlm_sub is not None:
+            self.destroy_subscription(self.vlm_sub)
+            self.vlm_sub = None
+
     def enable_callback(self, msg: Bool):
         """Attiva o disattiva l'esplorazione autonoma tramite topic /exploration/enable."""
         if msg.data:
@@ -516,10 +538,12 @@ class FrontierExplorerNode(Node):
                 self.get_logger().warn("Impossibile avviare esplorazione: /mapping/motors_allowed è False!")
                 return
             self.is_active = True
+            self._activate_subscriptions()
             self.get_logger().info("▶️ Frontier exploration attivata via /exploration/enable.")
             self._execute_evaluation_step()
         else:
             self.is_active = False
+            self._deactivate_subscriptions()
             if self.current_goal_handle is not None:
                 self.current_goal_handle.cancel_goal_async()
                 self.current_goal_handle = None
@@ -747,6 +771,7 @@ class FrontierExplorerNode(Node):
             self.get_logger().info(f"🏁 Exploration complete: {eval_res['reason']}. Stopping motors.")
             self.stop_robot_motors()
             self.is_active = False
+            self._deactivate_subscriptions()
         elif eval_res["status"] == "EXPLORING" and eval_res["selected_goal"]:
             if self.motors_allowed:
                 goal = eval_res["selected_goal"]
@@ -823,6 +848,7 @@ class FrontierExplorerNode(Node):
             response.message = "Exploration inhibited: motors not allowed by safety interlock."
             return response
         self.is_active = True
+        self._activate_subscriptions()
         self.get_logger().info("Frontier exploration started via service.")
         response.success = True
         response.message = "Exploration activated."
@@ -830,6 +856,7 @@ class FrontierExplorerNode(Node):
 
     def handle_stop(self, request, response):
         self.is_active = False
+        self._deactivate_subscriptions()
         if self.current_goal_handle is not None:
             self.current_goal_handle.cancel_goal_async()
             self.current_goal_handle = None

@@ -27,6 +27,7 @@ USE_AMCL="${USE_AMCL:-true}"
 ENABLE_WATCHDOG="${ENABLE_WATCHDOG:-false}"
 SOFT_START="${SOFT_START:-true}"
 TARGET_CPU_FREQ="${TARGET_CPU_FREQ:-2400000}"
+USE_UNIFIED_SUPERVISOR="${USE_UNIFIED_SUPERVISOR:-true}"
 if [ -z "$MAP_FILE" ]; then
     if [ -f "/mnt/ssd/maps/pianoterra2.yaml" ]; then
         MAP_FILE="/mnt/ssd/maps/pianoterra2.yaml"
@@ -86,6 +87,9 @@ for arg in "$@"; do
         --eco|--1.6ghz)
             TARGET_CPU_FREQ="1600000"
             ;;
+        --split-supervisors)
+            USE_UNIFIED_SUPERVISOR="false"
+            ;;
     esac
 done
 
@@ -120,6 +124,7 @@ cat << 'EOF' > /tmp/cyclonedds_robopy.xml
     <Domain id="any">
         <General>
             <NetworkInterfaceAddress>lo</NetworkInterfaceAddress>
+            <AllowMulticast>spdp</AllowMulticast>
         </General>
         <Discovery>
             <MaxAutoParticipantIndex>200</MaxAutoParticipantIndex>
@@ -149,6 +154,7 @@ pkill -9 -f robot_health_supervisor || true
 pkill -9 -f system_lifecycle_coordinator_node || true
 pkill -9 -f attention_supervisor_node || true
 pkill -9 -f localization_fuser_node || true
+pkill -9 -f marcus_supervisors_daemon || true
 pkill -9 -f battery_manager_node || true
 pkill -9 -f cloud_watchdog_node || true
 pkill -9 -f speaker_id_node || true
@@ -160,6 +166,7 @@ pkill -9 -f frontier_explorer_node || true
 pkill -9 -f vpr_topological_graph_node || true
 pkill -9 -f sensor_standby_manager || true
 pkill -9 -f robot_state_publisher || true
+pkill -9 -f static_transform_publisher || true
 
 # Kill camera & navigation nodes
 pkill -9 -f sllidar_node || true
@@ -262,48 +269,11 @@ nohup ros2 run robot_state_publisher robot_state_publisher /mnt/ssd/robopy_contr
     --ros-args -p publish_frequency:=5.0 \
     > /home/robopy/robopy/logs/robot_state_publisher.log 2>&1 &
 
-echo "📐 Starting CAD static TF publishers (OAK-D Lite 8° pitch UP, Z=0.2616m, RPLIDAR C1 Z=0.18m, yaw 180°)..."
-nohup ros2 run tf2_ros static_transform_publisher \
-  --x 0.08 --y 0.0 --z 0.18 \
-  --roll 0.0 --pitch 0.0 --yaw 3.14159265 \
-  --frame-id base_link --child-frame-id laser \
-  > /home/robopy/robopy/logs/tf_laser.log 2>&1 &
-
-nohup ros2 run tf2_ros static_transform_publisher \
-  --x 0.0332 --y 0.0 --z 0.2616 \
-  --roll 0.0 --pitch -0.1396 --yaw 0.0 \
-  --frame-id base_link --child-frame-id oak_camera_link \
-  > /home/robopy/robopy/logs/tf_camera.log 2>&1 &
-
-nohup ros2 run tf2_ros static_transform_publisher \
-  --x 0.0 --y 0.0 --z 0.0 \
-  --roll 0.0 --pitch 0.0 --yaw 0.0 \
-  --frame-id oak_camera_link --child-frame-id oak_imu_frame \
-  > /home/robopy/robopy/logs/tf_imu.log 2>&1 &
-
-nohup ros2 run tf2_ros static_transform_publisher \
-  --x 0.0 --y 0.0 --z 0.0 \
-  --roll -1.5708 --pitch 0.0 --yaw -1.5708 \
-  --frame-id oak_camera_link --child-frame-id camera_optical_frame \
-  > /home/robopy/robopy/logs/tf_camera_opt.log 2>&1 &
-
-nohup ros2 run tf2_ros static_transform_publisher \
-  --x 0.0 --y 0.0 --z 0.0 \
-  --roll -1.5708 --pitch 0.0 --yaw -1.5708 \
-  --frame-id oak_camera_link --child-frame-id oak_left_camera_optical_frame \
-  > /home/robopy/robopy/logs/tf_camera_oak_left.log 2>&1 &
-
-nohup ros2 run tf2_ros static_transform_publisher \
-  --x 0.12 --y 0.0 --z 0.05 \
-  --roll 0.0 --pitch 0.0 --yaw 0.0 \
-  --frame-id base_link --child-frame-id ultrasonic_sensor \
-  > /home/robopy/robopy/logs/tf_ultrasonic.log 2>&1 &
-
-nohup ros2 run tf2_ros static_transform_publisher \
-  --x 0.0 --y 0.0 --z 0.05 \
-  --roll 0.0 --pitch 0.0 --yaw 0.0 \
-  --frame-id base_link --child-frame-id chassis_imu_link \
-  > /home/robopy/robopy/logs/tf_chassis_imu.log 2>&1 &
+# [FASE 3 OPT] I 7 trasformi statici CAD (laser, oak_camera_link, oak_imu_frame,
+# camera_optical_frame, oak_left_camera_optical_frame, ultrasonic_sensor, chassis_imu_link)
+# sono già definiti con le esatte coordinate e orientamenti dentro /mnt/ssd/robopy_controller_host/urdf/robopy.urdf.
+# robot_state_publisher sopra li pubblica nativamente su /tf_static con TRANSIENT_LOCAL.
+# La rimozione di questi 7 processi C++ separati libera immediatamente 13.4% CPU e 330 MB RAM.
 
 echo "👁️ Starting FastFlow C++ VIO Node..."
 > /home/robopy/robopy/logs/fast_flow_vo.log
@@ -448,24 +418,32 @@ fi
 # echo "🛡️ Starting localization_fuser_node (Dedicated EKF/VIO Fuser)..."
 # nohup ros2 run robopy_controller localization_fuser_node --ros-args -p publish_tf:=False > /home/robopy/robopy/logs/localization_fuser_node.log 2>&1 &
 
-echo "🚑 Starting robot_health_supervisor (System Health & Safety)..."
-> /home/robopy/robopy/logs/robot_health_supervisor.log
-nohup ros2 run robopy_controller robot_health_supervisor \
-    > /home/robopy/robopy/logs/robot_health_supervisor.log 2>&1 &
+if [ "$USE_UNIFIED_SUPERVISOR" = "true" ]; then
+    echo "🛡️ Starting marcus_supervisors_daemon (Phase 4 Consolidated Supervisors)..."
+    > /home/robopy/robopy/logs/marcus_supervisors_daemon.log
+    nohup python3 -u /mnt/ssd/robopy_controller_host/robopy_controller/nodes/marcus_supervisors_daemon.py \
+        --ros-args --params-file /mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_controller/config/battery_params.yaml \
+        > /home/robopy/robopy/logs/marcus_supervisors_daemon.log 2>&1 &
+else
+    echo "🚑 Starting robot_health_supervisor (System Health & Safety)..."
+    > /home/robopy/robopy/logs/robot_health_supervisor.log
+    nohup ros2 run robopy_controller robot_health_supervisor \
+        > /home/robopy/robopy/logs/robot_health_supervisor.log 2>&1 &
 
-echo "🔋 Starting battery_manager_node (BMS & Anti-Sag Supervisor)..."
-> /home/robopy/robopy/logs/battery_manager_node.log
-nohup ros2 run robopy_controller battery_manager_node --ros-args \
-    --params-file /mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_controller/config/battery_params.yaml \
-    > /home/robopy/robopy/logs/battery_manager_node.log 2>&1 &
+    echo "🔋 Starting battery_manager_node (BMS & Anti-Sag Supervisor)..."
+    > /home/robopy/robopy/logs/battery_manager_node.log
+    nohup ros2 run robopy_controller battery_manager_node --ros-args \
+        --params-file /mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_controller/config/battery_params.yaml \
+        > /home/robopy/robopy/logs/battery_manager_node.log 2>&1 &
 
-echo "💤 Starting sensor_standby_manager (Smart Standby & Sensor Power-Save)..."
-> /home/robopy/robopy/logs/sensor_standby_manager.log
-nohup ros2 run robopy_controller sensor_standby_manager --ros-args \
-    -p idle_timeout_sec:=1800.0 \
-    -p imu_accel_threshold:=0.35 \
-    -p imu_gyro_threshold:=0.15 \
-    </dev/null > /home/robopy/robopy/logs/sensor_standby_manager.log 2>&1 &
+    echo "💤 Starting sensor_standby_manager (Smart Standby & Sensor Power-Save)..."
+    > /home/robopy/robopy/logs/sensor_standby_manager.log
+    nohup ros2 run robopy_controller sensor_standby_manager --ros-args \
+        -p idle_timeout_sec:=1800.0 \
+        -p imu_accel_threshold:=0.35 \
+        -p imu_gyro_threshold:=0.15 \
+        </dev/null > /home/robopy/robopy/logs/sensor_standby_manager.log 2>&1 &
+fi
 
 echo "⚠️ Starting attention_supervisor_node (Context/CPU Switching)..."
 > /home/robopy/robopy/logs/attention_supervisor_node.log
@@ -483,11 +461,13 @@ if [ "$ENABLE_HAILO" = "true" ]; then
     nohup ros2 run robopy_controller multimodal_identity_node \
         > /home/robopy/robopy/logs/multimodal_identity_node.log 2>&1 &
 
-    echo "⚖️ Starting resource_governor_node (Dynamic Resource Governor F4 Shadow Mode)..."
-    > /home/robopy/robopy/logs/resource_governor_node.log
-    nohup ros2 run robopy_controller resource_governor_node \
-        --ros-args -p shadow_mode:=true \
-        > /home/robopy/robopy/logs/resource_governor_node.log 2>&1 &
+    if [ "$USE_UNIFIED_SUPERVISOR" != "true" ]; then
+        echo "⚖️ Starting resource_governor_node (Dynamic Resource Governor F4 Shadow Mode)..."
+        > /home/robopy/robopy/logs/resource_governor_node.log
+        nohup ros2 run robopy_controller resource_governor_node \
+            --ros-args -p shadow_mode:=true \
+            > /home/robopy/robopy/logs/resource_governor_node.log 2>&1 &
+    fi
 else
     echo "💤 [POWER-SAFE] Salto avvio speaker_id_node (ENABLE_HAILO=false)."
 fi
@@ -508,10 +488,12 @@ echo "👥 Starting engagement_monitor (HRI Gaze/Prossemic)..."
 nohup ros2 run robopy_controller engagement_monitor \
     > /home/robopy/robopy/logs/engagement_monitor.log 2>&1 &
 
-echo "🌐 Starting cloud_watchdog_node (Local NPU vs Cloud Fallback)..."
-> /home/robopy/robopy/logs/cloud_watchdog_node.log
-nohup ros2 run robopy_controller cloud_watchdog_node \
-    > /home/robopy/robopy/logs/cloud_watchdog_node.log 2>&1 &
+if [ "$USE_UNIFIED_SUPERVISOR" != "true" ]; then
+    echo "🌐 Starting cloud_watchdog_node (Local NPU vs Cloud Fallback)..."
+    > /home/robopy/robopy/logs/cloud_watchdog_node.log
+    nohup ros2 run robopy_controller cloud_watchdog_node \
+        > /home/robopy/robopy/logs/cloud_watchdog_node.log 2>&1 &
+fi
 
 echo "🛡️ Starting system_lifecycle_coordinator_node (Memory Pressure Sentinel & Lifecycle)..."
 > /home/robopy/robopy/logs/system_lifecycle_coordinator_node.log
@@ -528,10 +510,12 @@ nohup taskset -c 0,1 nice -n 10 ros2 run foxglove_bridge foxglove_bridge --ros-a
     -p use_compression:=false \
     > /home/robopy/robopy/logs/foxglove_bridge.log 2>&1 &
 
-echo "🌉 Starting foxglove_nav2_bridge..."
-> /home/robopy/robopy/logs/foxglove_nav2_bridge.log
-nohup ros2 run robopy_controller foxglove_nav2_bridge \
-    > /home/robopy/robopy/logs/foxglove_nav2_bridge.log 2>&1 &
+if [ "$USE_UNIFIED_SUPERVISOR" != "true" ]; then
+    echo "🌉 Starting foxglove_nav2_bridge..."
+    > /home/robopy/robopy/logs/foxglove_nav2_bridge.log
+    nohup ros2 run robopy_controller foxglove_nav2_bridge \
+        > /home/robopy/robopy/logs/foxglove_nav2_bridge.log 2>&1 &
+fi
 
 echo "🔵 Starting bluedot_node..."
 > /home/robopy/robopy/logs/bluedot_node.log

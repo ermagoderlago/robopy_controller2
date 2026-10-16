@@ -37,7 +37,7 @@ class ResourceGovernorNode(Node):
         super().__init__('resource_governor_node')
 
         self.declare_parameter('shadow_mode', True)
-        self.declare_parameter('cycle_rate_hz', 10.0)
+        self.declare_parameter('cycle_rate_hz', 2.0)
         self.declare_parameter('idle_dock_timeout_s', 180.0)
 
         self.shadow_mode = self.get_parameter('shadow_mode').get_parameter_value().bool_value

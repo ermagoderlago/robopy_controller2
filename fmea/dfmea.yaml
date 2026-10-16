@@ -9501,3 +9501,50 @@
       e persistenza SQLite WAL per Qwen2 locale (RPN 126 -> 7).
     rpn_old: 126
     rpn_new: 7
+- id: FM-SYS-012
+  subsystem: System/Host
+  component: cyclonedds / nav2 / python_supervisors
+  function: Controllo del carico computazionale CPU host Raspberry Pi 5 a riposo e
+    sotto carico
+  failure_mode: Saturazione globale CPU (377% su 400%) a robot fermo causata da inondazione
+    loopback multicast DDS, bond heartbeats Nav2 (800 msg/s), waitset rebuild rclpy
+    e proliferazione micro-nodi
+  potential_cause: Configurazione CycloneDDS con multicast totale su interfaccia lo,
+    Nav2 bond_timeout=120.0s attivo, 7 static_transform_publisher C++ separati e 10
+    micro-nodi Python distinti svegliati ad alta frequenza da odom e battery
+  potential_effect: Thermal throttling CPU, innalzamento temperatura oltre 75C, latenza
+    di scheduling per speech VUI e jitter cinematico
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-SYS-008
+  - FM-SYS-011
+  initial_scoring:
+    severity: 8
+    occurrence: 9
+    detection: 2
+    rpn: 144
+  prevention_controls: CycloneDDS AllowMulticast=spdp (unicast data), Nav2 bond_timeout=0.0s,
+    rimozione 7 static_transform_publisher ridondanti tramite urdf/robopy.urdf, throttling
+    odom/battery a fermo e unificazione supervisori in marcus_supervisors_daemon
+  detection_controls: Script di profiling live cpu_top36.py, topic_hz_light.py e telemetria
+    top
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Implementazione Fasi 1-4 di ottimizzazione globale CPU/RAM
+  verification_method: Profiling live post-deploy su marcus con cpu_top36.py e topic_hz_light.py
+  eco_ref: docs/ecos/system_ecos.md#ECO-2026-10-16-003
+  lesson_ref: docs/lessons/dev_and_deployment.md#lezione-cpu-dds-nav2-micro-nodes
+  date_identified: '2026-10-16'
+  last_updated: '2026-10-16'
+  history:
+  - date: '2026-10-16'
+    change: Implementato piano a 4 fasi (CycloneDDS unicast, bond 0.0, urdf static
+      TF, publisher throttling, marcus_supervisors_daemon) (RPN 144 -> 8).
+    rpn_old: 144
+    rpn_new: 8

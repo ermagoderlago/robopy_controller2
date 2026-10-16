@@ -73,9 +73,10 @@ class SensorStandbyManager(Node):
         self.power_state_pub = self.create_publisher(String, '/robot/sensor_power_state', 10)
         
         # --- Subscribers ---
-        self.create_subscription(Imu, '/oak/imu/data', self.imu_callback, 10, callback_group=self.callback_group)
+        # IMU subscription is dynamic: active only in STANDBY to detect external shocks (saving 37.3 Hz wakeups)
+        self.imu_sub = None
         self.create_subscription(Twist, '/cmd_vel', self.cmd_vel_callback, 10, callback_group=self.callback_group)
-        self.create_subscription(Odometry, '/odom_wheel', self.odom_callback, 10, callback_group=self.callback_group)
+        self.create_subscription(Odometry, '/odom', self.odom_callback, 10, callback_group=self.callback_group)
         self.create_subscription(LaserScan, '/scan', self.scan_callback, 10, callback_group=self.callback_group)
         self.create_subscription(BatteryState, '/battery_state', self.battery_callback, 10, callback_group=self.callback_group)
         # [v2.0] Docking trigger: ferma lidar IMMEDIATAMENTE al rientro alla base di ricarica
@@ -264,6 +265,12 @@ class SensorStandbyManager(Node):
         self.get_logger().info("💤 Entering Smart Standby (Docked Idle): stopping LiDAR and pausing RTAB-Map...")
         self.state = 'STANDBY'
         
+        # Subscribe to IMU during STANDBY to catch external knocks/bumps
+        if self.imu_sub is None:
+            self.imu_sub = self.create_subscription(
+                Imu, '/oak/imu/data', self.imu_callback, 10, callback_group=self.callback_group
+            )
+
         # Lock wheels
         self.publish_motion_gate(False, force=True)
         self.publish_power_state("STANDBY")
@@ -281,6 +288,11 @@ class SensorStandbyManager(Node):
         self.wake_start_time = time.time()
         self.wake_scans_count = 0
         
+        # Destroy IMU subscription during active state to save 37.3 Hz CPU
+        if self.imu_sub is not None:
+            self.destroy_subscription(self.imu_sub)
+            self.imu_sub = None
+
         # Ensure wheels remain locked during spin-up
         self.publish_motion_gate(False, force=True)
         self.publish_power_state("WAKING_UP")

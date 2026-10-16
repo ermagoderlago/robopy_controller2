@@ -119,12 +119,16 @@ class SemanticCostmapInjector(Node):
             Bool, '/semantic_costmap/clear', self.clear_obstacles_callback, qos_reliable
         )
 
-        # Depth image subscription (for negative obstacles and 3D deprojection)
-        self.sub_depth = self.create_subscription(
-            Image, self.depth_topic, self.depth_callback, qos_best_effort
-        )
+        # Depth image subscription (lazy: only if negative obstacles enabled or 3D deprojection required)
+        self.sub_depth = None
+        self.qos_best_effort = qos_best_effort
         if self.enable_negative_obstacles:
+            self.sub_depth = self.create_subscription(
+                Image, self.depth_topic, self.depth_callback, qos_best_effort
+            )
             self.get_logger().info(f"Rilevamento ostacoli negativi (FM-NAV-009) attivo sul topic {self.depth_topic}")
+        else:
+            self.get_logger().info("Depth subscription sospesa: ostacoli 3D consumati direttamente da Hailo NPU.")
 
         # Publishers
         self.pub_point_cloud = self.create_publisher(
@@ -207,6 +211,10 @@ class SemanticCostmapInjector(Node):
                     pt_cam.point = centroid
                 else:
                     # Deproject 2D bbox center using latest depth map
+                    if self.sub_depth is None:
+                        self.sub_depth = self.create_subscription(
+                            Image, self.depth_topic, self.depth_callback, self.qos_best_effort
+                        )
                     with self.depth_lock:
                         if self.latest_depth_map is None:
                             continue

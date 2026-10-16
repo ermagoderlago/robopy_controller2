@@ -46,7 +46,7 @@ class MultimodalIdentityNode(Node):
         self.declare_parameter('max_track_staleness_sec', 3.0)
         self.declare_parameter('face_confidence_threshold', 0.72)
         self.declare_parameter('voice_confidence_threshold', 0.70)
-        self.declare_parameter('publish_rate_hz', 10.0)
+        self.declare_parameter('publish_rate_hz', 2.0)
 
         camera_hfov = self.get_parameter('camera_hfov_deg').value
         max_staleness = self.get_parameter('max_track_staleness_sec').value
@@ -270,6 +270,18 @@ class MultimodalIdentityNode(Node):
     def timer_callback(self):
         """Periodic fusion cycle and telemetry broadcast."""
         active_person, all_persons = self.tracker.fuse_and_get_active_identities()
+
+        now = time.time()
+        has_person = (active_person is not None) or (len(all_persons) > 0)
+        last_pub = getattr(self, '_last_telemetry_pub_time', 0.0)
+        had_person = getattr(self, '_had_person', False)
+
+        if not has_person:
+            # If nobody is around, throttle telemetry publishing to 1 Hz
+            if not had_person and (now - last_pub) < 1.0:
+                return
+        self._had_person = has_person
+        self._last_telemetry_pub_time = now
 
         if active_person:
             # Active person name

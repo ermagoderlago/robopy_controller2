@@ -46,6 +46,8 @@ setup(
             "destructive_confirmation_gate = robopy_controller.robot_ai.core.destructive_confirmation_gate:main",
             # === Milestone 5: Hierarchical Hybrid Navigation & Target Seeking ===
             "hybrid_target_seeker = robopy_controller.nodes.hybrid_target_seeker:main",
+            # === Phase 4 Supervisor Daemon (RAM & CPU Consolidation) ===
+            "marcus_supervisors_daemon = robopy_controller.nodes.marcus_supervisors_daemon:main",
         ],
     },
 )

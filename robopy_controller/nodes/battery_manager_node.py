@@ -92,7 +92,7 @@ class BatteryManagerNode(Node):
         self.declare_parameter('post_dock_min_voltage', 12.45)       # Tensione minima OCV per carica verificata (~95% SoC)
 
         self.declare_parameter('filter_window_size', 20)
-        self.declare_parameter('sample_rate_hz', 5.0)
+        self.declare_parameter('sample_rate_hz', 2.0)
         self.declare_parameter('persistence_sec', 2.0)
         self.declare_parameter('speed_limit_eco_pct', 50.0)
         self.declare_parameter('auto_poweroff', True)               # Abilitato per spegnimento controllato a 9.85V
@@ -222,8 +222,6 @@ class BatteryManagerNode(Node):
 
         # --- Subscribers ---
         self.create_subscription(BatteryState, self.raw_voltage_topic, self._raw_battery_state_cb, qos_sensor)
-        self.create_subscription(Float32, '/battery/raw_voltage', self._raw_float_cb, qos_sensor)
-        self.create_subscription(BatteryState, '/battery_state_raw', self._raw_battery_state_cb, qos_sensor)
 
         # --- Timer Ciclo di Controllo & Pubblicazione ---
         timer_period = 1.0 / max(self.sample_rate_hz, 1.0)

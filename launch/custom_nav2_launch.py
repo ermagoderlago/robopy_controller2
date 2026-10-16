@@ -175,7 +175,7 @@ def generate_launch_description():
                 parameters=[
                     {'autostart': autostart},
                     {'node_names': ['map_server', 'amcl']},
-                    {'bond_timeout': 120.0},
+                    {'bond_timeout': 0.0},
                     {'bond_disable_heartbeat_timeout': True},
                 ],
             ),
@@ -243,7 +243,7 @@ def generate_launch_description():
                 parameters=[
                     {'autostart': autostart},
                     {'node_names': lifecycle_nodes},
-                    {'bond_timeout': 120.0},
+                    {'bond_timeout': 0.0},
                     {'bond_disable_heartbeat_timeout': True},
                 ],
             ),
@@ -290,7 +290,12 @@ def generate_launch_description():
                         plugin='nav2_lifecycle_manager::LifecycleManager',
                         name='lifecycle_manager_navigation',
                         parameters=[
-                            {'autostart': autostart, 'node_names': lifecycle_nodes}
+                            {
+                                'autostart': autostart,
+                                'node_names': lifecycle_nodes,
+                                'bond_timeout': 0.0,
+                                'bond_disable_heartbeat_timeout': True,
+                            }
                         ],
                     ),
                 ],

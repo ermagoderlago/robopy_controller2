@@ -225,3 +225,21 @@ source /mnt/ssd/robopy_controller_host/install/setup.bash 2>/dev/null
    ```
 4. **Impatto sul Processo di Sviluppo:**
    Con i symlink integri, ogni modifica salvata nei sorgenti (o sincronizzata da Windows via `sync_marcus.sh` o rsync) è **immediatamente attiva al 100%** al riavvio del processo ROS 2, senza richiedere `colcon build` e con zero rischio di regressioni silenziose da versioni orfane.
+
+---
+
+## ⚡ Ottimizzazione Globale Carico CPU & RAM (FM-SYS-012)
+
+* **Problema:** A robot fermo (`STATIONARY`), il carico CPU su Raspberry Pi 5 Cortex-A76 raggiungeva il **377% su 400%** (quasi 4 core saturi) con Load Average > 35 e `Sys` CPU all'81.8%, nonostante i grandi nodi C++/AI consumassero meno di 90% complessivo.
+* **Cause Radice Individuate (via `cProfile`, `strace`, `gdb`):**
+  1. **CycloneDDS Loopback Multicast Flooding:** L'impostazione di default di CycloneDDS trasmetteva tutti i dati dei topic video (`/rgb/image`, `/camera/depth/image_raw` a frammenti UDP da 13.5KB) all'indirizzo multicast `239.255.0.1:17901`. Il kernel clonava ogni frammento sui socket `recvMC` di tutti i 38 processi ROS 2 (generando ~1.500 `recvmsg()`/s a vuoto su ciascun processo).
+  2. **Nav2 `/bond` Heartbeat Storm:** `bond_timeout: 120.0` generava una frequenza di 57.2 Hz con 14 publisher/subscriber (800.9 msg/s consegnati), costringendo i 9 nodi Nav2 (`lifecycle_manager_navigation`, `map_server`, ecc.) a risvegli e ricostruzioni continue del `WaitSet`.
+  3. **Overhead di Ricostruzione WaitSet in `rclpy` Jazzy:** In ROS 2 Jazzy, ogni sveglia da `rcl_wait` distrugge e ricrea il WaitSet DDS iterando sugli EventHandler QoS (81.000 chiamate/s in un nodo a 55 Hz). Il falso throttling dentro i callback (`if now - last < dt: return`) non previene il risveglio DDS né la deserializzazione dei messaggi in Python.
+  4. **Duplicazione di 7 Processi `static_transform_publisher`:** 7 trasformi statici CAD erano lanciati come processi separati in `restart_hailo.sh` nonostante fossero già definiti al 100% dentro `urdf/robopy.urdf` e pubblicati da `robot_state_publisher` con `TRANSIENT_LOCAL`.
+  5. **Frammentazione di 10 Micro-Nodi Python:** 10 interpreti e 10 partecipanti DDS indipendenti consumavano ~550 MB RAM e duplicavano le sottoscrizioni a `/odom` e `/battery`.
+* **Soluzione Architetturale a 4 Fasi:**
+  1. **Fase 1 (DDS & Nav2):** Configurato `<AllowMulticast>spdp</AllowMulticast>` in `restart_hailo.sh` (multicast limitato al solo discovery SPDP, traffico dati su Unicast punto-punto ai soli veri subscriber) e `bond_timeout: 0.0` in `custom_nav2_launch.py`.
+  2. **Fase 2 (Publisher-Side Throttling & Lazy Subs):** Throttling di `/battery/raw` a 2 Hz e di `/odom` a 5 Hz a robot fermo in `waveshare_motor_driver.py`; rimozione doppie sottoscrizioni in `battery_manager_node.py`; disiscrizione dinamica a riposo in `frontier_explorer_node.py`; de-sottoscrizione da depth continuo in `semantic_costmap_injector.py`; rate-limiting a 2 Hz in `resource_governor_node.py` e `multimodal_identity_node.py`; dinamizzazione IMU in `sensor_standby_manager.py`.
+  3. **Fase 3 (Consolidamento URDF TF):** Rimossi i 7 processi `static_transform_publisher` da `restart_hailo.sh`, delegando la pubblicazione interamente a `robot_state_publisher` su `robopy.urdf` (-13.4% CPU, -330 MB RAM).
+  4. **Fase 4 (Demone Supervisori Unificato):** Creato `robopy_controller/nodes/marcus_supervisors_daemon.py` che orchestra in un unico processo ed un unico partecipante DDS i 6 micro-nodi di supervisione (`battery_manager`, `robot_health`, `sensor_standby`, `resource_governor`, `cloud_watchdog`, `foxglove_bridge`), risparmiando ~300 MB RAM e ~35% CPU.
+

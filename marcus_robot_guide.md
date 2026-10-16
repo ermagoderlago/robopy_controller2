@@ -34,6 +34,7 @@ graph TB
         SAS["skill_action_server (Preemptable Actions)"]
         ORCH["AI Orchestrator (robot_ai_node)"]
         SENTINEL["Lifecycle Coordinator & Memory Sentinel"]
+        DAEMON["Supervisors Daemon (Battery, Standby, Governor, Watchdog)"]
         RAG["ChromaNative Store (Memory)"]
         GRAPH["Cognitive Graph (Dopamine State)"]
         SKILL["Skill Registry (HA, Nav, Alarm, Email, Search)"]
@@ -232,6 +233,7 @@ Marcus combina tre paradigmi armonizzati di memoria e contesto gestiti dal motor
 * **Enrollment Dinamico VUI (Voce):** Dicendo *"Marcus, registra la mia voce come Luca"*, il robot avvia la sessione di cattura accumulando segmenti audio puliti, mediando e normalizzando i vettori di embedding vocali per poi salvarli come impronta permanente `.npy`.
 * **DSP Audio Robusto & Calibrazione Far-Field VUI:** Filtro passa-alto a 140 Hz per sopprimere il rumore ventola del Pi 5, pre-roll a 500ms, sensibilità wakeword tarata a 0.75, timeout ascolto a 6.0s e guadagno 1.3x che azzerano i falsi positivi da TV o rumori domestici.
 * **Bassi Consumi RAM/CPU:** LRU Cache ridotta a 64 vettori, uso di float16 reale, core pinning del bridge NPU sui core CPU 2 e 3 e limitazioni del contesto HA mantengono l'utilizzo di memoria stabilmente sotto il tetto critico dei 4GB.
+* **Ottimizzazione CPU & Kernel Sys (4-Phase Optimization):** Isolamento Unicast CycloneDDS (`<AllowMulticast>spdp</AllowMulticast>`) che riduce la CPU di sistema dal 81.8% al 31.7%; demone unificato `marcus_supervisors_daemon` che raggruppa 6 nodi supervisori in un unico processo; throttling publisher-side su batteria (2 Hz) e odometria/TF a fermo (5 Hz); consolidamento di 7 nodi `static_transform_publisher` nel `robot_state_publisher` URDF nativo.
 * **Affidabilità e Tempi di Risposta Certificati su ROS 2:**
   - Richieste operative e telemetria: **510 ms** (funzione diretta).
   - Risposte conversazionali locali: **758 ms** (Qwen locale su Hailo NPU).

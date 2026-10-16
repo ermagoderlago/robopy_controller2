@@ -1,5 +1,5 @@
 # 📊 Report Esecutivo DFMEA - Marcus AI Robot Platform
-**Data Generazione:** 2026-10-16 11:06:59  
+**Data Generazione:** 2026-10-16 22:41:38  
 **Metodologia:** AIAG-VDA FMEA Standard con Regola Override Severità ($S \ge 9 \implies$ REVISION_MANDATORY)
 
 ---
@@ -8,8 +8,8 @@
 
 | Metrica | Valore | Note / Impatto |
 | :--- | :---: | :--- |
-| **Totale Modalità di Guasto (FM)** | **199** | Copertura integrata dei sottosistemi Marcus |
-| **🟢 Risk Level LOW** | **155** | $RPN_{res} \le 50$ (Sotto controllo) |
+| **Totale Modalità di Guasto (FM)** | **200** | Copertura integrata dei sottosistemi Marcus |
+| **🟢 Risk Level LOW** | **156** | $RPN_{res} \le 50$ (Sotto controllo) |
 | **🟡 Risk Level MEDIUM** | **10** | $51 \le RPN_{res} \le 199$ (Monitoraggio attivo) |
 | **🟠 Risk Level HIGH** | **2** | $200 \le RPN_{res} \le 349$ (Mitigazione obbligatoria) |
 | **🔴 Risk Level CRITICAL** | **0** | $RPN_{res} \ge 350$ (Blocco rilasci) |
@@ -70,7 +70,7 @@
 - **Navigation/SensorSleep:** 3 failure modes
 - **Vision/Hailo NPU:** 2 failure modes
 - **Hardware/Thermal:** 1 failure modes
-- **System/Host:** 1 failure modes
+- **System/Host:** 2 failure modes
 - **Navigation/Safety:** 1 failure modes
 - **AI/Arbitration:** 2 failure modes
 - **System/Build:** 1 failure modes
@@ -281,6 +281,7 @@
 | **FM-EVO-002** | AI/Evolution | `curiosity_evolution_engine / nightly_dream_service` | Loop di ripetizione cieca del Daily Focus (Stagnazione Evolutiva / Analisi Duplicate) e mancata ripresa per blocco quota AI | 8 | 1 | 1 | **8** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#lez-43`](docs/lessons/orchestration_and_rag.md#lez-43) |
 | **FM-VUI-045** | Audio/VUI | `live_connection_manager / orchestrator` | Runaway streaming audio bidirezionale e sfondamento spending cap mensile Google AI Studio indotto da rinnovo timer su trascrizioni TV non rivolte a Marcus | 8 | 1 | 1 | **8** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#FIX-15`](docs/lessons/audio_vui_pipeline.md#FIX-15) |
 | **FM-LLM-011** | AI/Edge NPU | `hailo_qwen_client / conversation` | Blocco prolungato della coroutine di inferenza per stallo NPU/Ollama oltre 2.5s, congelando la risposta conversazionale | 8 | 1 | 1 | **8** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#lezione-45`](docs/lessons/orchestration_and_rag.md#lezione-45) |
+| **FM-SYS-012** | System/Host | `cyclonedds / nav2 / python_supervisors` | Saturazione globale CPU (377% su 400%) a robot fermo causata da inondazione loopback multicast DDS, bond heartbeats Nav2 (800 msg/s), waitset rebuild rclpy e proliferazione micro-nodi | 8 | 1 | 1 | **8** | `LOW` | `CLOSED` | [`docs/lessons/dev_and_deployment.md#lezione-cpu-dds-nav2-micro-nodes`](docs/lessons/dev_and_deployment.md#lezione-cpu-dds-nav2-micro-nodes) |
 | **FM-COG-002** | AI/Cognitive | `conversation_manager / llm_service` | Perdita dell'acronimo di identità e mancata ricerca RAG in conversazione | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#identita-dellacronimo-e-ricerca-semantica-rag-attiva`](docs/lessons/orchestration_and_rag.md#identita-dellacronimo-e-ricerca-semantica-rag-attiva) |
 | **FM-CPU-001** | Vision/CPU | `hailo_bridge_node` | Saturazione CPU da pipeline annotazione video sincrona a 30 Hz in rgb_callback | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/vision_hailo_npu.md`](docs/lessons/vision_hailo_npu.md) |
 | **FM-TRI-005** | AI/Trinity | `metaprompt_fusion` | Saturazione del budget token con troncamento silenzioso da parte dell'LLM o errore di context length | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#trinity-architecture`](docs/lessons/orchestration_and_rag.md#trinity-architecture) |

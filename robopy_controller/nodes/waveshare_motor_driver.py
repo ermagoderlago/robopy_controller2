@@ -1149,6 +1149,14 @@ class WaveshareMotorDriver(Node):
             pose_cov_yaw = 0.02
             twist_cov = 1e-4
             
+        # Throttle publishing odom and TF to 5 Hz (0.20s) when robot is stationary
+        is_stationary = self.motors_stopped and (abs(v_robot) < 0.001) and (abs(w_robot) < 0.001)
+        if is_stationary:
+            last_pub = getattr(self, '_last_stationary_odom_pub_time', 0.0)
+            if (current_time - last_pub) < 0.20:
+                return
+            self._last_stationary_odom_pub_time = current_time
+
         # Publish Odometry
         odom = Odometry()
         odom.header.stamp = self.get_clock().now().to_msg()
@@ -1254,7 +1262,15 @@ class WaveshareMotorDriver(Node):
             power_supply_status = BatteryState.POWER_SUPPLY_STATUS_CHARGING
         else:
             power_supply_status = BatteryState.POWER_SUPPLY_STATUS_DISCHARGING
-            
+        # Throttle publishing to 2 Hz (0.5s) unless voltage changes significantly (>0.2V)
+        now_time = time.time()
+        v_diff = abs(voltage - getattr(self, '_last_published_voltage', 0.0))
+        last_pub = getattr(self, '_last_battery_pub_time', 0.0)
+        if (now_time - last_pub) < 0.50 and v_diff < 0.20:
+            return
+        self._last_battery_pub_time = now_time
+        self._last_published_voltage = voltage
+
         # Publish Raw topics for BatteryManager
         bat_msg = BatteryState()
         bat_msg.header.stamp = self.get_clock().now().to_msg()

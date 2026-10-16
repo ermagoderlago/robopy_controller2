@@ -58,6 +58,7 @@ L'agente Antigravity può ottimizzare e ricalibrare autonomamente le seguenti co
 | **Compensazione Tensione** | Scaling $PWM_{comp} = PWM \times (11.10\text{V} / V_{eff})$ | $V_{eff} \in [9.9\text{V}, 12.6\text{V}]$; Limitatore 50% sotto 10.2V |
 | **Slew Rate / S-Curve Jerk Limiter** | Rampa $C^1$ continua con jerk limitato ($j_{max}=25\text{ duty/s}^2, a_{max}=5\text{ duty/s}$) | $a_{max} \in [2.0, 6.0]\text{ duty/s}$, $j_{max} \in [10.0, 35.0]\text{ duty/s}^2$; arresto istantaneo su stop |
 | **Fusione Yaw Complementare** | Blending gyro chassis ESP32 + odometria differenziale ruote con auto-bias tracking | $\alpha \in [0.70, 0.95]$ (default 0.88); fallback 100% ruote su timeout $>250\text{ ms}$ |
+| **Throttling Telemetria & Odom a Fermo** | Telemetria `/battery/raw`, `/diagnostics` a 2 Hz (o $\Delta V > 0.2\text{V}$); `/odom` e `/tf` a 5 Hz a robot fermo (20 Hz in moto) | $f_{batt} \in [1.0, 5.0]\text{ Hz}$, $f_{odom\_stop} \in [2.0, 10.0]\text{ Hz}$; loop seriale invariato a 20 Hz |
 | **Calibrazione Encoder (Slip Gating)**| Raffinamento $R_{wheel}$ e $W_{separation}$ via closed-loop VIO | Blocco calibrazione se accelerazione $\Delta a > 0.25\text{ m/s}^2$ |
 | **Espressività Servo Coda** | Profili PWM angolari, velocità sweep, scodinzolio | Angolo $\theta_{servo} \in [-45^\circ, +45^\circ]$; frequenza $\le 3\text{ Hz}$ |
 | **Filtraggio Outlier Encoder** | Scarto delta-tick anomali causati da wrap o noise | Scarto se $\Delta tick > 300$ in $50\text{ ms}$ ($\approx 1.2\text{ m/s}$) |
