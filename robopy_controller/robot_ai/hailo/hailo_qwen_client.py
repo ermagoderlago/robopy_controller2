@@ -52,7 +52,7 @@ class HailoQwenConfig:
     fallback_model_name: str = "qwen2.5-instruct:0.5b"
     temperature: float = 0.1
     max_tokens: int = 128
-    timeout_sec: float = 5.0
+    timeout_sec: float = 1.2
     ttft_budget_ms: float = 400.0
     cpu_delta_max_pct: float = 5.0
     enable_mock_fallback: bool = True
@@ -153,9 +153,10 @@ class HailoQwenClient:
 
     async def _get_http_client(self) -> httpx.AsyncClient:
         if self._http_client is None or self._http_client.is_closed:
+            connect_timeout = min(0.5, self.config.timeout_sec)
             self._http_client = httpx.AsyncClient(
                 base_url=self.config.endpoint,
-                timeout=httpx.Timeout(self.config.timeout_sec, connect=1.0),
+                timeout=httpx.Timeout(self.config.timeout_sec, connect=connect_timeout),
                 limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
             )
         return self._http_client
@@ -216,8 +217,10 @@ class HailoQwenClient:
         prompt: str,
         system_prompt: Optional[str] = None,
         model: Optional[str] = None,
+        timeout_sec: Optional[float] = None,
     ) -> AsyncIterator[TokenChunk]:
         """Stream token generation from Hailo-10H Qwen2 with full telemetry."""
+        eff_timeout = timeout_sec if timeout_sec is not None else self.config.timeout_sec
         clean_prompt = prompt.strip() if prompt else ""
         if not clean_prompt:
             target_model = model or self.config.model_name
@@ -281,7 +284,8 @@ class HailoQwenClient:
                 if system_prompt:
                     payload["system"] = system_prompt
 
-                async with client.stream("POST", "/api/generate", json=payload) as response:
+                req_timeout = httpx.Timeout(eff_timeout, connect=min(0.5, eff_timeout))
+                async with client.stream("POST", "/api/generate", json=payload, timeout=req_timeout) as response:
                     if response.status_code != 200:
                         raise RuntimeError(f"Ollama returned HTTP status {response.status_code}")
 
@@ -532,8 +536,10 @@ class HailoQwenClient:
         prompt: str,
         system_prompt: Optional[str] = None,
         model: Optional[str] = None,
+        timeout_sec: Optional[float] = None,
     ) -> Tuple[str, InferenceTelemetry]:
-        """Non-streaming generation returning the complete text and telemetry."""
+        """Non-streaming generation returning the complete text and telemetry with strict timeout."""
+        eff_timeout = timeout_sec if timeout_sec is not None else self.config.timeout_sec
         clean_prompt = prompt.strip() if prompt else ""
         if not clean_prompt:
             target_model = model or self.config.model_name
@@ -554,8 +560,25 @@ class HailoQwenClient:
             return "", empty_telem
 
         buffer: List[str] = []
-        async for chunk in self.generate_stream(clean_prompt, system_prompt=system_prompt, model=model):
-            buffer.append(chunk.token)
+
+        async def _collect_tokens():
+            async for chunk in self.generate_stream(
+                clean_prompt,
+                system_prompt=system_prompt,
+                model=model,
+                timeout_sec=eff_timeout
+            ):
+                buffer.append(chunk.token)
+
+        try:
+            await asyncio.wait_for(_collect_tokens(), timeout=eff_timeout)
+        except asyncio.TimeoutError:
+            logger.warning(
+                "HailoQwenClient generate() exceeded deadline of %.2fs for prompt: '%s'",
+                eff_timeout,
+                clean_prompt[:40]
+            )
+            raise
 
         full_text = "".join(buffer)
         telemetry = self.last_telemetry

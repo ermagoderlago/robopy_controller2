@@ -160,3 +160,15 @@ class MetapromptFusion:
         prompt_parts.append(f"\nUtente: {user_block}")
         
         return "\n".join(prompt_parts)
+
+
+# Re-exports for SLM Metaprompt Fusion (< 1200 tokens)
+from .slm_metaprompt_fusion import (
+    SLMBudgetConfig,
+    SLMPromptContext,
+    SLMPromptOutput,
+    SLMMetapromptFusion,
+    SLMTruncator,
+    build_slm_prompt,
+)
+

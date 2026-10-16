@@ -1,5 +1,5 @@
 # 📊 Report Esecutivo DFMEA - Marcus AI Robot Platform
-**Data Generazione:** 2026-10-15 22:56:55  
+**Data Generazione:** 2026-10-16 11:06:59  
 **Metodologia:** AIAG-VDA FMEA Standard con Regola Override Severità ($S \ge 9 \implies$ REVISION_MANDATORY)
 
 ---
@@ -8,8 +8,8 @@
 
 | Metrica | Valore | Note / Impatto |
 | :--- | :---: | :--- |
-| **Totale Modalità di Guasto (FM)** | **195** | Copertura integrata dei sottosistemi Marcus |
-| **🟢 Risk Level LOW** | **151** | $RPN_{res} \le 50$ (Sotto controllo) |
+| **Totale Modalità di Guasto (FM)** | **199** | Copertura integrata dei sottosistemi Marcus |
+| **🟢 Risk Level LOW** | **155** | $RPN_{res} \le 50$ (Sotto controllo) |
 | **🟡 Risk Level MEDIUM** | **10** | $51 \le RPN_{res} \le 199$ (Monitoraggio attivo) |
 | **🟠 Risk Level HIGH** | **2** | $200 \le RPN_{res} \le 349$ (Mitigazione obbligatoria) |
 | **🔴 Risk Level CRITICAL** | **0** | $RPN_{res} \ge 350$ (Blocco rilasci) |
@@ -74,6 +74,10 @@
 - **Navigation/Safety:** 1 failure modes
 - **AI/Arbitration:** 2 failure modes
 - **System/Build:** 1 failure modes
+- **AI/Orchestration:** 1 failure modes
+- **AI/Local NPU Inference:** 1 failure modes
+- **AI/Edge NPU:** 1 failure modes
+- **AI/Trinity Brain:** 1 failure modes
 
 ---
 
@@ -276,6 +280,7 @@
 | **FM-VUI-044** | Audio/VUI | `live_connection_manager / llm_service / respeaker_vui_node / turn_manager` | Robot completamente muto dopo risveglio ("non parla nemmeno più") per auto-silenziamento indotto da prompt, mic_mute distruttivo e quota esaurita | 8 | 1 | 1 | **8** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#fix-14`](docs/lessons/audio_vui_pipeline.md#fix-14) |
 | **FM-EVO-002** | AI/Evolution | `curiosity_evolution_engine / nightly_dream_service` | Loop di ripetizione cieca del Daily Focus (Stagnazione Evolutiva / Analisi Duplicate) e mancata ripresa per blocco quota AI | 8 | 1 | 1 | **8** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#lez-43`](docs/lessons/orchestration_and_rag.md#lez-43) |
 | **FM-VUI-045** | Audio/VUI | `live_connection_manager / orchestrator` | Runaway streaming audio bidirezionale e sfondamento spending cap mensile Google AI Studio indotto da rinnovo timer su trascrizioni TV non rivolte a Marcus | 8 | 1 | 1 | **8** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#FIX-15`](docs/lessons/audio_vui_pipeline.md#FIX-15) |
+| **FM-LLM-011** | AI/Edge NPU | `hailo_qwen_client / conversation` | Blocco prolungato della coroutine di inferenza per stallo NPU/Ollama oltre 2.5s, congelando la risposta conversazionale | 8 | 1 | 1 | **8** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#lezione-45`](docs/lessons/orchestration_and_rag.md#lezione-45) |
 | **FM-COG-002** | AI/Cognitive | `conversation_manager / llm_service` | Perdita dell'acronimo di identità e mancata ricerca RAG in conversazione | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#identita-dellacronimo-e-ricerca-semantica-rag-attiva`](docs/lessons/orchestration_and_rag.md#identita-dellacronimo-e-ricerca-semantica-rag-attiva) |
 | **FM-CPU-001** | Vision/CPU | `hailo_bridge_node` | Saturazione CPU da pipeline annotazione video sincrona a 30 Hz in rgb_callback | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/vision_hailo_npu.md`](docs/lessons/vision_hailo_npu.md) |
 | **FM-TRI-005** | AI/Trinity | `metaprompt_fusion` | Saturazione del budget token con troncamento silenzioso da parte dell'LLM o errore di context length | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#trinity-architecture`](docs/lessons/orchestration_and_rag.md#trinity-architecture) |
@@ -297,6 +302,8 @@
 | **FM-TRI-009** | TRINITY | `mag_episodic / mag_hybrid_search / mag_database / metaprompt_fusion` | Amnesia temporale ed emissione di risposte allucinate sulla mancata memorizzazione delle date ("Sembra che ci sia un limite alla precisione con cui posso registrare le date esatte dei miei ricordi") | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#amnesia-temporale-e-datatura-dei-ricordi`](docs/lessons/orchestration_and_rag.md#amnesia-temporale-e-datatura-dei-ricordi) |
 | **FM-SYS-011** | System/Host | `restart_hailo.sh / sensor_standby_manager` | Capping CPU Pi 5 Cortex-A76 a 2.0 GHz e sovraccarico elaborazione callback IMU ad alta frequenza | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#FIX-15`](docs/lessons/audio_vui_pipeline.md#FIX-15) |
 | **FM-NAV-035** | AI/Arbitration | `hybrid_router` | Blocco dell'interazione vocale o errato instradamento di comandi operativi al cloud durante disconnessioni di rete | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/llm_live_api.md#cognitive-intent-failover`](docs/lessons/llm_live_api.md#cognitive-intent-failover) |
+| **FM-LLM-009** | AI/Orchestration | `orchestrator / conversation (RepetitionManager & Anti-Echo Filter)` | Scarto silenzioso di richieste legittime ripetute entro 10.0s, lasciando Marcus muto e apparentemente bloccato | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#lezione-46`](docs/lessons/orchestration_and_rag.md#lezione-46) |
+| **FM-LLM-012** | AI/Trinity Brain | `slm_metaprompt_fusion / trinity_engine` | Superamento del budget di 1200 token per Qwen2 locale o perdita dei turni dialogici più recenti durante il troncamento | 7 | 1 | 1 | **7** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#lezione-44`](docs/lessons/orchestration_and_rag.md#lezione-44) |
 | **FM-SYS-002** | System/DDS | `system_scripts` | Errore di esecuzione script: OSError [Errno 8] Exec format error | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`marcus_core_rules.md#1-memoria-ram-e-limite-host`](marcus_core_rules.md#1-memoria-ram-e-limite-host) |
 | **FM-TRI-003** | AI/Trinity | `cag_aggregator` | Latenza eccessiva nella raccolta del contesto CAG (> 500ms) che ritarda l'invio del prompt all'LLM | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#trinity-architecture`](docs/lessons/orchestration_and_rag.md#trinity-architecture) |
 | **FM-VUI-022** | Voice/Orchestration | `nomad_exploration_skill` | Mancato riconoscimento del termine 'NOMAD' da parte dell'ASR e mancata registrazione della skill nell'AI Orchestrator | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#gestione-acronimi-stranieri-e-tolleranza-fonetica-asr`](docs/lessons/audio_vui_pipeline.md#gestione-acronimi-stranieri-e-tolleranza-fonetica-asr) |
@@ -306,6 +313,7 @@
 | **FM-NAV-028** | Nav2 & SLAM | `rtabmap` | Sdoppiamento transitorio della mappa a ventaglio/stella durante le curve e ritardo nella chiusura d'anello | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#loop-closure-submap-matching`](docs/lessons/nav2_slam_tuning.md#loop-closure-submap-matching) |
 | **FM-VUI-027** | Voice/Audio | `llm_service / live_connection_manager` | Soppressione spuria delle risposte vocali sotto tag IGNORE_TURN quando l'utente parla naturalmente senza prefisso Marcus | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#ignore-turn-prompt`](docs/lessons/audio_vui_pipeline.md#ignore-turn-prompt) |
 | **FM-VIS-010** | Vision | `hailo_bridge_node_cpp / Pose Decoder` | Flood di falsi positivi scheletrici e sovrapposizione incontrollata di punti e connessioni ossee su sfondo, arredi e pavimento | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/vision_hailo_npu.md#top-down-yolo-gated-pose`](docs/lessons/vision_hailo_npu.md#top-down-yolo-gated-pose) |
+| **FM-LLM-010** | AI/Local NPU Inference | `qwen_prompt_templates / conversation` | Stringhe JSON grezze, parentesi graffe o nomi di funzioni inglesi pronunciati vocalmente da Piper TTS o mostrati nella chat utente | 6 | 1 | 1 | **6** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#lezione-46`](docs/lessons/orchestration_and_rag.md#lezione-46) |
 | **FM-VUI-025** | Voice/Audio | `marcus_voice_nav` | Saturazione del buffer audio, scarto delle richieste vocali sovrapposte e silenzio durante la navigazione | 5 | 1 | 1 | **5** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#gemini-live-pacing`](docs/lessons/audio_vui_pipeline.md#gemini-live-pacing) |
 | **FM-VUI-028** | Voice/Audio | `respeaker_vui_node` | Volume vocale assordante da sovrascrittura incondizionata a 0.80 di enable_auto_volume | 5 | 1 | 1 | **5** | `LOW` | `CLOSED` | [`docs/lessons/audio_vui_pipeline.md#auto-volume-override`](docs/lessons/audio_vui_pipeline.md#auto-volume-override) |
 | **FM-LLM-001** | AI/LangGraph | `respeaker_vui_node` | Effetto 'Darth Vader' / 'Chipmunk' (audio accelerato o gravemente alterato) in riproduzione | 4 | 1 | 1 | **4** | `LOW` | `CLOSED` | [`marcus_core_rules.md#3-pipeline-vui-e-audio-pcm-streaming`](marcus_core_rules.md#3-pipeline-vui-e-audio-pcm-streaming) |

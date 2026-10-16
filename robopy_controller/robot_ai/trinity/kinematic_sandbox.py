@@ -793,9 +793,9 @@ class TrinityKinematicSandbox:
                 clamped,
             )
 
-        # 2. Amigdala HIJACK check: complete motion veto
+        # 2. Amigdala HIJACK/PANIC check: complete motion veto
         amygdala_state = str(ctx.amygdala_state).strip().upper()
-        if amygdala_state == "HIJACK":
+        if amygdala_state in {"HIJACK", "PANIC"}:
             return (
                 self._fail(
                     KinematicSandboxErrorCode.AMYGDALA_HIJACK_ACTIVE,

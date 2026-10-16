@@ -3,6 +3,7 @@ import os
 import asyncio
 from pathlib import Path
 from datetime import datetime
+import time
 
 from robot_ai.trinity.intent_router import IntentRouter, IntentCategory
 from robot_ai.trinity.metaprompt_fusion import MetapromptFusion
@@ -277,17 +278,18 @@ def test_mag_temporal_parser():
     assert "cercare" in clean
 
 def test_mag_database_temporal_range_and_stats(mag_db):
-    now = datetime(2026, 10, 3, 12, 0, 0).timestamp()
-    yesterday = datetime(2026, 10, 2, 12, 0, 0).timestamp()
-    two_days_ago = datetime(2026, 10, 1, 12, 0, 0).timestamp()
+    base_time = time.time()
+    now = base_time
+    yesterday = base_time - 86400
+    two_days_ago = base_time - 172800
 
     mag_db.insert_episode(user_input="Episodio oggi", robot_response="Oggi", timestamp=now)
     mag_db.insert_episode(user_input="Episodio ieri", robot_response="Ieri", timestamp=yesterday)
     mag_db.insert_episode(user_input="Episodio 2 giorni fa", robot_response="2gg", timestamp=two_days_ago)
 
-    # Query range for yesterday
-    start_y = datetime(2026, 10, 2, 0, 0, 0).timestamp()
-    end_y = datetime(2026, 10, 2, 23, 59, 59).timestamp()
+    # Query range for yesterday (interval containing only yesterday)
+    start_y = yesterday - 1800
+    end_y = yesterday + 1800
     eps_yesterday = mag_db.get_episodes_by_timerange(start_y, end_y)
     assert len(eps_yesterday) == 1
     assert eps_yesterday[0]["user_input"] == "Episodio ieri"

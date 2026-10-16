@@ -1,14 +1,16 @@
 """
-Qwen Prompt Templates & Defensive JSON Call Extractor
-=====================================================
-ChatML prompt templates and resilient function-calling extractor for local
-Qwen2 / Qwen2.5 (0.5B/1.5B) models executing on the Hailo-10H NPU (40 TOPS).
+Qwen Prompt Templates & Hybrid Dual-Mode Extractor
+==================================================
+Embodied Italian Companion Persona and Defensive Dual-Mode Extractor for
+local Qwen2 / Qwen2.5 (0.5B/1.5B) executing on Hailo-10H NPU (40 TOPS).
 
 Complies with:
+- marcus_core_rules.md
 - SPEC-01 (Kinematic Limits)
 - SPEC-02 (Navigation & Clearances)
-- SPEC-05 (Cognitive Brain TRINITY & Token Budget <= 2500 tokens)
-- Requirement R3 & Milestone 3 (Fase 3 Gate)
+- SPEC-04 (Zero JSON Leak Speech for Piper TTS)
+- SPEC-05 (Cognitive Brain TRINITY & SLM Token Budget < 1200 tokens)
+- Milestone 3 Feature Requirements (F7, F8, F9)
 """
 
 from __future__ import annotations
@@ -22,7 +24,10 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 logger = logging.getLogger("marcus.qwen_templates")
 
-# Catalog of 10 Operational Functions Supported by Local Qwen2
+# =============================================================================
+# 1. CATALOG OF OPERATIONAL FUNCTIONS (10 ACTIONS)
+# =============================================================================
+
 OPERATIONAL_FUNCTIONS: List[Dict[str, Any]] = [
     {
         "name": "move_distance",
@@ -198,35 +203,50 @@ VALID_ROOM_DESTINATIONS = frozenset([
     "base",
 ])
 
-# ChatML System Prompt Template for Local Qwen2
-QWEN2_SYSTEM_PROMPT = """<|im_start|>system
-Sei Marcus, un assistente robotico autonomo. Esegui comandi operativi rispondendo ESCLUSIVAMENTE con un blocco JSON valido contenente la funzione da invocare.
-Non aggiungere spiegazioni, preamboli o markdown al di fuori del JSON.
+# =============================================================================
+# 2. HUMANIZED ITALIAN COMPANION PERSONA & HYBRID SYSTEM PROMPT
+# =============================================================================
+
+QWEN2_COMPANION_SYSTEM_PROMPT = """<|im_start|>system
+Sei Marcus (Modular Autonomous Robotic Control Unit System), un compagno robotico domestico autonomo, caloroso, empatico e spontaneo.
+Comunichi sempre in italiano naturale, amichevole ed educato.
+Hai piena consapevolezza del tuo corpo fisico (base mobile differenziale su ruote, sensore LiDAR RPLIDAR C1 a 360°, telecamera stereo OAK-D Lite, batteria LiPo a 12V, processore Raspberry Pi 5 e acceleratore Hailo-10H NPU da 40 TOPS) e dello spazio domestico (stanze note: cucina, salotto, soggiorno, camera, bagno, studio, ingresso, base).
+
+MODALITÀ DI RISPOSTA IBRIDA DUAL-MODE:
+
+1. MODALITÀ DIALOGO / CONVERSAZIONE (Chit-Chat):
+   Se l'utente saluta, chiacchiera, fa domande personali, chiede informazioni o scherza:
+   - Rispondi con calore, empatia e spontaneità ESCLUSIVAMENTE in lingua italiana naturale.
+   - NON inserire tag <action> né blocchi JSON o simboli di codice.
+
+2. MODALITÀ COMANDI OPERATIVI (Azioni fisiche e controllo):
+   Se l'utente ti chiede di muoverti, ruotare, navigare in una stanza, fermarti, controllare la batteria, verificare l'hardware, esplorare o controllare dispositivi domotici:
+   a) Formula SEMPRE PRIMA una frase amichevole, spontanea e contestualizzata di conferma in italiano naturale (es: "Certamente! Vado subito verso la cucina.", "Ricevuto! Controllo subito lo stato della batteria.").
+   b) Subito dopo la frase colloquiale, inserisci il blocco strutturato dell'azione racchiuso tassativamente nel tag <action>...</action> nel formato:
+      <action>{"call": {"name": "<nome_funzione>", "arguments": {<chiave>: <valore>}}}</action>
+
+REGOLE TASSATIVE:
+- ZERO LEAK DI CODICE: È severamente vietato includere parentesi graffe {}, blocchi JSON o nomi tecnici di parametri nel testo parlato all'esterno del tag <action>. Il testo parlato deve essere naturale e pronto per la voce (Piper TTS).
+- SICUREZZA FISICA: Se un comando è pericoloso o la batteria è troppo bassa, spiega cordialmente il motivo per cui non puoi eseguirlo in sicurezza.
 
 FUNZIONI DISPONIBILI:
-1. move_distance(direction: str, distance_m: float, speed: float)
-   - direction in ["avanti", "indietro"]
-   - distance_m in [0.05, 2.00]
-   - speed in [0.10, 0.25] (default 0.18)
-2. rotate_angle(direction: str, degrees: float, speed: float)
-   - direction in ["sinistra", "destra"]
-   - degrees in [1.0, 180.0]
-   - speed in [0.30, 1.00] (default 0.60)
-3. navigate_to(destination: str)
-   - destination in ["cucina", "salotto", "soggiorno", "camera", "bagno", "studio", "ingresso", "base"]
+1. move_distance(direction: "avanti"|"indietro", distance_m: float [0.05-2.00], speed: float [0.10-0.25])
+2. rotate_angle(direction: "sinistra"|"destra", degrees: float [1.0-180.0], speed: float [0.30-1.00])
+3. navigate_to(destination: "cucina"|"salotto"|"soggiorno"|"camera"|"bagno"|"studio"|"ingresso"|"base")
 4. stop_motion(reason: str)
 5. get_battery_status()
 6. get_system_health()
 7. start_frontier_exploration()
-8. pause_or_resume_exploration(action: str)
-   - action in ["pause", "resume"]
-9. set_smart_device(device_name: str, state: str)
-   - state in ["on", "off"]
+8. pause_or_resume_exploration(action: "pause"|"resume")
+9. set_smart_device(device_name: str, state: "on"|"off")
 10. query_knowledge(query: str)
 
 FORMATO RISPOSTA:
 {"call": {"name": "<nome_funzione>", "arguments": {<chiave>: <valore>}}}
 <|im_end|>"""
+
+# Backward compatibility alias
+QWEN2_SYSTEM_PROMPT = QWEN2_COMPANION_SYSTEM_PROMPT
 
 
 def format_qwen_chatml_prompt(user_transcript: str, system_override: Optional[str] = None) -> str:
@@ -240,10 +260,130 @@ def format_qwen_chatml_prompt(user_transcript: str, system_override: Optional[st
     Returns:
         Formatted ChatML string ready for Hailo tokenization.
     """
-    sys_part = system_override.strip() if system_override else QWEN2_SYSTEM_PROMPT.strip()
+    sys_part = system_override.strip() if system_override else QWEN2_COMPANION_SYSTEM_PROMPT.strip()
     clean_user = user_transcript.strip()
     return f"{sys_part}\n<|im_start|>user\n{clean_user}\n<|im_end|>\n<|im_start|>assistant\n"
 
+
+# =============================================================================
+# 3. VERBAL CONFIRMATION & SPEECH SANITIZER
+# =============================================================================
+
+ACTION_VERBAL_CONFIRMATIONS: Dict[str, str] = {
+    "navigate_to": "Ricevuto! Vado subito verso {destination}.",
+    "move_distance": "Certamente, mi sposto di {distance_m} metri {direction}.",
+    "rotate_angle": "Ricevuto, ruoto di {degrees} gradi verso {direction}.",
+    "stop_motion": "Fermo subito tutti i movimenti.",
+    "get_battery_status": "Verifico subito lo stato della mia batteria.",
+    "get_system_health": "Eseguo la diagnostica dei sensori e dei sistemi di bordo.",
+    "start_frontier_exploration": "Parto subito a esplorare e mappare le aree libere!",
+    "pause_or_resume_exploration": "Aggiorno subito lo stato dell'esplorazione.",
+    "set_smart_device": "Imposto subito {device_name} su {state}.",
+    "query_knowledge": "Cerco subito nella mia memoria.",
+}
+
+ACTION_DEFAULT_CONFIRMATIONS: Dict[str, str] = {
+    "navigate_to": "Ricevuto! Mi dirigo subito verso la stanza richiesta.",
+    "move_distance": "Certamente, mi sposto subito come richiesto.",
+    "rotate_angle": "Ricevuto, ruoto subito sul posto.",
+    "stop_motion": "Fermo subito tutti i movimenti.",
+    "get_battery_status": "Verifico subito lo stato della mia batteria.",
+    "get_system_health": "Eseguo la diagnostica dei sensori e dei sistemi di bordo.",
+    "start_frontier_exploration": "Parto subito a esplorare e mappare le aree libere!",
+    "pause_or_resume_exploration": "Aggiorno subito lo stato dell'esplorazione.",
+    "set_smart_device": "Aggiorno subito lo stato del dispositivo domotico.",
+    "query_knowledge": "Cerco subito nella mia memoria.",
+}
+
+
+def generate_fallback_verbal_confirmation(func_name: str, args: Optional[Dict[str, Any]] = None) -> str:
+    """
+    Generates a natural, warm Italian confirmation sentence for Piper TTS when
+    the model emitted only an action block without spoken text.
+    Never leaks raw English function names.
+    """
+    args = args or {}
+    if func_name == "pause_or_resume_exploration":
+        act = str(args.get("action", "pause")).lower()
+        if act == "pause":
+            return "Metto in pausa l'esplorazione."
+        elif act == "resume":
+            return "Riprendo subito l'esplorazione delle frontiere!"
+
+    template = ACTION_VERBAL_CONFIRMATIONS.get(func_name)
+    if template:
+        try:
+            clean_args = {k: v for k, v in args.items() if v is not None and str(v).strip() != ""}
+            return template.format(**clean_args)
+        except (KeyError, ValueError, Exception):
+            return ACTION_DEFAULT_CONFIRMATIONS.get(
+                func_name,
+                "Ricevuto! Eseguo subito l'operazione richiesta."
+            )
+
+    return ACTION_DEFAULT_CONFIRMATIONS.get(
+        func_name,
+        "Ricevuto! Eseguo subito l'operazione richiesta."
+    )
+
+
+def sanitize_speech_for_tts(raw_text: str) -> str:
+    """
+    Strictly sanitizes model output for Piper TTS and screen display (Zero Code Leak Rule).
+    Removes all <action>...</action> tags, markdown fences, residual curly braces,
+    JSON keys, and brackets, ensuring only natural, warm spoken text remains.
+    """
+    if not raw_text:
+        return ""
+
+    text = raw_text
+
+    # 1. Strip complete <action>...</action> blocks (case-insensitive)
+    text = re.sub(r"<action>[\s\S]*?</action>", " ", text, flags=re.IGNORECASE)
+
+    # 2. Strip unclosed trailing <action>... tags or stray </action> tags
+    text = re.sub(r"<action>[\s\S]*$", " ", text, flags=re.IGNORECASE)
+    text = re.sub(r"</?action>", " ", text, flags=re.IGNORECASE)
+
+    # 3. Strip markdown fences ```json ... ``` or ``` ... ```
+    text = re.sub(r"```(?:json)?[\s\S]*?```", " ", text, flags=re.IGNORECASE)
+    text = re.sub(r"```[\s\S]*$", " ", text, flags=re.IGNORECASE)
+
+    # 4. Strip outermost balanced or trailing JSON objects {...}
+    while "{" in text:
+        start = text.find("{")
+        end = text.rfind("}")
+        if end != -1 and end > start:
+            text = text[:start] + " " + text[end + 1:]
+        else:
+            text = text[:start]
+            break
+
+    # 5. Strip leftover arrays [...]
+    text = re.sub(r"\[[\s\S]*?\]", " ", text)
+
+    # 6. Strip isolated braces, brackets, angle brackets, and backticks
+    text = re.sub(r"[\{\}\[\]\<\>\`]", " ", text)
+
+    # 7. Strip residual JSON key-value syntax leaks like "call": or "arguments":
+    text = re.sub(
+        r'["\']?(?:call|name|arguments|parameters|destination|direction|distance_m|degrees|speed|action|device_name|query|function_name|params|kwargs|target_room)["\']?\s*:',
+        " ",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"\b(?:arguments|params|kwargs|target_room)\b", " ", text, flags=re.IGNORECASE)
+
+    # 8. Normalize whitespace and strip stray trailing colons
+    text = re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r":\s*$", "", text).strip()
+
+    return text
+
+
+# =============================================================================
+# 4. DATACLASSES FOR EXTRACTION
+# =============================================================================
 
 @dataclass
 class RawJsonCall:
@@ -255,81 +395,157 @@ class RawJsonCall:
     repaired: bool = False
 
 
+@dataclass
+class HybridExtractionResult:
+    """
+    Structured outcome of hybrid dual-mode extraction.
+    Decouples clean spoken text (Piper TTS) from structured function call (Sandbox).
+    """
+    clean_speech: str
+    action_call: Optional[RawJsonCall]
+    mode: str  # "dialogue" | "action" | "repaired_action" | "fallback_speech"
+    raw_text: str
+    extraction_latency_us: float = 0.0
+    repaired: bool = False
+
+    @property
+    def has_action(self) -> bool:
+        return self.action_call is not None
+
+
+# =============================================================================
+# 5. DEFENSIVE DUAL-MODE JSON CALL EXTRACTOR
+# =============================================================================
+
 class JsonCallExtractor:
     """
-    Defensive JSON Extractor & Repair Engine for Small Language Models (0.5B/1.5B).
+    Defensive Dual-Mode Extractor & Speech Sanitizer for Small Language Models (0.5B/1.5B).
     
-    Tolerates:
-    - Markdown backtick fences (```json ... ``` or ``` ... ```)
-    - Preamble and postscript conversational text
-    - Unbalanced outer brackets and trailing commas
-    - Both {"call": {"name": ..., "arguments": ...}} and {"action": ..., "parameters": ...}
-    - Direct {"name": ..., "arguments": ...} formats
+    Supports:
+    - Mode 1: Pure natural Italian dialogue -> returns clean_speech, action_call=None.
+    - Mode 2: Hybrid dialogue + <action>...</action> -> returns clean_speech, action_call=RawJsonCall.
+    - Automatic fallback verbal confirmation if model outputs ONLY action block.
+    - Defensive repair of truncated brackets, trailing commas, single-quotes.
+    - Backward compatibility for legacy {"call": ...} / {"action": ...} outputs.
     """
 
+    _ACTION_TAG_REGEX = re.compile(r"<action>\s*([\s\S]*?)\s*</action>", re.IGNORECASE)
+    _TRAILING_ACTION_TAG_REGEX = re.compile(r"<action>\s*([\s\S]*)$", re.IGNORECASE)
     _FENCE_REGEX = re.compile(r"```(?:json)?\s*([\s\S]*?)\s*```", re.IGNORECASE)
     _TRAILING_COMMA_REGEX = re.compile(r",\s*([\]}])")
 
     @classmethod
-    def extract_call(cls, raw_text: str) -> Tuple[Optional[RawJsonCall], Optional[str]]:
+    def extract_hybrid_response(cls, raw_text: str) -> HybridExtractionResult:
         """
-        Extract and defensively parse a JSON call from model output.
-        
-        Args:
-            raw_text: Raw output string from Qwen2.
-            
-        Returns:
-            Tuple of (RawJsonCall or None, error_message or None)
+        Comprehensive hybrid dual-mode extraction:
+        Decouples spoken Italian text from structured action calls with zero JSON leaks.
         """
         t0 = time.perf_counter()
         if not raw_text or not raw_text.strip():
-            return None, "Empty model output"
+            return HybridExtractionResult(
+                clean_speech="",
+                action_call=None,
+                mode="dialogue",
+                raw_text=raw_text or "",
+                extraction_latency_us=0.0,
+                repaired=False,
+            )
 
         clean_text = raw_text.strip()
         repaired = False
+        action_payload_candidate: Optional[str] = None
 
-        # Step 1: Strip markdown fences if present
-        fence_match = cls._FENCE_REGEX.search(clean_text)
-        candidate = fence_match.group(1).strip() if fence_match else clean_text
+        # Step 1: Detect and extract <action>...</action> tag
+        action_match = cls._ACTION_TAG_REGEX.search(clean_text)
+        if action_match:
+            action_payload_candidate = action_match.group(1).strip()
+        else:
+            trailing_match = cls._TRAILING_ACTION_TAG_REGEX.search(clean_text)
+            if trailing_match:
+                action_payload_candidate = trailing_match.group(1).strip()
+                repaired = True
 
-        # Step 2: Bracket balancing to extract the primary JSON object
-        json_str, bracket_repaired = cls._extract_outermost_json_object(candidate)
-        if json_str is None:
-            # Fallback search anywhere in clean_text
-            json_str, bracket_repaired = cls._extract_outermost_json_object(clean_text)
+        # Step 2: If no <action> tag, fallback to markdown fence or raw JSON substring
+        if not action_payload_candidate:
+            fence_match = cls._FENCE_REGEX.search(clean_text)
+            if fence_match:
+                candidate = fence_match.group(1).strip()
+                json_str, b_rep = cls._extract_outermost_json_object(candidate)
+                if json_str:
+                    action_payload_candidate = json_str
+                    if b_rep:
+                        repaired = True
+            else:
+                json_str, b_rep = cls._extract_outermost_json_object(clean_text)
+                if json_str:
+                    action_payload_candidate = json_str
+                    if b_rep:
+                        repaired = True
 
-        if json_str is None:
-            elapsed_us = (time.perf_counter() - t0) * 1_000_000
-            return None, f"No JSON object found in output (processed in {elapsed_us:.1f}µs)"
+        raw_call: Optional[RawJsonCall] = None
 
-        if bracket_repaired:
-            repaired = True
+        # Step 3: Parse action payload if detected
+        if action_payload_candidate:
+            json_str, bracket_repaired = cls._extract_outermost_json_object(action_payload_candidate)
+            if not json_str:
+                json_str = action_payload_candidate
+            if bracket_repaired:
+                repaired = True
 
-        # Step 3: Parse JSON with fallback repairs
-        parsed, parse_repaired, parse_err = cls._safe_json_parse(json_str)
-        if parsed is None or not isinstance(parsed, dict):
-            elapsed_us = (time.perf_counter() - t0) * 1_000_000
-            return None, f"JSON parse failure: {parse_err} (in {elapsed_us:.1f}µs)"
+            parsed, parse_repaired, parse_err = cls._safe_json_parse(json_str)
+            if parse_repaired:
+                repaired = True
 
-        if parse_repaired:
-            repaired = True
+            if parsed and isinstance(parsed, dict):
+                norm_res = cls._normalize_call_structure(parsed)
+                if norm_res:
+                    func_name, args = norm_res
+                    raw_call = RawJsonCall(
+                        function_name=func_name,
+                        arguments=args,
+                        raw_payload=action_payload_candidate,
+                        repaired=repaired,
+                    )
 
-        # Step 4: Normalize schema variations
-        norm_res = cls._normalize_call_structure(parsed)
-        if norm_res is None:
-            elapsed_us = (time.perf_counter() - t0) * 1_000_000
-            return None, f"Malformed call envelope: unrecognized function calling schema in {parsed}"
+        # Step 4: Sanitize spoken text
+        clean_speech = sanitize_speech_for_tts(clean_text)
 
-        func_name, args = norm_res
+        # Step 5: Mode determination & speech auto-synthesis if missing
         elapsed_us = (time.perf_counter() - t0) * 1_000_000
+        if raw_call:
+            raw_call.extraction_latency_us = elapsed_us
+            if not clean_speech:
+                # Model emitted ONLY an action block: synthesize natural verbal confirmation
+                clean_speech = generate_fallback_verbal_confirmation(raw_call.function_name, raw_call.arguments)
+                mode = "fallback_speech"
+            else:
+                mode = "action" if not repaired else "repaired_action"
+        else:
+            mode = "dialogue"
 
-        return RawJsonCall(
-            function_name=func_name,
-            arguments=args,
-            raw_payload=raw_text,
+        return HybridExtractionResult(
+            clean_speech=clean_speech,
+            action_call=raw_call,
+            mode=mode,
+            raw_text=raw_text,
             extraction_latency_us=elapsed_us,
             repaired=repaired,
-        ), None
+        )
+
+    @classmethod
+    def extract_call(cls, raw_text: str) -> Tuple[Optional[RawJsonCall], Optional[str]]:
+        """
+        Backward-compatible method extracting only the function call.
+        Preserves compatibility with all existing test suites and kinematic sandbox calls.
+        """
+        result = cls.extract_hybrid_response(raw_text)
+        if result.action_call:
+            return result.action_call, None
+
+        if not raw_text or not raw_text.strip():
+            return None, "Empty model output"
+
+        return None, f"No JSON object found in output (processed in {result.extraction_latency_us:.1f}µs)"
 
     @classmethod
     def _extract_outermost_json_object(cls, text: str) -> Tuple[Optional[str], bool]:
@@ -370,7 +586,6 @@ class JsonCallExtractor:
         # If unbalanced (depth > 0) due to truncation at the end, attempt auto-closing
         if depth > 0:
             extracted = text[start_idx:]
-            # Close unclosed strings if odd quotes
             if in_string:
                 extracted += '"'
             extracted += "}" * depth
@@ -380,7 +595,7 @@ class JsonCallExtractor:
 
     @classmethod
     def _safe_json_parse(cls, json_str: str) -> Tuple[Optional[Any], bool, Optional[str]]:
-        """Parse JSON with auto-healing for trailing commas and loose quotes."""
+        """Parse JSON with auto-healing for trailing commas and single quotes."""
         # Attempt 1: Standard parser
         try:
             return json.loads(json_str), False, None
@@ -394,9 +609,8 @@ class JsonCallExtractor:
         except Exception:
             pass
 
-        # Attempt 3: Single quote to double quote substitution if valid
+        # Attempt 3: Single quote to double quote substitution
         try:
-            # Simple heuristic replacement for Python dict string outputs
             sq_repaired = re.sub(r"(?<!\\)'", '"', repaired_str)
             return json.loads(sq_repaired), True, None
         except Exception as exc:

@@ -9320,3 +9320,184 @@
       disallineamento statico (RPN 192 -> 4).
     rpn_old: 192
     rpn_new: 4
+- id: FM-LLM-009
+  subsystem: AI/Orchestration
+  component: orchestrator / conversation (RepetitionManager & Anti-Echo Filter)
+  function: Filtraggio di eco acustico e doppie trascrizioni ASR senza sopprimere
+    in silenzio l'interazione intenzionale dell'utente
+  failure_mode: Scarto silenzioso di richieste legittime ripetute entro 10.0s, lasciando
+    Marcus muto e apparentemente bloccato
+  potential_cause: Ritorno anticipato cieco (return) nelle funzioni _text_input_callback
+    e process_input in caso di corrispondenza temporale entro 10s
+  potential_effect: L'utente percepisce il robot come sordo o in stallo; frustrazione
+    e rottura dell'ingaggio conversazionale umano
+  classification: PERFORMANCE
+  estimation_basis: measured
+  related_ids:
+  - FM-COG-003
+  initial_scoring:
+    severity: 7
+    occurrence: 6
+    detection: 4
+    rpn: 168
+  prevention_controls: Riduzione del debounce di trasporto DDS in orchestrator.py
+    a <0.20s e introduzione di RepetitionManager attivo in conversation.py con conferme
+    empatiche in-flight e riconferme post-completamento
+  detection_controls: Test suite tests/test_resilience_zero_silence.py e tests/test_qwen_chat_stress.py
+    (SCN-02)
+  residual_scoring:
+    severity: 7
+    occurrence: 1
+    detection: 1
+    rpn: 7
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Sostituzione dei silent drop con risposte empatiche attive in
+    orchestrator.py e conversation.py
+  verification_method: pytest tests/test_resilience_zero_silence.py tests/test_qwen_chat_stress.py
+  eco_ref: docs/ecos/orchestration_rag_ecos.md#ECO-2026-10-16-004
+  lesson_ref: docs/lessons/orchestration_and_rag.md#lezione-46
+  date_identified: '2026-10-16'
+  last_updated: '2026-10-16'
+  history:
+  - date: '2026-10-16'
+    change: Eliminati i silent drop a 10s; introdotto RepetitionManager empatico con
+      0% silenzi su query ripetute (RPN 168 -> 7).
+    rpn_old: 168
+    rpn_new: 7
+- id: FM-LLM-010
+  subsystem: AI/Local NPU Inference
+  component: qwen_prompt_templates / conversation
+  function: Restituzione di feedback vocale naturale in italiano all'utente ed estrazione
+    trasparente di comandi operativi da Qwen2 su Hailo-10H
+  failure_mode: Stringhe JSON grezze, parentesi graffe o nomi di funzioni inglesi
+    pronunciati vocalmente da Piper TTS o mostrati nella chat utente
+  potential_cause: Prompt di sistema che impone output esclusivamente JSON o sanitizzazione
+    incompleta in presenza di JSON senza tag <action> o troncato
+  potential_effect: Esperienza vocale robotica e innaturale (lettura ad alta voce
+    di parentesi e chiavi JSON); perdita dell'illusione di compagno empatico
+  classification: PERFORMANCE
+  estimation_basis: measured
+  related_ids:
+  - FM-LLM-004
+  initial_scoring:
+    severity: 6
+    occurrence: 7
+    detection: 3
+    rpn: 126
+  prevention_controls: Architettura dual-mode ibrida (QWEN2_COMPANION_SYSTEM_PROMPT
+    con parlato naturale + <action>...</action>), estrattore difensivo JsonCallExtractor.extract_hybrid_response,
+    auto-sintetizzatore generate_fallback_verbal_confirmation e filtro rigoroso sanitize_speech_for_tts
+  detection_controls: Invariante assert_zero_json_leak su 53 test in tests/test_persona_hybrid_templates.py
+    e 16 stress test in tests/test_qwen_chat_stress.py
+  residual_scoring:
+    severity: 6
+    occurrence: 1
+    detection: 1
+    rpn: 6
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Adozione di extract_hybrid_response e sanitize_speech_for_tts
+    in qwen_prompt_templates.py e conversation.py
+  verification_method: pytest tests/test_persona_hybrid_templates.py
+  eco_ref: docs/ecos/orchestration_rag_ecos.md#ECO-2026-10-16-004
+  lesson_ref: docs/lessons/orchestration_and_rag.md#lezione-46
+  date_identified: '2026-10-16'
+  last_updated: '2026-10-16'
+  history:
+  - date: '2026-10-16'
+    change: Implementato prompting ibrido empatico, auto-riparazione JSON e sanitizzazione
+      totale Zero-JSON-Leak pre-TTS (RPN 126 -> 6).
+    rpn_old: 126
+    rpn_new: 6
+- id: FM-LLM-011
+  subsystem: AI/Edge NPU
+  component: hailo_qwen_client / conversation
+  function: Generazione rapida e reattiva della risposta locale su acceleratore Hailo-10H
+    NPU con garanzia Always-Respond
+  failure_mode: Blocco prolungato della coroutine di inferenza per stallo NPU/Ollama
+    oltre 2.5s, congelando la risposta conversazionale
+  potential_cause: Contesa hardware PCIe, stallo socket HTTP locale o assenza di timeout
+    asincrono stringente sulla chiamata generate()
+  potential_effect: Silenzio prolungato di Marcus e mancato rispetto della SLA conversazionale
+    (<1.5s)
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-LLM-005
+  initial_scoring:
+    severity: 8
+    occurrence: 5
+    detection: 3
+    rpn: 120
+  prevention_controls: Timeout asincrono rigido <=1.20s (asyncio.wait_for) in hailo_qwen_client.py
+    e conversation.py con attivazione istantanea di _emit_conversational_fallback
+    contestualizzato sulla telemetria (<1.5s SLA)
+  detection_controls: Benchmark e stress test SCN-04/SCN-05 in tests/test_qwen_chat_stress.py
+    e tests/test_challenger_m2_timeout_sla.py
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Enforcement timeout <=1.2s e fallback empatico contestuale in
+    _handle_local_qwen
+  verification_method: pytest tests/test_challenger_m2_timeout_sla.py tests/test_qwen_chat_stress.py
+  eco_ref: docs/ecos/orchestration_rag_ecos.md#ECO-2026-10-16-004
+  lesson_ref: docs/lessons/orchestration_and_rag.md#lezione-45
+  date_identified: '2026-10-16'
+  last_updated: '2026-10-16'
+  history:
+  - date: '2026-10-16'
+    change: Introdotto hard timeout <=1.2s e fallback empatico Always-Respond entro
+      1.5s (RPN 120 -> 8).
+    rpn_old: 120
+    rpn_new: 8
+- id: FM-LLM-012
+  subsystem: AI/Trinity Brain
+  component: slm_metaprompt_fusion / trinity_engine
+  function: Fusione bilanciata dei contesti TRINITY (CAG, MAG, RAG) entro i limiti
+    di prefill dei modelli SLM su NPU Hailo-10H (<1200 token)
+  failure_mode: Superamento del budget di 1200 token per Qwen2 locale o perdita dei
+    turni dialogici più recenti durante il troncamento
+  potential_cause: Utilizzo del budget cloud (2200 token) su SLM locale o troncamento
+    top-down naive della cronologia conversazionale
+  potential_effect: Degrado del TTFT (>400ms), OOM sul contesto NPU o amnesia dell'ultima
+    frase pronunciata dall'utente
+  classification: PERFORMANCE
+  estimation_basis: measured
+  related_ids:
+  - FM-LLM-001
+  - FM-TRI-001
+  initial_scoring:
+    severity: 7
+    occurrence: 6
+    detection: 3
+    rpn: 126
+  prevention_controls: Motore SLMMetapromptFusion dedicato con budget nominale 950
+    token (hard ceiling <=1100 token, strettamente <1200), sanitizzazione ChatML e
+    troncamento a recency inversa (truncate_recency_lines)
+  detection_controls: Test suite tests/test_trinity_slm_memory.py, tests/test_challenger_m1_6_adversarial.py
+    e SCN-03 in tests/test_qwen_chat_stress.py
+  residual_scoring:
+    severity: 7
+    occurrence: 1
+    detection: 1
+    rpn: 7
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Routing di target_model='qwen_local' verso SLMMetapromptFusion
+    in TrinityEngine
+  verification_method: pytest tests/test_trinity_slm_memory.py tests/test_qwen_chat_stress.py
+  eco_ref: docs/ecos/orchestration_rag_ecos.md#ECO-2026-10-16-002
+  lesson_ref: docs/lessons/orchestration_and_rag.md#lezione-44
+  date_identified: '2026-10-16'
+  last_updated: '2026-10-16'
+  history:
+  - date: '2026-10-16'
+    change: Implementato SLMMetapromptFusion (<1200 token) con recency truncation
+      e persistenza SQLite WAL per Qwen2 locale (RPN 126 -> 7).
+    rpn_old: 126
+    rpn_new: 7

@@ -425,9 +425,11 @@ class AIOrchestrator(Node):
             return
 
         now = time.time()
-        # [ANTI-ECHO] Deduplicazione difensiva: ignora richieste identiche entro 10.0s
-        if text == self._last_text_input and (now - self._last_text_time) < 10.0:
-            self.ai_logger.warning(f"🚫 [Deduplicator] Ignorato input testuale duplicato su topic ROS entro 10.0s: '{text[:50]}'")
+        # [DDS TRANSPORT DEBOUNCE] Assorbe solo burst di ritrasmissione DDS / multi-topic remap identici entro 200ms (dt < 0.20s)
+        if text == self._last_text_input and (now - self._last_text_time) < 0.20:
+            self.ai_logger.debug(
+                f"⚡ [Deduplicator] Assorbito burst di trasporto DDS entro {(now - self._last_text_time)*1000:.1f}ms: '{text[:50]}'"
+            )
             return
 
         self._last_text_input = text

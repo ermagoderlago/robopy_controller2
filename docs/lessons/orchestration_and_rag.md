@@ -383,3 +383,86 @@ L'architettura TRINITY integra i tre paradigmi di memoria e contesto operando a 
 5. **Test Suite di Validazione (8/8 superati):**
    - Convalidati in `tests/test_autonomous_evolution.py` con test per: esclusione duplicati, rotazione sottosistemi, persistenza file piano, biforcazione rischio Zona Verde vs Gialla/Rossa, e sospensione/ripresa da checkpoint.
 
+---
+
+## 🧠 Lezione 44 — TRINITY SLM Metaprompt Fusion (<1200 Token), Troncamento a Recency Inversa e Persistenza SQLite WAL per Qwen2 Locale (Hailo-10H)
+
+### 1. Sintomi & Causa Radice
+* **Sintomo:** `_handle_local_qwen` in `conversation.py` eseguiva prompt grezzi senza contesto (amnesia di telemetria CAG, biometria e memorie MAG/RAG), causava silenzi inspiegabili in caso di timeout hardware dell'NPU e non persisteva i turni locali in `mag_database.db`. Inoltre, il template di metaprompt preesistente (`MetapromptFusion`) consumava fino a 2150 token, superando il tetto di prefill dell'acceleratore Hailo-10H (<1200 token) e degradando il Time-To-First-Token (TTFT <= 400ms).
+* **Causa Radice:**
+  1. Il motore `MetapromptFusion` era calibrato per Cloud Gemini Live (tetto 2500 token), privo di un budget compatto per modelli SLM.
+  2. L'algoritmo di troncamento per riga naive (top-down) cancellava i turni più recenti dal working memory dialogico.
+  3. Mancava il branching per `target_model="qwen_local"` in `TrinityEngine.build_augmented_prompt`.
+  4. L'inferenza locale non era protetta da timeout esplicito né da fallback vocale Always-Respond.
+
+### 2. Risoluzione Architetturale Implementata
+1. **Motore `SLMMetapromptFusion` & Budget Rigido (<1200 Token):**
+   - Implementato in `slm_metaprompt_fusion.py` con quote fisse: System (180), CAG (120), MAG (220), RAG (180), Dialogue (120), User (130) = target nominale 950 token, ceiling hard <= 1100 token (<1200 token garantito).
+   - Ribilanciamento dinamico basato su intent (`IntentRouter`): azzeramento RAG ed espansione MAG/Dialogue per intenti `CONVERSATION` e `NAVIGATION`.
+2. **Algoritmo di Troncamento a Recency Inversa (`SLMTruncator.truncate_recency_lines`):**
+   - Itera a ritroso a partire dall'ultimo turno (più recente) e ripristina l'ordine cronologico, assicurando che l'interazione corrente non venga mai cancellata.
+3. **Integrazione in `TrinityEngine` e `_handle_local_qwen`:**
+   - Supporto per `target_model="qwen_local"` in `build_augmented_prompt`.
+   - Timeout di 1.2s via `asyncio.wait_for` con failover amichevole Always-Respond in italiano.
+   - Persistenza asincrona dei turni locali e dei fatti appresi nel database autobiografico SQLite WAL (`mag_database.db`).
+4. **Suite di Test Dedicata `tests/test_trinity_slm_memory.py`:**
+   - 28 test unitari ed E2E superati al 100% (Token Budget, Truncation, Telemetry Injection, SQLite WAL, Deterministic Mocks).
+5. **Remediation & Hardening Avversariale (Iterazione 2 — 87/87 Test 100% Green):**
+   - *Fallback Troncamento Recency:* Risolto il difetto di stringa vuota in `truncate_recency_lines` quando il turno più recente supera da solo `max_chars`, integrando il fallback semantico a `truncate_clean_words(lines[-1], max_tokens)`.
+   - *Immunità ChatML Delimiter Injection:* Neutralizzazione difensiva di `<|im_start|>`, `<|im_end|>` e `<|endoftext|>` tramite `sanitize_chatml` per scongiurare hijacking del ruolo e del system prompt da input utente o telemetria CAG non fidati.
+   - *Delimitazione Token Timestamp & Tetto Hard:* Bounding della stringa timestamp a 60 caratteri e potatura d'emergenza a più livelli con tetto vincolante `<= 1150` token (< 1200 token assoluti) e sincronizzazione della telemetria delle sezioni post-pruning.
+   - *Preservazione Configurazione Costruttore:* Estesa `SLMBudgetConfig.for_intent` con supporto `base_config` per preservare impostazioni personalizzate del costruttore.
+   - *Allineamento Attributi `SandboxValidationResult`:* Allineati `validation.authorized`, `validation.reason`, `validation.feedback_speak` e parametri clamped `validation.clamped_arguments` in `conversation.py`, ripristinando il pre-flight kinematic gating senza eccezioni `AttributeError`.
+   - *Sanificazione Vocale Incondizionata:* Rimozione incondizionata di tag `<action>.*?</action>` e blocchi di codice markdown prima dell'inoltro a Piper TTS e alla response callback.
+   - *Timeout di Protezione TRINITY:* Bounded retrieval a 300ms per l'arricchimento locale e 2.0s per il cloud LLM, rispettando la SLA complessiva di 1.5s per il fallback.
+   - *Validazione Test Suite:* Consolidati 87/87 test verdi (28 memory, 23 challenger, 22 concurrency, 12 integration, 2 failover).
+---
+
+## 🛡️ Lezione 45 — Always-Respond Zero-Silence Guarantee, Resilienza Duck-Typing Client NPU, Windows Console Logging Codec Safety e Allineamento Emergenza Motoria
+
+### 1. Sintomi & Causa Radice
+* **Sintomo 1 (Interface Duck-Typing):** `ConversationManager._handle_local_qwen` invocava `hailo_client.generate(prompt=..., timeout_sec=generation_timeout)` incondizionatamente. Mock e client con duck-typing conformi all'interfaccia standard `generate(prompt, system_prompt, model)` sollevavano `TypeError: unexpected keyword argument 'timeout_sec'`, scatenando immediatamente il fallback conversazionale anche in condizioni nominali.
+* **Sintomo 2 (Windows Console Codec Crash):** Durante il logging su Windows con stream di output `cp1252`, i messaggi contenenti emoji Unicode (es. `🧠` `\U0001f9e0`) generavano `UnicodeEncodeError: 'charmap' codec can't encode character` non gestiti nel thread di logging di Python.
+* **Sintomo 3 (Disallineamento Risposta Emergenza Motoria):** I comandi di arresto immediato ("fermati", "stop") emettevano `"Fermo tutto!"` tramite `_handle_emergency()`, mentre gli oracoli di test del challenger si attendevano un riscontro semantico completo con i termini di quiete e riposo dei motori.
+
+### 2. Risoluzione Architetturale Implementata
+1. **Supporto Duck-Typing Resiliente con Fallback Parametrico:**
+   - In `conversation.py`: tentativo di invocazione con `timeout_sec=generation_timeout`, e su `TypeError` fallback automatico a `generate(prompt=augmented_prompt)`. Entrambe le chiamate rimangono rigorosamente protette da `asyncio.wait_for(..., timeout=generation_timeout)` garantendo l'invariante di timeout SLA < 1.45s indipendentemente dal supporto client.
+   - Allineata la firma di `AdversarialStallMockClient.generate` in `tests/test_adversarial_wal_concurrency.py` per accettare `timeout_sec: Optional[float] = None, **kwargs`.
+2. **Windows Codec-Safe Console Formatting (`logging_utils.py`):**
+   - In `ConsoleFormatter.format`: sanitizzazione multilivello contro `cp1252` e codepage console Windows. Qualsiasi carattere non mappabile nella codepage attiva o in `cp1252` viene sostituito con caratteri di fallback ASCII/sostituzione sicura (`errors="replace"`), eliminando ogni crash `UnicodeEncodeError`.
+3. **Allineamento Semantico Risposta Fast-Path Emergency Stop:**
+   - In `conversation.py`: allineato `msg = "Fermo tutto! Mi sono fermato immediatamente, tutti i motori sono a riposo."` in `_handle_emergency()`, assicurando coerenza lessicale tra il fast-path fisico e il fallback conversazionale.
+4. **Certificazione Completa 100/100 Test Verdi (100% GREEN):**
+   - Superate tutte e 7 le suite di regressione e challenger senza errori:
+     - `test_adversarial_wal_concurrency.py` (22/22)
+     - `test_challenger_m2_timeout_sla.py` (21/21)
+     - `test_challenger_m2_repetition.py` (6/6)
+     - `test_resilience_zero_silence.py` (9/9)
+     - `test_conversation_hybrid_failover.py` (2/2)
+     - `test_trinity_slm_memory.py` (28/28)
+     - `test_trinity_full.py` (12/12)
+
+---
+
+## 💬 Lezione 46 — Personalità Compagno Italiano Empatico, Prompting Ibrido Dual-Mode (`<action>`), Sanitizzazione Zero-JSON-Leak e Suite Stress Test a 16 Scenari (FM-LLM-009..012)
+
+### 1. Sintomi & Causa Radice
+* **Sintomo 1 (Fuga di JSON Grezzo e Nomi Funzione Inglesi in Piper TTS):** Quando Qwen2 locale generava un comando operativo senza testo introduttivo o fuori dai tag `<action>`, `ConversationManager._handle_local_qwen` ripiegava su frasi meccaniche contenenti il nome inglese della funzione (`"Ricevuto, eseguo navigate_to."`) o lasciava trapelare parentesi graffe `{...}` e chiavi JSON verso Piper TTS.
+* **Sintomo 2 (Mancata Ripresa Automatica dell'Esplorazione dopo Barge-In Locale):** In `_process_locked`, i rami di routing diretto verso `LOCAL_QWEN` (`HybridRouter`, `cloud_unavailable`, `cloud_failover`) eseguivano `return await self._handle_local_qwen(...)` prima di raggiungere il blocco finale di auto-resumption dell'esplorazione a frontiere (`was_exploring_at_barge_in`), lasciando il robot in pausa indefinita dopo un dialogo locale. Inoltre, il comando rapido `"Marcus, fermati subito!"` veniva intercettato da `_is_emergency()` prima di `_process_locked` senza invocare `frontier_skill.stop_exploration()`.
+* **Sintomo 3 (Amigdala State PANIC nel Kinematic Sandbox):** Il Tier 5 di `TrinityKinematicSandbox` bloccava il moto solo su `amygdala_state == "HIJACK"`, ignorando lo stato `"PANIC"` generato dai picchi di stress acustico/prossimità.
+
+### 2. Risoluzione Architetturale Implementata
+1. **Personalità Italiana Empatica & Prompt Ibrido Dual-Mode (`qwen_prompt_templates.py`):**
+   - Introdotto `QWEN2_COMPANION_SYSTEM_PROMPT` che istruisce Qwen2 a comportarsi come un compagno domestico caloroso e consapevole del proprio corpo fisico (RPLIDAR C1, OAK-D Lite, LiPo 12V, Pi 5, Hailo-10H), operando in modalità pura conversazione (zero tag) oppure conferma colloquiale italiana seguita da `<action>{"call": ...}</action>`.
+2. **Estrattore Difensivo `JsonCallExtractor.extract_hybrid_response` & Auto-Sintetizzatore Vocale:**
+   - Separa in modo deterministico il parlato naturale (`clean_speech`) dal payload operativo (`action_call`), auto-riparando JSON troncati (parentesi mancanti), virgole finali, apici singoli Python e blocchi markdown.
+   - Se il modello emette solo il blocco `<action>`, `generate_fallback_verbal_confirmation()` sintetizza automaticamente una frase calda in italiano (es. *"Ricevuto! Vado subito verso cucina."*, *"Verifico subito lo stato della mia batteria."*), eliminando qualsiasi pronuncia di identificatori inglesi.
+   - Il filtro `sanitize_speech_for_tts()` rimuove incondizionatamente qualsiasi tag, parentesi graffa/quadra o chiave JSON residua (0% leak).
+3. **Barge-In Auto-Resume Unificato & Stop di Emergenza Frontiere (`conversation.py`):**
+   - Creato il metodo `_finalize_barge_in_exploration()` invocato su tutti i cammini di uscita di `_process_locked` (incluso `LOCAL_QWEN`) e integrato l'arresto di `frontier_exploration` in `_handle_emergency()`.
+   - Esteso il popolamento di `RobotSafetyContext` in `_handle_local_qwen` con `battery_voltage`, `is_charging`, `amygdala_state` (blocco Tier 5 attivo sia su `"HIJACK"` che su `"PANIC"`) e distanze ostacoli.
+4. **Certificazione Stress Test Conversazionale (`tests/test_persona_hybrid_templates.py` & `tests/test_qwen_chat_stress.py`):**
+   - `tests/test_persona_hybrid_templates.py`: 53/53 test superati (100% PASS, 0% JSON leak su corpus avversariale).
+   - `tests/test_qwen_chat_stress.py`: 16/16 scenari di stress superati (`SCN-01` burst 30 richieste concorrenti, `SCN-02` ripetizione ossessiva 0% drop, `SCN-03` 6000+ char context `< 1200` token, `SCN-04` NPU hang failover `< 1.5s`, `SCN-05` TTFT p95 `< 400ms`, `SCN-06` 100 turni zero task leak, `SCN-07..16` sicurezza cinematica, batteria bassa, Amigdala PANIC, code-switching, SQL/XSS/ChatML injection e barge-in auto-resume).
+

@@ -67,7 +67,18 @@ class ConsoleFormatter(logging.Formatter):
         component = getattr(record, 'component', '')
         component_str = f"[{component}] " if component else ""
         
-        return f"{color}{timestamp} {record.levelname:8}{self.RESET} {component_str}{record.getMessage()}"
+        msg = f"{color}{timestamp} {record.levelname:8}{self.RESET} {component_str}{record.getMessage()}"
+        if sys.platform == "win32":
+            enc = getattr(sys.stdout, "encoding", None) or "cp1252"
+            try:
+                msg = msg.encode(enc, errors="replace").decode(enc, errors="replace")
+            except (LookupError, UnicodeError):
+                msg = msg.encode("ascii", errors="replace").decode("ascii")
+            try:
+                msg.encode("cp1252")
+            except UnicodeEncodeError:
+                msg = msg.encode("ascii", errors="replace").decode("ascii")
+        return msg
 
 
 class AILogger:

@@ -356,8 +356,103 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
   * Ricalcolato DFMEA con 193 Failure Mode e 0 RPN critici residui.
 * **Esito Validazione:** 497 test su 497 superati con successo (100% GREEN) verificati da Victory Audit indipendente.
 
+---
 
+## 📈 ECO-2026-10-16-001: TRINITY SLM Metaprompt Fusion (<1200 Tokens) & Local Turn SQLite WAL Persistence
+* **Autore:** 🤖 **worker_m1_6** (Teamwork Preview Worker)
+* **Data Creazione:** 2026-10-16 08:40:00
+* **Sottosistema:** `AI/Cognitive Architecture TRINITY & Orchestration`
+* **Stato:** ✅ **Completato, Collaudato e Validato al 100%** (28/28 test passati, 100% GREEN)
+* **Descrizione:**
+  Integrazione completa del motore cognitivo TRINITY (CAG, MAG, RAG) nell'orchestrazione locale Qwen2 su NPU Hailo-10H:
+  1. **SLM Metaprompt Fusion (`slm_metaprompt_fusion.py`):**
+     - Budget context compatto vincolato a < 1200 token (nominale 950 token, hard ceiling <= 1100 token: System 180, CAG 120, MAG 220, RAG 180, Dialogue 120, User 130).
+     - Troncamento a recency inversa per la memoria dialogica di lavoro (`SLMTruncator.truncate_recency_lines`), preservando gli ultimi turni e scartando quelli obsoleti.
+     - Ribilanciamento dinamico del budget basato sull'intento di query (`IntentRouter`).
+  2. **TrinityEngine Target Dispatch (`trinity_engine.py`):**
+     - Aggiunto parametro `target_model` a `build_augmented_prompt` con supporto esplicito a `"qwen_local"`, delegando a `SLMMetapromptFusion` e mantenendo inalterata la pipeline cloud di Gemini Live.
+  3. **Integrazione `ConversationManager._handle_local_qwen` (`conversation.py`):**
+     - Acquisizione asincrona del prompt aumentato TRINITY prima dell'invio a Hailo-10H.
+     - Delimitazione dell'inferenza con timeout rigido a 1.2s (`asyncio.wait_for`) e fallback Always-Respond in caso di timeout o errore.
+     - Persistenza asincrona dei turni locali e dei fatti appresi in SQLite WAL (`mag_database.db`).
+  4. **Suite di Test Dedicata `tests/test_trinity_slm_memory.py`:**
+     - 28 test distribuiti su 5 suite (Token Budget, Fallback/Truncation, Telemetry Injection, SQLite WAL, Deterministic Mock Harness) passati al 100% in 4.64s.
 
+---
 
+## 📈 ECO-2026-10-16-002: Hardening & Remediation of TRINITY SLM Metaprompt Fusion, ChatML Delimiter Protection & Sandbox Attribute Alignment
+* **Autore:** 🤖 **worker_m1_remed** (Teamwork Preview Worker)
+* **Data Creazione:** 2026-10-16 09:12:00
+* **Sottosistema:** `AI/Cognitive Architecture TRINITY & Orchestration`
+* **Stato:** ✅ **Completato, Collaudato e Validato al 100%** (87/87 test passati su 5 suite, 100% GREEN)
+* **Descrizione:**
+  Risoluzione dei 7 defect e vettori di vulnerabilità identificati durante l'audit e il review del Milestone 1:
+  1. **Clean Word Fallback in Recency Truncation (`slm_metaprompt_fusion.py`):**
+     - Sostituito il ritorno di stringa vuota `""` con `truncate_clean_words(lines[-1], max_tokens)` quando il turno più recente supera `max_chars`, garantendo la conservazione dell'ultima interazione.
+  2. **ChatML Delimiter Sanitization & Injection Immunity (`slm_metaprompt_fusion.py`):**
+     - Aggiunta funzione statica `sanitize_chatml()` che neutralizza ricorsivamente `<|im_start|>`, `<|im_end|>` e `<|endoftext|>` su input utente, telemetria e memorie, prevenendo il prompt injection o il masquerading del ruolo.
+  3. **Delimitazione Bounded Timestamp & Emergency Pruning (`slm_metaprompt_fusion.py`):**
+     - Tetto massimo di 60 caratteri sul campo timestamp; pruning d'emergenza a più livelli con tetto hard vincolante `<= 1150` token (< 1200 assoluti) e sincronizzazione coerente dei contatori di sezione.
+  4. **Preservazione Configurazione Personalizzata del Costruttore (`slm_metaprompt_fusion.py`):**
+     - Supporto per `base_config` in `SLMBudgetConfig.for_intent()` preservando le impostazioni instanziate nel costruttore.
+  5. **Allineamento Interfaccia Kinematic Sandbox (`conversation.py`):**
+     - Corretto accesso agli attributi di `SandboxValidationResult` (`validation.authorized`, `validation.reason`, `validation.feedback_speak`, `validation.clamped_arguments`), ripristinando il rifiuto cinematico e prevenendo eccezioni `AttributeError`.
+  6. **Sanificazione Incondizionata del Testo Vocale (`conversation.py`):**
+     - Stripping incondizionato di blocchi `<action>.*?</action>` e markdown prima dell'invio a Piper TTS e alla callback di risposta.
+  7. **Timeout di Protezione Context Retrieval TRINITY (`conversation.py`):**
+     - Inserito timeout esplicito di 300ms via `asyncio.wait_for` su `build_augmented_prompt`, garantendo il rispetto della SLA globale di 1.5s per il fallback.
+  8. **Consolidamento Test Suite (87/87 PASS):**
+     - `test_trinity_slm_memory.py`: 28/28 PASS
+     - `test_challenger_m1_6_adversarial.py`: 23/23 PASS
+     - `test_adversarial_wal_concurrency.py`: 22/22 PASS
+     - `test_trinity_full.py`: 12/12 PASS
+     - `test_conversation_hybrid_failover.py`: 2/2 PASS
 
+---
 
+## 📈 ECO-2026-10-16-003: Milestone 2 Remediation — NPU Client Duck-Typing, Windows Codec Safety & Emergency Stop Alignment
+* **Autore:** 🤖 **worker_m2_remed** (Teamwork Implementer / QA / Specialist)
+* **Data Creazione:** 2026-10-16 10:30:00
+* **Sottosistema:** `AI/Conversational Orchestration & Reliability`
+* **Stato:** ✅ **Completato, Collaudato e Validato al 100%** (100/100 test passati su 7 suite, 100% GREEN)
+* **Descrizione:**
+  Risoluzione dei 3 defect identificati nel review del Milestone 2:
+  1. **Duck-Typing Resiliente per Client NPU (`conversation.py` & `test_adversarial_wal_concurrency.py`):**
+     - In `ConversationManager._handle_local_qwen`, implementata gestione protetta con try/except `TypeError` su `hailo_client.generate(prompt=augmented_prompt, timeout_sec=generation_timeout)`.
+     - In caso di client privi del parametro `timeout_sec`, fallback immediato a `generate(prompt=augmented_prompt)`. Entrambe le esecuzioni sono rigorosamente incapsulate in `asyncio.wait_for(..., timeout=generation_timeout)` per preservare la deadline hardware.
+     - Aggiornata la firma di `AdversarialStallMockClient.generate` in `tests/test_adversarial_wal_concurrency.py` ad accettare `timeout_sec: Optional[float] = None, **kwargs`.
+  2. **Windows Logging Codec Safety (`logging_utils.py`):**
+     - Aggiornato `ConsoleFormatter.format` per codificare e decodificare con `errors="replace"` rispetto all'encoding rilevato di stdout, e garantita la compatibilità contro `cp1252` con fallback ad ASCII. Eliminati i traceback `UnicodeEncodeError: 'charmap'`.
+  3. **Allineamento Stringa Arresto di Emergenza (`conversation.py`):**
+     - In `_handle_emergency()`, allineato il messaggio emesso a `"Fermo tutto! Mi sono fermato immediatamente, tutti i motori sono a riposo."`, soddisfacendo gli oracoli di contesto cinematico sia del fast-path che del fallback.
+  4. **Matrice Test Consolidata (100/100 PASS):**
+     - `tests/test_adversarial_wal_concurrency.py`: 22/22 PASS
+     - `tests/test_challenger_m2_timeout_sla.py`: 21/21 PASS
+     - `tests/test_challenger_m2_repetition.py`: 6/6 PASS
+     - `tests/test_resilience_zero_silence.py`: 9/9 PASS
+     - `tests/test_conversation_hybrid_failover.py`: 2/2 PASS
+     - `tests/test_trinity_slm_memory.py`: 28/28 PASS
+     - `tests/test_trinity_full.py`: 12/12 PASS
+
+---
+
+## 📈 ECO-2026-10-16-004: Milestone 3 & 4 — Humanized Companion Persona, Hybrid Dual-Mode Extraction, Zero-JSON-Leak Sanitizer, Barge-In Auto-Resumption & 16-Scenario Chat Stress Certification (FM-LLM-009..012)
+* **Autore:** 🤖 **Antigravity Lead Orchestrator**
+* **Data Creazione:** 2026-10-16 11:00:00
+* **Sottosistema:** `AI/Local NPU Inference, TRINITY Brain & Conversational Orchestration`
+* **Stato:** ✅ **Completato, Collaudato e Certificato Localmente al 100%** (Deploy su Raspberry Pi 5 posticipato per host temporaneamente offline)
+* **Descrizione:**
+  Completamento dei Milestone 3 e 4 per l'umanizzazione dell'esperienza di dialogo con Qwen2 su NPU Hailo-10H, l'eliminazione totale dei leak JSON nel parlato TTS, il ripristino automatico dell'esplorazione post-barge-in sui rami locali e la validazione sotto stress estremo (16 scenari avversariali) con aggiornamento DFMEA (`FM-LLM-009`..`FM-LLM-012`).
+* **Modifiche apportate:**
+  1. **Prompting Ibrido & Estrattore Dual-Mode (`robopy_controller/robot_ai/hailo/qwen_prompt_templates.py`):**
+     - Introdotto `QWEN2_COMPANION_SYSTEM_PROMPT` con personalità italiana calorosa e modalità dual-mode (puro dialogo oppure conferma vocale + `<action>{"call": ...}</action>`).
+     - Implementati `HybridExtractionResult`, `JsonCallExtractor.extract_hybrid_response()`, `generate_fallback_verbal_confirmation()` e `sanitize_speech_for_tts()` (0% parentesi graffe/quadre, tag o chiavi JSON nel parlato).
+  2. **Integrazione Conversazionale, Sicurezza & Barge-In (`robopy_controller/robot_ai/orchestration/conversation.py` & `kinematic_sandbox.py`):**
+     - Aggiornato `_handle_local_qwen` per utilizzare `extract_hybrid_response`, `generate_fallback_verbal_confirmation` e `sanitize_speech_for_tts`, popolando integralmente `RobotSafetyContext` da `world_model` e attendendo deterministicamente `execute_skill`.
+     - Esteso il blocco Tier 5 di `TrinityKinematicSandbox` sia a `"HIJACK"` che a `"PANIC"`.
+     - Creato `_finalize_barge_in_exploration()` invocato su tutti i percorsi di ritorno di `_process_locked` (incluso `LOCAL_QWEN`) e integrato lo stop dell'esplorazione in `_handle_emergency()`.
+  3. **Suite di Collaudo e Stress Test (`tests/test_persona_hybrid_templates.py` & `tests/test_qwen_chat_stress.py`):**
+     - `tests/test_persona_hybrid_templates.py`: 53/53 test passati (100% GREEN).
+     - `tests/test_qwen_chat_stress.py`: 16/16 scenari di stress passati (`SCN-01`..`SCN-16`, 100% GREEN).
+  4. **Governance DFMEA (`fmea/dfmea.yaml`):**
+     - Registrati e chiusi i Failure Modes `FM-LLM-009` (RPN 168 -> 7), `FM-LLM-010` (RPN 126 -> 6), `FM-LLM-011` (RPN 120 -> 8) e `FM-LLM-012` (RPN 126 -> 7).

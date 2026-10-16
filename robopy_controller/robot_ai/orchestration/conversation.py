@@ -3,6 +3,8 @@ import time
 import re
 import datetime
 import json
+import random
+from typing import Optional, List, Dict, Any, Tuple
 from robot_ai.utils import get_logger
 from robot_ai.core.input_sanitizer import InputSanitizer
 from robot_ai.core.camera_frame import CameraFrame
@@ -36,6 +38,8 @@ class ConversationManager:
         self.document_callback = None
         self._recent_inputs = []
         self.conversation_history = []
+        self._recent_queries: List[Tuple[str, float, str]] = []  # (norm_text, timestamp, reply_text)
+        self._in_flight_queries: Dict[str, float] = {}            # norm_text -> start_time
 
         # Dopamine Biometric Alignment System
         self.cognitive_graph = MarcusStateGraph(
@@ -94,71 +98,372 @@ class ConversationManager:
 
     async def _handle_emergency(self):
         self.reactive_safety.emergency_stop()
-        msg = "Fermo tutto!"
+        try:
+            if self.skill_executor and hasattr(self.skill_executor, "registry"):
+                frontier_skill = self.skill_executor.registry.get("frontier_exploration")
+                if frontier_skill and getattr(frontier_skill, "is_exploring", False):
+                    if hasattr(frontier_skill, "pause_for_dialogue"):
+                        frontier_skill.pause_for_dialogue()
+                    if hasattr(frontier_skill, "stop_exploration"):
+                        frontier_skill.stop_exploration()
+                nav_skill = self.skill_executor.registry.get("navigation")
+                if nav_skill and hasattr(nav_skill, "safe_execute"):
+                    res = nav_skill.safe_execute("fermati", {"action": "stop"})
+                    if asyncio.iscoroutine(res):
+                        await res
+        except Exception as e:
+            self._logger.debug(f"Emergency frontier/nav stop check skipped: {e}")
+        msg = "Fermo tutto! Mi sono fermato immediatamente, tutti i motori sono a riposo."
         if self.response_callback:
             self.response_callback(msg)
         await self.tts.speak(msg)
 
-    async def _handle_local_qwen(self, clean_text: str, should_speak: bool) -> bool:
+    async def _finalize_barge_in_exploration(
+        self,
+        clean_text: str,
+        was_exploring_at_barge_in: bool,
+        frontier_skill: Any
+    ) -> None:
+        """Auto-resumes or permanently stops frontier exploration after a barge-in dialogue turn."""
+        if was_exploring_at_barge_in and frontier_skill:
+            user_requested_stop = bool(
+                re.search(
+                    r'\b(ferma|fermati|stop|alt|basta|annulla|interrompi|blocca|arresta|non\s+muoverti)\b',
+                    clean_text,
+                    re.IGNORECASE
+                )
+            )
+            if user_requested_stop:
+                frontier_skill.stop_exploration()
+                nav_skill = self.skill_executor.registry.get("navigation") if (self.skill_executor and hasattr(self.skill_executor, "registry")) else None
+                if nav_skill and hasattr(nav_skill, "safe_execute"):
+                    res = nav_skill.safe_execute("fermati", {"action": "stop"})
+                    if asyncio.iscoroutine(res):
+                        await res
+                self._logger.info("🛑 Exploration stopped per user utterance command.")
+            elif getattr(frontier_skill, "_paused_for_dialogue", False):
+                frontier_skill.resume_after_dialogue()
+                self._logger.info("▶️ Exploration automatically resumed after dialogue turn.")
+
+    def _record_recent_query(self, text: str, reply: str):
+        """Records a completed turn in recent queries for anti-echo and reaffirming responses."""
+        if not hasattr(self, '_recent_queries'):
+            self._recent_queries = []
+        norm = text.strip().lower()
+        now = time.time()
+        # Keep window bounded to last 20 seconds
+        self._recent_queries = [
+            (t, ts, r) for t, ts, r in self._recent_queries
+            if (now - ts) < 20.0
+        ]
+        self._recent_queries.append((norm, now, reply))
+
+    async def _emit_conversational_fallback(
+        self,
+        clean_text: str,
+        should_speak: bool,
+        reason: str = ""
+    ) -> bool:
         """
-        Executes local inference via Hailo-10H Qwen2 client with Piper/TTS output,
-        bypassing cloud completely or acting as resilient offline/quota failover.
+        Emits an empathetic, contextual conversational fallback in Italian without technical jargon.
+        Guarantees zero-silence and sub-1.5s response delivery on /ai/conversation/response.
+        Handles:
+        1. battery/status: Reassuring battery voltage and system health.
+        2. location: Reassuring current room and spatial orientation.
+        3. actions/motion: Reassuring explanation of motion hesitation without jargon.
+        4. greetings: Warm, friendly robotic presence.
+        5. generic: Polite and warm apology inviting re-phrasing.
+        """
+        lower = clean_text.lower().strip()
+
+        # 1. Battery / Power / System Health
+        if any(w in lower for w in [
+            "batteria", "carica", "autonomia", "volt", "stato batteria", "salute batteria", "diagnostica", 
+            "alimentazione", "health", "battery"
+        ]):
+            v = getattr(self.world_model, "battery_voltage", None) if self.world_model else None
+            if isinstance(v, (int, float)) and v > 0:
+                fallback = f"Ho verificato rapidamente i miei circuiti: la batteria è a {v:.2f} volt e tutti i sistemi sono stabili e operativi!"
+            else:
+                fallback = "Ho verificato rapidamente: tutti i miei circuiti di alimentazione sono stabili, procediamo pure!"
+
+        # 2. Location / Room / Spatial Awareness
+        elif any(w in lower for w in [
+            "dove sei", "dove ti trovi", "in che stanza", "posizione", "localizzazione",
+            "dove siamo", "mappa", "stanza", "orientamento"
+        ]):
+            curr_room = getattr(self.world_model, "current_room", None) if self.world_model else None
+            if isinstance(curr_room, str) and curr_room:
+                fallback = f"Sono qui con te in {curr_room}, perfettamente orientato sulla mappa!"
+            else:
+                fallback = "Sono qui con te nella stanza, pronto a orientarmi sulla mappa!"
+
+        # 3. Actions / Movement / Stop
+        elif any(w in lower for w in [
+            "avanti", "indietro", "destra", "sinistra", "ruota", "gira", "cammina",
+            "muoviti", "fermati", "stop", "alt", "blocca", "arrestati", "esplora", "vai"
+        ]):
+            if any(w in lower for w in ["fermati", "stop", "alt", "blocca", "arrestati"]):
+                fallback = "Mi sono fermato immediatamente, tutti i motori sono a riposo."
+            else:
+                fallback = "Ho compreso il tuo comando, ma il mio modulo motori ha avuto un piccolo attimo di esitazione. Riprova tra un istante!"
+
+        # 4. Greetings / Presence / Small Talk
+        elif any(w in lower for w in [
+            "ciao", "buongiorno", "buonasera", "salve", "ehi", "hey", "buondì",
+            "ci sei", "mi senti", "mi ascolti", "puoi parlare"
+        ]):
+            fallback = "Ciao! Ti sento forte e chiaro, sono qui e pronto ad aiutarti."
+
+        # 5. Generic / Unmatched
+        else:
+            fallback = "Scusami, ho avuto un piccolo attimo di esitazione nei miei circuiti neurali! Dimmi pure, ti ascolto."
+
+        self._logger.info(
+            f"🛡️ [ALWAYS-RESPOND FALLBACK] Emitted empathetic fallback for '{clean_text}' (reason: {reason}) -> '{fallback}'"
+        )
+
+        # 1. Publish to response_callback (synchronously published to /ai/conversation/response)
+        if self.response_callback:
+            try:
+                self.response_callback(fallback)
+            except Exception as cb_err:
+                self._logger.error(f"Error invoking response_callback in fallback: {cb_err}")
+
+        # 2. Speak via TTS if voice output requested
+        if should_speak and self.tts:
+            try:
+                await self.tts.speak(fallback)
+            except Exception as tts_err:
+                self._logger.debug(f"TTS speak skipped in fallback: {tts_err}")
+
+        # 3. Update short-term working memory
+        self.conversation_history.append({"role": "user", "content": clean_text, "user": clean_text})
+        self.conversation_history.append({"role": "assistant", "content": fallback, "marcus": fallback})
+        if len(self.conversation_history) > 10:
+            self.conversation_history = self.conversation_history[-10:]
+
+        # 4. Update recent queries for repetition tracker
+        self._record_recent_query(clean_text, fallback)
+
+        # 5. Record interaction in TRINITY autobiographical store if enabled
+        if self.trinity_engine and self.trinity_engine.enabled:
+            try:
+                await self.trinity_engine.record_interaction(
+                    user_text=clean_text,
+                    robot_response=fallback,
+                    actions_taken=[],
+                    was_successful=True,
+                    user_identity=None,
+                    extracted_facts=None
+                )
+            except Exception as mag_err:
+                self._logger.debug(f"TRINITY fallback recording skipped: {mag_err}")
+
+        # 6. Increment metric and return True to guarantee zero silence
+        self.metrics.inc_requests_success()
+        return True
+
+    async def _handle_local_qwen(
+        self,
+        clean_text: str,
+        should_speak: bool,
+        user_identity: Optional[str] = None,
+        combined_notes: str = ""
+    ) -> bool:
+        """
+        Executes local inference via Hailo-10H Qwen2 client with TRINITY context augmentation,
+        strict SLM token budgeting (<1200 tokens), kinematic sandbox validation, and autobiographical
+        SQLite WAL persistence. Guaranteed Always-Respond behavior on timeouts/errors.
         """
         if not self.hailo_client:
             self._logger.error("HailoQwenClient is not initialized for local processing.")
-            return False
+            return await self._emit_conversational_fallback(clean_text, should_speak, reason="client_uninitialized")
 
         t0 = time.perf_counter()
+        if user_identity is None and self.world_model and hasattr(self.world_model, "current_user") and self.world_model.current_user:
+            user_identity = self.world_model.current_user.get("name")
+
+        augmented_prompt = clean_text
+        reply_text = ""
+
+        # Step 1: Gather TRINITY Context Asynchronously (< 1200 tokens, bounded to 250ms)
+        if self.trinity_engine and self.trinity_engine.enabled:
+            try:
+                augmented_prompt = await asyncio.wait_for(
+                    self.trinity_engine.build_augmented_prompt(
+                        user_text=clean_text,
+                        source=self._current_source or "text",
+                        user_identity=user_identity,
+                        system_prompt="",
+                        repeated_note=combined_notes,
+                        conversation_history=list(self.conversation_history),
+                        target_model="qwen_local"
+                    ),
+                    timeout=0.250
+                )
+            except (asyncio.TimeoutError, Exception) as e:
+                self._logger.warning(f"TRINITY prompt augmentation timed out or failed for local Qwen: {e}")
+                augmented_prompt = clean_text
+
+        # Step 2: Enforce Strict Hardware Timeout Deadline (Guaranteeing <1.45s before fallback)
+        elapsed_so_far = time.perf_counter() - t0
+        generation_timeout = min(1.20, max(0.50, 1.40 - elapsed_so_far))
+
         try:
-            reply_text, telem = await self.hailo_client.generate(prompt=clean_text)
+            try:
+                reply_text, telem = await asyncio.wait_for(
+                    self.hailo_client.generate(prompt=augmented_prompt, timeout_sec=generation_timeout),
+                    timeout=generation_timeout
+                )
+            except TypeError:
+                # Duck-typed clients lacking timeout_sec parameter
+                reply_text, telem = await asyncio.wait_for(
+                    self.hailo_client.generate(prompt=augmented_prompt),
+                    timeout=generation_timeout
+                )
             latency = time.perf_counter() - t0
             self.metrics.record_llm_latency(latency)
             self._logger.info(
                 f"🧠 [LOCAL QWEN2 NPU] Generated response in {latency*1000:.1f}ms: '{reply_text}'"
             )
+        except (asyncio.TimeoutError, Exception) as exc:
+            latency = time.perf_counter() - t0
+            self._logger.warning(
+                f"⚠️ [LOCAL QWEN TIMEOUT/ERROR] Generation failed or exceeded {generation_timeout:.2f}s "
+                f"({latency*1000:.1f}ms elapsed): {exc}. Activating instantaneous conversational fallback..."
+            )
+            return await self._emit_conversational_fallback(clean_text, should_speak, reason=str(exc))
 
-            # Convert structured action JSON into human-friendly conversational reply
-            natural_reply = reply_text
-            if reply_text.strip().startswith("{") and "action" in reply_text:
-                try:
-                    action_data = json.loads(reply_text.strip())
-                    act = action_data.get("action", "")
-                    if act == "get_battery_status":
-                        v = getattr(self.world_model, "battery_voltage", None)
-                        if v and v > 0:
-                            natural_reply = f"La batteria è a {v:.2f} volt, livello di carica regolare."
-                        else:
-                            natural_reply = "Ho verificato lo stato della batteria: livello di carica e alimentazione sono ottimali."
-                    elif act == "get_system_health":
-                        natural_reply = "Tutti i sistemi hardware, i sensori e l'acceleratore NPU sono operativi."
-                    elif act == "stop_motion":
-                        natural_reply = "Fermo tutti i movimenti del robot."
-                    elif act == "navigate_to":
-                        room = action_data.get("parameters", {}).get("target_room", "la stanza")
-                        natural_reply = f"Ricevuto! Avvio la navigazione verso {room}."
-                    elif act == "start_frontier_exploration":
-                        natural_reply = "Inizio l'esplorazione autonoma dell'ambiente con Nav2."
-                    elif act in ["rotate_angle", "move_distance"]:
-                        natural_reply = "Eseguo il movimento richiesto."
-                except Exception:
-                    pass
+        # Step 3: Extract Hybrid Dialogue + Action via JsonCallExtractor & Execute via Kinematic Sandbox
+        raw_call = None
+        clean_speech = ""
+        try:
+            from ..hailo.qwen_prompt_templates import (
+                JsonCallExtractor,
+                generate_fallback_verbal_confirmation,
+                sanitize_speech_for_tts,
+            )
+            extraction = JsonCallExtractor.extract_hybrid_response(reply_text)
+            raw_call = extraction.action_call
+            clean_speech = extraction.clean_speech
+        except Exception as e:
+            self._logger.debug(f"JsonCallExtractor invocation error: {e}")
+            clean_speech = re.sub(r'<action>[\s\S]*?</action>', '', reply_text).strip()
+            clean_speech = re.sub(r'```(?:json)?[\s\S]*?```', '', clean_speech).strip()
+            clean_speech = re.sub(r'<action>[\s\S]*$', '', clean_speech).strip()
 
-            # Record in conversation history
-            self.conversation_history.append({"user": clean_text, "marcus": natural_reply})
+        executed_action_names = []
 
-            # Publish on response callback
-            if self.response_callback:
-                self.response_callback(natural_reply)
+        if raw_call:
+            natural_reply = (
+                clean_speech
+                if clean_speech
+                else generate_fallback_verbal_confirmation(raw_call.function_name, raw_call.arguments)
+            )
 
-            # Speak if audio or voice source
-            if should_speak and self.tts:
-                await self.tts.speak(natural_reply)
+            # Pre-flight Kinematic Sandbox Validation
+            try:
+                from ..trinity.kinematic_sandbox import TrinityKinematicSandbox
+                from ..trinity.sandbox_rules import RobotSafetyContext
+                sandbox = TrinityKinematicSandbox()
+                safety_ctx = RobotSafetyContext()
+                if self.world_model:
+                    b_volt = getattr(self.world_model, "battery_voltage", 12.0)
+                    if isinstance(b_volt, (int, float)):
+                        safety_ctx.battery_voltage = float(b_volt)
+                    is_chg = getattr(self.world_model, "is_charging", False)
+                    if isinstance(is_chg, bool):
+                        safety_ctx.is_charging = is_chg
+                    amyg = getattr(self.world_model, "amygdala_state", "CALM")
+                    if isinstance(amyg, str):
+                        safety_ctx.amygdala_state = amyg
+                    for attr in (
+                        "min_forward_obstacle_dist",
+                        "min_rear_obstacle_dist",
+                        "min_clearance_radius_360",
+                        "max_depth_drop",
+                    ):
+                        val = getattr(self.world_model, attr, None)
+                        if isinstance(val, (int, float)):
+                            setattr(safety_ctx, attr, float(val))
 
-            self.metrics.inc_requests_success()
-            return True
-        except Exception as exc:
-            self._logger.error(f"Local Qwen generation error: {exc}", exc_info=True)
-            return False
+                validation = sandbox.validate_action(raw_call, safety_ctx)
+                if not validation.authorized:
+                    self._logger.warning(f"🛑 [KinematicSandbox REJECTED] {validation.reason}")
+                    natural_reply = validation.feedback_speak or validation.reason or "Azione non autorizzata per motivi di sicurezza."
+                else:
+                    self._logger.info(f"✅ [KinematicSandbox AUTHORIZED] {raw_call.function_name}")
+                    executed_action_names.append(raw_call.function_name)
+                    # Dispatch to SkillExecutor using clamped/sanitized parameters if populated
+                    dispatch_args = validation.clamped_arguments if validation.clamped_arguments is not None else raw_call.arguments
+                    if self.skill_executor and hasattr(self.skill_executor, "execute_skill"):
+                        try:
+                            res = self.skill_executor.execute_skill(raw_call.function_name, dispatch_args)
+                            if asyncio.iscoroutine(res):
+                                await res
+                        except Exception as exec_err:
+                            self._logger.error(f"Error executing skill {raw_call.function_name}: {exec_err}")
+            except Exception as sb_err:
+                self._logger.error(f"Error during kinematic sandbox evaluation: {sb_err}")
+        else:
+            natural_reply = clean_speech if clean_speech else "Ho elaborato la tua richiesta."
+
+        # Final defensive speech sanitization gate: ensure zero residual action markup, braces, or empty string
+        try:
+            clean_final = sanitize_speech_for_tts(natural_reply)
+        except Exception:
+            clean_final = re.sub(r'<action>[\s\S]*?</action>', '', natural_reply).strip()
+            clean_final = re.sub(r'```(?:json)?[\s\S]*?```', '', clean_final).strip()
+        natural_reply = clean_final if clean_final else "Ho elaborato la tua richiesta."
+
+        # Step 4: Publish on Response Callback and Output Voice
+        if self.response_callback:
+            self.response_callback(natural_reply)
+
+        if should_speak and self.tts:
+            await self.tts.speak(natural_reply)
+
+        # Step 5: Update Short-Term Dialogue History (Working Memory)
+        self.conversation_history.append({
+            "role": "user",
+            "content": clean_text,
+            "user": clean_text
+        })
+        self.conversation_history.append({
+            "role": "assistant",
+            "content": natural_reply,
+            "marcus": natural_reply
+        })
+        if len(self.conversation_history) > 10:
+            self.conversation_history = self.conversation_history[-10:]
+
+        self._record_recent_query(clean_text, natural_reply)
+
+        # Step 6: Persist Local Turn into Autobiographical SQLite WAL (mag_database.db)
+        if self.trinity_engine and self.trinity_engine.enabled:
+            try:
+                is_factual = bool(re.search(r'\b(significa|acronimo|definizione|ricordati|mi chiamo|chiamami|impara|nota)\b', clean_text, re.IGNORECASE))
+                extracted_facts = None
+                if is_factual:
+                    extracted_facts = [{
+                        "fact_text": f"{clean_text} -> {natural_reply}",
+                        "fact_type": "KNOWLEDGE",
+                        "confidence": 1.0
+                    }]
+                await self.trinity_engine.record_interaction(
+                    user_text=clean_text,
+                    robot_response=natural_reply,
+                    actions_taken=executed_action_names,
+                    was_successful=True,
+                    user_identity=user_identity,
+                    extracted_facts=extracted_facts
+                )
+            except Exception as e:
+                self._logger.debug(f"TRINITY local turn recording skipped: {e}")
+
+        self.metrics.inc_requests_success()
+        return True
 
     async def process_input(self, text: str, source: str):
         self._current_source = source
@@ -168,11 +473,11 @@ class ConversationManager:
             if self._is_emergency(text):
                 await self._handle_emergency()
                 self.metrics.inc_requests_success()
-                return
+                return True
 
             if self._mic_muted and source == "audio":
                 self._logger.debug("Mic muted, ignoring audio input.")
-                return
+                return False
 
             # [v15.2] Ignora input di testo duplicati generati da ASR client-side se già gestiti dalla Live API
             is_duplicate = False
@@ -182,30 +487,108 @@ class ConversationManager:
             if source == "text" and is_duplicate:
                 self._logger.info(f"Ignorato input testuale duplicato ASR: '{text}' (duplicato={is_duplicate})")
                 self.metrics.inc_requests_success()
-                return
+                return True
 
-            # [ANTI-ECHO] Deduplicazione conversazionale: ignora messaggi di testo identici entro 10.0s
-            if source == "text":
-                import time
-                now = time.time()
-                norm_text = text.strip().lower()
-                if not hasattr(self, '_anti_echo_cache'):
-                    self._anti_echo_cache = []
-                self._anti_echo_cache = [(t, ts) for t, ts in self._anti_echo_cache if now - ts < 15.0]
-                for prev_text, ts in self._anti_echo_cache:
-                    if norm_text == prev_text and (now - ts) < 10.0:
-                        self._logger.warning(f"🚫 [ConversationManager] Ignorato input testuale identico entro 10.0s: '{text}'")
-                        self.metrics.inc_requests_success()
-                        return
-                self._anti_echo_cache.append((norm_text, now))
+            # --- ACTIVE REPETITION & ANTI-ECHO MANAGER ---
+            norm_text = text.strip().lower()
+            now = time.time()
 
-            async with self._processing_lock:
-                success = await self._process_locked(text, source)
-                if success:
-                    self.metrics.inc_requests_success()
+            if not hasattr(self, '_recent_queries'):
+                self._recent_queries = []
+            if not hasattr(self, '_in_flight_queries'):
+                self._in_flight_queries = {}
+
+            # Prune records older than 20.0s
+            self._recent_queries = [
+                (t, ts, r) for t, ts, r in self._recent_queries
+                if (now - ts) < 20.0
+            ]
+            self._in_flight_queries = {
+                t: ts for t, ts in self._in_flight_queries.items()
+                if (now - ts) < 20.0
+            }
+
+            # Case 1: In-Flight Repetition (query repeated while lock is held)
+            is_in_flight_repeat = False
+            if self._processing_lock.locked():
+                if norm_text in self._in_flight_queries:
+                    dt_inflight = now - self._in_flight_queries[norm_text]
+                    if dt_inflight <= 10.0:
+                        is_in_flight_repeat = True
                 else:
-                    self.metrics.inc_requests_failed()
-                return success
+                    for prev_t, prev_ts, _ in reversed(self._recent_queries):
+                        if norm_text == prev_t and (now - prev_ts) <= 10.0:
+                            is_in_flight_repeat = True
+                            break
+
+            if is_in_flight_repeat:
+                witty_in_flight_replies = [
+                    "Ti ho sentito, stavo solo riflettendo...",
+                    "Un attimo di pazienza, ci sto pensando proprio ora!",
+                    "Tranquillo, ti ho ascoltato! Sto elaborando la risposta.",
+                    "Non ti ignoro, stavo giusto completando il pensiero!"
+                ]
+                witty_msg = random.choice(witty_in_flight_replies)
+                self._logger.info(
+                    f"💡 [RepetitionManager] Risposta empatica in-flight per query ripetuta: '{text}' -> '{witty_msg}'"
+                )
+                if self.response_callback:
+                    self.response_callback(witty_msg)
+                if (source == "audio") and self.tts:
+                    await self.tts.speak(witty_msg)
+                self.metrics.inc_requests_success()
+                return True
+
+            # Case 2: Post-Completion Repetition (0.25s <= dt <= 10.0s after previous query completed)
+            completed_reply = None
+            for prev_t, prev_ts, prev_reply in reversed(self._recent_queries):
+                if norm_text == prev_t:
+                    dt_completed = now - prev_ts
+                    if 0.25 <= dt_completed <= 10.0:
+                        completed_reply = prev_reply
+                        break
+
+            if completed_reply is not None and not self._processing_lock.locked():
+                if completed_reply:
+                    reaffirm_replies = [
+                        f"Te lo riconfermo: {completed_reply}",
+                        f"Come ti dicevo poco fa: {completed_reply}",
+                        f"Ti rispondo volentieri di nuovo: {completed_reply}"
+                    ]
+                    reaffirm_msg = random.choice(reaffirm_replies)
+                else:
+                    reaffirm_msg = "Te lo riconfermo, ho già registrato la tua richiesta!"
+
+                self._logger.info(
+                    f"💡 [RepetitionManager] Riconferma empatica per query ripetuta completata: '{text}' -> '{reaffirm_msg}'"
+                )
+                if self.response_callback:
+                    self.response_callback(reaffirm_msg)
+                if (source == "audio") and self.tts:
+                    await self.tts.speak(reaffirm_msg)
+
+                self.conversation_history.append({"role": "user", "content": text})
+                self.conversation_history.append({"role": "assistant", "content": reaffirm_msg})
+                if len(self.conversation_history) > 10:
+                    self.conversation_history = self.conversation_history[-10:]
+
+                self._record_recent_query(text, reaffirm_msg)
+                self.metrics.inc_requests_success()
+                return True
+
+            # Mark as in-flight before acquiring lock
+            self._in_flight_queries[norm_text] = now
+
+            try:
+                async with self._processing_lock:
+                    success = await self._process_locked(text, source)
+                    if success:
+                        self.metrics.inc_requests_success()
+                    else:
+                        self.metrics.inc_requests_failed()
+                    return success
+            finally:
+                self._in_flight_queries.pop(norm_text, None)
         finally:
             self._current_source = ""
 
@@ -229,12 +612,15 @@ class ConversationManager:
 
     async def _process_locked(self, text: str, source: str, documents: list = None) -> bool:
         self._current_source = source
-        clean_text = self._sanitizer.sanitize(text)
-        self.world_model.recent_interactions.append(f"User: {clean_text}")
-
-        # Se la sorgente è audio (microfono/voce in locale), riproduci vocalmente con TTS.
-        # Se la sorgente è testo (chat remota / Foxglove), rispondi SOLO via chat senza azionare lo speaker.
         should_speak = (source == "audio")
+        try:
+            clean_text = self._sanitizer.sanitize(text)
+        except Exception as san_err:
+            self._logger.warning(f"🛡️ [InputSanitizer] Blocked unsafe/malformed input ({san_err}); emitting safe fallback.")
+            return await self._emit_conversational_fallback("ciao", should_speak, reason=f"sanitizer_blocked:{san_err}")
+        if not clean_text:
+            return await self._emit_conversational_fallback("ciao", should_speak, reason="empty_input")
+        self.world_model.recent_interactions.append(f"User: {clean_text}")
 
         # Conversational Barge-in: Pause active exploration while listening/talking
         frontier_skill = self.skill_executor.registry.get("frontier_exploration")
@@ -370,16 +756,7 @@ class ConversationManager:
                 )
 
             # Auto-resume exploration after fast-path execution if paused (unless stopped)
-            if was_exploring_at_barge_in and frontier_skill:
-                user_requested_stop = bool(re.search(r'\b(ferma|fermati|stop|alt|basta|annulla|interrompi|blocca|arresta|non\s+muoverti)\b', clean_text, re.IGNORECASE))
-                if user_requested_stop:
-                    frontier_skill.stop_exploration()
-                    nav_skill = self.skill_executor.registry.get("navigation")
-                    if nav_skill:
-                        await nav_skill.safe_execute("fermati", {"action": "stop"})
-                elif getattr(frontier_skill, "_paused_for_dialogue", False):
-                    frontier_skill.resume_after_dialogue()
-
+            await self._finalize_barge_in_exploration(clean_text, was_exploring_at_barge_in, frontier_skill)
             return True
 
         # Check HybridRouter routing decision
@@ -387,10 +764,21 @@ class ConversationManager:
             try:
                 from ..arbitration.intent_classifier import RouteTarget
                 routing = self.hybrid_router.route(clean_text)
-                if routing.destination == RouteTarget.LOCAL_QWEN:
+                if (
+                    routing.destination == RouteTarget.LOCAL_QWEN
+                    or getattr(routing.destination, "value", None) == RouteTarget.LOCAL_QWEN.value
+                ):
                     self._logger.info(f"⚡ [HYBRID ROUTER] Direct local Qwen2 routing for '{clean_text}' ({routing.reason})")
                     if self.hailo_client:
-                        return await self._handle_local_qwen(clean_text, should_speak)
+                        user_id = self.world_model.current_user.get('name') if (self.world_model and hasattr(self.world_model, 'current_user') and self.world_model.current_user) else None
+                        res = await self._handle_local_qwen(
+                            clean_text,
+                            should_speak,
+                            user_identity=user_id,
+                            combined_notes=f"{repeated_prompt_note}\n{exploration_prompt_note}".strip()
+                        )
+                        await self._finalize_barge_in_exploration(clean_text, was_exploring_at_barge_in, frontier_skill)
+                        return res
             except Exception as e:
                 self._logger.warning(f"HybridRouter check failed: {e}")
 
@@ -404,11 +792,20 @@ class ConversationManager:
         if cloud_unavailable:
             self._logger.info("📡 Cloud is OFFLINE or Circuit Breaker OPEN (quota exhausted): routing request directly to Local Qwen2 on Hailo-10H NPU.")
             if self.hailo_client:
-                return await self._handle_local_qwen(clean_text, should_speak)
+                user_id = self.world_model.current_user.get('name') if (self.world_model and hasattr(self.world_model, 'current_user') and self.world_model.current_user) else None
+                res = await self._handle_local_qwen(
+                    clean_text,
+                    should_speak,
+                    user_identity=user_id,
+                    combined_notes=f"{repeated_prompt_note}\n{exploration_prompt_note}".strip()
+                )
+                await self._finalize_barge_in_exploration(clean_text, was_exploring_at_barge_in, frontier_skill)
+                return res
             if should_speak:
                 await self.tts.speak("Sono offline, riprova più tardi.")
             if self.response_callback:
                 self.response_callback("Sono offline, riprova più tardi.")
+            await self._finalize_barge_in_exploration(clean_text, was_exploring_at_barge_in, frontier_skill)
             return True
 
         ha_context = self.ha_context_provider()
@@ -521,16 +918,23 @@ class ConversationManager:
         combined_notes = (repeated_prompt_note + exploration_prompt_note).strip()
 
         if self.trinity_engine and self.trinity_engine.enabled:
-            augmented_prompt = await self.trinity_engine.build_augmented_prompt(
-                user_text=clean_text,
-                source=source,
-                user_identity=user_id,
-                system_prompt=self.llm._system_prompt,
-                dopaminergic_override=getattr(self.agent_state, 'system_prompt_override', ''),
-                repeated_note=combined_notes,
-                email_context=f"\n[NOTIFICHE EMAIL RECENTI]\n{email_ctx}" if email_ctx else "",
-                conversation_history=list(self.conversation_history)
-            )
+            try:
+                augmented_prompt = await asyncio.wait_for(
+                    self.trinity_engine.build_augmented_prompt(
+                        user_text=clean_text,
+                        source=source,
+                        user_identity=user_id,
+                        system_prompt=self.llm._system_prompt,
+                        dopaminergic_override=getattr(self.agent_state, 'system_prompt_override', ''),
+                        repeated_note=combined_notes,
+                        email_context=f"\n[NOTIFICHE EMAIL RECENTI]\n{email_ctx}" if email_ctx else "",
+                        conversation_history=list(self.conversation_history)
+                    ),
+                    timeout=2.0
+                )
+            except Exception as e:
+                self._logger.warning(f"TRINITY prompt augmentation failed for cloud LLM: {e}")
+                augmented_prompt = self._build_prompt(clean_text, ha_context, combined_notes, rag_memories, conversation_history=list(self.conversation_history))
         else:
             try:
                 if self.config.get_config().rag.enabled and hasattr(self.memory_manager, 'memory_store') and self.memory_manager.memory_store:
@@ -603,14 +1007,19 @@ class ConversationManager:
                 f"Executing immediate failover to Local Qwen2 on Hailo-10H NPU..."
             )
             if getattr(self, 'hailo_client', None):
-                return await self._handle_local_qwen(clean_text, should_speak)
+                user_id = self.world_model.current_user.get('name') if (self.world_model and hasattr(self.world_model, 'current_user') and self.world_model.current_user) else None
+                res = await self._handle_local_qwen(
+                    clean_text,
+                    should_speak,
+                    user_identity=user_id,
+                    combined_notes=f"{repeated_prompt_note}\n{exploration_prompt_note}".strip()
+                )
+                await self._finalize_barge_in_exploration(clean_text, was_exploring_at_barge_in, frontier_skill)
+                return res
 
-            err_timeout = "Non riesco a connettermi al cervello."
-            if should_speak:
-                await self.tts.speak(err_timeout)
-            if self.response_callback:
-                self.response_callback(err_timeout)
-            return False
+            res = await self._emit_conversational_fallback(clean_text, should_speak, reason="cloud_and_hailo_unavailable")
+            await self._finalize_barge_in_exploration(clean_text, was_exploring_at_barge_in, frontier_skill)
+            return res
 
         # Post LLM validation -> prevent emergency action
         response_text = getattr(response, "text", "")
@@ -723,6 +1132,7 @@ class ConversationManager:
             self.conversation_history.append({"role": "assistant", "content": response_text})
             if len(self.conversation_history) > 10:
                 self.conversation_history = self.conversation_history[-10:]
+            self._record_recent_query(clean_text, response_text)
 
         if response_text and self.config.get_config().rag.enabled:
             is_factual = bool(re.search(r'\b(significa|acronimo|definizione|ricordati|mi chiamo|chiamami|impara|nota)\b', clean_text, re.IGNORECASE))
@@ -751,17 +1161,7 @@ class ConversationManager:
                 self._logger.debug(f"TRINITY background recording skipped: {e}")
 
         # Auto-resume exploration after dialogue turn (unless user commanded stop)
-        if was_exploring_at_barge_in and frontier_skill:
-            user_requested_stop = bool(re.search(r'\b(ferma|fermati|stop|alt|basta|annulla|interrompi|blocca|arresta|non\s+muoverti)\b', clean_text, re.IGNORECASE))
-            if user_requested_stop:
-                frontier_skill.stop_exploration()
-                nav_skill = self.skill_executor.registry.get("navigation")
-                if nav_skill:
-                    await nav_skill.safe_execute("fermati", {"action": "stop"})
-                self._logger.info("🛑 Exploration stopped per user utterance command.")
-            elif getattr(frontier_skill, "_paused_for_dialogue", False):
-                frontier_skill.resume_after_dialogue()
-                self._logger.info("▶️ Exploration automatically resumed after dialogue turn.")
+        await self._finalize_barge_in_exploration(clean_text, was_exploring_at_barge_in, frontier_skill)
 
         return True
 

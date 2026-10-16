@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 from robot_ai.utils import get_logger
 from .intent_router import IntentRouter, IntentCategory, RetrievalConfig
 from .metaprompt_fusion import MetapromptFusion
+from .slm_metaprompt_fusion import SLMMetapromptFusion
 from .cag_aggregator import ContextAggregator
 from .rag_knowledge_query import KnowledgeQueryEngine
 from .mag_database import MAGDatabase
@@ -55,6 +56,8 @@ class TrinityEngine:
 
         # 2. Metaprompt Fusion
         self.fusion_engine = MetapromptFusion()
+        self.slm_fusion = SLMMetapromptFusion()
+
 
         # 3. CAG Aggregator
         try:
@@ -255,11 +258,13 @@ class TrinityEngine:
         repeated_note: str = "",
         email_context: str = "",
         extra_context: Optional[Dict[str, Any]] = None,
-        conversation_history: Optional[List[Dict[str, str]]] = None
+        conversation_history: Optional[List[Dict[str, Any]]] = None,
+        target_model: str = "gemini_cloud"
     ) -> str:
         """
         Main entry point for prompt building.
         Runs RAG, CAG, and MAG retrievals in parallel and assembles the Metaprompt.
+        Supports both Gemini Cloud (full context) and Local Qwen SLM (< 1200 tokens).
         """
         if not self.enabled:
             return user_text
@@ -306,25 +311,45 @@ class TrinityEngine:
             recent_dialogue_text = "\n".join(lines)
 
         # 5. Metaprompt Fusion
-        final_prompt = self.fusion_engine.build_prompt(
-            user_text=user_text,
-            system_prompt=system_prompt,
-            dopaminergic_override=dopaminergic_override,
-            mag_profile=mag_data.get("mag_profile", ""),
-            mag_episodes=mag_data.get("mag_episodes", ""),
-            mag_facts=mag_data.get("mag_facts", ""),
-            cag_hardware=cag_data.get("cag_hardware", ""),
-            cag_ros=cag_data.get("cag_ros", ""),
-            cag_environment=cag_data.get("cag_environment", ""),
-            cag_errors=cag_data.get("cag_errors", ""),
-            cag_ha=cag_data.get("cag_ha", ""),
-            rag_memories=rag_memories,
-            rag_knowledge=rag_knowledge,
-            repeated_note=repeated_note,
-            email_context=email_context,
-            timestamp=timestamp,
-            recent_dialogue=recent_dialogue_text
-        )
+        is_slm = target_model in ("qwen_local", "slm")
+        if is_slm:
+            final_prompt = self.slm_fusion.build_prompt(
+                user_text=user_text,
+                system_prompt=system_prompt,
+                cag_environment=cag_data.get("cag_environment", ""),
+                cag_hardware=cag_data.get("cag_hardware", ""),
+                cag_errors=cag_data.get("cag_errors", ""),
+                cag_ha=cag_data.get("cag_ha", ""),
+                mag_profile=mag_data.get("mag_profile", ""),
+                mag_episodes=mag_data.get("mag_episodes", ""),
+                mag_facts=mag_data.get("mag_facts", ""),
+                rag_memories=rag_memories,
+                rag_knowledge=rag_knowledge,
+                conversation_history=conversation_history,
+                repeated_note=repeated_note,
+                timestamp=timestamp,
+                intent_category=category.name
+            )
+        else:
+            final_prompt = self.fusion_engine.build_prompt(
+                user_text=user_text,
+                system_prompt=system_prompt,
+                dopaminergic_override=dopaminergic_override,
+                mag_profile=mag_data.get("mag_profile", ""),
+                mag_episodes=mag_data.get("mag_episodes", ""),
+                mag_facts=mag_data.get("mag_facts", ""),
+                cag_hardware=cag_data.get("cag_hardware", ""),
+                cag_ros=cag_data.get("cag_ros", ""),
+                cag_environment=cag_data.get("cag_environment", ""),
+                cag_errors=cag_data.get("cag_errors", ""),
+                cag_ha=cag_data.get("cag_ha", ""),
+                rag_memories=rag_memories,
+                rag_knowledge=rag_knowledge,
+                repeated_note=repeated_note,
+                email_context=email_context,
+                timestamp=timestamp,
+                recent_dialogue=recent_dialogue_text
+            )
 
         return final_prompt
 
