@@ -220,3 +220,120 @@ def test_top_down_yolo_gated_pose_anti_flood():
     assert len(accepted_poses) == 1, f"Expected 1 matched pose, got {len(accepted_poses)}"
     assert accepted_poses[0]["cx"] == 0.50, "Selected pose must be the real person cell, not background noise"
 
+
+
+# ============================================================================
+# FM-VIS-011: skeleton does not follow limb motion (wrong cell / wrong head)
+# ============================================================================
+
+def map_pose_heads_by_size(buffer_sizes, input_w=640, input_h=640):
+    """Mirror of C++ decode_pose_outputs head mapping: identify box64/cls1/kpt51 by buffer size."""
+    heads = {}
+    for stride in (8, 16, 32):
+        cells = (input_h // stride) * (input_w // stride)
+        entry = {}
+        for name, n in buffer_sizes.items():
+            if n == cells * 64:
+                entry["bbox"] = name
+            elif n == cells * 1:
+                entry["cls"] = name
+            elif n == cells * 51:
+                entry["kpt"] = name
+        if "bbox" in entry and "kpt" in entry:
+            heads[stride] = entry
+    return heads
+
+
+def select_pose_cell(cells, person_box, orig_w=640, orig_h=400):
+    """Mirror of C++ keypoint-energy and anatomical geometry selection."""
+    px1, py1, px2, py2 = person_box["xmin"] * orig_w, person_box["ymin"] * orig_h, person_box["xmax"] * orig_w, person_box["ymax"] * orig_h
+    pw, ph = px2 - px1, py2 - py1
+
+    best, best_q = None, -1.0
+    for c in cells:
+        stride = c["stride"]
+        kpts = c["kpts"]  # array of (px, py, conf)
+        
+        sum_conf = 0.0
+        vis = 0
+        sum_x, sum_y = 0.0, 0.0
+        min_y, max_y = 1e9, -1e9
+        for pt in kpts:
+            px, py, conf = pt
+            if conf >= 0.25:
+                vis += 1
+                sum_conf += conf
+                sum_x += px
+                sum_y += py
+                min_y = min(min_y, py)
+                max_y = max(max_y, py)
+
+        if vis < 4:
+            continue
+
+        cx = sum_x / vis
+        cy = sum_y / vis
+        if cx < px1 - pw * 0.20 or cx > px2 + pw * 0.20 or cy < py1 - ph * 0.20 or cy > py2 + ph * 0.20:
+            continue
+
+        span_h = max_y - min_y
+        span_ratio = min(1.2, max(0.0, span_h / max(10.0, ph)))
+        if span_ratio < 0.20:
+            continue
+
+        torso_conf = (kpts[5][2] + kpts[6][2] + kpts[11][2] + kpts[12][2]) * 0.25
+        scale_weight = 1.3 if (ph >= 160.0 and stride == 32) else 1.0
+
+        q = (sum_conf * 0.6 + vis * 0.4) * (0.5 + 0.5 * span_ratio) * (1.0 + torso_conf) * scale_weight
+        if q > best_q:
+            best, best_q = c, q
+
+    return best
+
+
+def test_pose_heads_mapped_by_buffer_size_not_by_name():
+    """Heads must be paired by tensor size, so a HEF with different layer numbering still decodes correctly."""
+    sizes = {
+        # deliberately scrambled / unexpected names
+        "yolov8s_pose/conv99": 80 * 80 * 64,
+        "yolov8s_pose/conv12": 80 * 80 * 1,
+        "yolov8s_pose/conv07": 80 * 80 * 51,
+        "yolov8s_pose/conv55": 40 * 40 * 64,
+        "yolov8s_pose/conv56": 40 * 40 * 1,
+        "yolov8s_pose/conv01": 40 * 40 * 51,
+        "yolov8s_pose/conv33": 20 * 20 * 64,
+        "yolov8s_pose/conv34": 20 * 20 * 1,
+        "yolov8s_pose/conv35": 20 * 20 * 51,
+    }
+    heads = map_pose_heads_by_size(sizes)
+    assert set(heads.keys()) == {8, 16, 32}
+    assert heads[8] == {"bbox": "yolov8s_pose/conv99", "cls": "yolov8s_pose/conv12", "kpt": "yolov8s_pose/conv07"}
+    assert heads[16]["kpt"] == "yolov8s_pose/conv01"
+    assert heads[32]["bbox"] == "yolov8s_pose/conv33"
+
+
+def test_pose_cell_selection_prefers_full_span_over_collapsed_stick():
+    """A cell with wide anatomical span matching person size must beat a collapsed stick from wrong small stride."""
+    person_box = {"xmin": 0.30, "ymin": 0.10, "xmax": 0.70, "ymax": 0.90}  # h = 320 px
+    
+    # Collapsed stick (stride 8): span is only 30px (span_ratio = 30/320 = 0.09 < 0.20)
+    stick_kpts = [(320.0, 200.0 + i * 2.0, 0.90) for i in range(17)]
+    collapsed_cell = {"name": "collapsed", "stride": 8, "kpts": stick_kpts}
+
+    # Full anatomical pose (stride 32): span is 260px (span_ratio = 260/320 = 0.81)
+    full_kpts = [(320.0 + (i % 2) * 40.0 - 20.0, 60.0 + i * 16.0, 0.90) for i in range(17)]
+    full_cell = {"name": "full_active", "stride": 32, "kpts": full_kpts}
+
+    winner = select_pose_cell([collapsed_cell, full_cell], person_box)
+    assert winner is not None and winner["name"] == "full_active"
+
+
+def test_pose_cell_selection_rejects_out_of_box_centroid():
+    """Keypoints whose centroid lies outside the person bounding box must be rejected."""
+    person_box = {"xmin": 0.30, "ymin": 0.10, "xmax": 0.50, "ymax": 0.90}  # x: 192..320
+    # Far-away keypoints at x=500
+    away_kpts = [(500.0, 60.0 + i * 16.0, 0.90) for i in range(17)]
+    away_cell = {"name": "away", "stride": 32, "kpts": away_kpts}
+
+    winner = select_pose_cell([away_cell], person_box)
+    assert winner is None

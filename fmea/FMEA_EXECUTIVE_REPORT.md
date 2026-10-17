@@ -1,5 +1,5 @@
 # 📊 Report Esecutivo DFMEA - Marcus AI Robot Platform
-**Data Generazione:** 2026-10-16 22:41:38  
+**Data Generazione:** 2026-10-17 15:54:16  
 **Metodologia:** AIAG-VDA FMEA Standard con Regola Override Severità ($S \ge 9 \implies$ REVISION_MANDATORY)
 
 ---
@@ -8,8 +8,8 @@
 
 | Metrica | Valore | Note / Impatto |
 | :--- | :---: | :--- |
-| **Totale Modalità di Guasto (FM)** | **200** | Copertura integrata dei sottosistemi Marcus |
-| **🟢 Risk Level LOW** | **156** | $RPN_{res} \le 50$ (Sotto controllo) |
+| **Totale Modalità di Guasto (FM)** | **201** | Copertura integrata dei sottosistemi Marcus |
+| **🟢 Risk Level LOW** | **157** | $RPN_{res} \le 50$ (Sotto controllo) |
 | **🟡 Risk Level MEDIUM** | **10** | $51 \le RPN_{res} \le 199$ (Monitoraggio attivo) |
 | **🟠 Risk Level HIGH** | **2** | $200 \le RPN_{res} \le 349$ (Mitigazione obbligatoria) |
 | **🔴 Risk Level CRITICAL** | **0** | $RPN_{res} \ge 350$ (Blocco rilasci) |
@@ -19,7 +19,7 @@
 - **System/DDS:** 5 failure modes
 - **Nav2:** 20 failure modes
 - **VUI Audio:** 26 failure modes
-- **Vision:** 6 failure modes
+- **Vision:** 7 failure modes
 - **Hardware/Power:** 9 failure modes
 - **ESP32:** 1 failure modes
 - **AI/LangGraph:** 7 failure modes
@@ -229,6 +229,7 @@
 | **FM-NOM-008** | Navigation/NoMaD | `PurePursuitController & nomad_reactive_pipeline_node` | Stallo a bassa velocità (0.036-0.04 m/s), pivot violenti sul posto (1.50 rad/s) e scatti robotici a 4 Hz | 3 | 2 | 2 | **12** | `LOW` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#nomad-smooth-motion`](docs/lessons/nav2_slam_tuning.md#nomad-smooth-motion) |
 | **FM-COG-003** | Orchestration & RAG | `orchestrator & conversation` | Triplice ricezione ed elaborazione dei messaggi inviati su /robopy/conversation_rx, con conseguente scatto del prompt di insistenza ripetuta dell'LLM (repeat_count >= 2) | 6 | 2 | 1 | **12** | `LOW` | `CLOSED` | [`docs/lessons/orchestration_and_rag.md#FM-COG-003`](docs/lessons/orchestration_and_rag.md#FM-COG-003) |
 | **FM-LLM-002** | AI/LangGraph | `llm_live_api` | Risposte multiple e sovrapposte ('doppia voce') ad una singola frase dell'utente | 5 | 1 | 2 | **10** | `LOW` | `CLOSED` | [`docs/lessons/llm_live_api.md`](docs/lessons/llm_live_api.md) |
+| **FM-VIS-011** | Vision | `hailo_bridge_node_cpp / Pose Decoder` | Scheletro correttamente centrato e nel box della persona ma con giunti quasi rigidi (posa media) che non seguono i movimenti reali | 5 | 1 | 2 | **10** | `LOW` | `MITIGATED` | [`docs/lessons/vision_hailo_npu.md`](docs/lessons/vision_hailo_npu.md) |
 | **FM-SYS-001** | System/DDS | `build_system` | Out-Of-Memory (OOM) Kill indotto dal compilatore C++ clang++ durante la build | 9 | 1 | 1 | **9** | `REVISION_MANDATORY` | `CLOSED` | [`marcus_core_rules.md#1-memoria-ram-e-limite-host`](marcus_core_rules.md#1-memoria-ram-e-limite-host) |
 | **FM-NAV-001** | Nav2 | `nav2_costmap_2d` | Saturazione CPU indotta da STVL 3D (Spatiotemporal Voxel Layer) con freeze del sistema | 9 | 1 | 1 | **9** | `REVISION_MANDATORY` | `CLOSED` | [`docs/lessons/nav2_slam_tuning.md#25d-costmap`](docs/lessons/nav2_slam_tuning.md#25d-costmap) |
 | **FM-ACT-003** | Hardware/Power | `waveshare_motor_driver` | Guasto hardware sul canale encoder sinistro (odl) con lettura bloccata a pochi tick | 9 | 1 | 1 | **9** | `REVISION_MANDATORY` | `IN_PROGRESS` | [`docs/lessons/actuation_motor_driver.md#encoder-diagnostics`](docs/lessons/actuation_motor_driver.md#encoder-diagnostics) |

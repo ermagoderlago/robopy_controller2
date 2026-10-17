@@ -217,6 +217,12 @@ improvements:
     status: "IN_PROGRESS"
     domain: "vision_hailo"
 
+  FM-VIS-011:
+    title: "Miglioramento Visione: Pose Tracking Motion Accuracy & Head-Size Invariant Decoder"
+    file: "docs/improvements/IMP-VIS-011_pose_motion_tracking_decoder.md"
+    status: "COMPLETED"
+    domain: "vision_hailo"
+
   FM-VUI-035b:
     title: "Miglioramento VUI: Gating Conversazionale ad ActivityStart vs Trappola degli 8 Secondi"
     file: "docs/improvements/IMP-VUI-035b_activity_start_conversational_gating.md"

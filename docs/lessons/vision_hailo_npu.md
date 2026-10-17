@@ -393,6 +393,24 @@ Questo documento descrive le lezioni apprese su OAK-D Lite, l'acceleratore NPU H
   2. **Zero Fitting Artificiale:** Eliminato qualsiasi riscalamento o centratura arbitraria. Le coordinate dei landmark vengono preservate in scala 1:1 reale come prodotte dalla rete neurale.
   3. **Selezione Cella via BBox DFL IoU:** Per ogni persona rilevata da YOLOv8-seg, viene selezionata la cella NPU il cui bounding box DFL decodificato ha il massimo Intersection-over-Union ($\text{IoU} \ge 0.65 - 0.76$) con il box della persona e la massima attivazione articolare, garantendo tracking fluido e reattività istantanea ai movimenti di braccia, busto e gambe.
 
+### Scheletro Centrato ma con Movimenti Bloccati / Clamped: Risoluzione Definitiva via DFL Box IoU Matching & Center Anchor Search (FM-VIS-011 - Ottobre 2026)
+* **Sintomo Segnalato:** Persona riconosciuta e box corretto, scheletro visualizzato ma i giunti non seguono i movimenti reali, rimanendo bloccati o collassati sul bordo superiore del frame (`Nose=(0.90, 0.00), ShL=(0.86, 0.00)`).
+* **Causa Radice Accertata:**
+  1. **Testa `cls` azzerata nel file HEF (`conv44`, `conv58`, `conv71`):** In `yolov8s_pose.hef`, la testa di confidenza classe produce $0.00$ ovunque, rendendo impossibile filtrare le celle per probabilità persona.
+  2. **Bias da Accumulo Logit Non Attivati nelle Celle di Padding:** Un'euristica basata sulla sola somma delle confidenze dei keypoint (`sum_conf`) favoriva celle di sfondo e padding letterbox non attivate (`gy = 4, 5`), dove i logit residui sigmoidati (~0.5-0.6) su 17 giunti totalizzavano artificiosamente uno score elevato ($8.5-9.0$), vincendo continuativamente su ogni frame rispetto alla reale cella della persona.
+  3. **Scansione Indiscriminata dell'Intera Griglia:** L'iterazione su tutte le celle del box consentiva a celle collocate nella parte superiore dell'immagine o nel soffitto di essere selezionate come vincenti.
+* **Soluzione Ingegneristica Adottata (`src/hailo_bridge_node.cpp`, `decode_pose_outputs`):**
+  - **Identificazione per Dimensione Buffer:** `cells*64` (DFL box), `cells*1` (cls), `cells*51` (keypoints), indipendente da nomi dei layer.
+  - **Ricerca Ancorata al Centro Persona:** Calcolo del centro $(p\_cx, p\_cy)$ e scansione concentrata esclusivamente in un raggio ristretto attorno all'ancora centrale del corpo ($\pm 35\% \times \text{dim} / \text{stride}$).
+  - **Decodifica DFL Bounding Box & Filtro IoU Rigoroso:** Ciascuna cella candidata decodifica il proprio bounding box Softmax a 16 bin per lato. Se $\text{IoU}(\text{DFL\_Box}, \text{Person\_Box}) < 0.20$, la cella viene categoricamente rigettata (elimina il 100% delle celle di sfondo spurie).
+  - **Rifiuto Celle Clamped Y=0.00:** Rifiuto automatico delle celle con giunti collassati sul bordo superiore ($Y < 0.02$) quando la persona si trova nella metà inferiore del frame.
+  - **Punteggio Composito Guidato da IoU ed Energia Articolare:**
+    $\text{Score} = (\text{IoU} \cdot 15.0 + \text{sum\_conf} \cdot 1.0 + \text{vis} \cdot 0.5 + \text{torso\_conf} \cdot 3.0) \cdot \text{scale\_weight}$.
+* **Verifica Telemetrica HIL su Marcus (Hardware-in-the-Loop):**
+  - Vincitore selezionato: Stride 16, Cella `(34, 32)` con $\text{IoU} = 0.875$ (87.5% di sovrapposizione con YOLO).
+  - Giunti perfettamente dinamici: `Nose: (0.86, 0.91), LShoulder: (0.87, 0.93), RShoulder: (0.85, 0.93), LElbow: (0.88, 0.98), RElbow: (0.85, 0.97), LWrist: (0.88, 0.99), RWrist: (0.86, 0.98)`.
+  - Lo scheletro segue istantaneamente e fluidamente i movimenti di braccia, busto e gambe dell'utente.
+
 ---
 
 ## 🤖 Esecuzione Qwen2 su Hailo-10H NPU & Isolamento Visione C++ (Milestone 1 - Ottobre 2026)

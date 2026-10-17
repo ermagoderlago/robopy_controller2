@@ -73,6 +73,7 @@ L'agente Antigravity può ottimizzare e ricalibrare autonomamente le seguenti co
 | **Lazy Publishing Debug** | Pubblicazione immagini annotate solo se ci sono subscriber | Se `count_subscribers(topic) == 0`, saltare `cv2.putText` e serialize |
 | **NetVLAD Pooling CPU** | Calcolo soft-assignment e GeM pooling in NumPy/C++ | Latenza totale di pooling $< 1.5\text{ ms}$ su CPU host |
 | **Dynamic Enrollment Volti** | Raccolta 10 frame consecutivi, media vettoriale e save `.npy` | Scarto campioni con $IoU < 0.60$ o illuminazione anomala |
+| **Tuning Pose Decoder Hailo** | Selezione cella NPU per DFL Box IoU e raggio ancora centrale | $\text{IoU} \ge 0.20$, giunti visibili $\ge 4$, rifiuto clamping $Y=0$ |
 
 ---
 

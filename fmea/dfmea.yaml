@@ -8889,6 +8889,62 @@
       e associazione per IoU/centroide con la persona rilevata da YOLOv8-seg.
     rpn_old: 6
     rpn_new: 6
+- id: FM-VIS-011
+  subsystem: Vision
+  component: hailo_bridge_node_cpp / Pose Decoder
+  function: Lo scheletro YOLOv8s-pose segue fedelmente i movimenti di braccia, busto
+    e gambe della persona
+  failure_mode: Scheletro correttamente centrato e nel box della persona ma con giunti
+    quasi rigidi (posa media) che non seguono i movimenti reali
+  potential_cause: Selezione della cella NPU basata su IoU del box DFL e somma dei
+    logit dei keypoint, senza usare lo score di classe; vincono celle vicine non addestrate
+    (non-anchor) i cui keypoint sono una posa media. Mapping delle teste box/cls/kpt
+    per nome layer (convNN/output_layerN) fragile rispetto alla numerazione del HEF.
+  potential_effect: Skeleton inutilizzabile per gesture/engagement; tracking della
+    postura non affidabile
+  classification: PERFORMANCE
+  estimation_basis: measured
+  related_ids:
+  - FM-VIS-010
+  - FM-VIS-005
+  initial_scoring:
+    severity: 5
+    occurrence: 9
+    detection: 3
+    rpn: 135
+  prevention_controls: Selezione cella argmax(cls*IoU) come NMS ufficiale Hailo/Ultralytics
+    (cls>=0.20, IoU>=0.30) con fallback IoU+visibilita giunti; teste identificate
+    per dimensione buffer (box64/cls1/kpt51) come layer_from_shape ufficiale; letterbox
+    del modello pose tracciato separatamente da quello YOLO
+  detection_controls: Log [HAILO-POSE-MATCH] con mode, cls, IoU, maxCls per ogni persona;
+    test unitari test_pose_heads_mapped_by_buffer_size_not_by_name e test_pose_cell_selection_*
+  residual_scoring:
+    severity: 5
+    occurrence: 1
+    detection: 2
+    rpn: 10
+  risk_level: LOW
+  mitigation_status: MITIGATED
+  recommended_action: Verifica HIL sul robot (movimento braccia/gambe davanti alla
+    camera) e controllo dei log HAILO-POSE-MATCH (mode=cls*iou atteso)
+  verification_method: pytest tests/test_pose_gating_and_decoding.py e ispezione visiva
+    su /hailo/annotated_image/compressed
+  eco_ref: docs/ecos/vision_hailo_ecos.md
+  lesson_ref: docs/lessons/vision_hailo_npu.md
+  date_identified: '2026-10-17'
+  last_updated: '2026-10-17'
+  history:
+  - date: '2026-10-17'
+    change: Riscritto decode_pose_outputs multiscala con selezione cella cls*IoU e
+      mapping teste per dimensione buffer.
+    rpn_old: 135
+    rpn_new: 20
+  - date: '2026-10-17'
+    change: Risolto clamping Y=0.00 e posa statica. Integrata decodifica DFL bounding
+      box Softmax con filtro IoU >= 0.20 e ricerca ristretta all'ancora centrale del
+      corpo, eliminando falsi vincitori nelle celle di padding letterbox.
+    rpn_old: 20
+    rpn_new: 10
 - id: FM-VUI-043
   subsystem: Audio/VUI
   component: live_connection_manager / llm_service / respeaker_vui_node / turn_manager

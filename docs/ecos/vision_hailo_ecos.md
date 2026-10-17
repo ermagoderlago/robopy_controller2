@@ -240,7 +240,11 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
   - `fmea/dfmea.yaml`: registrato `FM-VIS-010` (RPN abbattuto da 162 a 6).
   - `docs/lessons/vision_hailo_npu.md`: aggiunta sezione tecnica Top-Down YOLO-Gated Pose.
 
+---
 
-
-
-
+## 🆔 ECO-2026-10-17-001: Pose Decoder — Selezione Cella cls*IoU e Mapping Teste per Dimensione (FM-VIS-011)
+- **Motivazione:** scheletro centrato sulla persona ma giunti che non seguono i movimenti (posa media rigida da celle non-anchor).
+- **Modifiche:** `src/hailo_bridge_node.cpp` (`decode_pose_outputs`, `rgb_callback`, nuovi membri `pose_scale_`, `pose_pad_x_`, `pose_pad_y_`): teste per dimensione buffer, selezione `argmax(cls*IoU)` con fallback IoU+visibilita', letterbox pose dedicato.
+- **Test:** `tests/test_pose_gating_and_decoding.py` (3 nuovi test).
+- **Documentazione:** `docs/lessons/vision_hailo_npu.md`, `fmea/dfmea.yaml` (FM-VIS-011).
+- **Classificazione:** Zona Verde (SPEC-03: soglie/post-processing, nessun cambio HEF/interfacce ROS 2). Richiede ricompilazione C++ sul robot (`-j1`, nodi e watchdog fermi).

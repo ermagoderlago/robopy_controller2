@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <chrono>
 #include <hailo/hailort.hpp>
+#include <opencv2/opencv.hpp>
 
 int main() {
     std::string hef_path = "/mnt/ssd/models/yolov8s_pose.hef";
@@ -56,10 +57,31 @@ int main() {
     }
     auto bindings = bindings_exp.release();
 
-    // Setup input buffer (mid-gray 114)
+    // Setup input buffer (mid-gray 114 default or load image)
     auto inp_name = infer_model->inputs()[0].name();
     size_t in_size = infer_model->inputs()[0].get_frame_size();
     std::vector<uint8_t> in_buf(in_size, 114);
+
+    cv::Mat img = cv::imread("/home/robopy/latest_camera_frame.jpg");
+    if (img.empty()) img = cv::imread("/home/robopy/test.jpg");
+    if (!img.empty()) {
+        std::cout << "Loaded real image: " << img.cols << "x" << img.rows << std::endl;
+        cv::Mat letterbox(640, 640, CV_8UC3, in_buf.data());
+        letterbox.setTo(cv::Scalar(114, 114, 114));
+        float scale = std::min(640.0f / img.cols, 640.0f / img.rows);
+        int nw = std::clamp(static_cast<int>(std::round(img.cols * scale)), 1, 640);
+        int nh = std::clamp(static_cast<int>(std::round(img.rows * scale)), 1, 640);
+        int px = (640 - nw) / 2;
+        int py = (640 - nh) / 2;
+        cv::Mat resized;
+        cv::resize(img, resized, cv::Size(nw, nh));
+        cv::Mat roi = letterbox(cv::Rect(px, py, nw, nh));
+        cv::cvtColor(resized, roi, cv::COLOR_BGR2RGB);
+        std::cout << "Letterboxed image: scale=" << scale << " pad=(" << px << "," << py << ")" << std::endl;
+    } else {
+        std::cout << "No image found, using dummy 114 frame" << std::endl;
+    }
+
     bindings.input(inp_name)->set_buffer(hailort::MemoryView(in_buf.data(), in_buf.size()));
 
     // Setup output buffers
@@ -71,7 +93,7 @@ int main() {
         bindings.output(name)->set_buffer(hailort::MemoryView(out_buffers[name].data(), num_floats * sizeof(float)));
     }
 
-    std::cout << "Running inference with dummy 114 frame..." << std::endl;
+    std::cout << "Running inference..." << std::endl;
     hailo_status st = configured.run(bindings, std::chrono::milliseconds(1000));
     if (st != HAILO_SUCCESS) {
         std::cerr << "Inference failed: " << st << std::endl;
@@ -79,30 +101,62 @@ int main() {
     }
     std::cout << "Inference SUCCESS! Results:" << std::endl;
 
-    for (const auto &kv : out_buffers) {
-        const auto &name = kv.first;
-        const auto &buf = kv.second;
-        float min_v = 1e9, max_v = -1e9, sum_v = 0;
-        int non_zero = 0;
-        int count_gt_02 = 0;
-        int count_gt_05 = 0;
-        for (float v : buf) {
-            min_v = std::min(min_v, v);
-            max_v = std::max(max_v, v);
-            sum_v += v;
-            if (std::abs(v) > 1e-5) non_zero++;
-            if (v >= 0.2f) count_gt_02++;
-            if (v >= 0.5f) count_gt_05++;
+    auto sigmoid = [](float v) {
+        return 1.0f / (1.0f + std::exp(-std::clamp(v, -10.0f, 10.0f)));
+    };
+
+    struct TestScale {
+        std::string name;
+        int stride;
+        int gw;
+        int gh;
+    };
+    TestScale test_scales[] = {
+        {"yolov8s_pose/conv45", 8, 80, 80},
+        {"yolov8s_pose/conv59", 16, 40, 40},
+        {"yolov8s_pose/conv72", 32, 20, 20}
+    };
+
+    for (const auto &ts : test_scales) {
+        if (!out_buffers.count(ts.name)) continue;
+        const auto &buf = out_buffers[ts.name];
+        std::cout << "\n=== Analysis for " << ts.name << " (Stride " << ts.stride << ", " << ts.gw << "x" << ts.gh << ") ===" << std::endl;
+        
+        // Find cell with highest sum of visibility
+        int best_cell = -1;
+        float best_vis_sum = -1.0f;
+        int best_vis_count = 0;
+        for (int c = 0; c < ts.gw * ts.gh; ++c) {
+            float sum_v = 0.0f;
+            int count_v = 0;
+            for (int k = 0; k < 17; ++k) {
+                float conf = sigmoid(buf[c * 51 + k * 3 + 2]);
+                if (conf >= 0.25f) count_v++;
+                sum_v += conf;
+            }
+            if (sum_v > best_vis_sum) {
+                best_vis_sum = sum_v;
+                best_cell = c;
+                best_vis_count = count_v;
+            }
         }
-        float mean_v = sum_v / buf.size();
-        std::cout << "Layer " << name << ": size=" << buf.size()
-                  << " min=" << min_v << " max=" << max_v << " mean=" << mean_v
-                  << " non_zero=" << non_zero << " >=0.2: " << count_gt_02 << " >=0.5: " << count_gt_05 << std::endl;
-        std::cout << "  First 5 values: ";
-        for (size_t i = 0; i < std::min((size_t)5, buf.size()); ++i) {
-            std::cout << buf[i] << " ";
+
+        int bgx = best_cell % ts.gw;
+        int bgy = best_cell / ts.gw;
+        std::cout << "Best Cell (" << bgx << ", " << bgy << ") - sum_vis=" << best_vis_sum << " vis_count=" << best_vis_count << ":" << std::endl;
+        for (int k = 0; k < 17; ++k) {
+            float kx = buf[best_cell * 51 + k * 3 + 0];
+            float ky = buf[best_cell * 51 + k * 3 + 1];
+            float ks = buf[best_cell * 51 + k * 3 + 2];
+            float conf = sigmoid(ks);
+            float px_official = (kx * 2.0f + bgx) * ts.stride;
+            float py_official = (ky * 2.0f + bgy) * ts.stride;
+            float px_no2 = (kx + bgx) * ts.stride;
+            float py_no2 = (ky + bgy) * ts.stride;
+            std::cout << "  k=" << k << ": raw=(" << kx << ", " << ky << ", " << ks << ") conf=" << conf
+                      << " | official_px=(" << px_official << ", " << py_official << ")"
+                      << " | no2_px=(" << px_no2 << ", " << py_no2 << ")" << std::endl;
         }
-        std::cout << std::endl;
     }
 
     return 0;
