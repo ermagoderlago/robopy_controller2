@@ -39,12 +39,12 @@ class VoskASRManager:
         self._worker_thread = None
         self._drop_count = 0  # [v19.6] Contatore frame scartati per debug drop sotto carico CPU
 
-        # [F3 - VAD Energy Gating per Zero-Idle CPU Overload]
+        # [F3 - VAD Energy Gating per Zero-Idle CPU Overload con sensibilità far-field SPEC-04]
         self.energy_gating = True
-        self._noise_floor_ema = 200.0
+        self._noise_floor_ema = 60.0
         self._hangover_chunks = 0
         self._max_hangover_chunks = 15  # ~300-450ms di margine post-voce
-        self._min_rms_threshold = 150.0
+        self._min_rms_threshold = 80.0
         self._last_was_speech = False
         
         self.model = None
@@ -94,27 +94,59 @@ class VoskASRManager:
                     return
             
         try:
+            from collections import deque
+            import re
             # Vosk logs too much by default
             vosk.SetLogLevel(-1)
             self.model = vosk.Model(self.model_path)
-            # [v21.1] Grammar mirata per Wake Word istantaneo e preciso su Vosk offline
+            # [v21.1] Grammar mirata per Wake Word istantaneo e preciso su Vosk offline (standby)
             self.wake_grammar = json.dumps([
-                "marcus", "marco", "marcos", "markus", "robot",
+                "marcus", "marcos", "markus", "robot",
                 "ascolta", "fermati", "stop", "zitto", "silenzio",
                 "io sono", "mi chiamo", "[unk]"
             ])
+            self._is_listening = False
+            self._target_listening = False
+            self._speech_ring = deque(maxlen=25)
             self.recognizer = vosk.KaldiRecognizer(self.model, self.sample_rate, self.wake_grammar)
             self.recognizer.SetWords(True) # [v20.0] Abilita timestamp per parola nell'output JSON
             
             self._worker_thread = threading.Thread(target=self._worker, daemon=True, name="vosk_worker")
             self._worker_thread.start()
-            print("✅ [VoskASR] Motore offline (Targeted Wake-Word Grammar ASR) inizializzato!")
+            print("✅ [VoskASR] Motore offline (Dual-Mode Wake-Grammar + Full Italian ASR) inizializzato!")
         except Exception as e:
             print(f"❌ [VoskASR] Errore inizializzazione: {e}")
 
+    def _clean_vosk_text(self, raw_text: str) -> str:
+        if not raw_text:
+            return ""
+        import re
+        cleaned = re.sub(r'\b\[unk\]\b', '', raw_text, flags=re.IGNORECASE)
+        cleaned = re.sub(r'\[unk\]', '', cleaned, flags=re.IGNORECASE)
+        return re.sub(r'\s+', ' ', cleaned).strip()
+
+    def _recreate_recognizer_in_worker(self, full_vocab: bool):
+        del self.recognizer
+        self.recognizer = None
+        gc.collect()
+        if full_vocab:
+            self.recognizer = vosk.KaldiRecognizer(self.model, self.sample_rate)
+        else:
+            self.recognizer = vosk.KaldiRecognizer(self.model, self.sample_rate, self.wake_grammar)
+        self.recognizer.SetWords(True)
+
     def set_listening_mode(self, is_listening: bool):
-        # Mantenuto per compatibilità interfaccia
-        pass
+        """Commuta in modo thread-safe (Sentinel Pattern FM-VUI-011) tra grammatica
+        wake-word (standby) e dizionario italiano completo (ascolto attivo post-Marcus)."""
+        target = bool(is_listening)
+        if target != getattr(self, "_target_listening", False):
+            self._target_listening = target
+            if self.is_active():
+                cmd = b"MODE_FULL_CMD" if target else b"MODE_WAKE_CMD"
+                try:
+                    self._audio_queue.put_nowait(cmd)
+                except queue.Full:
+                    pass
 
     def is_active(self):
         return self._worker_thread is not None and self._worker_thread.is_alive()
@@ -134,15 +166,15 @@ class VoskASRManager:
             chunk_arr = np.frombuffer(pcm_bytes, dtype=np.int16)
             rms = float(np.sqrt(np.mean(chunk_arr.astype(np.float32) ** 2)))
 
-            # Soglia dinamica: voce presente se RMS supera il noise floor adattivo
-            is_voice = rms > max(self._min_rms_threshold, self._noise_floor_ema * 1.5)
+            # Soglia dinamica: voce presente se RMS supera il noise floor adattivo (SPEC-04 far-field)
+            is_voice = rms > max(self._min_rms_threshold, self._noise_floor_ema * 1.25)
 
             if is_voice:
                 self._hangover_chunks = self._max_hangover_chunks
                 self._last_was_speech = True
             else:
-                # Tracciamento lento del rumore di fondo solo durante il silenzio
-                self._noise_floor_ema = 0.98 * self._noise_floor_ema + 0.02 * rms
+                # Tracciamento lento del rumore di fondo solo durante il silenzio con clamping anti-drift
+                self._noise_floor_ema = min(120.0, max(30.0, 0.98 * self._noise_floor_ema + 0.02 * rms))
                 if self._hangover_chunks > 0:
                     self._hangover_chunks -= 1
                 elif self._last_was_speech:
@@ -170,32 +202,60 @@ class VoskASRManager:
         while not self._shutdown:
             try:
                 frame = self._audio_queue.get(timeout=0.1)
-                
+
+                if frame == b"MODE_FULL_CMD":
+                    if not self._is_listening:
+                        self._is_listening = True
+                        self._recreate_recognizer_in_worker(full_vocab=True)
+                        # Riproduce gli ultimi frame vocali nel riconoscitore full-vocab per non perdere
+                        # le parole pronunciate subito dopo "Marcus" nella stessa emissione di fiato
+                        for bf in list(self._speech_ring):
+                            try:
+                                self.recognizer.AcceptWaveform(bf)
+                            except Exception:
+                                pass
+                        self._speech_ring.clear()
+                    continue
+
+                if frame == b"MODE_WAKE_CMD":
+                    if self._is_listening:
+                        if self.recognizer:
+                            final_text = self.recognizer.FinalResult()
+                            text = self._clean_vosk_text(json.loads(final_text).get("text", ""))
+                            if text:
+                                self._handle_transcription(text, is_partial=False)
+                        self._is_listening = False
+                        self._recreate_recognizer_in_worker(full_vocab=False)
+                        self._speech_ring.clear()
+                    continue
+
                 # [v20.0] Gestione sicura del flush tramite Sentinel (thread-safe, no race conditions)
                 if frame == b"FLUSH_CMD":
                     if self.recognizer:
                         final_text = self.recognizer.FinalResult()
-                        text = json.loads(final_text).get("text", "").strip()
+                        text = self._clean_vosk_text(json.loads(final_text).get("text", ""))
                         if text:
                             self._handle_transcription(text, is_partial=False)
-                        # Ricostruisce il riconoscitore nel worker thread (thread-safe, workaround per mancanza di Reset() nell'API pubblica)
-                        # [v20.2 FM-VUI-014 Fix] Forziamo la distruzione ed il rilascio GC della memoria C++ SWIG nativa prima della re-istanziazione
-                        del self.recognizer
-                        self.recognizer = None
-                        gc.collect()
-                        self.recognizer = vosk.KaldiRecognizer(self.model, self.sample_rate, self.wake_grammar)
-                        self.recognizer.SetWords(True)
+                        # Ricostruisce il riconoscitore nel worker thread mantenendo la modalità corrente
+                        # [v20.2 FM-VUI-014 Fix] Rilascio GC della memoria C++ SWIG nativa
+                        self._recreate_recognizer_in_worker(full_vocab=self._is_listening)
+                        self._speech_ring.clear()
                     continue
+
+                if not self._is_listening:
+                    self._speech_ring.append(frame)
 
                 rec = self.recognizer
                 if rec.AcceptWaveform(frame):
                     res = rec.Result()
-                    text = json.loads(res).get("text", "").strip()
+                    text = self._clean_vosk_text(json.loads(res).get("text", ""))
+                    if not self._is_listening:
+                        self._speech_ring.clear()
                     if text:
                         self._handle_transcription(text, is_partial=False)
                 else:
                     # Partial result for instant wake word detection
-                    part = json.loads(rec.PartialResult()).get("partial", "").strip()
+                    part = self._clean_vosk_text(json.loads(rec.PartialResult()).get("partial", ""))
                     if part:
                         self._handle_transcription(part, is_partial=True)
             except queue.Empty:

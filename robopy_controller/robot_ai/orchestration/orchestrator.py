@@ -44,6 +44,9 @@ from robot_ai.skills.builtin.memory_info_skill import MemoryInfoSkill
 from robot_ai.skills.builtin.query_memory_skill import QueryMemorySkill
 from robot_ai.skills.builtin.timer_skill import TimerSkill
 from robot_ai.skills.builtin.frontier_exploration_skill import FrontierExplorationSkill
+from robot_ai.skills.builtin.follow_person_skill import FollowPersonSkill
+from robot_ai.skills.builtin.visual_pointing_skill import VisualPointingSkill
+from robot_ai.skills.builtin.social_context_skill import SocialContextSkill
 
 from robot_ai.core.camera_frame import CameraFrame
 
@@ -160,6 +163,14 @@ class AIOrchestrator(Node):
             memory_store=self.memory_store,
             nav_client=self.nav_client
         ))
+
+        # Registrazione nuove skill bio-cognitive (IMP-BIO-002, IMP-BIO-004)
+        self.follow_person_skill = FollowPersonSkill(ros_bridge=self)
+        self.skill_registry.register(self.follow_person_skill)
+        self.visual_pointing_skill = VisualPointingSkill(ros_bridge=self, vlm_service=self.llm_service)
+        self.skill_registry.register(self.visual_pointing_skill)
+        self.social_context_skill = SocialContextSkill(ros_bridge=self)
+        self.skill_registry.register(self.social_context_skill)
 
         # Caricamento dinamico delle skill attive (Spotify, Terminale, Web Search, ecc.)
         try:
@@ -342,6 +353,9 @@ class AIOrchestrator(Node):
         if self._shutdown_flag:
             return
         self.ai_logger.warning(f"⚠️ [Orchestrator] Ricevuto segnale di fallback: {msg.data} (passaggio trasparente a elaborazione locale NPU)")
+        breaker = getattr(self.llm_service, 'circuit_breaker', None) or getattr(self.llm_service, '_breaker', None)
+        if breaker and hasattr(breaker, 'trip_open'):
+            breaker.trip_open(300.0, reason=msg.data)
 
 
     def _direct_audio_chunk_callback(self, data: bytes):
@@ -435,9 +449,15 @@ class AIOrchestrator(Node):
         self._last_text_input = text
         self._last_text_time = now
 
-        asyncio.run_coroutine_threadsafe(
+        fut = asyncio.run_coroutine_threadsafe(
             self.conversation_manager.process_input(text, source="text"), self._loop
         )
+        def _on_input_done(f):
+            try:
+                f.result()
+            except Exception as e:
+                self.ai_logger.error(f"❌ Error in process_input: {e}", exc_info=True)
+        fut.add_done_callback(_on_input_done)
 
     def _document_input_callback(self, msg):
         """Riceve un file in formato JSON: {filename, data: base64, mime_type, text}"""
@@ -462,10 +482,26 @@ class AIOrchestrator(Node):
     def _voice_test_callback(self, msg):
         if self._shutdown_flag:
             return
-        self.get_logger().info(f"Simulating voice input: {msg.data}")
-        asyncio.run_coroutine_threadsafe(
-            self.conversation_manager.process_input(msg.data, source="audio"), self._loop
+        if not msg.data:
+            return
+        text = msg.data.strip()
+        if not text:
+            return
+        now = time.time()
+        if text == self._last_text_input and (now - self._last_text_time) < 0.20:
+            return
+        self._last_text_input = text
+        self._last_text_time = now
+        self.get_logger().info(f"🎙️ [VUI Voice Input] Processing spoken query: '{text}'")
+        fut = asyncio.run_coroutine_threadsafe(
+            self.conversation_manager.process_input(text, source="audio"), self._loop
         )
+        def _on_voice_done(f):
+            try:
+                f.result()
+            except Exception as e:
+                self.ai_logger.error(f"❌ Error in voice process_input: {e}", exc_info=True)
+        fut.add_done_callback(_on_voice_done)
 
     def _mute_callback(self, msg):
         if self._shutdown_flag:

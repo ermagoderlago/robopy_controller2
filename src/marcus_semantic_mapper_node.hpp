@@ -8,6 +8,7 @@
 #include <rtabmap_msgs/msg/user_data.hpp>
 #include <robopy_controller/msg/semantic_object.hpp>
 #include <robopy_controller/msg/semantic_object_array.hpp>
+#include <std_msgs/msg/string.hpp>
 
 #include <message_filters/subscriber.h>
 #include <message_filters/synchronizer.h>
@@ -91,6 +92,11 @@ private:
     bool isClassDynamic(const std::string& label) const;
     double computeMedianDepth(const cv::Mat& depth_mat, int u_min, int v_min, int u_max, int v_max);
     bool lookupTransforms(const rclcpp::Time& stamp);
+    double computeSpatialSurprise(const std::string& label, const Eigen::Vector3d& pos);
+    void checkAndPublishSpatialAnomalies(const rclcpp::Time& stamp);
+
+    // Direct Depth Latch
+    void depthDirectCallback(const sensor_msgs::msg::Image::ConstSharedPtr msg);
 
     // ===================== Publishers =====================
     void publishUserData(const rclcpp::Time& stamp);
@@ -129,11 +135,27 @@ private:
     std::array<SemanticObject3D, MAX_OBJECTS> object_buffer_{};
     size_t object_count_ = 0;
 
-    // ROS 2 Publishers
+    // ROS 2 Publishers & Subscribers
     rclcpp::Publisher<rtabmap_msgs::msg::UserData>::SharedPtr user_data_pub_;
     rclcpp::Publisher<robopy_controller::msg::SemanticObjectArray>::SharedPtr objects_3d_pub_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_pub_;
     rclcpp::Publisher<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_pub_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr anomaly_pub_;
+    rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr depth_direct_sub_;
+
+    // Direct Depth Latch
+    std::mutex depth_mutex_;
+    sensor_msgs::msg::Image::ConstSharedPtr latest_depth_msg_;
+
+    // Spatial Memory for Surprise Calculation
+    struct SpatialAnchor {
+        std::string label;
+        Eigen::Vector3d pos;
+        double timestamp;
+    };
+    std::mutex spatial_mem_mutex_;
+    std::vector<SpatialAnchor> static_memory_;
+    double last_anomaly_pub_time_{0.0};
 
     // Diagnostics and Latency tracking
     std::atomic<uint64_t> processed_frames_{0};

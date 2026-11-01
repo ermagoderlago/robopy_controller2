@@ -8,6 +8,7 @@ Nav2 integration for robot navigation.
 
 import asyncio
 import math
+import os
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
@@ -165,6 +166,19 @@ class NavigationClient:
         self._waypoints: Dict[str, Waypoint] = {}
         self._load_default_waypoints()
         
+        # Test Stationary Guard (Milestone 4 - FM-MOT-004 / IMP-MOT-004)
+        # Controlled via MARCUS_TEST_STATIONARY_GUARD=1 or ROS parameter test_stationary_guard.
+        # When active, room navigation targets (e.g. "Vai in cucina") suppress
+        # physical Nav2 goal dispatch, log "🛑 [TEST STATIONARY GUARD] Nav2 goal suppressed",
+        # and return success so natural conversational confirmation is emitted.
+        self.test_stationary_guard: bool = os.environ.get("MARCUS_TEST_STATIONARY_GUARD", "0").lower() in ("1", "true", "yes")
+        if not self.test_stationary_guard and self._node:
+            try:
+                if hasattr(self._node, "has_parameter") and self._node.has_parameter("test_stationary_guard"):
+                    self.test_stationary_guard = bool(self._node.get_parameter("test_stationary_guard").get_parameter_value().bool_value)
+            except Exception:
+                pass
+
         # Callbacks
         self._feedback_callbacks: List[Callable] = []
         self._completion_callbacks: List[Callable] = []
@@ -263,7 +277,8 @@ class NavigationClient:
             waypoint.x, 
             waypoint.y, 
             waypoint.theta,
-            waypoint.frame_id
+            waypoint.frame_id,
+            destination_name=name
         )
     
     async def navigate_to_pose(
@@ -271,7 +286,8 @@ class NavigationClient:
         x: float,
         y: float,
         theta: float = 0.0,
-        frame_id: str = "map"
+        frame_id: str = "map",
+        destination_name: str = ""
     ) -> bool:
         """
         Navigate to a specific pose.
@@ -281,10 +297,29 @@ class NavigationClient:
             y: Y position
             theta: Orientation (radians)
             frame_id: Reference frame
+            destination_name: Optional destination name for diagnostics and bench safety guard
             
         Returns:
             True if navigation succeeded
         """
+        # Test Stationary Guard Intercept (Milestone 4 - FM-MOT-004 / IMP-MOT-004)
+        guard_active = (
+            self.test_stationary_guard
+            or os.environ.get("MARCUS_TEST_STATIONARY_GUARD", "0").lower() in ("1", "true", "yes")
+            or os.path.exists("/tmp/marcus_test_stationary_guard")
+        )
+        if guard_active:
+            target_str = f" to '{destination_name}'" if destination_name else ""
+            self.logger.warning(
+                f"🛑 [TEST STATIONARY GUARD] Nav2 goal suppressed for room navigation{target_str} "
+                f"to (x={x}, y={y}, theta={theta}, frame='{frame_id}'). Bench safety active."
+            )
+            self._status = NavigationStatus.SUCCEEDED
+            self.event_bus.publish(EventType.NAVIGATION_COMPLETED, {
+                "x": x, "y": y, "success": True, "stationary_guard": True
+            })
+            return True
+
         if not HAS_ROS or not self._action_client:
             self.logger.warning("ROS not available, simulating navigation")
             self._status = NavigationStatus.NAVIGATING
@@ -408,6 +443,44 @@ class NavigationClient:
         except Exception as e:
             self.logger.warning(f"Errore durante stop_exploration in nav_client: {e}")
             return False
+
+    def emergency_stop(self) -> None:
+        """
+        Sub-10ms emergency stop fast-path (FM-SAFETY-005 & SPEC-01 / SPEC-05).
+        Directly zeroes /cmd_vel at highest priority and aborts active navigation goals.
+        """
+        t0 = time.perf_counter()
+        if self._cmd_vel_pub:
+            try:
+                from geometry_msgs.msg import Twist
+                stop_twist = Twist()
+            except Exception:
+                class _MockVector3:
+                    x: float = 0.0
+                    y: float = 0.0
+                    z: float = 0.0
+                class _MockTwist:
+                    linear = _MockVector3()
+                    angular = _MockVector3()
+                stop_twist = _MockTwist()
+            try:
+                self._cmd_vel_pub.publish(stop_twist)
+            except Exception as e:
+                self.logger.error(f"Error publishing emergency stop twist: {e}")
+        
+        if self._current_goal_handle:
+            try:
+                if hasattr(self._current_goal_handle, "cancel_goal_async"):
+                    self._current_goal_handle.cancel_goal_async()
+            except Exception:
+                pass
+        
+        self._status = NavigationStatus.CANCELED
+        self._current_goal = None
+        self._current_goal_handle = None
+        self._is_exploring = False
+        elapsed_ms = (time.perf_counter() - t0) * 1000.0
+        self.logger.info(f"[EMERGENCY STOP] Fast-path executed in {elapsed_ms:.2f}ms")
     
     async def _bootstrap_mapping(self) -> None:
         """
@@ -634,7 +707,7 @@ class NavigationClient:
 
         # Stasi Detection Logic
         if self.is_navigating:
-            now = asyncio.get_event_loop().time()
+            now = time.monotonic()
             curr_pos = (feedback_data["x"], feedback_data["y"])
             
             if self._last_stasi_pos is None:

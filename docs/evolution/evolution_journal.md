@@ -588,3 +588,113 @@ Questo file costituisce il registro permanente della curiosità, delle indagini 
 - **Esito del Ciclo:** `READY_FOR_USER_REVIEW`
 
 ---
+
+### [DAILY_FOCUS_2026-10-18] AI/LangGraph - 2026-10-18 13:39:59
+- **Failure Mode Riferito:** FM-LLM-004
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema AI/LangGraph.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema: Mitigazione FMEA [FM-LLM-004]: Esecuzione di codice auto-generato (Skill) pericoloso, instabile o fuori controllo (AI Code Hazard). Rischio: GREEN. Piano generato in docs/evolution/plans/PLAN-2026-10-18_FM-LLM-004_ai_langgraph.md.
+- **Esito del Ciclo:** `VALIDATED_IN_SANDBOX`
+
+---
+
+### [DAILY_FOCUS_2026-10-18] Nav2 - 2026-10-18 13:40:01
+- **Failure Mode Riferito:** FM-NAV-006
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema Nav2.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema: Mitigazione FMEA [FM-NAV-006]: Slittamento ruote (Wheel Slip) su piastrelle/tappeti con conseguente deriva odometrica accumulata e disallineamento della posa globale. Rischio: YELLOW. Piano generato in docs/evolution/plans/PLAN-2026-10-18_FM-NAV-006_nav2.md.
+- **Esito del Ciclo:** `READY_FOR_USER_REVIEW`
+
+---
+
+### [DAILY_FOCUS_2026-10-18] Hardware/Power - 2026-10-18 13:40:02
+- **Failure Mode Riferito:** FM-ACT-005
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema Hardware/Power.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema: Mitigazione FMEA [FM-ACT-005]: Reset improvviso della scheda ESP32 (Brownout Microcontrollore) per picco di assorbimento in accelerazione. Rischio: YELLOW. Piano generato in docs/evolution/plans/PLAN-2026-10-18_FM-ACT-005_hardware_power.md.
+- **Esito del Ciclo:** `READY_FOR_USER_REVIEW`
+
+---
+
+### [DAILY_FOCUS_2026-10-18] System/DDS - 2026-10-18 13:40:04
+- **Failure Mode Riferito:** FM-SYS-009
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema System/DDS.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema: Mitigazione FMEA [FM-SYS-009]: Picco di consumo RAM durante il reasoning dell'Agente con conseguente OOM Kill di processi ROS 2 critici. Rischio: YELLOW. Piano generato in docs/evolution/plans/PLAN-2026-10-18_FM-SYS-009_system_dds.md.
+- **Esito del Ciclo:** `READY_FOR_USER_REVIEW`
+
+---
+
+### [DAILY_FOCUS_2026-10-18] Hardware/Power - 2026-10-18 13:40:05
+- **Failure Mode Riferito:** FM-ACT-003
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema Hardware/Power.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema: Mitigazione FMEA [FM-ACT-003]: Guasto hardware sul canale encoder sinistro (odl) con lettura bloccata a pochi tick. Rischio: YELLOW. Piano generato in docs/evolution/plans/PLAN-2026-10-18_FM-ACT-003_hardware_power.md.
+- **Esito del Ciclo:** `READY_FOR_USER_REVIEW`
+
+---
+
+### [Creazione Skill NuovaSkill] AI/Cognitive/Skills - 2026-10-28 22:20:20
+- **Failure Mode Riferito:** N/A (Esplorazione Curiosità)
+- **Quesito di Indagine (Curiosità):**
+  Come implementare l'abilità 'NuovaSkill': puoi chiedere ad antigravity qual'è la failure più grave su cui dovremmo lavorare guardando la FME?
+- **Azione Eseguita / Soluzione Applicata:**
+  Sintetizzato codice Python via Antigravity, validato AST e testato in sandbox. Validata in 1 iterazioni, promossa in active e registrata.
+- **Esito del Ciclo:** `SUCCESS_AUTONOMOUS_SKILL`
+
+---
+
+### [Creazione Skill NuovaSkill] AI/Cognitive/Skills - 2026-10-28 22:34:22
+- **Failure Mode Riferito:** N/A (Esplorazione Curiosità)
+- **Quesito di Indagine (Curiosità):**
+  Come implementare l'abilità 'NuovaSkill': puoi chiedere ad antigravity qual'è la failure più grave su cui dovremmo lavorare guardando la FME?
+- **Azione Eseguita / Soluzione Applicata:**
+  Sintetizzato codice Python via Antigravity, validato AST e testato in sandbox. Validata in 1 iterazioni, promossa in active e registrata.
+- **Esito del Ciclo:** `SUCCESS_AUTONOMOUS_SKILL`
+
+---
+
+### [DAILY_FOCUS_2026-10-29] AI/LangGraph - 2026-10-29 03:00:09
+- **Failure Mode Riferito:** FM-LLM-004
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema AI/LangGraph.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema: Mitigazione FMEA [FM-LLM-004]: Esecuzione di codice auto-generato (Skill) pericoloso, instabile o fuori controllo (AI Code Hazard). Rischio: GREEN. Piano generato in docs/evolution/plans/PLAN-2026-10-29_FM-LLM-004_ai_langgraph.md.
+- **Esito del Ciclo:** `VALIDATED_IN_SANDBOX`
+
+---
+
+### [DAILY_FOCUS_2026-10-30] Hardware/Power & Compute - 2026-10-30 03:00:09
+- **Failure Mode Riferito:** FM-PWR-004
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema Hardware/Power & Compute.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema: Mitigazione FMEA [FM-PWR-004]: Esaurimento completo della batteria con robot fermo in punti remoti (Stranding) e scarica profonda distruttiva delle celle 18650 per totale assenza di stazione di ricarica ("cuccia") e procedura di docking. Rischio: YELLOW. Piano generato in docs/evolution/plans/PLAN-2026-10-30_FM-PWR-004_hardware_power___compute.md.
+- **Esito del Ciclo:** `READY_FOR_USER_REVIEW`
+
+---
+
+### [DAILY_FOCUS_2026-10-31] Hardware/Power - 2026-10-31 03:00:09
+- **Failure Mode Riferito:** FM-ACT-007
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema Hardware/Power.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema: Mitigazione FMEA [FM-ACT-007]: Ribaltamento fisico del robot (Tipped Over / Rollover). Rischio: YELLOW. Piano generato in docs/evolution/plans/PLAN-2026-10-31_FM-ACT-007_hardware_power.md.
+- **Esito del Ciclo:** `READY_FOR_USER_REVIEW`
+
+---
+
+### [DAILY_FOCUS_2026-11-01] Nav2 - 2026-11-01 03:00:07
+- **Failure Mode Riferito:** FM-NAV-006
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema Nav2.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema: Mitigazione FMEA [FM-NAV-006]: Slittamento ruote (Wheel Slip) su piastrelle/tappeti con conseguente deriva odometrica accumulata e disallineamento della posa globale. Rischio: YELLOW. Piano generato in docs/evolution/plans/PLAN-2026-11-01_FM-NAV-006_nav2.md.
+- **Esito del Ciclo:** `READY_FOR_USER_REVIEW`
+
+---

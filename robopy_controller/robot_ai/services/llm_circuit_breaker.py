@@ -112,12 +112,25 @@ class CircuitBreaker:
         with self._state_lock:
             self._state = value
 
+    def trip_open(self, timeout: float = 300.0, reason: str = ""):
+        """Forza lo stato OPEN immediato (es. esaurimento quota Gemini Live / 429 / spending cap)."""
+        with self._state_lock:
+            self._state = "OPEN"
+            self.failures = self.failure_threshold
+            self.last_failure_time = time.time()
+            self.recovery_timeout = timeout
+            self._probe_in_flight = False
+
+    def reset(self):
+        """Ripristina lo stato CLOSED del circuit breaker."""
+        with self._state_lock:
+            self._state = "CLOSED"
+            self.failures = 0
+            self._probe_in_flight = False
+
     async def call_async(self, func, *args, **kwargs):
         if self._lock is None:
-            raise RuntimeError(
-                f"CircuitBreaker[{self.name}] non inizializzato: "
-                "chiama _init_async_resources() prima dell'uso."
-            )
+            self._lock = asyncio.Lock()
 
         async with self._lock:
             current = self._state

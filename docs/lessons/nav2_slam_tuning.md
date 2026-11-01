@@ -752,3 +752,21 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
   3. *Generazione Griglia Nav2 Standard:* Parametro `-g2` per estrazione diretta dell'occupancy grid 2D ad alta fedeltà (0.05m/pixel) e allineamento con l'origine metrica Nav2.
   4. *Quoting Parametri ROS 2 (`restart_hailo.sh`):* Corretto il passaggio di parametri con prefisso namespace da riga di comando: `Mem/IncrementalMemory:="false"` (deve essere quotato come stringa esplicita per evitare l'eccezione `InvalidParameterTypeException` sollevata da `rclcpp`).
   5. *Visualizzazione Robot (`robot_description`):* Garantita l'esecuzione di `robot_state_publisher` con il file URDF completo di Marcus affinché Foxglove visualizzi la sagoma 3D del robot orientata correttamente sulla mappa.
+
+
+---
+
+### 🛡️ Preservazione Vita Utile LiDAR RPLIDAR C1 Fuori Dock con TF Keepalive & Wake Handshake (Ottobre 2026 - FM-BIO-005 / IMP-BIO-005)
+* **Sintomo e Modalità di Guasto Storica (FM-BIO-005):**
+  L'Invariante 6 originale consentiva lo spegnimento del motore laser esclusivamente sulla base di ricarica (`is_docked == True`). Durante conversazioni sociali prolungate, sessioni di studio/ascolto o stazionamenti nel salotto (>45s), il rotore ToF a 10 Hz continuava a girare ininterrottamente a vuoto, provocando usura prematura dei cuscinetti a sfera, declassamento termico del diodo laser e consumo energetico parassita di 1.5W.
+* **Aggiornamento Invariante 6 (Evoluzione Bio-Cognitiva):**
+  - Quando il robot si trova in `STATIONARY` prolungato (>45s) senza intenzione di navigazione attiva (`nav_intent == False`), è ora autorizzato l'arresto fisico del motore del LiDAR RPLIDAR C1 anche al di fuori della docking station.
+  - **Prevenzione Crash TF (`StandbyTFKeepalive`):** Poiché AMCL sospende la pubblicazione della trasformata `map -> odom` all'interruzione dei laser scan, `sensor_standby_manager.py` avvia un thread leggero `StandbyTFKeepalive` che trasmette a 1.0 Hz l'ultima trasformata nota con timestamp estrapolato a `now + 200ms`, prevenendo il timeout TF e l'arresto di `bt_navigator`.
+  - **Protocollo 5-Step Wake-Before-Move:**
+    1. Step 0: Terminazione immediata di `StandbyTFKeepalive`.
+    2. Step 1: Riaccensione motore LiDAR tramite `/stop_motor` (`data=False`).
+    3. Step 2: Verifica ricezione scan validi a regime ($\ge 8.0\text{ Hz}$).
+    4. Step 3: Chiamata `/request_nomotion_update` ad AMCL per ri-allineare il cluster di particelle.
+    5. Step 4: Verifica consistenza Scan-to-Map ($\text{trace}(\Sigma) < 0.08$).
+    6. Step 5: Apertura del motion gate per il movimento sicuro.
+  - **Registro di Usura Persistente:** Tracciamento su `/mnt/ssd/telemetry/lidar_lifespan_ledger.json` delle ore totali di rotore risparmiate e calcolo dell'indice di salute dell'attuatore.

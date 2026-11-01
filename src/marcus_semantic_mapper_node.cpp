@@ -44,16 +44,22 @@ MarcusSemanticMapperNode::MarcusSemanticMapperNode(const rclcpp::NodeOptions& op
 
     rgb_sub_.subscribe(this, "/rgb/image", qos_best_effort);
     depth_sub_.subscribe(this, "/camera/depth/image_raw", qos_best_effort);
-    semantic_sub_.subscribe(this, "/hailo/vlm/semantic_objects", rclcpp::QoS(10).get_rmw_qos_profile());
+    semantic_sub_.subscribe(this, "/hailo/semantic_objects", rclcpp::QoS(10).get_rmw_qos_profile());
 
     sync_ = std::make_shared<message_filters::Synchronizer<SyncPolicy>>(
         SyncPolicy(config_.max_queue_depth), rgb_sub_, depth_sub_, semantic_sub_);
     sync_->registerCallback(std::bind(&MarcusSemanticMapperNode::syncCallback, this,
         std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
 
+    // Direct Depth Latch for Zero-Copy fallback
+    depth_direct_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
+        "/camera/depth/image_raw", rclcpp::SensorDataQoS().keep_last(config_.max_queue_depth),
+        std::bind(&MarcusSemanticMapperNode::depthDirectCallback, this, std::placeholders::_1));
+
     // Publishers
     user_data_pub_ = this->create_publisher<rtabmap_msgs::msg::UserData>("/rtabmap/user_data", 5);
     objects_3d_pub_ = this->create_publisher<robopy_controller::msg::SemanticObjectArray>("/semantic_mapper/objects_3d", 5);
+    anomaly_pub_ = this->create_publisher<std_msgs::msg::String>("/vision/spatial_anomaly", 5);
     
     if (config_.publish_debug) {
         marker_pub_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("/semantic_mapper/markers", 1);
@@ -284,6 +290,7 @@ void MarcusSemanticMapperNode::syncCallback(
     // Publish all results
     publishUserData(stamp);
     publishSemanticObjects(stamp);
+    checkAndPublishSpatialAnomalies(stamp);
     if (config_.publish_debug) {
         publishMarkers(stamp);
     }
@@ -380,20 +387,17 @@ void MarcusSemanticMapperNode::publishSemanticObjects(const rclcpp::Time& stamp)
     array_msg.header.frame_id = config_.camera_frame;
 
     Eigen::Isometry3d T_map_camera = Eigen::Isometry3d::Identity();
-    bool transform_found = false;
 
     // Prova ad agganciare la posa in map frame (o odom come fallback) per centroid_2d
     try {
         auto tf_msg = tf_buffer_->lookupTransform(
             config_.map_frame, config_.camera_frame, stamp, tf2::durationFromSec(0.02));
         T_map_camera = tf2::transformToEigen(tf_msg);
-        transform_found = true;
     } catch (const tf2::TransformException&) {
         try {
             auto tf_msg = tf_buffer_->lookupTransform(
                 config_.odom_frame, config_.camera_frame, stamp, tf2::durationFromSec(0.02));
             T_map_camera = tf2::transformToEigen(tf_msg);
-            transform_found = true;
         } catch (const tf2::TransformException&) {
             // Usa base_link transform se proprio non c'è odometria/map
             T_map_camera = T_base_camera_;
@@ -536,6 +540,98 @@ void MarcusSemanticMapperNode::publishDiagnostics(const rclcpp::Time& stamp) {
 
     diag_array.status.push_back(status);
     diag_pub_->publish(diag_array);
+}
+
+void MarcusSemanticMapperNode::depthDirectCallback(const sensor_msgs::msg::Image::ConstSharedPtr msg) {
+    std::lock_guard<std::mutex> lock(depth_mutex_);
+    latest_depth_msg_ = msg;
+}
+
+double MarcusSemanticMapperNode::computeSpatialSurprise(const std::string& label, const Eigen::Vector3d& pos) {
+    // If it's a dynamic class (person, animal), it is expected to move: surprise baseline is low unless static
+    if (isClassDynamic(label)) {
+        return 0.1;
+    }
+
+    std::lock_guard<std::mutex> lock(spatial_mem_mutex_);
+    if (static_memory_.empty()) {
+        // First observation initializes memory
+        static_memory_.push_back({label, pos, this->get_clock()->now().seconds()});
+        return 0.5; // Moderate initial surprise for brand new object
+    }
+
+    double min_dist = 999.0;
+    bool class_known = false;
+    for (const auto& anchor : static_memory_) {
+        if (anchor.label == label) {
+            class_known = true;
+            double d = (anchor.pos - pos).norm();
+            if (d < min_dist) {
+                min_dist = d;
+            }
+        }
+    }
+
+    if (!class_known) {
+        // Novel class not previously registered in static spatial map
+        static_memory_.push_back({label, pos, this->get_clock()->now().seconds()});
+        if (static_memory_.size() > 100) {
+            static_memory_.erase(static_memory_.begin());
+        }
+        return 0.85; // High surprise for novel object class in room
+    }
+
+    // Displacement surprise: expected to be within 0.35m of known anchor
+    if (min_dist > 0.40) {
+        // Displaced known object (e.g. chair moved across room)
+        double score = std::min(1.0, 0.35 + (min_dist / 2.0));
+        return score;
+    }
+
+    return 0.05; // Familiar object in expected position
+}
+
+void MarcusSemanticMapperNode::checkAndPublishSpatialAnomalies(const rclcpp::Time& stamp) {
+    double now_sec = stamp.seconds();
+    if (now_sec - last_anomaly_pub_time_ < 2.0) {
+        return; // Throttle anomalies to 0.5 Hz
+    }
+
+    std::array<SemanticObject3D, MAX_OBJECTS> local_objects{};
+    size_t count = 0;
+    {
+        std::lock_guard<std::mutex> lock(data_mutex_);
+        count = object_count_;
+        for (size_t i = 0; i < count; ++i) {
+            local_objects[i] = object_buffer_[i];
+        }
+    }
+
+    for (size_t i = 0; i < count; ++i) {
+        const auto& obj = local_objects[i];
+        std::string label(obj.label);
+        if (label.empty()) continue;
+
+        double surprise = computeSpatialSurprise(label, obj.centroid_base);
+        if (surprise >= 0.38) {
+            last_anomaly_pub_time_ = now_sec;
+            std::string json_str = "{\"label\": \"" + label + "\", " +
+                                  "\"surprise_score\": " + std::to_string(surprise) + ", " +
+                                  "\"x\": " + std::to_string(obj.centroid_base.x()) + ", " +
+                                  "\"y\": " + std::to_string(obj.centroid_base.y()) + ", " +
+                                  "\"z\": " + std::to_string(obj.centroid_base.z()) + ", " +
+                                  "\"confidence\": " + std::to_string(obj.confidence) + ", " +
+                                  "\"timestamp\": " + std::to_string(now_sec) + "}";
+            
+            std_msgs::msg::String msg;
+            msg.data = json_str;
+            anomaly_pub_->publish(msg);
+            RCLCPP_INFO(this->get_logger(),
+                "✨ [SPATIAL-SURPRISE] Rilevata anomalia spaziale '%s' (S=%.2f @ [%.2f, %.2f, %.2f]) -> Inviata a Sistema 2!",
+                label.c_str(), surprise, obj.centroid_base.x(), obj.centroid_base.y(), obj.centroid_base.z());
+            break; // One primary anomaly per cycle
+        }
+    }
 }
 
 // Entrypoint for compiling as a standalone executable

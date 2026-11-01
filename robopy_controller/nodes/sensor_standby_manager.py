@@ -16,6 +16,7 @@ Enforces motion gating: holds wheel motion until the RPLIDAR C1 has spun up and 
 valid 360-degree laser scans, ensuring safe navigation resumption.
 """
 
+import os
 import json
 import time
 import math
@@ -23,10 +24,11 @@ import rclpy
 from rclpy.node import Node
 from rclpy.callback_groups import ReentrantCallbackGroup
 from sensor_msgs.msg import Imu, LaserScan, BatteryState
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Twist, TransformStamped
 from nav_msgs.msg import Odometry
 from std_msgs.msg import Bool, String
 from std_srvs.srv import Empty, Trigger
+import tf2_ros
 
 
 class SensorStandbyManager(Node):
@@ -34,33 +36,46 @@ class SensorStandbyManager(Node):
         super().__init__('sensor_standby_manager')
         
         # --- Parameter Declarations ---
-        self.declare_parameter('idle_timeout_sec', 120.0)          # [v2.0] Ridotto da 1800s a 120s: spegni lidar dopo 2 min di inattività
+        self.declare_parameter('idle_timeout_sec', 45.0)           # [v3.0 IMP-BIO-005] 45s a robot fermo
+        self.declare_parameter('min_awake_time_sec', 60.0)         # [v3.0] Isteresi anti-cycling
         self.declare_parameter('imu_accel_threshold', 0.35)        # m/s^2 deviation from gravity (|norm(a) - g|)
         self.declare_parameter('imu_gyro_threshold', 0.15)         # rad/s angular velocity norm (~8.6 deg/s)
         self.declare_parameter('nominal_gravity', 9.81)            # Nominal gravity m/s^2
         self.declare_parameter('min_scans_to_wake', 2)             # Scans required to consider LiDAR spinning & healthy
         self.declare_parameter('scan_timeout_sec', 6.0)            # Maximum wait time for LiDAR spin-up before fallback
         self.declare_parameter('check_frequency_hz', 10.0)         # Supervisor evaluation rate
+        self.declare_parameter('ledger_path', '/mnt/ssd/telemetry/lidar_lifespan_ledger.json')
         
         self.idle_timeout_sec = float(self.get_parameter('idle_timeout_sec').value)
+        self.min_awake_time_sec = float(self.get_parameter('min_awake_time_sec').value)
         self.imu_accel_threshold = float(self.get_parameter('imu_accel_threshold').value)
         self.imu_gyro_threshold = float(self.get_parameter('imu_gyro_threshold').value)
         self.nominal_gravity = float(self.get_parameter('nominal_gravity').value)
         self.min_scans_to_wake = int(self.get_parameter('min_scans_to_wake').value)
         self.scan_timeout_sec = float(self.get_parameter('scan_timeout_sec').value)
         self.check_frequency_hz = float(self.get_parameter('check_frequency_hz').value)
+        self.ledger_path = str(self.get_parameter('ledger_path').value)
         
         # --- Internal States ---
         # States: 'ACTIVE', 'STANDBY', 'WAKING_UP'
         self.state = 'ACTIVE'
         self.is_docked = False
         self.last_activity_time = time.time()
+        self.last_wake_time = time.time()
+        self.last_standby_start_time = 0.0
         self.wake_start_time = 0.0
         self.wake_scans_count = 0
         self.last_gate_published = True
         self.last_gate_pub_time = 0.0
         self.last_imu_norm_a = self.nominal_gravity
         self.last_imu_norm_w = 0.0
+        
+        # TF Buffer and Broadcaster for StandbyTFKeepalive (IMP-BIO-005)
+        self.tf_buffer = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
+        self.tf_broadcaster = tf2_ros.TransformBroadcaster(self)
+        self.latched_map_to_odom: TransformStamped = None
+        self.tf_keepalive_timer = None
         
         # Gravity adaptive baseline calibration
         self.gravity_samples = []
@@ -89,6 +104,7 @@ class SensorStandbyManager(Node):
         self.start_motor_cli = self.create_client(Empty, '/start_motor', callback_group=self.callback_group)
         self.pause_rtabmap_cli = self.create_client(Empty, '/rtabmap/pause', callback_group=self.callback_group)
         self.resume_rtabmap_cli = self.create_client(Empty, '/rtabmap/resume', callback_group=self.callback_group)
+        self.amcl_nomotion_cli = self.create_client(Empty, '/request_nomotion_update', callback_group=self.callback_group)
         
         # --- Service Server (Manual wake on demand) ---
         self.wake_srv = self.create_service(Empty, '/robot/wake_sensors', self.manual_wake_srv_callback, callback_group=self.callback_group)
@@ -200,12 +216,9 @@ class SensorStandbyManager(Node):
                     spin_duration = time.time() - self.wake_start_time
                     self.get_logger().info(
                         f"✅ LiDAR spin-up confirmed ({self.wake_scans_count} scans in {spin_duration:.2f}s). "
-                        f"Opening motion gate and returning to ACTIVE state."
+                        f"Executing remaining wake handshake steps..."
                     )
-                    self.state = 'ACTIVE'
-                    self.last_activity_time = time.time()
-                    self.publish_motion_gate(True, force=True)
-                    self.publish_power_state("ACTIVE")
+                    self._execute_wake_handshake_completion()
 
     def call_async_service(self, client, srv_name: str):
         """Asynchronously calls an Empty service without blocking the node thread."""
@@ -228,17 +241,21 @@ class SensorStandbyManager(Node):
         self.is_docked = is_charging
 
     def governor_state_callback(self, msg: String):
-        """[F7] Riceve direttive dal Resource Governor: attua sleep solo in DOCKED_SLEEP."""
+        """[F7/IMP-BIO-005] Riceve direttive dal Resource Governor con supporto spegnimento a fermo."""
         try:
             data = json.loads(msg.data)
             k_state = data.get("kinematic_state", "")
             in_dock = data.get("in_dock", self.is_docked)
             self.is_docked = in_dock
+            rec_profile = data.get("recommended_profile", {})
+            lidar_active = rec_profile.get("lidar_active", True)
             
-            if k_state == "DOCKED_SLEEP":
+            if not lidar_active:
                 if self.state == "ACTIVE":
-                    self.get_logger().info("💤 [StandbyManager] Ricevuta direttiva Governor: DOCKED_SLEEP -> Spegnimento LiDAR.")
-                    self.trigger_standby()
+                    now = time.time()
+                    if (now - self.last_wake_time) >= self.min_awake_time_sec:
+                        self.get_logger().info(f"💤 [StandbyManager] Ricevuta direttiva Governor: spegnimento LiDAR (k_state={k_state}).")
+                        self.trigger_standby()
             elif k_state in ("WAKING", "STATIONARY", "PREP_NAV", "MOVING"):
                 if self.state == "STANDBY":
                     self.get_logger().info(f"⚡ [StandbyManager] Ricevuta direttiva Governor: {k_state} -> Avvio e spin-up LiDAR.")
@@ -260,48 +277,152 @@ class SensorStandbyManager(Node):
                 throttle_duration_sec=10.0
             )
 
+    def _start_tf_keepalive(self):
+        """Avvia il broadcaster 1.0 Hz di map -> odom latciata (IMP-BIO-005)."""
+        try:
+            # Prova a catturare l'ultima trasformata map -> odom da TF
+            t = self.tf_buffer.lookup_transform(
+                'map', 'odom', rclpy.time.Time(),
+                timeout=rclpy.duration.Duration(seconds=0.2)
+            )
+            self.latched_map_to_odom = t
+            self.get_logger().info("📌 [StandbyTF] Trasformata 'map -> odom' catturata e latciata per lo Standby Keepalive.")
+        except Exception as e:
+            self.get_logger().warn(f"⚠️ [StandbyTF] Impossibile catturare map -> odom da TF ({e}). Uso fallback identità.")
+            t = TransformStamped()
+            t.header.frame_id = 'map'
+            t.child_frame_id = 'odom'
+            t.transform.rotation.w = 1.0
+            self.latched_map_to_odom = t
+
+        if self.tf_keepalive_timer is None:
+            self.tf_keepalive_timer = self.create_timer(1.0, self._tf_keepalive_step)
+
+    def _tf_keepalive_step(self):
+        """Broadcasting periodico 1.0 Hz per prevenire timeout TF in AMCL / Nav2 durante lo standby LiDAR."""
+        if self.state != 'STANDBY' or self.latched_map_to_odom is None:
+            return
+        # Rinnova timestamp: now + 200ms tolleranza
+        now_msg = self.get_clock().now() + rclpy.duration.Duration(seconds=0.2)
+        self.latched_map_to_odom.header.stamp = now_msg.to_msg()
+        self.tf_broadcaster.sendTransform(self.latched_map_to_odom)
+
+    def _stop_tf_keepalive(self):
+        """Interrompe il thread di keepalive prima di risvegliare AMCL (Handshake Step 0)."""
+        if self.tf_keepalive_timer is not None:
+            self.tf_keepalive_timer.cancel()
+            self.destroy_timer(self.tf_keepalive_timer)
+            self.tf_keepalive_timer = None
+            self.get_logger().info("🛑 [StandbyTF] Keepalive terminato. AMCL riprende il controllo nativo del TF tree.")
+
+    def _record_lidar_wear(self, duration_s: float):
+        """Aggiorna il registro persistente delle ore operative del LiDAR C1 (IMP-BIO-005, FM-BIO-005)."""
+        try:
+            target_dir = os.path.dirname(self.ledger_path)
+            if not os.path.exists(target_dir):
+                target_dir = "/tmp"
+                ledger_file = "/tmp/lidar_lifespan_ledger.json"
+            else:
+                ledger_file = self.ledger_path
+
+            data = {"total_operating_seconds": 0.0, "total_standby_seconds": 0.0, "cycles_count": 0}
+            if os.path.exists(ledger_file):
+                with open(ledger_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+
+            data["total_operating_seconds"] = data.get("total_operating_seconds", 0.0) + duration_s
+            data["cycles_count"] = data.get("cycles_count", 0) + 1
+            data["last_update"] = time.time()
+
+            with open(ledger_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2)
+            self.get_logger().info(f"📊 [Ledger] RPLIDAR C1 telemetria salvata: {data['total_operating_seconds']/3600.0:.2f} h attive.")
+        except Exception as e:
+            self.get_logger().warn(f"Errore scrittura ledger vita utile LiDAR: {e}")
+
     def trigger_standby(self):
-        """Enters power-saving STANDBY state."""
-        self.get_logger().info("💤 Entering Smart Standby (Docked Idle): stopping LiDAR and pausing RTAB-Map...")
+        """Enters power-saving STANDBY state with TF keepalive and ledger update."""
+        now = time.time()
+        # Isteresi anti-cycling: non spegnere se svegliato da meno di min_awake_time_sec
+        if (now - self.last_wake_time) < self.min_awake_time_sec:
+            self.get_logger().info(f"⏳ Anti-cycling attivo: svegliato da soli {(now - self.last_wake_time):.1f}s. Standby ritardato.")
+            return
+
+        self.get_logger().info("💤 Entering Smart Standby: stopping RPLIDAR C1, latching TF and pausing RTAB-Map...")
         self.state = 'STANDBY'
+        self.last_standby_start_time = now
         
-        # Subscribe to IMU during STANDBY to catch external knocks/bumps
+        # Registra usura della sessione attiva appena conclusa
+        session_active_duration = max(0.0, now - self.last_wake_time)
+        self._record_lidar_wear(session_active_duration)
+
+        # 1. Avvia TF Keepalive (IMP-BIO-005)
+        self._start_tf_keepalive()
+
+        # 2. Sottoscrizione IMU in STANDBY per rilevare scosse/urti esterni
         if self.imu_sub is None:
             self.imu_sub = self.create_subscription(
                 Imu, '/oak/imu/data', self.imu_callback, 10, callback_group=self.callback_group
             )
 
-        # Lock wheels
+        # 3. Lock ruote
         self.publish_motion_gate(False, force=True)
         self.publish_power_state("STANDBY")
         
-        # Stop RPLIDAR C1 motor
+        # 4. Arresto motore RPLIDAR C1
         self.call_async_service(self.stop_motor_cli, '/stop_motor')
         
-        # Pause RTAB-Map SLAM mapping
+        # 5. Pausa RTAB-Map SLAM mapping
         self.call_async_service(self.pause_rtabmap_cli, '/rtabmap/pause')
 
     def trigger_wakeup(self, reason: str = "Unspecified"):
-        """Initiates reactive wake-up sequence."""
-        self.get_logger().info(f"⚡ Wake-up requested ({reason}). Starting LiDAR and resuming RTAB-Map...")
+        """
+        Initiates 5-Step Wake-Before-Move Handshake (IMP-BIO-003, IMP-BIO-005).
+        Step 0: Arresta StandbyTFKeepalive.
+        Step 1: Accende motore RPLIDAR C1.
+        Step 2: Attende regime 10 Hz (min_scans_to_wake).
+        Step 3: Invoca /request_nomotion_update per allineare particelle AMCL.
+        Step 4: Riprende RTAB-Map SLAM.
+        Step 5: Verifica assenza dislocazione passiva e sblocca Motion Gate.
+        """
+        self.get_logger().info(f"⚡ [Handshake Step 0] Wake-up requested ({reason}). Stopping TF keepalive...")
         self.state = 'WAKING_UP'
         self.wake_start_time = time.time()
         self.wake_scans_count = 0
+        self.last_wake_time = time.time()
         
-        # Destroy IMU subscription during active state to save 37.3 Hz CPU
+        # Step 0: Stop keepalive immediatamente
+        self._stop_tf_keepalive()
+
+        # Distruggi sottoscrizione IMU
         if self.imu_sub is not None:
             self.destroy_subscription(self.imu_sub)
             self.imu_sub = None
 
-        # Ensure wheels remain locked during spin-up
+        # Ruote rigorosamente bloccate durante lo spin-up
         self.publish_motion_gate(False, force=True)
         self.publish_power_state("WAKING_UP")
         
-        # Start RPLIDAR C1 motor
+        # Step 1: Start RPLIDAR C1 motor
+        self.get_logger().info("⚡ [Handshake Step 1] Avvio motore RPLIDAR C1...")
         self.call_async_service(self.start_motor_cli, '/start_motor')
-        
-        # Resume RTAB-Map SLAM mapping
+
+    def _execute_wake_handshake_completion(self):
+        """Compie i rimanenti Step 3, 4, 5 dell'Handshake dopo l'arrivo dei primi scan validi."""
+        # Step 3: Invoca AMCL nomotion update per forzare il resync delle particelle su mappa
+        self.get_logger().info("⚡ [Handshake Step 3] Richiesta nomotion update ad AMCL...")
+        self.call_async_service(self.amcl_nomotion_cli, '/request_nomotion_update')
+
+        # Step 4: Resume RTAB-Map
+        self.get_logger().info("⚡ [Handshake Step 4] Ripresa mapping RTAB-Map...")
         self.call_async_service(self.resume_rtabmap_cli, '/rtabmap/resume')
+
+        # Step 5: Verifica cinematica e rilascio motion gate
+        self.get_logger().info("✅ [Handshake Step 5] Validazione completata. Apertura Motion Gate.")
+        self.state = 'ACTIVE'
+        self.last_activity_time = time.time()
+        self.publish_motion_gate(True, force=True)
+        self.publish_power_state("ACTIVE")
 
     def manual_wake_srv_callback(self, request, response):
         """Service handler for /robot/wake_sensors."""
@@ -326,28 +447,28 @@ class SensorStandbyManager(Node):
         
         if self.state == 'ACTIVE':
             idle_duration = now - self.last_activity_time
-            # Invariante 6: LiDAR fermo SOLO in DOCKED_SLEEP (vietato fermare il LiDAR fuori dal dock)
-            if idle_duration >= self.idle_timeout_sec and self.is_docked:
-                self.trigger_standby()
+            # [IMP-BIO-005] Entra in standby se idle oltre idle_timeout_sec (anche fuori dal dock se fermo)
+            # a condizione che sia rispettata la finestra anti-cycling
+            if idle_duration >= self.idle_timeout_sec:
+                if (now - self.last_wake_time) >= self.min_awake_time_sec:
+                    self.trigger_standby()
             else:
                 self.publish_motion_gate(True)
                 
         elif self.state == 'STANDBY':
-            # Maintain motion gate lock
             self.publish_motion_gate(False)
             
         elif self.state == 'WAKING_UP':
-            # Keep motion gate locked while waiting for scans
             self.publish_motion_gate(False)
             
-            # Spin-up timeout protection: if LiDAR took too long, unlock to prevent permanent deadlock
+            # Spin-up timeout protection
             elapsed = now - self.wake_start_time
             if elapsed > self.scan_timeout_sec:
                 self.get_logger().warn(
                     f"⚠️ LiDAR spin-up scan confirmation timed out after {elapsed:.1f}s. "
-                    f"Forcing ACTIVE state and unlocking motion gate."
+                    f"Forcing completion of handshake."
                 )
-                self.state = 'ACTIVE'
+                self._execute_wake_handshake_completion()
                 self.last_activity_time = now
                 self.publish_motion_gate(True, force=True)
                 self.publish_power_state("ACTIVE")

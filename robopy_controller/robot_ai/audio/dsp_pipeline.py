@@ -32,9 +32,10 @@ class DSPPipeline:
         # Calculate chunk RMS
         rms = float(np.sqrt(np.mean(np.square(x)) + 1e-6))
         
-        # Se il segnale è sotto la soglia di silenzio o rumore TV lontano (< 130 RMS),
+        # Se il segnale è sotto la soglia di silenzio (< 60 RMS),
         # mantieni guadagno unitario 1.0x per non ingannare il VAD con rumori amplificati.
-        if rms < 130.0:
+        # Sopra 60 RMS, abilita AGC graduale per parlato far-field attenuato (SPEC-04 Green Zone).
+        if rms < 60.0:
             target_gain = self.nominal_gain
         else:
             target_gain = float(self.target_rms / (rms + 1e-6))

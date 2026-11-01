@@ -9,6 +9,7 @@ Version: 01.00.00
 """
 
 import time
+import json
 import numpy as np
 
 import rclpy
@@ -18,10 +19,13 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from std_msgs.msg import String, Bool, Float32
 from geometry_msgs.msg import Vector3Stamped
 from vision_msgs.msg import Detection2DArray
+from visualization_msgs.msg import MarkerArray
 from action_msgs.msg import GoalInfo
 
 # Custom package messages
 from robopy_controller.msg import EngagementStatus
+from robopy_controller.robot_ai.services.visual_gesture_pointing_engine import VisualGesturePointingEngine, GestureType
+from robopy_controller.robot_ai.cognitive.theory_of_mind_engine import TheoryOfMindEngine, ToMState
 
 
 class EngagementMonitor(Node):
@@ -61,6 +65,14 @@ class EngagementMonitor(Node):
         self.sub_gaze = self.create_subscription(
             Vector3Stamped, '/hailo/gaze/direction', self.gaze_callback, qos_best_effort
         )
+        # Skeletons 17 keypoints subscription for In-Process Gestures & ToM
+        self.sub_pose = self.create_subscription(
+            MarkerArray, '/hailo/pose/skeletons', self.pose_callback, qos_best_effort
+        )
+
+        # In-Process Engines (Zero extra OS processes / Strict 4GB RAM preservation)
+        self.gesture_engine = VisualGesturePointingEngine()
+        self.tom_engine = TheoryOfMindEngine()
 
         # Publishers
         self.pub_status_str = self.create_publisher(
@@ -75,8 +87,23 @@ class EngagementMonitor(Node):
         self.pub_interrupt = self.create_publisher(
             String, '/engagement/interrupt', qos_reliable
         )
+        self.pub_conv_interrupt = self.create_publisher(
+            Bool, '/ai/conversation/interrupt', qos_reliable
+        )
         self.pub_proxemics = self.create_publisher(
             Float32, '/engagement/proxemics_distance', qos_best_effort
+        )
+        self.pub_gesture = self.create_publisher(
+            String, '/vision/gesture', qos_reliable
+        )
+        self.pub_pointing_vector = self.create_publisher(
+            String, '/vision/pointing_vector', qos_reliable
+        )
+        self.pub_tom_state = self.create_publisher(
+            String, '/marcus/social_context/tom_state', qos_reliable
+        )
+        self.pub_fall_emergency = self.create_publisher(
+            Bool, '/marcus/social_context/fall_emergency', qos_reliable
         )
 
         # State Variables
@@ -112,6 +139,78 @@ class EngagementMonitor(Node):
         else:
             # No face detected
             pass
+
+    def pose_callback(self, msg: MarkerArray):
+        """Processes 17 keypoints for in-process gestures & Theory of Mind."""
+        kps_17 = []
+        person_identity = "unknown"
+        for marker in msg.markers:
+            if marker.ns == "pose_keypoints_17":
+                person_identity = marker.text or "unknown"
+                for pt in marker.points:
+                    kps_17.append((pt.x, pt.y, pt.z))
+                break
+            elif marker.ns == "skeleton_joints":
+                # Fallback from joints marker
+                for pt in marker.points:
+                    norm_x = (pt.x / 1.5) + 0.5
+                    norm_y = (pt.y / 1.5) + 0.5
+                    kps_17.append((norm_x, norm_y, 0.8))
+
+        if len(kps_17) < 17:
+            return
+
+        # 1. Gesture recognition
+        g_res = self.gesture_engine.evaluate_pose(kps_17, estimated_depth_m=self.proxemic_distance)
+        if g_res.gesture != GestureType.NONE:
+            payload = {
+                "gesture": g_res.gesture.value,
+                "confidence": round(g_res.confidence, 3),
+                "hand": g_res.hand,
+                "identity": person_identity,
+                "timestamp": g_res.timestamp
+            }
+            g_msg = String()
+            g_msg.data = json.dumps(payload)
+            self.pub_gesture.publish(g_msg)
+
+            if g_res.gesture == GestureType.OPEN_PALM:
+                self.get_logger().warn(f"🛑 [VISUAL BARGE-IN] Gesto OPEN PALM ({g_res.hand}) rilevato -> E-Stop e interrupt!")
+                intr_msg = Bool()
+                intr_msg.data = True
+                self.pub_conv_interrupt.publish(intr_msg)
+                if self.enable_preemption:
+                    cancel_msg = GoalInfo()
+                    self.pub_cancel_goal.publish(cancel_msg)
+
+            elif g_res.gesture == GestureType.POINTING and g_res.pointing_target:
+                tgt = g_res.pointing_target
+                p_payload = {
+                    "hand": tgt.hand,
+                    "origin_3d": [round(c, 3) for c in tgt.origin_3d],
+                    "direction_3d": [round(c, 3) for c in tgt.direction_3d],
+                    "target_3d": [round(c, 3) for c in tgt.intersection_3d],
+                    "confidence": round(tgt.confidence, 3)
+                }
+                p_msg = String()
+                p_msg.data = json.dumps(p_payload)
+                self.pub_pointing_vector.publish(p_msg)
+
+        # 2. Theory of Mind Evaluation
+        is_face = (time.time() - self.last_face_time < 1.0)
+        is_gaze = (time.time() - self.last_gaze_time < self.gaze_timeout)
+        tom_eval = self.tom_engine.evaluate_posture(
+            kps_17, face_detected=is_face, gaze_at_robot=is_gaze, depth_m=self.proxemic_distance
+        )
+        tom_msg = String()
+        tom_msg.data = tom_eval.state.value
+        self.pub_tom_state.publish(tom_msg)
+
+        if tom_eval.state == ToMState.FALL_EMERGENCY:
+            self.get_logger().error(f"🚨 [FALL_EMERGENCY] Rilevata caduta utente! {tom_eval.explanation}")
+            fall_msg = Bool()
+            fall_msg.data = True
+            self.pub_fall_emergency.publish(fall_msg)
 
     def gaze_callback(self, msg):
         self.gaze_direction = msg.vector

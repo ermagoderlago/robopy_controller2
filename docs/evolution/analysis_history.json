@@ -20,5 +20,104 @@
     "risk_zone": "YELLOW",
     "status": "READY_FOR_USER_REVIEW",
     "plan_file": "docs/evolution/plans/PLAN-2026-10-12_FM-ACT-007_hardware_power.md"
+  },
+  {
+    "date": "2026-10-18",
+    "selected_at": "2026-10-18 13:39:57",
+    "failure_mode_id": "FM-LLM-004",
+    "subsystem": "AI/LangGraph",
+    "title": "Mitigazione FMEA [FM-LLM-004]: Esecuzione di codice auto-generato (Skill) pericoloso, instabile o fuori controllo (AI Code Hazard)",
+    "source": "FMEA_RPN",
+    "risk_zone": "GREEN",
+    "status": "VALIDATED_IN_SANDBOX",
+    "plan_file": "docs/evolution/plans/PLAN-2026-10-18_FM-LLM-004_ai_langgraph.md"
+  },
+  {
+    "date": "2026-10-18",
+    "selected_at": "2026-10-18 13:39:59",
+    "failure_mode_id": "FM-NAV-006",
+    "subsystem": "Nav2",
+    "title": "Mitigazione FMEA [FM-NAV-006]: Slittamento ruote (Wheel Slip) su piastrelle/tappeti con conseguente deriva odometrica accumulata e disallineamento della posa globale",
+    "source": "FMEA_RPN",
+    "risk_zone": "YELLOW",
+    "status": "READY_FOR_USER_REVIEW",
+    "plan_file": "docs/evolution/plans/PLAN-2026-10-18_FM-NAV-006_nav2.md"
+  },
+  {
+    "date": "2026-10-18",
+    "selected_at": "2026-10-18 13:40:01",
+    "failure_mode_id": "FM-ACT-005",
+    "subsystem": "Hardware/Power",
+    "title": "Mitigazione FMEA [FM-ACT-005]: Reset improvviso della scheda ESP32 (Brownout Microcontrollore) per picco di assorbimento in accelerazione",
+    "source": "FMEA_RPN",
+    "risk_zone": "YELLOW",
+    "status": "READY_FOR_USER_REVIEW",
+    "plan_file": "docs/evolution/plans/PLAN-2026-10-18_FM-ACT-005_hardware_power.md"
+  },
+  {
+    "date": "2026-10-18",
+    "selected_at": "2026-10-18 13:40:02",
+    "failure_mode_id": "FM-SYS-009",
+    "subsystem": "System/DDS",
+    "title": "Mitigazione FMEA [FM-SYS-009]: Picco di consumo RAM durante il reasoning dell'Agente con conseguente OOM Kill di processi ROS 2 critici",
+    "source": "FMEA_RPN",
+    "risk_zone": "YELLOW",
+    "status": "READY_FOR_USER_REVIEW",
+    "plan_file": "docs/evolution/plans/PLAN-2026-10-18_FM-SYS-009_system_dds.md"
+  },
+  {
+    "date": "2026-10-18",
+    "selected_at": "2026-10-18 13:40:04",
+    "failure_mode_id": "FM-ACT-003",
+    "subsystem": "Hardware/Power",
+    "title": "Mitigazione FMEA [FM-ACT-003]: Guasto hardware sul canale encoder sinistro (odl) con lettura bloccata a pochi tick",
+    "source": "FMEA_RPN",
+    "risk_zone": "YELLOW",
+    "status": "READY_FOR_USER_REVIEW",
+    "plan_file": "docs/evolution/plans/PLAN-2026-10-18_FM-ACT-003_hardware_power.md"
+  },
+  {
+    "date": "2026-10-29",
+    "selected_at": "2026-10-29 03:00:04",
+    "failure_mode_id": "FM-LLM-004",
+    "subsystem": "AI/LangGraph",
+    "title": "Mitigazione FMEA [FM-LLM-004]: Esecuzione di codice auto-generato (Skill) pericoloso, instabile o fuori controllo (AI Code Hazard)",
+    "source": "FMEA_RPN",
+    "risk_zone": "GREEN",
+    "status": "VALIDATED_IN_SANDBOX",
+    "plan_file": "docs/evolution/plans/PLAN-2026-10-29_FM-LLM-004_ai_langgraph.md"
+  },
+  {
+    "date": "2026-10-30",
+    "selected_at": "2026-10-30 03:00:05",
+    "failure_mode_id": "FM-PWR-004",
+    "subsystem": "Hardware/Power & Compute",
+    "title": "Mitigazione FMEA [FM-PWR-004]: Esaurimento completo della batteria con robot fermo in punti remoti (Stranding) e scarica profonda distruttiva delle celle 18650 per totale assenza di stazione di ricarica (\"cuccia\") e procedura di docking",
+    "source": "FMEA_RPN",
+    "risk_zone": "YELLOW",
+    "status": "READY_FOR_USER_REVIEW",
+    "plan_file": "docs/evolution/plans/PLAN-2026-10-30_FM-PWR-004_hardware_power___compute.md"
+  },
+  {
+    "date": "2026-10-31",
+    "selected_at": "2026-10-31 03:00:06",
+    "failure_mode_id": "FM-ACT-007",
+    "subsystem": "Hardware/Power",
+    "title": "Mitigazione FMEA [FM-ACT-007]: Ribaltamento fisico del robot (Tipped Over / Rollover)",
+    "source": "FMEA_RPN",
+    "risk_zone": "YELLOW",
+    "status": "READY_FOR_USER_REVIEW",
+    "plan_file": "docs/evolution/plans/PLAN-2026-10-31_FM-ACT-007_hardware_power.md"
+  },
+  {
+    "date": "2026-11-01",
+    "selected_at": "2026-11-01 03:00:03",
+    "failure_mode_id": "FM-NAV-006",
+    "subsystem": "Nav2",
+    "title": "Mitigazione FMEA [FM-NAV-006]: Slittamento ruote (Wheel Slip) su piastrelle/tappeti con conseguente deriva odometrica accumulata e disallineamento della posa globale",
+    "source": "FMEA_RPN",
+    "risk_zone": "YELLOW",
+    "status": "READY_FOR_USER_REVIEW",
+    "plan_file": "docs/evolution/plans/PLAN-2026-11-01_FM-NAV-006_nav2.md"
   }
 ]

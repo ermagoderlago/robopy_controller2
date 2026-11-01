@@ -902,3 +902,64 @@ A seguito dell'analisi incrociata tra le linee guida generiche per array ReSpeak
      - Attenuazione $>15\text{ dB}$ sulle frequenze parassite dell'Active Cooler Pi 5 (60Hz), con preservazione $>85\%$ della fondamentale vocale a 1000Hz.
   6. **Piper TTS Local Bypass:**
      - Sintesi vocale locale in formato 16kHz PCM per conferme operative e telemetria, mantenendo Gemini Live nello stato `DISCONNECTED` a zero consumo cloud.
+
+---
+
+## 🎙️ Lezione 26 — Risoluzione Self-Loopback `_mic_mute_cb(False)`, Vosk Dual-Mode (Wake Grammar ➔ Full Vocabulary) e Routing Post-Wakeword Locale (2026-10-18)
+
+### 1. Sintomi Osservati dall'Utente
+* **Sintomo:** Pronunciando la parola chiave `"Marcus"`, il robot rilevava la wake-word (emettendo l'evento su `/ai/input/wakeword_detected`), ma rimaneva sordo e muto rispetto alla domanda vocale pronunciata subito dopo dall'utente.
+
+### 2. Analisi della Causa Radice (Tre Colli di Bottiglia Concatenati)
+1. **Self-Loopback Autodistruttivo su `/ai/input/mic_mute` (`respeaker_vui_node.py`):**
+   - In `_on_wakeword_detected()`, il nodo attivava `self._ev_listening.set()`, avviava il timer di sessione `_listen_timer` (6.0s) e pubblicava `Bool(data=False)` sul topic `/ai/input/mic_mute` per segnalare l'apertura del microfono.
+   - Tuttavia, `respeaker_vui_node` era esso stesso iscritto a `/ai/input/mic_mute` con `_mic_mute_cb()`. Nel ramo `else:` (`msg.data == False`), `_mic_mute_cb` eseguiva incondizionatamente `self._stop_listen_timer()` e `self._ev_listening.clear()`!
+   - Di conseguenza, **1 millisecondo dopo il rilevamento di `"Marcus"`**, il messaggio `Bool(False)` pubblicato dallo stesso nodo cancellava immediatamente la finestra di ascolto (`_ev_listening` tornava `False`), chiudendo il gate audio prima ancora che l'utente potesse iniziare a parlare.
+2. **Blocco del Vocabolario Vosk alla sola `wake_grammar` (`local_asr_vosk.py`):**
+   - `VoskASRManager` istanziava `vosk.KaldiRecognizer(self.model, self.sample_rate, self.wake_grammar)` ristretto alle sole 13 parole della grammatica di risveglio (`["marcus", "marco", "fermati", "[unk]", ...]`).
+   - Anche a finestra di ascolto aperta, qualsiasi domanda libera dell'utente (es. *"dimmi chi è Luisella"* o *"cosa vedi"*) veniva forzatamente mappata su `[unk]` o `"marcus"`, impedendo la trascrizione del parlato libero in assenza di Gemini Live.
+3. **Mancato Inoltro della Trascrizione Post-Wakeword a `AIOrchestrator` e `sys.path` per `gTTS` (`respeaker_vui_node.py`, `tts_service.py`):**
+   - In `_on_vosk_text()`, quando `self._ev_listening.is_set()` era attivo, la frase trascritta non veniva pubblicata su `/ai/input/voice_test` verso `AIOrchestrator`.
+   - Inoltre, `tts_service.py` veniva eseguito dall'interprete di sistema (`/usr/bin/python3`) mentre il pacchetto `gtts` risiedeva in `/home/robopy/ros2_venv/lib/python3.11/site-packages`, e il tentativo preliminare su Google Cloud TTS (senza credenziali ADC) causava sia un ritardo di 11s sul metadata server GCE sia un `return` prematuro senza fallback a `gTTS`.
+
+### 3. Soluzione Architetturale Implementata (100% Conforme a `SPEC-04`)
+1. **Eliminazione Self-Loopback in `_mic_mute_cb` (`respeaker_vui_node.py`):**
+   - Quando `msg.data == False` (unmute), `_mic_mute_cb` sblocca esclusivamente `self._is_playing_tts = False` senza mai azzerare `_ev_listening` né fermare `_listen_timer` se una sessione vocale è già attiva.
+2. **Vosk Dual-Mode con Sentinel Pattern Thread-Safe (`local_asr_vosk.py`):**
+   - Implementato `set_listening_mode(active: bool)` che invia i comandi sentinella `b"MODE_FULL_CMD"` e `b"MODE_WAKE_CMD"` nella coda `self._audio_queue` consumata dall'unico `_worker_loop` (rispettando rigorosamente `FM-VUI-011` e `FM-VUI-014` con `del self.recognizer` + `gc.collect()`).
+   - All'apertura della finestra post-wakeword (`MODE_FULL_CMD`), Vosk commuta su `vosk.KaldiRecognizer(self.model, self.sample_rate)` a vocabolario completo italiano e riproduce i 25 frame di pre-roll (`_speech_ring`) per non perdere l'attacco sillabico della domanda. Alla chiusura della finestra (`MODE_WAKE_CMD`), torna alla `wake_grammar` leggera.
+3. **Inoltro Diretto Post-Wakeword e Sintesi Vocale Locale Immediata (`respeaker_vui_node.py`, `tts_service.py`):**
+   - In `_on_vosk_text()`, quando `_ev_listening.is_set()` è attivo e Vosk emette un risultato finale (`is_partial=False`), viene rimosso un eventuale prefisso wake-word residuo e il comando viene pubblicato su `ai/input/voice_test` verso `AIOrchestrator`, commutando subito Vosk in `MODE_WAKE_CMD`.
+   - In `tts_service.py`, aggiunto `/home/robopy/ros2_venv/lib/python3.11/site-packages` al `sys.path`, verificata preventivamente la presenza di `GOOGLE_APPLICATION_CREDENTIALS` per evitare timeout GCE e garantito il fallback diretto a `gTTS` + `ffmpeg` (PCM 16kHz mono s16le su `/ai/output/audio_pcm`, ricampionato a 48kHz da `respeaker_vui_node`).
+
+---
+
+## 🎙️ Lezione 27 — Soppressione del Monologo Telemetrico Prolisso e Riconoscimento Wakeword Immediato Naturale (2026-10-24)
+
+### 1. Sintomi Osservati dall'Utente
+* **Sintomo:** Pronunciando la sola parola chiave `"Marcus..."` o salutando il robot, Marcus rispondeva con un monologo telemetrico prolisso, robotico e snervante di 31 parole:
+  *"Ti ascolto, Luca! Al momento mi trovo in salotto con batteria al 12.63v (100%). Dimmi pure se vuoi informazioni dai miei ricordi TRINITY, se devo osservare l'ambiente o spostarmi in un'altra stanza."*
+* L'utente ha segnalato: *"non va, ogni volta che parlo 'marcus...' mi dice 'ti ascolto luca dimmi se devo...' decisamente una frase troppo lunga!!"*.
+
+### 2. Analisi della Causa Radice
+1. **Fallback Prolisso in `hailo_qwen_client.py`:**
+   - Nel metodo `_synthesize_mock_tokens`, il ramo `else:` finale conteneva hardcodata la frase prolissa di 31 parole che elencava stanza, stato batteria e menu di opzioni TRINITY.
+   - Quando l'utente pronunciava la wake word o faceva una pausa vocale, Vosk catturava frammenti sillabici o la parola `"marcus"`. Poiché `"marcus"` era inserito nella lista `stop_words`, i termini di ricerca semantica risultavano vuoti (`query_terms = []`), facendo scivolare l'elaborazione nel fallback predefinito `else:` con la frase di 31 parole.
+2. **Falso Riconoscimento Nome Utente da `cognome:` (`hailo_qwen_client.py`):**
+   - La regex di estrazione del nome utente cercava `(?:profilo[:\s]+)?nome[:\s]+([a-zA-Zàèéìòù]+)` senza word boundary (`\b`).
+   - Nel prompt contestuale, la stringa `cognome: suffia` / `cognome: oeb` matchava su `nome:`, estraendo la lettera iniziale `"o"` e chiamando l'utente `"O"` anziché `"Luca"`.
+
+### 3. Soluzione Architetturale Implementata
+1. **Adozione Risposte Brevi, Calde ed Empatiche (< 5 parole):**
+   - Chiamata diretta / Wakeword (`"marcus"`, `"markus"`, `"dimmi"`, `"ci sei"`, `"ascolta"`):
+     `"Dimmi, Luca! Ti ascolto."` (4 parole, latenza ~466ms).
+   - Saluti (`"ciao"`, `"buongiorno"`, `"salve"`):
+     `"Ciao Luca! Ti ascolto, dimmi pure."` (6 parole, latenza ~544ms).
+   - Fallback generale / frammenti non riconosciuti:
+     `"Ti ascolto, Luca! Dimmi pure."` (5 parole, latenza ~535ms).
+   - Eliminato totalmente qualsiasi riferimento non richiesto a coordinate telemetriche, tensioni di batteria o menu di funzionalità.
+2. **Allineamento Prompt di Sistema SLM (`slm_metaprompt_fusion.py`):**
+   - Aggiornato `default_sys` per istruire Qwen a rispondere con massimo 1-2 frasi sintetiche, confermando le chiamate nominali con brevità colloquiale naturale.
+3. **Correzione Regex Word Boundary e Blacklist (`hailo_qwen_client.py`):**
+   - Inserito `\b` esplicito per non matchare mai `cognome:` ed esclusi i token di sistema (`"marcus"`, `"oeb"`, `"robot"`), garantendo l'estrazione stabile di `"Luca"`.
+

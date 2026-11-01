@@ -34,6 +34,21 @@ try:
 except ImportError:
     QueryMemorySkill = None
 
+try:
+    from .follow_person_skill import FollowPersonSkill
+except ImportError:
+    FollowPersonSkill = None
+
+try:
+    from .visual_pointing_skill import VisualPointingSkill
+except ImportError:
+    VisualPointingSkill = None
+
+try:
+    from .social_context_skill import SocialContextSkill
+except ImportError:
+    SocialContextSkill = None
+
 __all__ = [
     "HomeAssistantSkill",
     "NavigationSkill",
@@ -41,5 +56,8 @@ __all__ = [
     "FrontierExplorationSkill",
     "MemoryInfoSkill",
     "QueryMemorySkill",
+    "FollowPersonSkill",
+    "VisualPointingSkill",
+    "SocialContextSkill",
 ]
 

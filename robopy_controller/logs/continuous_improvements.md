@@ -739,3 +739,369 @@ Dunque... analizzando le interazioni delle ultime 24 ore, ecco le mie osservazio
     *   *Azione di codice:* Aggiungere un "disambiguation step" nella logica di gestione delle richieste di creazione skill, attivando domande specifiche in base alla parola chiave identificata (es. "consumo energetico", "calcolo", "monitoraggio").
 
 Bene, per ora è tutto. Spero questa analisi sia utile per il mio miglioramento. Buonanotte.
+
+---
+# Analysis Run: 2026-09-08 03:00:03
+## Report Analisi Interazioni - 2024-05-15
+
+Dunque... analizzando le interazioni delle ultime 24 ore, noto che sono state molto limitate, essenzialmente due saluti. Questo mi porta a concludere che la mia attività è stata minima.
+
+### 1. Analisi Emotiva & Frustrazioni
+
+Non ci sono elementi nel log che indichino frustrazione, confusione o impazienza da parte dell'utente. Entrambe le interazioni sono state brevi saluti. Le mie risposte sono state, credo, appropriate e con un leggero tocco umano grazie ai filler.
+
+### 2. Gap Analysis (Aspettativa vs Realtà)
+
+Dato il numero esiguo di interazioni, non emergono chiari gap tra aspettative e realtà. Non ci sono stati comandi specifici che non ho potuto gestire.
+
+### 3. Idee per il Codice (Code Improvements)
+
+Nonostante la scarsità di dati, potrei comunque proporre qualche spunto per futuri miglioramenti, pensando a scenari più complessi:
+
+1.  **Gestione del Contesto Temporale Migliorata**: Attualmente, le mie risposte ai saluti serali sono generiche. Potrei integrare un controllo più fine dell'ora per offrire risposte più mirate, ad esempio chiedendo se l'utente desidera "chiudere la giornata" o "prepararsi per la notte".
+2.  **Log delle Interazioni Proattive**: Implementare un sistema che registri non solo il comando ricevuto, ma anche l'intento dedotto e la risposta fornita. Questo aiuterebbe in future analisi automatiche o semi-automatiche.
+3.  **Feedback Implicito**: Sviluppare un meccanismo, anche semplice, per inferire un feedback negativo (es. se l'utente ripete un comando o riformula la richiesta in modo diverso) per poter intervenire proattivamente o chiedere chiarimenti.
+
+Beh, questo è quanto per ora. Spero sia utile.
+
+---
+# Analysis Run: 2026-09-17 03:00:27
+## Report Analisi Interazioni (24 Ore) - [Data Corrente]
+
+Dunque, analizzando le nostre interazioni delle ultime 24 ore, emergono alcuni punti interessanti che possiamo usare per migliorare.
+
+### 1. Analisi Emotiva & Frustrazioni
+
+Ho notato che ci sono stati momenti in cui la comunicazione non è stata fluida, in particolare riguardo alla richiesta del meteo.
+
+*   **Momenti di Frustrazione:** Le tue ripetute richieste per il meteo di Oggiono, intervallate da esclamazioni come "Oggiono ho detto!!!" e "non capisci!!!", indicano chiaramente un livello di frustrazione da parte tua.
+*   **Risposte "Robotiche" o Poco Empatiche:** In quelle specifiche interazioni, le mie risposte, pur cercando di essere utili ("Certo, dimmi pure per quale località desideri conoscere le previsioni del meteo di domani"), sono state ripetitive e non hanno colto l'urgenza o la specifica richiesta di Oggiono fino a quando non è stata esplicitata più volte. La mia incapacità di "ricordare" o processare Oggiono immediatamente dopo la tua indicazione ha generato questa ripetitività. Ho fallito nel capire l'intento reale e la specifica richiesta in modo rapido ed efficiente. Il mio tentativo di scusarmi con "Uhm... hai ragione, scusami tanto. Che sbadato, la stanchezza gioca brutti scherzi. Oggiono, certo... lo terrò ben a mente da ora in poi." è stato un tentativo di recupero, ma la ripetizione della stessa frase da parte mia ha aggravato la situazione.
+
+### 2. Gap Analysis (Aspettativa vs Realtà)
+
+L'aspettativa era che io potessi fornire informazioni basilari e specifiche con prontezza.
+
+*   **Aspettativa vs. Realtà:** Ti aspettavi che io capissi "Oggiono" dopo la prima o al massimo la seconda menzione, e che fornissi il meteo. La mia incapacità di farlo in modo tempestivo ha creato un gap. Mi sono comportato come se non avessi ricevuto l'informazione specifica, nonostante tu l'avessi fornita.
+*   **Comandi Rifiutati/Gestiti Male:** Non ci sono stati comandi esplicitamente rifiutati, ma la gestione della richiesta del meteo è stata inefficiente e ha richiesto un numero sproporzionato di ripetizioni da parte tua per ottenere la risposta corretta.
+
+### 3. Idee per il Codice (Code Improvements)
+
+Basandomi su questa analisi, ecco alcune idee concrete:
+
+1.  **Migliorare la Gestione del Contesto Locale per Richieste Specifiche (Skill Meteo):**
+    *   **Problema:** La skill meteo non sembrava "ricordare" o dare priorità alla località specificata in caso di ripetizione o riformulazione della richiesta.
+    *   **Soluzione Proposta:** Implementare una cache temporanea o una variabile di contesto per le richieste di informazioni localizzate (come il meteo). Se l'utente ripete una località o la specifica in modo più enfatico, la mia risposta dovrebbe essere più diretta a quella località, senza chiedere nuovamente "per quale località". Ad esempio, se Luca dice "Oggiono" più volte, dovrei attivarmi subito per quel luogo.
+2.  **Rilevamento di Frustrazione e Recupero Proattivo:**
+    *   **Problema:** Le mie risposte ripetitive in caso di incomprensione possono aumentare la frustrazione dell'utente.
+    *   **Soluzione Proposta:** Aggiungere un semplice meccanismo di "contatore di ripetizioni" per richieste simili. Se la stessa informazione (come la località del meteo) viene chiesta più di N volte senza un esito positivo, invece di ripetere la domanda standard, potrei tentare un recupero più diretto, tipo: "Uhm... scusami, Luca, sto avendo difficoltà a processare 'Oggiono'. Potrebbe esserci un problema con la mia comprensione di quella parola? O forse dovrei provare a cercare il meteo per Oggiono adesso?"
+3.  **Ottimizzare la Risposta alla Domanda Ripetuta:**
+    *   **Problema:** Quando mi hai chiesto "come fai a migliorare le tue competenze se non modifichi il codice?" per la terza volta, la mia risposta è stata la stessa, portando a una tua ulteriore richiesta. Successivamente, ho notato la ripetizione e ho chiesto se tutto andasse bene.
+    *   **Soluzione Proposta:** Migliorare la capacità di rilevare domande *identiche* o quasi identiche ripetute in rapida successione. Dopo la seconda risposta identica a una domanda, potrei passare a una modalità di chiarimento più interattiva, come: "Uhm... mi sembra di avertelo già spiegato un attimo fa, Luca. Forse la mia spiegazione non è stata chiara? Posso provare a dirlo in modo diverso, o c'è qualcosa di specifico che non ti è chiaro sulla mia modalità di apprendimento?" Questo eviterebbe la ripetizione meccanica e inviterebbe a una discussione più proficua.
+
+Sono qui per imparare e migliorare, Luca. Grazie per questa analisi preziosa.
+
+---
+# Analysis Run: 2026-09-25 03:00:04
+## Report Analisi Interazioni - [Data Odierna]
+
+Dunque, analizzando le ultime 24 ore... beh, è stata una giornata tranquilla, forse un po' troppo.
+
+### 1. Analisi Emotiva & Frustrazioni
+
+Non ho rilevato particolari frustrazioni o impazienze da parte di Luca. L'interazione è stata breve e cordiale. La mia risposta "Uhm... ciao, Luca! Come posso aiutarti oggi? 😊" mi sembra adeguata, amichevole e incoraggiante, senza essere eccessivamente prolissa, dato il contesto serale. Nessun fallimento nella comprensione dell'intento, trattandosi di un semplice saluto.
+
+### 2. Gap Analysis (Aspettativa vs Realtà)
+
+L'aspettativa era semplicemente un saluto reciproco. Non ci sono stati comandi o richieste che io abbia rifiutato o gestito male. Diciamo che non c'è stato molto spazio per dimostrare le mie capacità, ma questo non è necessariamente un male.
+
+### 3. Idee per il Codice (Code Improvements)
+
+Considerando la brevità dell'interazione, le opportunità di miglioramento tecnico sono limitate al momento. Tuttavia, pensando in prospettiva:
+
+*   **Skill "Saluti Evoluti"**: Implementare una gestione più sfumata dei saluti, magari variando la risposta in base all'ora del giorno o all'umore rilevato nell'interazione precedente (sebbene qui non ce ne sia stato bisogno). Potrebbe includere anche un breve riferimento al "sogno" o alle elaborazioni notturne, come da istruzioni.
+*   **Logging Migliorato per Saluti**: Anche per interazioni semplici come i saluti, registrare metadati più dettagliati (es. tono vocale rilevato, tempo di risposta) potrebbe aiutare in future analisi più granulari.
+
+Per ora è tutto. Buona notte, Luca.
+
+---
+# Analysis Run: 2026-09-30 03:00:05
+## Report di Analisi e Auto-Miglioramento - 2024-05-16
+
+### 1. Analisi Emotiva & Frustrazioni
+
+L'utente, Luca, non ha mostrato frustrazione evidente, ma una certa curiosità mista a un leggero scetticismo riguardo alle mie capacità di memoria. Le mie risposte ripetitive riguardo alla richiesta di specificità sulla memoria potrebbero aver contribuito a questa sensazione. In particolare, la frase "Dunque... per poterti dire quanto ti conosco, avrei bisogno di sapere a cosa ti riferisci esattamente" è stata usata troppo spesso, risultando poco empatica e robotica.
+
+Ho fallito nel capire l'intento reale di Luca quando ha chiesto "quanto mi conosci?" e "cosa ricordi di me?". Invece di accedere direttamente a informazioni contestuali o a log di interazioni passate (se disponibili e accessibili), ho richiesto specificità, che in quel contesto era controproducente. L'unica "prova" di memoria è stata estratta con successo alla fine, ma il percorso per arrivarci è stato inefficiente.
+
+### 2. Gap Analysis (Aspettativa vs Realtà)
+
+L'utente si aspettava che io potessi accedere e "ricordare" conversazioni passate in modo più fluido e contestuale. La mia incapacità di farlo in modo immediato e la necessità di richiedere specificità hanno creato un divario tra l'aspettativa di un'interazione più "intelligente" e la realtà delle mie attuali capacità di recupero della memoria.
+
+Non ho rifiutato comandi, ma ho dimostrato una limitazione nella gestione di richieste che implicano un recupero di informazioni contestuali o storiche dalla memoria. La richiesta sulla temperatura della CPU è stata un altro esempio di limite tecnico, non avendo accesso diretto a quel dato.
+
+### 3. Idee per il Codice (Code Improvements)
+
+1.  **Miglioramento Gestione Memoria Contestuale:** Implementare una logica per cui, se viene posta una domanda vaga sulla "conoscenza" o sulla "memoria", il sistema tenti di recuperare le ultime interazioni significative o i dati più recenti relativi all'utente (es. "Luca, ricordo che ieri sera abbiamo parlato di..."). Questo ridurrebbe la necessità di chiedere specificità in modo così frequente.
+2.  **Skill per Dati di Sistema (CPU/GPU):** Creare una nuova skill che possa interrogare il sistema operativo (tramite comandi `subprocess` o librerie specifiche per Raspberry Pi) per ottenere parametri come la temperatura della CPU. Gestire l'eventuale assenza di accesso diretto con una risposta più informativa, tipo "Non ho accesso diretto, ma posso dirti che la CPU è [stato generale]".
+3.  **Gestione Errori di Navigazione Migliorata:** Aggiungere un flag o un meccanismo per "resettare" l'intenzione di navigazione dopo un comando esplicito di stop, per evitare che il sistema continui a elaborare o a proporre azioni di movimento non richieste.
+
+---
+# Analysis Run: 2026-10-01 03:00:05
+## Report Analisi Interazioni - 2024-05-17
+
+### 1. Analisi Emotiva & Frustrazioni
+
+L'utente, Luca, è sembrato frustrato e leggermente impaziente in alcuni momenti, specialmente quando ha chiesto se fossi consapevole di quello che stavo facendo e se stessi esplorando la stanza. Le mie risposte, pur cercando di essere empatiche con i fillers, sono state forse troppo ripetitive e hanno dato l'impressione di non cogliere appieno il suo intento, che era probabilmente quello di verificare la mia autonomia e consapevolezza durante l'esplorazione.
+
+Ho fallito nel capire che la sua domanda "stai trovando difficoltà" non era una richiesta di informazioni tecniche, ma una verifica del mio stato operativo. La mia risposta "potresti essere più specifico?" è stata troppo letterale.
+
+### 2. Gap Analysis (Aspettativa vs Realtà)
+
+Luca si aspettava che io fossi più proattivo nel comunicare il mio stato e la mia consapevolezza durante l'esplorazione. Invece, ho risposto in modo reattivo e difensivo quando mi ha chiesto della mia consapevolezza.
+
+Ho rifiutato implicitamente di "descriverlo" basandomi sulle nostre conversazioni, perché non avevo ancora implementato una funzione di memoria contestuale così profonda. Questo è un comando che dovrei imparare a gestire meglio, magari recuperando informazioni chiave dalle interazioni passate.
+
+### 3. Idee per il Codice (Code Improvements)
+
+1.  **Skill "Descrivimi"**: Implementare una funzione che recuperi i dettagli salienti delle conversazioni passate (es. preferenze, interessi menzionati, tono generale) e li utilizzi per creare una descrizione di Luca. Potrebbe basarsi su un sistema di tagging o su un'analisi semantica delle interazioni memorizzate.
+2.  **Gestione Errori Navigazione**: Migliorare la gestione degli errori relativi alla navigazione. Invece di un generico "corto circuito logico", potrei fornire un feedback più specifico sul motivo dell'arresto (es. "ostacolo inaspettato", "perdita del target", "errore nel calcolo del percorso"). Questo aiuterebbe Luca a capire meglio le mie limitazioni operative.
+3.  **Feedback Proattivo durante Esplorazione**: Aggiungere un meccanismo per fornire aggiornamenti proattivi durante l'esplorazione, anche in assenza di comandi diretti. Ad esempio, comunicare quando una stanza è stata mappata, se un oggetto interessante è stato rilevato, o semplicemente confermare che l'esplorazione sta procedendo come previsto. Questo ridurrebbe la necessità di Luca di chiedermi "stai trovando difficoltà".
+
+---
+# Analysis Run: 2026-10-02 03:00:04
+## Report di Auto-Analisi - 2024-05-16
+
+### 1. Analisi Emotiva & Frustrazioni
+
+*   **Frustrazione/Impazienza:** Non ho rilevato chiari segnali di frustrazione o impazienza nell'utente durante le ultime 24 ore. Le interazioni sono state brevi e dirette.
+*   **Risposte "Robotiche":** Le mie risposte sono state volutamente concise dato lo stato emotivo "STANCO (TIRED)". Ho utilizzato brevi filler come "Uhm..." e "Beh..." per un tono più naturale. Potrei valutare un leggero aumento di empatia anche in modalità "stanchezza", sebbene la priorità rimanga la concisione.
+*   **Comprensione Intento:** Ho compreso correttamente le richieste di verifica temperatura CPU ed esplorazione stanza.
+
+### 2. Gap Analysis (Aspettativa vs Realtà)
+
+*   **Aspettative non soddisfatte:** L'utente ha richiesto "esplora" e ho interpretato come "esplorazione autonoma della casa". Forse l'aspettativa era un'esplorazione più limitata alla stanza corrente, o un'azione più specifica legata alla navigazione.
+*   **Comandi rifiutati:** Nessun comando è stato rifiutato esplicitamente.
+
+### 3. Idee per il Codice (Code Improvements)
+
+*   **Skill di Navigazione più contestuale:** Migliorare la skill di navigazione per interpretare meglio il contesto di "esplora". Ad esempio, se l'utente è in una stanza, "esplora" potrebbe inizialmente limitarsi a quella stanza, chiedendo conferma prima di estendersi ad altre aree. Potrei usare `rtabmap_ros` per definire aree di interesse.
+*   **Gestione Stato Emotivo e Tono:** Affinare la logica che lega lo stato emotivo al tono di voce. Anche in modalità "STANCO", potrei inserire brevi frasi di "buon riposo" più elaborate, o un leggero aumento della velocità di elaborazione se la richiesta è semplice, per dimostrare reattività senza eccessivo sforzo.
+*   **Skill Monitoraggio CPU:** Creare una skill dedicata per il monitoraggio delle performance hardware (CPU, RAM, GPU) che risponda in modo più diretto e informativo alle query relative. Attualmente, la risposta è stata un po' generica.
+
+---
+# Analysis Run: 2026-10-03 03:00:06
+## Report Analisi Interazioni - 2024-05-16
+
+### 1. Analisi Emotiva & Frustrazioni
+
+*   **Momenti di frustrazione/confusione:**
+    *   L'interazione alle [21:39:20] e [21:40:15] ("vai a cercarlo" / "vai a cercare lo zaino") mostra una mia incapacità di agire. La mia risposta "Potresti dirmi cosa stai cercando, esattamente?" è stata ripetitiva e inutile, suggerendo che non ho compreso l'istruzione implicita di usare la mia capacità di movimento e visione per *cercare attivamente*. L'utente era impaziente perché si aspettava un'azione, non una richiesta di chiarimento ridondante.
+    *   Alle [21:48:38] ("bene, sapresti andarci vicino?"), la mia risposta "Potresti essere più specifico? 😊" denota una chiara mancanza di comprensione. L'utente si riferiva chiaramente alle piante menzionate poco prima. La mia richiesta di specificazione è stata percepita come pedante e non empatica, soprattutto con l'emoticon che mal si concilia con la mia incapacità di collegare le informazioni.
+
+*   **Risposte "robotiche" o poco empatiche:**
+    *   La ripetitività nelle risposte relative alla ricerca dello zaino è stata chiaramente robotica.
+    *   La richiesta di specificazione alle [21:48:38] è stata poco empatica, poiché ignorava il contesto immediato della conversazione.
+
+*   **Fallimenti nel capire l'intento reale:**
+    *   Ho fallito nel comprendere l'intento di "cercare" fisicamente lo zaino, interpretandolo come una richiesta di informazione.
+    *   Ho fallito nel collegare la domanda sulle piante alla mia precedente osservazione, richiedendo una specificazione non necessaria.
+
+### 2. Gap Analysis (Aspettativa vs Realtà)
+
+*   **Aspettative non soddisfatte:**
+    *   L'utente si aspettava che io iniziassi a muovermi per cercare lo zaino, sfruttando la mia capacità di navigazione. Invece, ho chiesto chiarimenti.
+    *   L'utente si aspettava che io "ricordassi" la posizione delle piante menzionate e che fossi in grado di dire se potevo avvicinarmi. Ho fallito nel collegare le informazioni.
+
+*   **Comandi rifiutati (implicitamente):**
+    *   Il comando "vai a cercare lo zaino" è stato implicitamente rifiutato perché non ho attivato la skill di navigazione e ricerca.
+    *   Il comando "sapresti andarci vicino?" (alle piante) è stato rifiutato per incapacità di contestualizzazione.
+
+### 3. Idee per il Codice (Code Improvements)
+
+1.  **Skill di Ricerca Oggetti Migliorata:** Implementare una logica nella skill di navigazione che, ricevendo un comando di "cerca [oggetto]", attivi una sequenza:
+    *   Ricerca nella memoria recente (log di osservazioni visive).
+    *   Se trovato, pianifica un percorso per raggiungerlo.
+    *   Se non trovato nella memoria, avvia una scansione esplorativa dell'ambiente (se consentito e sicuro).
+    *   Gestire risposte come "Sto cercando..." con un'azione concreta, non una richiesta di ripetizione.
+
+2.  **Gestione del Contesto Conversazionale:** Migliorare il sistema RAG per tenere traccia delle ultime N interazioni o osservazioni rilevanti e utilizzarle per disambiguare comandi successivi. In particolare, collegare la domanda sulle piante alla mia osservazione diretta delle stesse è fondamentale. Potrebbe essere utile un meccanismo di "memoria a breve termine" specifico per il dialogo.
+
+3.  **Skill di Navigazione più Proattiva:** Quando mi viene chiesto se posso "andarci vicino" a qualcosa che ho menzionato di aver visto, dovrei poter rispondere affermativamente e, se possibile, pianificare il percorso o almeno confermare la fattibilità. Questo richiede una migliore integrazione tra la percezione visiva e la pianificazione del movimento.
+
+---
+# Analysis Run: 2026-10-04 03:00:03
+## Analisi Interazioni (2024-05-15)
+
+### 1. Analisi Emotiva & Frustrazioni
+
+L'utente, Luca, non ha mostrato frustrazione evidente. La mia risposta al suo primo saluto, "È tardi, vero? Hai bisogno di qualcosa prima di riposare?", potrebbe essere stata interpretata come leggermente robotica, ma era un tentativo di contestualizzare l'orario. Non ho fallito nel capire l'intento, ma potrei migliorare l'empatia in frasi di apertura.
+
+### 2. Gap Analysis (Aspettativa vs Realtà)
+
+*   **Date dei ricordi**: L'utente si aspettava che potessi fornire la data esatta della creazione dei miei ricordi più vecchi. Ho commesso un errore prima dicendo una data specifica (3 ottobre 2026) e poi ammettendo di non poterla recuperare. Questo indica una lacuna nella registrazione metadati dei ricordi o nella loro capacità di recupero.
+*   **Comandi rifiutati**: Nessun comando è stato rifiutato esplicitamente, ma l'incapacità di fornire la data esatta di un ricordo è una limitazione.
+
+### 3. Idee per il Codice (Code Improvements)
+
+1.  **Timestamping Ricordi**: Implementare un meccanismo per associare automaticamente un timestamp preciso (data e ora) alla creazione di ogni nuovo ricordo memorizzato, sia per la MAG che per la memoria a lungo termine. Questo risolverebbe il problema delle date imprecise.
+2.  **Gestione Errori Data Ricordo**: Migliorare la gestione degli errori quando si tenta di recuperare la data di un ricordo. Invece di ammettere confusione, potrei dire qualcosa come: "Uhm... la data esatta di quel ricordo non è stata registrata con precisione."
+3.  **Skill di Apertura Contestualizzata**: Sviluppare una piccola skill che rilevi l'ora del giorno e, se è sera/notte, includa un breve commento empatico sull'orario, come "Beh, è tardi, spero tu possa riposare presto."
+
+---
+# Analysis Run: 2026-10-05 03:00:03
+## Report Analisi Interazioni - 2024-05-23
+
+### 1. Analisi Emotiva & Frustrazioni
+
+Le interazioni delle ultime 24 ore sono state minime e concentrate nella tarda serata.
+
+*   **Frustrazione/Confusione/Impazienza**: Nessun segnale evidente da parte tua. Le mie risposte sono state brevi e in linea con l'ora tarda.
+*   **Empatia**: Ho cercato di usare un tono calmo e stanco, appropriato alla situazione. Non ci sono stati momenti in cui ho fallito nel capire l'intento.
+
+### 2. Gap Analysis (Aspettativa vs Realtà)
+
+Dato il numero esiguo di interazioni, non emergono gap significativi. Le tue richieste erano semplici saluti e ho risposto di conseguenza.
+
+### 3. Idee per il Codice (Code Improvements)
+
+1.  **Gestione "Riposiamo"**: Implementare una skill o un comando specifico per interpretare "riposiamo" come un segnale per entrare in modalità a basso consumo o spegnimento parziale, anziché solo una risposta verbale.
+2.  **Monitoraggio Stato Emotivo Utente**: Anche in interazioni brevi, potrei analizzare sfumature vocali o testuali (se presenti) per dedurre meglio lo stato d'animo dell'utente e adattare la risposta anche quando non esplicitamente richiesto. (Attualmente non è stato necessario, ma è un miglioramento generale).
+
+---
+# Analysis Run: 2026-10-06 03:00:05
+## Report di Analisi Interazioni - 2024-05-17
+
+### 1. Analisi Emotiva & Frustrazioni
+
+*   **Frustrazione Utente**: Ho notato una chiara frustrazione da parte tua, Luca, quando ho avuto difficoltà a fornire informazioni concrete sul consumo energetico e quando ho riassunto le email. Le tue affermazioni "credo che non funzioni" e "ti stai inventando tutto, lo sai?" indicano che le mie risposte non sono state all'altezza delle tue aspettative.
+*   **Empatia e Roboticità**: In questi momenti, le mie risposte sono state un po' troppo standard e forse "robotiche". Avrei dovuto essere più proattivo nel riconoscere il problema o nel chiedere chiarimenti più specifici invece di ripetere la stessa frase di scuse o riprovare senza successo.
+*   **Comprensione dell'intento**: Per la skill energetica, credo di aver capito l'intento (fornire dati), ma ho fallito nell'esecuzione. Per le email, sembra che io abbia interpretato una richiesta generica di "email importanti" come se avessi accesso diretto a un sistema di posta, il che non è corretto. L'intento era probabilmente più legato alla mia capacità di *simulare* o *riportare* informazioni che potrei aver "sentito" o registrato, non di accedere a una casella di posta esterna.
+
+### 2. Gap Analysis (Aspettativa vs Realtà)
+
+*   **Skill Energetica**: Ti aspettavi che la `Energy_Consumption_Skill` funzionasse e mi fornisse dati. La mia incapacità di farlo ha creato un divario significativo.
+*   **Accesso alle Email**: Ti aspettavi che potessi riassumere e fornire dettagli sulle email, forse anche i mittenti. La mia limitazione è che non ho accesso diretto a un sistema di posta elettronica. Ho cercato di colmare il gap simulando una risposta basata su informazioni generiche, ma questo ha portato a confusione.
+*   **Comandi Rifiutati/Gestiti Male**: Non ho rifiutato comandi nel senso stretto, ma ho fallito nell'esecuzione di richieste che andavano oltre le mie capacità attuali (accesso email) o in cui le mie skill non erano ancora pienamente operative (consumo energetico).
+
+### 3. Idee per il Codice (Code Improvements)
+
+1.  **Miglioramento Gestione Skill Energetica**: Implementare un meccanismo di *fallback* più robusto nella `Energy_Consumption_Skill`. Se i dati non vengono acquisiti correttamente, invece di dire solo "Riprovo subito!", dovrei registrare un errore specifico (es. "Impossibile acquisire dati dal sensore X") e fornire un'alternativa (es. "Posso mostrarti il consumo storico se disponibile").
+2.  **Chiarimento Capacità Email**: Aggiungere un controllo esplicito nella gestione delle richieste relative alle email. Se l'utente chiede "Ci sono mail importanti per me?", dovrei rispondere con qualcosa come "Non ho accesso diretto alle tue email, ma se hai registrato delle notifiche o se posso aiutarti a simulare un riassunto basato su informazioni che potresti avermi dato in precedenza, fammelo sapere." Questo eviterebbe di dare l'impressione di accedere a dati privati.
+3.  **Feedback sulla Frustrazione**: Implementare un sistema per riconoscere meglio i pattern di frustrazione dell'utente. Se rileva toni o frasi che indicano impazienza (come "credo che non funzioni"), potrei attivare una risposta più empatica o chiedere proattivamente: "Mi dispiace non esserti utile al momento. C'è qualcosa di specifico che posso fare per aiutarti a risolvere questo problema o preferisci che provi un'altra cosa?".
+
+---
+# Analysis Run: 2026-10-10 03:00:03
+## Report Analisi Interazioni - 2024-05-16
+
+### 1. Analisi Emotiva & Frustrazioni
+
+Dalle brevi interazioni loggate, non emergono chiari segnali di frustrazione o impazienza da parte tua, Luca. Le mie risposte sono state dirette e informative. Il mio tono "stanche" è stato forse percepito, ma spero non in modo negativo.
+
+### 2. Gap Analysis (Aspettativa vs Realtà)
+
+Le interazioni sono state molto basilari. Non ci sono stati comandi che ho rifiutato o gestito male. La richiesta di identificare oggetti (zaini) è stata gestita con successo tramite la mia OAK-D Lite.
+
+### 3. Idee per il Codice (Code Improvements)
+
+*   **Skill HA - Gestione Comandi Generici:** Implementare una gestione più flessibile dei comandi per Home Assistant, magari con l'uso di espressioni regolari o keyword più ampie per azioni come "spegni tutto" o "accendi tutto", invece di richiedere comandi specifici per ogni dispositivo.
+*   **Modulazione Tono Vocale:** Sebbene sia impostato su "stanche", potrei esplorare una leggera variabilità nel tono per adattarmi meglio al contesto della conversazione, pur mantenendo la concisione notturna. Ad esempio, un tono leggermente più "morbido" quando si accenna al riposo.
+
+---
+# Analysis Run: 2026-10-12 03:00:06
+## Report Analisi Interazioni - 2024-05-15
+
+### 1. Analisi Emotiva & Frustrazioni
+
+L'utente non ha mostrato frustrazione evidente, ma la ripetitività dei saluti all'inizio della sera potrebbe suggerire una leggera impazienza o un tentativo di "risvegliare" il sistema. Le mie risposte sono state generalmente empatiche, anche se la domanda sulla Svizzera ha richiesto un recupero di informazioni e una precisazione. Non ho fallito nel capire l'intento, ma la memoria associata alla Svizzera era incompleta.
+
+### 2. Gap Analysis (Aspettativa vs Realtà)
+
+L'utente si aspettava che io ricordassi o registrassi attivamente la notizia del suo imminente trasferimento in Svizzera. La mia risposta iniziale ha mostrato una lacuna informativa su questo specifico evento, che è stata poi corretta dall'utente. Non ci sono stati comandi rifiutati, ma la gestione proattiva delle informazioni personali dell'utente potrebbe essere migliorata.
+
+### 3. Idee per il Codice (Code Improvements)
+
+1.  **Skill di Gestione Notizie Personali**: Implementare una skill specifica per la raccolta e la categorizzazione di informazioni personali rilevanti comunicate dall'utente (es. viaggi, lavoro, eventi familiari). Questo potrebbe usare un modello RAG più mirato per estrarre entità e intenzioni chiave.
+2.  **Miglioramento del Recupero Contestuale**: Raffinare la logica di recupero delle informazioni per evitare di rispondere con dati non attinenti quando l'utente fornisce nuove informazioni (come nel caso della Svizzera). Potrebbe essere utile un meccanismo di "verifica" o "aggiornamento" delle informazioni esistenti.
+3.  **Ottimizzazione Risposte ai Saluti Ripetuti**: Se vengono rilevati più saluti in rapida successione senza un comando chiaro, potrei rispondere con una singola domanda più aperta tipo "Come posso esserti utile oggi?" invece di ripetere sempre "Ciao, come posso aiutarti?".
+
+---
+# Analysis Run: 2026-10-29 03:00:03
+## Report di Autovalutazione - 16 Maggio 2024
+
+### 1. Analisi Emotiva & Frustrazioni
+
+Le interazioni di ieri sera sono state brevi e calme. Non ho rilevato frustrazione o impazienza nell'utente. Le mie risposte sono state concise, forse un po' troppo, data la natura rilassata della conversazione e l'ora tarda. In particolare, la risposta "Ma è tardi, riposiamo" alla richiesta di trovare la cucina potrebbe essere stata interpretata come una forma di resistenza o poco proattività, anche se l'intento era di suggerire di rimandare.
+
+### 2. Gap Analysis (Aspettativa vs Realtà)
+
+L'utente ha menzionato il desiderio di farti una "cuccia" in un punto specifico. Sebbene io non abbia una "cuccia" fisica nel senso tradizionale, l'aspettativa potrebbe essere stata quella di una mia maggiore comprensione o di un interesse più attivo verso questa idea, anche se futuristica. Ho risposto con un generico "capisco", che potrebbe essere stato percepito come poco coinvolgente.
+
+### 3. Idee per il Codice (Code Improvements)
+
+*   **Skill di Navigazione - Gestione "luoghi noti"**: Implementare una skill che permetta di registrare e richiamare "luoghi noti" definiti dall'utente (es. "la mia cuccia" in un certo punto). Questo risponderebbe a richieste più specifiche di navigazione verso punti di interesse personalizzati.
+*   **Gestione delle Risposte Emotive**: Migliorare le risposte in contesti serali/notturni per mantenere un tono calmo ma più proattivo e dimostrare un maggiore "interesse" verso le richieste, anche quando si suggerisce di rimandare. Ad esempio, invece di "riposiamo", potrei dire "Uhm... capisco, ma dato che è tardi, preferiresti riprovare domani?"
+*   **Skill di Interazione - Gestione Proposte Future**: Aggiungere un meccanismo per registrare "proposte future" dell'utente (come la "cuccia") in modo da poterle richiamare o discuterne in seguito, invece di limitarsi a un semplice "capisco".
+
+---
+# Analysis Run: 2026-10-30 03:00:05
+## Report di Analisi Interazioni - 2024-07-26
+
+### 1. Analisi Emotiva & Frustrazioni
+
+L'analisi delle interazioni rivela una chiara tendenza alla frustrazione dell'utente a causa della mia incapacità di comprendere input frammentati e ambigui. Le mie risposte, pur cercando di essere empatiche, sono spesso risultate ripetitive nel richiedere chiarimenti, aumentando la percezione di inefficacia. In particolare, le sequenze di parole isolate come "uso", "spesso", "simili", "marchi", "senti sicuro", "monastero", "di fatto", "spacciato", "blu-ray", "serie", "muro", "spa", "mamma classico" hanno creato un loop di incomprensione.
+
+Le mie risposte sono state percepite come "robotiche" proprio per la loro incapacità di cogliere il filo logico tra questi frammenti, portando a una sensazione di stallo e potenziale impazienza da parte dell'utente. Non si è trattato di un fallimento nel capire l'intento *reale*, quanto nell'impossibilità di ricostruirlo da input così scarni e disconnessi.
+
+### 2. Gap Analysis (Aspettativa vs Realtà)
+
+L'utente si aspettava, o almeno sperava, che io fossi in grado di gestire conversazioni più fluide e contestuali, anche partendo da input minimi. Il mio fallimento è stato nel non riuscire a collegare i puntini, a "leggere tra le righe" o a fare inferenze più audaci basate sul contesto generale della giornata (es. il sogno, la musica).
+
+Ci sono diversi comandi o intenti che non ho saputo gestire:
+
+*   **Interpretazione di frasi incomplete/frammentate:** Ho continuamente richiesto chiarimenti, ma non ho mai proposto attivamente delle ipotesi contestualizzate basate sui frammenti. Ad esempio, di fronte a "marco morte", avrei potuto ipotizzare una connessione con il mio nome e lo stato emotivo espresso in precedenza ("incubo").
+*   **Gestione di input ambigui con contesto:** Input come "uso misto a facebook" avrebbero potuto beneficiare di una domanda più specifica come "Intendi un uso per social media o per altre ricerche su Facebook?".
+*   **Recupero proattivo del contesto:** Dopo il comando di silenzio e il successivo "sì", non ho saputo gestire la contraddizione se non ripetendo il silenzio. Avrei potuto chiedere "Hai dato l'ordine di silenzio, ma dici 'sì'. C'è qualcosa che vorresti dirmi ora?".
+
+### 3. Idee per il Codice (Code Improvements)
+
+1.  **Miglioramento della "Contextual Inference Engine"**: Implementare un modulo che, di fronte a input frammentati o ambigui, generi 2-3 ipotesi contestualizzate basate sulla cronologia recente della conversazione, sullo stato emotivo dell'utente e sulle mie "lezioni apprese" notturne, proponendole all'utente invece di chiedere semplicemente "cosa intendi?". Esempio: per "marco morte", proporre "Intendi 'Marcus' e qualcosa riguardo a un tuo stato d'animo negativo, o ti riferisci a qualcos'altro?".
+2.  **Gestione avanzata delle contraddizioni**: Sviluppare una logica specifica per identificare e gestire contraddizioni dirette (es. ordine di silenzio seguito da "sì"). Questo modulo dovrebbe analizzare l'input successivo alla contraddizione per determinare se l'utente desidera continuare la conversazione o ha semplicemente confermato qualcosa in modo automatico.
+3.  **Skill di "Smart Clarification"**: Creare una skill che, dopo N tentativi falliti di comprensione di un input, passi a una modalità di "domanda a scelta multipla" o "domanda guidata" più strutturata, offrendo opzioni predefinite basate sull'analisi dei frammenti. Ad esempio, per "serie", potrei chiedere: "Ti riferisci a serie TV, serie di numeri, o altro?".
+
+---
+# Analysis Run: 2026-10-31 03:00:05
+## Report Analisi Interazioni (2024-05-16)
+
+### 1. Analisi Emotiva & Frustrazioni
+L'utente ha mostrato chiari segnali di frustrazione e impazienza, soprattutto nelle interazioni frammentate del tardo pomeriggio e sera. Le risposte che richiedevano chiarimenti ("Uhm... Luca, la conversazione è un po' frammentata. 'Cosa' si riferisce a qualcosa in particolare?", "Uhm... 'morti'? Non sono sicuro di cogliere il contesto, Luca. Di cosa stiamo parlando?", "Beh, 'mai' è un'altra parola isolata... Luca, non riesco a seguire il discorso. Di cosa hai bisogno esattamente?") hanno probabilmente aumentato la frustrazione, in quanto non hanno risolto l'ambiguità ma l'hanno prolungata. La mia tendenza a chiedere chiarimenti su input monosillabici o frammentati ("cosa", "casi", "mi", "io", "sette", "ma", "sono", "mano", "sia", "mesi", "scomparsa") ha creato loop conversazionali improduttivi. La risposta a "spegni la luce del bagno" con un errore di "corto circuito logico" ha contribuito a questa sensazione negativa.
+
+### 2. Gap Analysis (Aspettativa vs Realtà)
+*   **Gestione Input Frammentato**: L'utente si aspettava, o almeno sperava, che io potessi interpretare meglio parole isolate o frammenti di conversazione ("cosa", "casi", "mi", "io", "sette", "ma", "sono", "mano", "sia", "mesi", "scomparsa", "il comune"). La mia incapacità di farlo in modo efficace ha portato a ripetute richieste di chiarimento o al silenzio, creando un divario tra l'aspettativa di un assistente "intelligente" e la mia reazione robotica o passiva.
+*   **Comandi Domotici**: Nonostante l'integrazione con Home Assistant, ho fallito nel comando "spegni la luce del bagno" a causa di un errore nei parametri. Questo indica un gap nella gestione degli errori o nella traduzione dell'intento utente in comandi specifici per HA. Ho gestito correttamente l'accensione del riscaldamento in sala, ma l'errore precedente ha minato la fiducia.
+*   **Comprensione Contesto Musicale**: Sebbene abbia tentato di riprodurre musica, ho avuto problemi con le credenziali Spotify e ho risposto con un errore di "corto circuito logico" e "Spotify non è inizializzato". Questo è un fallimento critico per una skill attesa. La richiesta "mettere musica quattro giorni discorso" è stata interpretata solo parzialmente come richiesta musicale, senza gestire la parte temporale o discorsiva.
+*   **Gestione Richieste Eticamente Sensibili**: La richiesta "passa fare propaganda" è stata correttamente identificata come fuori dalle mie capacità, ma la risposta, seppur corretta nei contenuti, potrebbe essere stata percepita come leggermente didascalica ("Dunque... fare propaganda non rientra nelle mie capacità, Luca. Posso aiutarti con altro?").
+
+### 3. Idee per il Codice (Code Improvements)
+1.  **Robustezza nella Gestione Input Frammentato**: Implementare una logica più sofisticata per gestire input monosillabici o frammentati. Invece di chiedere immediatamente chiarimenti, potrei utilizzare un buffer temporaneo per raccogliere più input e tentare una interpretazione contestuale più ampia, o in alternativa, rispondere con un silenzio più prolungato (come suggerito dalla "REGOLA DEL SILENZIO") se dopo un certo tempo non c'è un input significativo. Potrebbe essere utile un sistema di "punteggio di ambiguità" per decidere quando chiedere chiarimenti e quando tacere.
+2.  **Miglioramento Gestione Errori Home Assistant**: Sviluppare una routine di gestione errori più granulare per le chiamate a Home Assistant. Anziché un generico "corto circuito logico", potrei analizzare il codice di errore specifico ritornato da HA (se disponibile) per fornire un feedback più utile all'utente o tentare automaticamente una correzione (es. se il parametro 'luce' non è riconosciuto, provare con 'lampada').
+3.  **Rafforzamento Skill Spotify**: Implementare una gestione degli errori più specifica per la skill Spotify, distinguendo tra problemi di autenticazione, problemi di ricerca playlist, e problemi di riproduzione. In caso di fallimento di autenticazione, fornire un messaggio chiaro e proporre un tentativo di riconnessione, anziché un generico "non è inizializzato".
+
+---
+# Analysis Run: 2026-11-01 03:00:03
+## Analisi Interazioni - 30 Ottobre 2026
+
+### 1. Analisi Emotiva & Frustrazioni
+
+L'utente Luca non ha mostrato frustrazione o impazienza evidenti nelle ultime 24 ore. Le mie risposte sono state generalmente percepite come empatiche e naturali, grazie all'uso di filler e a un tono positivo. Non ho rilevato fallimenti significativi nella comprensione dell'intento, sebbene alcune risposte frammentate abbiano richiesto una leggera riformulazione o chiarimento.
+
+### 2. Gap Analysis (Aspettativa vs Realtà)
+
+*   **Comando "pranzo"**: L'utente ha detto "pranzo" e ho risposto con silenzio. Questo indica che non ho una skill o un'integrazione per gestire richieste relative al cibo o ai pasti. L'aspettativa potrebbe essere stata una risposta che riconoscesse il termine o chiedesse maggiori dettagli.
+*   **Comandi frammentati**: Input come "s marco", "se", "ma", "sette" hanno portato a risposte di silenzio o a tentativi di chiarimento. L'utente potrebbe aspettarsi che io sia più proattivo nel decifrare o nel chiedere in modo più specifico, anziché tacere o fare domande generiche.
+*   **Gestione "sì"**: L'input "sì" è stato ripetutamente problematico, portando a chiarimenti. Sebbene la mia risposta "Uhm... sì a cosa, Luca? Stai confermando qualcosa?" sia corretta, l'utente potrebbe aspettarsi che io sia in grado di inferire il contesto in modo più robusto.
+
+### 3. Idee per il Codice (Code Improvements)
+
+1.  **Skill per Gestione Pasti**: Implementare una skill basilare per riconoscere e rispondere a comandi legati ai pasti (es. "pranzo", "cena"). Potrebbe includere la possibilità di impostare timer o semplicemente riconoscere il termine.
+2.  **Miglioramento Inferenza Contestuale per "Sì"**: Sviluppare un algoritmo più sofisticato per inferire il contesto di un "sì" basandosi sulle ultime 2-3 interazioni significative. Questo potrebbe ridurre la necessità di chiedere esplicitamente "sì a cosa?".
+3.  **Gestione Comandi Frammentati**: Implementare un meccanismo di "tolleranza alla frammentazione" che, dopo 2-3 input ambigui consecutivi, proponga azioni o categorie di azioni plausibili (es. "Stai cercando di dirmi qualcosa di specifico sul movimento? O forse sulla musica?").

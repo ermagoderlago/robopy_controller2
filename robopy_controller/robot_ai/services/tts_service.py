@@ -180,6 +180,12 @@ class TTSService:
         if not HAS_GOOGLE_TTS:
             self.logger.warning("google-cloud-texttospeech not installed")
             return
+
+        creds_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "").strip()
+        if not creds_path or not os.path.isfile(creds_path):
+            self.logger.info("GOOGLE_APPLICATION_CREDENTIALS not configured; using gTTS local fallback directly.")
+            self._client = None
+            return
             
         try:
             self._client = texttospeech.TextToSpeechClient()
@@ -295,10 +301,11 @@ class TTSService:
                 return audio_bytes
                 
             except Exception as e:
-                self.logger.error(f"Google TTS synthesis error: {e}")
-                raise TTSError(f"Synthesis failed: {e}")
-        else:
-            # gTTS and ffmpeg fallback (credentials-free high-quality synthesis)
+                self.logger.warning(f"Google TTS synthesis error ({e}); disabling GCP client and falling back to gTTS.")
+                self._client = None
+
+        # gTTS and ffmpeg fallback (credentials-free high-quality synthesis)
+        if True:
             try:
                 self.logger.info(f"🎙️ Using gTTS fallback synthesis for: '{text[:40]}...'")
                 from gtts import gTTS
@@ -348,7 +355,7 @@ class TTSService:
             msg = AudioData()
             msg.data = list(audio_data) # bytes to list of ints for ROS byte[]
             self.speaker_pub.publish(msg)
-            duration = len(audio_data) / 32000.0  # 16000Hz, 16-bit mono = 32000 bytes/sec
+            duration = len(audio_data) / 48000.0  # 24000Hz, 16-bit mono = 48000 bytes/sec
             await asyncio.sleep(duration)
             return
 

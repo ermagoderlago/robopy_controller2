@@ -432,3 +432,66 @@ Questo documento descrive le lezioni apprese su OAK-D Lite, l'acceleratore NPU H
   - Convalida 100% degli 8 test pytest sia su Python 3.10 che su Python 3.14.
   - Generazione report ASCII e conformità a tutti i gate di Milestone 1.
 
+
+
+### Risoluzione Contesa Esclusiva VDevice `/dev/hailo0` tra hailo_bridge_node_cpp e hailo-ollama (FM-VIS-012 - Ottobre 2026)
+* **Sintomo e Causa Radice:** Durante l'esaurimento della quota mensile di Gemini Cloud, la pipeline cognitiva tenta il failover immediato su Qwen locale servito da `hailo-ollama` su porta 11434. La chiamata falliva con HTTP 500: `Expected::expect() failed with status=74. Failed to create VDevice`.
+* **Meccanismo di Fallimento:** Il runtime HailoRT 4.x non supporta l'accesso concorrente multi-processo non intermediato da un service broker al device PCIe `/dev/hailo0`. Avviando `hailo_bridge_node_cpp` con accesso diretto al device fisico, il device risultava occupato in modo esclusivo, impedendo ad `hailo-ollama` di creare il proprio VDevice per il modello HEF `qwen2.5-instruct:1.5b`.
+* **Soluzione Adottata:** Nel file `restart_hailo.sh`, il nodo di visione viene configurato con parametro `-p sim_mode:=${HAILO_VISION_SIM:-false}` (impostabile a `true` solo qualora `hailo-ollama` richieda l'uso esclusivo del device).
+
+---
+
+## 👤 Ripristino YOLOv8s-Pose v5.1.0 & Riconoscimento Biometrico Persone ArcFace su Shared VDevice (FM-VIS-011, FM-VIS-013 - Ottobre 2026)
+
+### 1. Diagnosi del Modello `yolov8s_pose.hef` Corrotto (14.7MB, 5 Contesti) vs Modello Ufficiale Hailo v5.1.0 (18.2MB, 4 Contesti)
+* **Sintomo Segnalato:** Il rilevamento della posa restituiva uno scheletro rigido o distorto che non seguiva l'anatomia reale né sulle immagini d'archivio né sul flusso live.
+* **Cause Radice Accertate:**
+  1. **`sim_mode:=true` attivo in `restart_hailo.sh`:** La riga 405 di `restart_hailo.sh` avviava `hailo_bridge_node_cpp` con `-p sim_mode:=${HAILO_VISION_SIM:-true}`, producendo uno scheletro sintetico statico anziché eseguire l'NPU.
+  2. **Quantizzazione Degenere nel Vecchio `yolov8s_pose.hef` (14.7MB):** Testando direttamente il vecchio file `/mnt/ssd/models/yolov8s_pose.hef` su un'immagine completamente nera (`np.zeros`) e sulle 12 foto d'archivio, è emerso che tutte e 3 le teste di classificazione (`conv44`, `conv58`, `conv71`) producevano `0.0000` ovunque e la testa `conv72` emetteva un bias statico a forma di omino stilizzato in miniatura anche sul nero assoluto.
+* **Soluzione Definitiva:**
+  - Installato il modello ufficiale Hailo Model Zoo **`v5.1.0/hailo10h/yolov8s_pose.hef`** (18.2MB, 4 contesti, compatibile con `h10-hailort 5.1.1` a bordo di Marcus).
+  - Nel modello ufficiale v5.1.0, le teste `cls` (`conv44`, `conv58`, `conv71`) funzionano perfettamente: restituiscono `0.0000` sui fotogrammi privi di persone (`latest_camera_frame.jpg`) e `0.83 – 0.96` su tutte le 12 foto d'archivio, con coordinate dei 17 keypoint identiche al riferimento FP32 ONNX.
+  - Aggiornato `decode_pose_outputs` in `src/hailo_bridge_node.cpp` per sfruttare prioritariamente `sc.cls_ptr` quando attivo (`global_max_cls >= 0.15f`) combinato con l'IoU del box DFL e l'energia articolare, e per estrarre direttamente i box persona da `yolov8s_pose` anche nei ritratti ravvicinati.
+
+### 2. Riconoscimento Biometrico Persone (`arcface_mobilefacenet.hef`) Sinergico su `VDevice` Condiviso
+* **Architettura Zero-Contention su Singolo `VDevice`:**
+  - I tre modelli `marcus_unified.hef` (YOLOv8s-seg + SuperPoint + NetVLAD), `yolov8s_pose.hef` e `arcface_mobilefacenet.hef` (2.6MB, Single Context, input `112x112x3 UINT8`, output `512 float32`) condividono l'unico `hailort::VDevice` all'interno di `hailo_bridge_node_cpp` (latenza NPU misurata per ArcFace: **4.6 ms**).
+* **Allineamento Facciale Deterministico a 3 Punti (`compute_similarity_3pt`):**
+  - Poiché `yolov8s_pose.hef` localizza già con confidenza $0.95 - 1.00$ `Nose (kp0)`, `Left Eye (kp1)` e `Right Eye (kp2)`, il nodo C++ calcola in forma chiusa la trasformazione di similitudine 2D (rotazione + scala isotropa + traslazione) che mappa `[img_left_eye, img_right_eye, nose]` sulle coordinate canoniche ArcFace `[[38.2946, 51.6963], [73.5318, 51.5014], [56.0252, 71.7366]]` ed esegue `cv::warpAffine` a `112x112`.
+* **Rigenerazione Database Biometrico Reale (`known_faces/*/embedding.npy`):**
+  - Sostituiti i vecchi vettori placeholder HOG con gli embedding biometrici reali 512-dim estratti da `arcface_mobilefacenet.hef` e normalizzati L2 ($\|v\|_2 = 1.000000$, `SPEC-03` Zona Rossa) per tutte le 7 persone registrate (`edoardo`, `filippo`, `isabella`, `jacopo`, `luca`, `luisella`, `rosaria`), filtrando i crop IR sovraesposti (`face_174*.jpg`).
+  - **Accuratezza verificata su archivio (`tests/test_pose_archive_images.py`):** **12/12 (100% top-1 accuracy)** con similarità coseno della persona corretta compresa tra **0.878 e 0.995** (contro max impostor similarity $\le 0.389$).
+  - Il nodo pubblica in tempo reale `/hailo/face/detections` (`Detection2DArray` con `class_id = <nome>` e `score = cosine_sim`), `/hailo/face/identity` (`String`) per il `MultimodalIdentityTracker` (`/identity/active_person`) e mostra il nome riconosciuto direttamente sul bounding box in `/hailo/annotated_image/compressed`.
+
+### 3. Lezioni Operative di Build, API `InferModel` nei Test e Hot-Swap `multimodal_identity_node`
+* **Obbligo `InferModel` API (`target.create_infer_model`) anche nei test Python su Hailo-10H (`FM-VIS-005`):**
+  - Su Hailo-10H (`h10-hailort 5.1.1`), l'API legacy `target.configure(hef, ConfigureParams...)` / `InferVStreams` restituisce immediatamente `HailoRTException: libhailort failed with error: 7 (HAILO_NOT_IMPLEMENTED)`.
+  - Sia il nodo C++ (`hailo_bridge_node_cpp`) sia i test hardware Python (`tests/test_pose_archive_images.py`) devono utilizzare esclusivamente `target.create_infer_model(hef_path)`, impostare `outp.set_format_type(FormatType.FLOAT32)` prima di `configure()` e passare buffer pre-allocati tramite `create_bindings()`.
+* **Compilazione C++ su `/mnt/ssd/robopy_controller_host` con `-DAMENT_CMAKE_SYMLINK_INSTALL=OFF`:**
+  - Se `CMakeCache.txt` conserva `AMENT_CMAKE_SYMLINK_INSTALL:BOOL=ON` da build precedenti, lo step finale `cmake_install.cmake` può fallire con `Could not create symlink .../IMU_node.py` quando la directory `install/` contiene file regolari sincronizzati dal ciclo hot-swap.
+  - Eseguire `colcon build` aggiungendo `-DAMENT_CMAKE_SYMLINK_INSTALL=OFF` completa l'installazione del binario C++ `hailo_bridge_node_cpp` senza conflitti con i symlink gestiti da `restart_hailo.sh`.
+* **Registrazione `multimodal_identity_node` in `CMakeLists.txt` e `restart_hailo.sh`:**
+  - Lo script `scripts/multimodal_identity_node` mancava dalla direttiva `install(PROGRAMS ...)` di `CMakeLists.txt` e dal loop di sincronizzazione in `restart_hailo.sh`, causando l'errore `No executable found` nel log `/home/robopy/robopy/logs/multimodal_identity_node.log`.
+  - Aggiunto `scripts/multimodal_identity_node` e `scripts/resource_governor_node` in `CMakeLists.txt` e aggiornato `restart_hailo.sh` per garantire l'avvio deterministico del tracker multimodale ad ogni riavvio.
+
+
+---
+
+## 🧬 Evoluzione Bio-Cognitiva: Spatial Surprise Mapper, Arbitrato NPU VDevice & Visual Gestures (IMP-BIO-001, IMP-BIO-004 - Ottobre 2026)
+
+### 1. Riattivazione di `marcus_semantic_mapper_cpp` & Calcolo C++ dell'Indice di Sorpresa Spaziale 3D
+* **Contesto Architetturale:** Il mapper C++ (`src/marcus_semantic_mapper_node.cpp`) era stato temporaneamente disattivato in favore dell'iniettore Python 2.5D (`semantic_costmap_injector.py`). La sua riattivazione era necessaria per calcolare a 10 Hz la deviazione euclidea degli oggetti 3D rispetto alla memoria consolidata di RTAB-Map senza pesare sul GIL di Python.
+* **Aggancio Diretto alla Depth Map (Direct Depth Latch):**
+  - Originariamente il nodo tentava un `message_filters::TimeSynchronizer` rigido tra `/hailo/semantic_objects` e `/camera/depth/image_raw`. A causa del jitter introdotto da HailoRT (inferenza asincrona multi-contesto), l'exact sync scartava oltre il 60% dei frame.
+  - Sostituito con un **Direct Depth Latch** a mutex leggero: la callback di profondità aggiorna un puntatore atomico all'ultimo frame `sensor_msgs::msg::ImageConstPtr`, permettendo alla callback semantica di de-proiettare immediatamente le coordinate metriche $(X, Y, Z)$ rispetto a `camera_optical_frame` e trasformarle su `base_link` tramite `tf2_eigen`.
+* **Formula di Sorpresa Spaziale $S(\mathcal{O}_i)$:**
+  - $S(\mathcal{O}_i) = \alpha \cdot \min_{j} D_{\text{3D}}(\mathbf{p}_i, \mathbf{p}_j^{\text{db}}) + \beta \cdot (1 - \text{conf}_{\text{cls}})$.
+  - Con $\alpha = 0.70$ e $\beta = 0.30$. Quando $S(\mathcal{O}_i) \ge 0.38$, viene emesso `/vision/spatial_anomaly` che alimenta la pulsione di Curiosità in `HomeostaticDriveEngine`.
+
+### 2. Arbitrato Dinamico VDevice Hailo-10H (`/hailo_bridge/yield_vdevice`) (IMP-BIO-001)
+* **Contesa Hardware PCIe:** Il chip Hailo-10H non consente l'apertura contemporanea di due istanze `hailort::VDevice` indipendenti da processi differenti.
+* **Meccanismo di Cedimento Temporaneo (Yielding Handshake):**
+  - Aggiunto il servizio ROS 2 `/hailo_bridge/yield_vdevice` (`std_srvs/srv/SetBool`).
+  - Quando un client locale (es. `hailo-ollama` per query VLM Qwen2) richiede l'uso della NPU, invoca `yield_vdevice(data=True)`.
+  - `hailo_bridge_node` completa l'inferenza in corso, rilascia ordinatamente le code `InferModel`, entra in modalità di sospensione a basso consumo, e restituisce `success=True`.
+  - Al termine della risposta VLM, `yield_vdevice(data=False)` ripristina istantaneamente i modelli di visione in tempo reale (Pose, SCRFD, ArcFace).

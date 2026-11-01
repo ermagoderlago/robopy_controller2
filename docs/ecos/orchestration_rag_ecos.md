@@ -456,3 +456,27 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
      - `tests/test_qwen_chat_stress.py`: 16/16 scenari di stress passati (`SCN-01`..`SCN-16`, 100% GREEN).
   4. **Governance DFMEA (`fmea/dfmea.yaml`):**
      - Registrati e chiusi i Failure Modes `FM-LLM-009` (RPN 168 -> 7), `FM-LLM-010` (RPN 126 -> 6), `FM-LLM-011` (RPN 120 -> 8) e `FM-LLM-012` (RPN 126 -> 7).
+
+---
+
+## 📈 ECO-2026-10-25-001: Tooling Universale di Test & Benchmark (40-Prompt Suite), Isolamento Deterministico `[RICHIESTA ATTUALE]` e Matrice di Ri-Verifica Multi-Processo (FM-LLM-013, FM-LLM-014, FM-VUI-039)
+* **Autore:** 🤖 **Antigravity AI Lead**
+* **Data Creazione:** 2026-10-25 21:50:00
+* **Sottosistema:** `Cognitive Orchestration, Local NPU Testing & Verification Infrastructure`
+* **Stato:** ✅ **Completato, Collaudato Live su Marcus e Integrato nella Governance**
+* **Descrizione:**
+  Ingegnerizzazione ed archiviazione del framework di collaudo e stress-testing multi-modello, estensione a verifiche future (Gemini Live), risoluzione definitiva del history bleed e pubblicazione della Master Test Matrix per la re-verifica a seguito di modifiche profonde al codice.
+* **Modifiche apportate:**
+  1. **Framework di Benchmark 40 Prompt (`scripts/benchmark_hailo_40_prompts.py` & `tests/test_benchmark_hailo_40_prompts.py`):**
+     - Matrice strutturata in 40 scenari (16 domande utente mandatory, 16 percezione/telemetria, 4 memoria TRINITY, 4 safety avversariali).
+     - Supporto tri-modale: `--mode=ros2` (interazione nativa DDS con `/robopy/conversation_rx` e `/ai/conversation/response`), `--mode=ssh` (esecuzione remota diretta su `robopy@marcus`), `--mode=mock` (CI hermetica offline per regressioni).
+     - Rilevamento automatico di metriche: TTFT (Time To First Token), latenza totale roundtrip, asserzioni semantiche, odometria e zero-tolerance per stringhe canned/automa.
+     - **Predisposizione Futura Gemini Live:** Il runner è configurato per collaudare indistintamente l'inferenza locale Hailo-10H Qwen2.5 e lo streaming cloud bidirezionale Gemini Live non appena le quote di fatturazione mensili vengono rinnovate.
+  2. **Isolamento Deterministico `[RICHIESTA ATTUALE]` (`slm_metaprompt_fusion.py` & `hailo_qwen_client.py`):**
+     - Delimitatore univoco `[RICHIESTA ATTUALE]\n{user_block}` per segregare rigorosamente la richiesta attiva dallo storico `[CONVERSAZIONE RECENTE]`.
+     - Risoluzione del bug di split multi-riga che innescava la ripetizione a loop di scuse prefissate (*"Hai perfettamente ragione, prometto di non parlare con voce robotica..."* - `FM-LLM-014`).
+     - Sostituzione di matching a sottostringa con regex a parola intera (`\b...`) e risposte dirette ed empatiche.
+  3. **Master Test Matrix Protocol (`docs/testing/TEST_REVERIFICATION_MATRIX.md`):**
+     - Creato documento centrale di governance che cataloga tutti i test da eseguire a seguito di modifiche profonde al codice per ogni sottosistema (`SPEC-01`..`SPEC-07`).
+  4. **Integrazione Tracciabilità DFMEA (`fmea/dfmea.yaml` & `calculate_and_report_fmea.py`):**
+     - Esplicitato il mapping tra failure mode e file di test di mitigazione (`verification_test_file`), aggiornando lo script di calcolo FMEA per generare il report esecutivo integrato.

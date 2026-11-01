@@ -105,12 +105,14 @@ class ResourceGovernorEngine:
         waking_duration_s: float = 2.0,
         stopping_duration_s: float = 0.5,
         dialogue_timeout_s: float = 180.0,
+        standstill_lidar_timeout_s: float = 45.0,
         shadow_mode: bool = True
     ):
         self.idle_dock_timeout_s = idle_dock_timeout_s
         self.waking_duration_s = waking_duration_s
         self.stopping_duration_s = stopping_duration_s
         self.dialogue_timeout_s = dialogue_timeout_s
+        self.standstill_lidar_timeout_s = standstill_lidar_timeout_s
         self.shadow_mode = shadow_mode
 
         # Stati iniziali
@@ -347,6 +349,12 @@ class ResourceGovernorEngine:
                 vlm_loaded=False
             )
 
+        # Calcolo stato di riposo LiDAR prolungato a robot fermo (IMP-BIO-005, FM-BIO-005)
+        now = time.monotonic()
+        stationary_lidar_off = (k == KinematicState.STATIONARY and 
+                                (now - self._last_velocity_zero_time > self.standstill_lidar_timeout_s) and
+                                not self.nav_intent_active)
+
         # Default STATIONARY / PREP_NAV / RELOCALIZING / STOPPING / WAKING
         if c == CognitiveState.ENGAGED:
             return ResourceProfile(
@@ -357,7 +365,7 @@ class ResourceGovernorEngine:
                 yolo_hz=5.0,
                 vio_hz=1.0,
                 vpr_hz=0.0,
-                lidar_active=True,
+                lidar_active=False if stationary_lidar_off else True,
                 rtabmap_paused=True,
                 nav2_active=False,
                 motion_gate_open=False,
@@ -372,7 +380,7 @@ class ResourceGovernorEngine:
                 yolo_hz=2.0,
                 vio_hz=1.0,
                 vpr_hz=0.0,
-                lidar_active=True,
+                lidar_active=False if stationary_lidar_off else True,
                 rtabmap_paused=True,
                 nav2_active=False,
                 motion_gate_open=False,
@@ -389,9 +397,13 @@ class ResourceGovernorEngine:
         if profile.motion_gate_open and self.kinematic_state != KinematicState.MOVING:
             self._trigger_violation("INVARIANT_5: Motion Gate aperto fuori dallo stato MOVING!")
 
-        # Invariante 6: LiDAR deve essere attivo in tutti gli stati tranne DOCKED_SLEEP
-        if not profile.lidar_active and self.kinematic_state != KinematicState.DOCKED_SLEEP:
-            self._trigger_violation(f"INVARIANT_6: LiDAR spento nello stato non ammesso {self.kinematic_state}!")
+        # Invariante 6: LiDAR spento ammesso SOLO in DOCKED_SLEEP o STATIONARY prolungato (>45s) senza intent nav
+        if not profile.lidar_active:
+            allowed = (self.kinematic_state == KinematicState.DOCKED_SLEEP) or (
+                self.kinematic_state == KinematicState.STATIONARY and not self.nav_intent_active and not profile.motion_gate_open
+            )
+            if not allowed:
+                self._trigger_violation(f"INVARIANT_6: LiDAR spento nello stato non ammesso {self.kinematic_state}!")
 
         # Invariante 8: Qwen2-VL (VLM) ammesso SOLO nello stato STATIONARY
         if profile.vlm_loaded and self.kinematic_state != KinematicState.STATIONARY:

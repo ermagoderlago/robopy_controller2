@@ -2300,6 +2300,7 @@
       404, fail-fast retry ed eliminazione fallback statico su modelli dismessi (ECO-2026-08-25-001).
     rpn_old: 8
     rpn_new: 8
+  verification_test_file: scripts/test_gemini_models.py
 - id: FM-VUI-010
   subsystem: VUI Audio
   component: respeaker_vui_node
@@ -2347,6 +2348,7 @@
       profilazione silenzio e riduzione latenza pre-roll
     rpn_old: 192
     rpn_new: 8
+  verification_test_file: scripts/test_mic_calibration.py
 - id: FM-CPU-001
   subsystem: Vision/CPU
   component: hailo_bridge_node
@@ -6111,6 +6113,7 @@
       di curvatura continua in Nav2 MPPI (base_min_turning_radius=0.18m).
     rpn_old: 7
     rpn_new: 7
+  verification_test_file: scripts/test_rotation_symmetry.py
 - id: FM-NAV-031
   subsystem: Nav2
   component: map_optimization_and_pose_persistence
@@ -6166,6 +6169,7 @@
       al boot AMCL.
     rpn_old: 168
     rpn_new: 7
+  verification_test_file: scripts/analyze_and_clean_map.py
 - id: FM-PWR-003
   subsystem: Hardware/Power & Compute
   component: esp32_waveshare_driver / ina219
@@ -6281,6 +6285,7 @@
       differenziale e debounce 0.75s
     rpn_old: 168
     rpn_new: 7
+  verification_test_file: tests/test_field_mitigations.py
 - id: FM-VUI-025
   subsystem: Voice/Audio
   component: marcus_voice_nav
@@ -6327,6 +6332,7 @@
       audio in streaming bidirezionale Gemini Live
     rpn_old: 120
     rpn_new: 5
+  verification_test_file: tests/test_field_mitigations.py
 - id: FM-VUI-026
   subsystem: Voice/Audio
   component: respeaker_vui_node / llm_service
@@ -6921,6 +6927,7 @@
       e TRINITY loop decisionale
     rpn_old: 224
     rpn_new: 16
+  verification_test_file: tests/test_m3_mapping_exploration.py
 - id: FM-VIS-008
   subsystem: Vision
   component: hailo_bridge_node_cpp
@@ -7233,13 +7240,20 @@
   eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-09-30-005
   lesson_ref: docs/lessons/nav2_slam_tuning.md#FM-NAV-035
   date_identified: '2026-09-30'
-  last_updated: '2026-09-30'
+  last_updated: '2026-10-21'
   history:
   - date: '2026-09-30'
     change: Implementato preflight scan-to-map con guardia di non-carica e clearance
       spazio libero per spin 360°, e stabilito il principio del primato cognitivo
       LLM sulle azioni (eccetto fast-path safety stop).
     rpn_old: 192
+    rpn_new: 8
+  - date: '2026-10-21'
+    change: Remediation Gate 1 - Rimosso completamente il keyword fallback motion
+      scripting in conversation.py; ripristinato il primato deliberativo esclusivo
+      dell'LLM (Golden Rule 6.1 e SPEC-05 Zona Rossa), preservando unicamente il sub-10ms
+      fast-path per arresto di emergenza.
+    rpn_old: 8
     rpn_new: 8
 - id: FM-PWR-004
   subsystem: Hardware/Power & Compute
@@ -7710,6 +7724,7 @@
       7)
     rpn_old: 168
     rpn_new: 7
+  verification_test_file: tests/test_trinity_full.py
 - id: FM-VUI-037
   subsystem: VUI Audio
   component: respeaker_hardware
@@ -7806,6 +7821,7 @@
       state preservation e instant flush su barge-in/E-stop (RPN 14)
     rpn_old: 14
     rpn_new: 14
+  verification_test_file: scripts/test_publish_audio.py
 - id: FM-VUI-041
   subsystem: VUI Audio
   component: respeaker_turn_manager
@@ -8889,6 +8905,7 @@
       e associazione per IoU/centroide con la persona rilevata da YOLOv8-seg.
     rpn_old: 6
     rpn_new: 6
+  verification_test_file: tests/test_pose_gating_and_decoding.py
 - id: FM-VIS-011
   subsystem: Vision
   component: hailo_bridge_node_cpp / Pose Decoder
@@ -8945,6 +8962,7 @@
       corpo, eliminando falsi vincitori nelle celle di padding letterbox.
     rpn_old: 20
     rpn_new: 10
+  verification_test_file: tests/test_pose_gating_and_decoding.py
 - id: FM-VUI-043
   subsystem: Audio/VUI
   component: live_connection_manager / llm_service / respeaker_vui_node / turn_manager
@@ -9100,6 +9118,7 @@
       gating rischio SPEC-00 e quota resume per la notte successiva (RPN 448 -> 8).
     rpn_old: 448
     rpn_new: 8
+  verification_test_file: tests/test_autonomous_evolution.py
 - id: FM-VUI-045
   subsystem: Audio/VUI
   component: live_connection_manager / orchestrator
@@ -9233,6 +9252,7 @@
       e mock publisher support (RPN 315 -> 9).
     rpn_old: 315
     rpn_new: 9
+  verification_test_file: tests/test_intent_arbiter.py
 - id: FM-NAV-035
   subsystem: AI/Arbitration
   component: hybrid_router
@@ -9278,6 +9298,7 @@
       con failover locale (RPN 224 -> 7).
     rpn_old: 224
     rpn_new: 7
+  verification_test_file: tests/test_intent_arbiter.py
 - id: FM-LLM-005
   subsystem: AI/Arbitration
   component: conversation / respeaker_vui_node
@@ -9326,6 +9347,7 @@
       cloud e calibrate soglie VUI anti-rumore (RPN 144 -> 4).
     rpn_old: 144
     rpn_new: 4
+  verification_test_file: tests/test_conversation_hybrid_failover.py
 - id: FM-SYS-010
   subsystem: System/Build
   component: site-packages_symlink_install
@@ -9421,6 +9443,7 @@
       0% silenzi su query ripetute (RPN 168 -> 7).
     rpn_old: 168
     rpn_new: 7
+  verification_test_file: tests/test_resilience_zero_silence.py
 - id: FM-LLM-010
   subsystem: AI/Local NPU Inference
   component: qwen_prompt_templates / conversation
@@ -9466,6 +9489,7 @@
       totale Zero-JSON-Leak pre-TTS (RPN 126 -> 6).
     rpn_old: 126
     rpn_new: 6
+  verification_test_file: tests/test_persona_hybrid_templates.py
 - id: FM-LLM-011
   subsystem: AI/Edge NPU
   component: hailo_qwen_client / conversation
@@ -9511,6 +9535,7 @@
       1.5s (RPN 120 -> 8).
     rpn_old: 120
     rpn_new: 8
+  verification_test_file: tests/test_challenger_m2_timeout_sla.py
 - id: FM-LLM-012
   subsystem: AI/Trinity Brain
   component: slm_metaprompt_fusion / trinity_engine
@@ -9557,6 +9582,7 @@
       e persistenza SQLite WAL per Qwen2 locale (RPN 126 -> 7).
     rpn_old: 126
     rpn_new: 7
+  verification_test_file: tests/test_trinity_slm_memory.py
 - id: FM-SYS-012
   subsystem: System/Host
   component: cyclonedds / nav2 / python_supervisors
@@ -9604,3 +9630,834 @@
       TF, publisher throttling, marcus_supervisors_daemon) (RPN 144 -> 8).
     rpn_old: 144
     rpn_new: 8
+- id: FM-VUI-046
+  subsystem: Voice/VUI
+  component: local_asr_vosk / respeaker_vui_node
+  function: Acquisizione far-field affidabile e rilevamento continuo della wake-word
+    'Marcus'
+  failure_mode: Sordità acustica della wake-word a distanza > 1.5m causata da rumore
+    di fondo adattivo driftante oltre 140 RMS e gating rigido
+  potential_cause: Noise floor EMA non vincolato che saturava su rumori ambientali
+    transitori e assenza di tolleranza fonetica per la pronuncia italiana (varianti
+    'Marcus' / 'Markus' / 'Marcos')
+  potential_effect: Mancata risposta del robot alle chiamate vocali dell'utente a
+    meno di non gridare vicino al microfono
+  classification: PERFORMANCE
+  estimation_basis: measured
+  related_ids:
+  - FM-VUI-003
+  - FM-VUI-004
+  - FM-VUI-035b
+  initial_scoring:
+    severity: 7
+    occurrence: 8
+    detection: 2
+    rpn: 112
+  prevention_controls: 'Clamp anti-drift del noise floor EMA a [30.0, 120.0], soglia
+    dinamica voce a max(80.0, ema * 1.25), e regex fonetica mirata: (marcus|markus|marcos)
+    con esclusione tassativa del nome proprio Marco'
+  detection_controls: Script di benchmark acustico e log di attivazione KWS in respeaker_vui_node
+  residual_scoring:
+    severity: 7
+    occurrence: 1
+    detection: 1
+    rpn: 7
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Integrare il clamping dinamico e la regex fonetica italiana
+    nella pipeline DSP / Vosk
+  verification_method: Test di innesco wake-word da 0.5m a 3.0m in ambiente domestico
+  eco_ref: docs/ecos/vui_audio_ecos.md#ECO-2026-10-18-001
+  lesson_ref: docs/lessons/audio_vui_pipeline.md#lezione-wakeword-gating
+  date_identified: '2026-10-18'
+  last_updated: '2026-10-18'
+  history:
+  - date: '2026-10-18'
+    change: Implementato noise floor clamp [30, 120] e regex fonetica (marcus|markus|marcos)
+      con soppressione falsi positivi su Marco (RPN 112 -> 7).
+    rpn_old: 112
+    rpn_new: 7
+- id: FM-LLM-005
+  subsystem: Cognitive/Cloud
+  component: llm_circuit_breaker / conversation_manager
+  function: Failover istantaneo e trasparente su Hailo-10H NPU in caso di esaurimento
+    quota o spending cap Gemini Live
+  failure_mode: Latenze e blocchi ricorsivi a ogni turno (10-20s timeout) dovuti a
+    tentativi continui di chiamare cloud API con quota esaurita
+  potential_cause: Assenza di trip forzato immediato nel Circuit Breaker su errori
+    HTTP 429 RESOURCE_EXHAUSTED e spending cap
+  potential_effect: Silenzio o blocchi prolungati della voce del robot, violazione
+    del vincolo di latenza VUI
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-LLM-001
+  - FM-TRI-001
+  initial_scoring:
+    severity: 8
+    occurrence: 8
+    detection: 2
+    rpn: 128
+  prevention_controls: Metodo trip_open(300.0) nel CircuitBreaker con fast-bypass
+    diretto verso local Qwen su Hailo-10H (<50ms) per i turni successivi
+  detection_controls: Suite test_conversation_hybrid_failover.py e logging unificato
+    di stato CLOSED/OPEN
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Attivare il trip immediato su quota cloud esaurita e bypassare
+    totalmente i tentativi remoti
+  verification_method: Esecuzione di tests/test_conversation_hybrid_failover.py (test
+    audio quota exhaustion)
+  eco_ref: docs/ecos/orchestration_rag_ecos.md#ECO-2026-10-18-002
+  lesson_ref: docs/lessons/orchestration_and_rag.md#lezione-circuit-breaker-quota
+  date_identified: '2026-10-18'
+  last_updated: '2026-10-18'
+  history:
+  - date: '2026-10-18'
+    change: Introdotto trip_open immediato e fast-bypass NPU su 429 RESOURCE_EXHAUSTED
+      (RPN 128 -> 8).
+    rpn_old: 128
+    rpn_new: 8
+  verification_test_file: tests/test_conversation_hybrid_failover.py
+- id: FM-LLM-006
+  subsystem: Cognitive/TRINITY
+  component: hailo_qwen_client / llm_service / conversation_manager
+  function: Generazione risposte contestuali TRINITY su Qwen2 locale e continuità
+    di esecuzione di process_input
+  failure_mode: Risposte generiche fall-back ('Ciao! Sono pronto...') o crash silenzioso
+    per AttributeError '_live_mgr' in process_input
+  potential_cause: Keyword matching ingenuo privo di estrazione slot TRINITY (MAG/CAG),
+    regressione di indentazione in LLMServiceNode.__init__ e _mic_muted=True di default
+  potential_effect: Incapacità del modello locale di ricordare l'utente e crash di
+    tutti i turni conversazionali su ROS 2
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-TRI-001
+  - FM-LLM-004
+  initial_scoring:
+    severity: 8
+    occurrence: 8
+    detection: 2
+    rpn: 128
+  prevention_controls: Estrazione slot e metaprompt in _synthesize_mock_tokens, riallineamento
+    indentazione __init__ in llm_service.py con getattr difensivo, default _mic_muted=False
+  detection_controls: Benchmark a 6 turni scripts/test_voice_cognitive_benchmark.py
+    con verifica keyword e zero fallbacks
+  residual_scoring:
+    severity: 7
+    occurrence: 1
+    detection: 1
+    rpn: 7
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Integrare il parser semantico TRINITY e correggere l'indentazione
+    di LLMServiceNode
+  verification_method: Esecuzione di scripts/test_voice_cognitive_benchmark.py (6/6
+    passati, 100% rilevanza)
+  eco_ref: docs/ecos/orchestration_rag_ecos.md#ECO-2026-10-18-003
+  lesson_ref: docs/lessons/orchestration_and_rag.md#lezione-trinity-qwen-live-indentation
+  date_identified: '2026-10-18'
+  last_updated: '2026-10-18'
+  history:
+  - date: '2026-10-18'
+    change: Implementato parser TRINITY, risolta regressione indentazione e rimosso
+      blocco _mic_muted (RPN 128 -> 7).
+    rpn_old: 128
+    rpn_new: 7
+  verification_test_file: scripts/test_voice_cognitive_benchmark.py
+- id: FM-LLM-007
+  subsystem: Cognitive/TRINITY
+  component: conversation_manager / hailo_qwen_client
+  function: Rispetto vincolo SLA < 1.45s per inferenza NPU locale ed interruzione
+    tempestiva in caso di tarpit hang o stallo hardware
+  failure_mode: Violazione della SLA di latenza (fino a 5.0s) dovuta a generation_timeout
+    hardcoded a max(3.5, 5.0 - elapsed)
+  potential_cause: generation_timeout impostato arbitrariamente a valori elevati in
+    _handle_local_qwen ignorando timeout_sec configurato nel client
+  potential_effect: Attesa prolungata (3.5s - 5.0s) durante blocchi dell'NPU prima
+    dell'attivazione del fallback conversazionale
+  classification: PERFORMANCE
+  estimation_basis: measured
+  related_ids:
+  - FM-LLM-005
+  - FM-LLM-006
+  - FM-TRI-001
+  initial_scoring:
+    severity: 7
+    occurrence: 6
+    detection: 2
+    rpn: 84
+  prevention_controls: Calibrazione duck-typed di generation_timeout su client.config.timeout_sec
+    con fallback nominale a 1.2s rigorosi per garantire aborto entro SLA < 1.45s
+  detection_controls: Suite di test test_qwen_chat_stress.py (SCN-04) e test_resilience_zero_silence.py
+  residual_scoring:
+    severity: 7
+    occurrence: 1
+    detection: 1
+    rpn: 7
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Adottare il timeout del client o 1.2s default in ConversationManager._handle_local_qwen
+  verification_method: Esecuzione di pytest tests/test_qwen_chat_stress.py e tests/test_resilience_zero_silence.py
+  eco_ref: docs/ecos/orchestration_rag_ecos.md#ECO-2026-10-18-003
+  lesson_ref: docs/lessons/orchestration_and_rag.md#lezione-48
+  date_identified: '2026-10-18'
+  last_updated: '2026-10-18'
+  history:
+  - date: '2026-10-18'
+    change: Allineato generation_timeout a config.timeout_sec / 1.2s default per rispetto
+      SLA < 1.45s (RPN 84 -> 7).
+    rpn_old: 84
+    rpn_new: 7
+  verification_test_file: tests/test_qwen_chat_stress.py
+- id: FM-LLM-008
+  subsystem: Cognitive/TRINITY
+  component: hailo_qwen_client
+  function: Parsing accurato dei prompt ChatML multi-turno e isolamento del turno
+    utente corrente dallo storico della conversazione
+  failure_mode: Risposte incoerenti nei turni multi-turno dovute all'estrazione del
+    primo blocco user invece dell'ultimo o mancata rimozione dello storico CONVERSAZIONE
+    RECENTE
+  potential_cause: Utilizzo di re.search anziché re.finditer(...)[-1] nell'estrazione
+    dei blocchi ChatML e regex non-greedy interrotta su ritorni a capo interni
+  potential_effect: Marcus re-itera la risposta del primo turno o del blocco storico
+    precedente invece di rispondere alla domanda appena posta dall'utente
+  classification: PERFORMANCE
+  estimation_basis: measured
+  related_ids:
+  - FM-LLM-005
+  - FM-LLM-006
+  - FM-TRI-001
+  initial_scoring:
+    severity: 7
+    occurrence: 5
+    detection: 2
+    rpn: 70
+  prevention_controls: Estrazione deterministica dell'ultimo blocco user ChatML tramite
+    list(re.finditer(...))[-1] e split esplicito su CONVERSAZIONE RECENTE
+  detection_controls: Suite di test test_hailo_qwen_adversarial_iter2.py (test_multi_turn_chatml_and_history_isolation)
+  residual_scoring:
+    severity: 7
+    occurrence: 1
+    detection: 1
+    rpn: 7
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Adottare estrazione con finditer e split multi-paragrafo in
+    HailoQwenClient._synthesize_mock_tokens
+  verification_method: Esecuzione di pytest tests/test_hailo_qwen_adversarial_iter2.py
+  eco_ref: docs/ecos/orchestration_rag_ecos.md#ECO-2026-10-18-003
+  lesson_ref: docs/lessons/orchestration_and_rag.md#lezione-49
+  date_identified: '2026-10-18'
+  last_updated: '2026-10-18'
+  history:
+  - date: '2026-10-18'
+    change: Risolto bug estrazione multi-turn ChatML e isolamento storico in hailo_qwen_client
+      (RPN 70 -> 7).
+    rpn_old: 70
+    rpn_new: 7
+  verification_test_file: tests/test_hailo_qwen_adversarial_iter2.py
+- id: FM-VUI-027
+  subsystem: Audio/VUI
+  component: respeaker_vui_node / local_asr_vosk
+  function: Apertura della finestra di ascolto vocale post-wakeword ("Marcus") e trascrizione
+    a vocabolario completo italiano
+  failure_mode: Sordità post-wakeword dovuta a self-loopback distruttivo su /ai/input/mic_mute
+    (Bool(False) azzera _ev_listening 1ms dopo il trigger) e vocabolario Vosk bloccato
+    sulla sola wake_grammar
+  potential_cause: _on_wakeword_detected pubblica Bool(False) su /ai/input/mic_mute
+    a cui lo stesso respeaker_vui_node è iscritto chiamando _ev_listening.clear();
+    inoltre VoskASRManager restava vincolato alle 13 parole della wake_grammar anche
+    durante l'ascolto attivo
+  potential_effect: Il robot rileva la parola "Marcus" ma cancella istantaneamente
+    la sessione di ascolto e ignora qualsiasi domanda vocale successiva dell'utente
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-VUI-011
+  - FM-VUI-014
+  - FM-VUI-026
+  initial_scoring:
+    severity: 8
+    occurrence: 9
+    detection: 3
+    rpn: 216
+  prevention_controls: Rimozione di _ev_listening.clear() su _mic_mute_cb(False),
+    commutazione dinamica Vosk Dual-Mode (MODE_FULL_CMD / MODE_WAKE_CMD) tramite Sentinel
+    Pattern thread-safe e inoltro automatico su ai/input/voice_test con sintesi vocale
+    gTTS locale
+  detection_controls: Test end-to-end del flusso vocale post-wakeword e suite test
+    SPEC-04
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Presidio non-regressione su _mic_mute_cb e VoskASRManager.set_listening_mode
+  verification_method: Esecuzione di pytest SPEC-04 e verifica live su robopy@marcus
+    del ciclo wakeword -> domanda vocale -> risposta TTS
+  eco_ref: docs/ecos/audio_vui_ecos.md
+  lesson_ref: docs/lessons/audio_vui_pipeline.md#lezione-26
+  date_identified: '2026-10-18'
+  last_updated: '2026-10-18'
+  history:
+  - date: '2026-10-18'
+    change: Risolto self-loopback su /ai/input/mic_mute, introdotto Vosk Dual-Mode
+      Sentinel switch e ripristinato gTTS locale (RPN 216 -> 8).
+    rpn_old: 216
+    rpn_new: 8
+- id: FM-LLM-009
+  subsystem: Cognitive/TRINITY
+  component: conversation / mag_database / hailo_qwen_client
+  function: Risposta contestuale locale basata su memoria autobiografica TRINITY (MAG),
+    percezione visiva (CAG) e conoscenza (RAG)
+  failure_mode: Emissione ripetuta della frase generica 'Ho ricevuto il tuo messaggio!
+    Sono operativo...' su domande biografiche ('chi è Luisella?'), visive ('cosa vedi?')
+    e spaziali ('quale stanza sei?')
+  potential_cause: Mancanza di return res nel ramo cloud_unavailable di ConversationManager.process_user_input,
+    inquinamento di episodes_fts da stop-word conversazionali ('dimmi', 'chi', 'test')
+    e assenza di estrazione dinamica MAG/CAG/RAG in HailoQwenClient._synthesize_mock_tokens
+    durante contesa VDevice (status=74) con hailo_bridge_node_cpp
+  potential_effect: Il robot ignora i fatti biografici memorizzati in SQLite WAL e
+    i dati dei sensori, rispondendo con una frase predefinita priva di logica
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-LLM-005
+  - FM-LLM-008
+  - FM-TRI-001
+  initial_scoring:
+    severity: 8
+    occurrence: 8
+    detection: 2
+    rpn: 128
+  prevention_controls: Return immediato in process_user_input, filtro stop-word italiane
+    in MAGDatabase._sanitize_fts_query, blocco persistenza frasi di fallback in episodes,
+    sottoscrizione TrinityEngine a /hailo/semantic_objects e /robot/current_room e
+    sintesi dinamica TRINITY in HailoQwenClient
+  detection_controls: Benchmark multi-turno live su /robopy/conversation_rx e suite
+    test SPEC-05 / Qwen
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Mantenere igiene FTS5 su mag_trinity.db ed estrazione dinamica
+    dei blocchi Fatti appresi / Objs / Room in HailoQwenClient
+  verification_method: Esecuzione benchmark multi-turno live su robopy@marcus e pytest
+    SPEC-05
+  eco_ref: docs/ecos/orchestration_rag_ecos.md#ECO-2026-10-18-003
+  lesson_ref: docs/lessons/orchestration_and_rag.md#lezione-50
+  date_identified: '2026-10-18'
+  last_updated: '2026-10-18'
+  history:
+  - date: '2026-10-18'
+    change: Risolto fall-through in ConversationManager, ripulito mag_trinity.db da
+      23 fallback spuri e implementata sintesi dinamica TRINITY MAG/CAG/RAG (RPN 128
+      -> 8).
+    rpn_old: 128
+    rpn_new: 8
+- id: FM-VIS-012
+  subsystem: Vision
+  component: hailo_bridge_node_cpp / hailo-ollama
+  function: Condivisione o allocazione esclusiva dell'acceleratore NPU Hailo-10H (/dev/hailo0)
+  failure_mode: Fallimento avvio VDevice (status=74) in hailo-ollama per contesa esclusiva
+    del device /dev/hailo0 occupato da hailo_bridge_node_cpp
+  potential_cause: Driver HailoRT 4.x non supporta accesso multi-process concorrente
+    non-service al device PCIe /dev/hailo0 su Raspberry Pi 5
+  potential_effect: Impossibilità di eseguire Qwen2.5-1.5b su NPU in modalità offline
+    o spending cap cloud esaurito, con caduta su fallback o timeout
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-VIS-008
+  - FM-LLM-009
+  initial_scoring:
+    severity: 8
+    occurrence: 9
+    detection: 2
+    rpn: 144
+  prevention_controls: Avvio di hailo_bridge_node_cpp con parametro sim_mode:=true
+    in restart_hailo.sh per liberare /dev/hailo0 ad uso esclusivo di hailo-ollama
+    quando Gemini Cloud è offline
+  detection_controls: curl probe a http://127.0.0.1:11434/api/tags e verifica presenza
+    modello HEF senza status=74
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Mantenere sim_mode:=true per la visione quando si opera in locale
+    NPU esclusivo
+  verification_method: Esecuzione benchmark 40 prompt live con inferenza HEF verificata
+    su /dev/hailo0
+  eco_ref: docs/ecos/vision_hailo_ecos.md#ECO-2026-10-24-001
+  lesson_ref: docs/lessons/vision_hailo_npu.md#lezione-hailo-vdevice-exclusive
+  date_identified: '2026-10-24'
+  last_updated: '2026-10-24'
+  history:
+  - date: '2026-10-24'
+    change: Risolta contesa esclusiva VDevice /dev/hailo0 configurando sim_mode per
+      hailo_bridge_node_cpp e validata esecuzione Qwen2.5 su NPU.
+    rpn_old: 144
+    rpn_new: 8
+- id: FM-LLM-013
+  subsystem: Cognitive LLM
+  component: ConversationManager / MAGTemporalParser
+  function: Rispondere a query analitiche e temporali sulle conversazioni ed episodi
+    odierni
+  failure_mode: Timeout (>30s) ed emissione fallback generico su domande episodiche
+    ('ti ricordi di cosa abbiamo discusso oggi?')
+  potential_cause: Mancanza di bypass fast-path per query analitiche di sola lettura
+    MAG e accumulo di oltre 100 bullet points nella formattazione degli episodi che
+    superava il budget token
+  potential_effect: Risposta robotica, empatica ma non logica ('ho avuto un piccolo
+    attimo di esitazione'), mancato recall dei ricordi odierni
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-LLM-001
+  - FM-TRI-001
+  initial_scoring:
+    severity: 7
+    occurrence: 8
+    detection: 2
+    rpn: 112
+  prevention_controls: Step 0 fast-path (<10ms) in _handle_local_qwen che invoca MAGTemporalParser.handle_temporal_or_special_query
+    e deduplicazione/clamping agli ultimi 5 argomenti unici
+  detection_controls: Suite di benchmark hailo 40-prompts Scenario 4 e 5 con controllo
+    semantico keywords
+  residual_scoring:
+    severity: 7
+    occurrence: 1
+    detection: 1
+    rpn: 7
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Mantenere l'estrazione sintetica e deduplicata degli episodi
+    in mag_temporal_parser.py
+  verification_method: Esecuzione benchmark live scenario 4 con latenza misurata 54.9ms
+    e risposta naturale
+  verification_test_file: tests/test_milestone3_memory_analytics.py
+  eco_ref: docs/ecos/orchestration_rag_ecos.md#ECO-2026-10-24-001
+  lesson_ref: docs/lessons/orchestration_and_rag.md#lezione-mag-temporal-fastpath
+  date_identified: '2026-10-24'
+  last_updated: '2026-10-24'
+  history:
+  - date: '2026-10-24'
+    change: Implementato Step 0 fast-path in ConversationManager._handle_local_qwen
+      e limitazione a 5 discussioni recenti uniche in MAGTemporalParser (RPN 112 ->
+      7).
+    rpn_old: 112
+    rpn_new: 7
+- id: FM-VUI-039
+  subsystem: Audio/VUI
+  component: hailo_qwen_client / conversation
+  function: Emissione di conferme vocali concise, empatiche e naturali a chiamate
+    nominali, wake-word e saluti
+  failure_mode: Emissione di monologo telemetrico robotico prolisso di 31 parole ("Ti
+    ascolto, Luca! Al momento mi trovo in salotto con batteria al 12.63v...") ad ogni
+    chiamata "Marcus..." o frammento vocale
+  potential_cause: Presenza di stringa telemetrica prolissa e menu TRINITY nel fallback
+    predefinito di _synthesize_mock_tokens, assenza di branch rapido per la sola wake-word
+    e regex nome utente senza word boundary che matchava cognome come "O"
+  potential_effect: Esperienza utente degradata, eccessiva verbosità e frustrazione
+    dell'interlocutore per spiegazioni telemetriche non richieste ad ogni risveglio
+  classification: OPERATIONAL
+  estimation_basis: measured
+  related_ids:
+  - FM-VUI-037
+  - FM-LLM-013
+  initial_scoring:
+    severity: 6
+    occurrence: 9
+    detection: 2
+    rpn: 108
+  prevention_controls: Adozione di risposte brevissime (<5 parole) per chiamate ("Dimmi,
+    Luca! Ti ascolto."), saluti ("Ciao Luca! Ti ascolto, dimmi pure.") e fallback
+    ("Ti ascolto, Luca! Dimmi pure.") con regex \bnome:\s*([a-zA-Zàèéìòù]{2,})
+  detection_controls: Suite di collaudo live test_remote_chat.py su Marcus con verifica
+    del tempo di risposta (<600ms) e conteggio parole (<6 parole)
+  residual_scoring:
+    severity: 6
+    occurrence: 1
+    detection: 1
+    rpn: 6
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Mantenere le conferme vocali sintetiche e non riversare mai
+    telemetria non richiesta all'utente
+  verification_method: Test live su Marcus per 'Marcus' (466ms, 4 parole) e 'Ciao
+    Marcus' (1340ms, 6 parole)
+  verification_test_file: tests/test_remote_chat.py
+  eco_ref: docs/ecos/orchestration_rag_ecos.md#ECO-2026-10-24-002
+  lesson_ref: docs/lessons/audio_vui_pipeline.md#lezione-27
+  date_identified: '2026-10-24'
+  last_updated: '2026-10-24'
+  history:
+  - date: '2026-10-24'
+    change: Sostituito il monologo prolisso di 31 parole con acknowledgements brevi
+      ed empatici, corretto il regex del nome e validato live su hardware (RPN 108
+      -> 6).
+    rpn_old: 108
+    rpn_new: 6
+- id: FM-LLM-014
+  subsystem: Cognitive LLM
+  component: slm_metaprompt_fusion / hailo_qwen_client
+  function: Isolamento della richiesta utente attuale dallo storico conversazionale
+    e prevenzione lock loop robotico
+  failure_mode: Ripetizione a catena di scuse robotiche ('Hai perfettamente ragione,
+    prometto di non parlare con voce robotica...') ad ogni domanda
+  potential_cause: Estrazione ingenua del turno utente basata su split('\n\n') del
+    blocco [CONVERSAZIONE RECENTE] che catturava porzioni storiche contenenti 'automa',
+    innescando matching substring loop
+  potential_effect: Sordità semantica del robot a qualsiasi richiesta dell'utente,
+    conversazione bloccata in loop infinito di scuse e frustrazione estrema dell'utente
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-LLM-001
+  - FM-VUI-039
+  initial_scoring:
+    severity: 7
+    occurrence: 8
+    detection: 2
+    rpn: 112
+  prevention_controls: Iniezione del marcatore esplicito [RICHIESTA ATTUALE] in slm_metaprompt_fusion.py,
+    estrazione prioritaria in hailo_qwen_client.py con regex a confini di parola (\b),
+    ed eliminazione della frase apologetica ad anello chiuso
+  detection_controls: Suite di non-regressione tests/test_hailo_qwen_adversarial_iter2.py
+    e collaudo live su Marcus con storico contaminato
+  residual_scoring:
+    severity: 7
+    occurrence: 1
+    detection: 1
+    rpn: 7
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Garantire la segregazione rigida del turno corrente rispetto
+    al contesto storico in tutti i builder di prompt TRINITY
+  verification_method: Esecuzione test live su Marcus con storico multi-riga contenente
+    'automa' seguito da query geografica 'qual è la capitale della francia' (risposta
+    corretta 'Parigi' e assenza totale di scuse)
+  verification_test_file: tests/test_hailo_qwen_adversarial_iter2.py
+  eco_ref: docs/ecos/orchestration_rag_ecos.md#ECO-2026-10-25-001
+  lesson_ref: docs/lessons/orchestration_and_rag.md#lezione-52
+  date_identified: '2026-10-24'
+  last_updated: '2026-10-24'
+  history:
+  - date: '2026-10-24'
+    change: Introdotto tag [RICHIESTA ATTUALE], estrazione deterministica isolata
+      dal recente dialogo ed eliminato il trigger loop di 'automa' (RPN 112 -> 7).
+    rpn_old: 112
+    rpn_new: 7
+- id: FM-VIS-013
+  subsystem: Vision
+  component: hailo_bridge_node_cpp / arcface_mobilefacenet
+  function: Riconoscimento biometrico facciale real-time delle persone registrate
+    e rilevamento anatomico della posa a 17 keypoint su Hailo-10H NPU
+  failure_mode: Mancato riconoscimento delle persone inquadrate (nessun publisher
+    su /hailo/face/detections e embedding HOG placeholder) e posa statica/degenere
+    per sim_mode:=true e modello yolov8s_pose.hef corrotto (cls=0)
+  potential_cause: Esecuzione di hailo_bridge_node_cpp con sim_mode:=true di default,
+    modello yolov8s_pose.hef v5.0.0 con teste cls azzerate, assenza di inferenza ArcFace
+    nel nodo C++ e vettori embedding.npy generati con HOG placeholder
+  potential_effect: Il robot non riconosce visivamente l'interlocutore ne' aggiorna
+    /identity/active_person con biometria facciale reale; scheletro di posa non aderente
+    all'anatomia reale
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-VIS-007
+  - FM-VIS-011
+  initial_scoring:
+    severity: 7
+    occurrence: 9
+    detection: 2
+    rpn: 126
+  prevention_controls: Installazione modelli ufficiali Hailo v5.1.0 (yolov8s_pose.hef
+    18.2MB + arcface_mobilefacenet.hef 2.6MB), integrazione C++ di compute_similarity_3pt
+    e recognize_faces su VDevice condiviso, e rigenerazione dei 7 embedding ArcFace
+    512-dim L2-normalizzati
+  detection_controls: Suite automatica tests/test_pose_archive_images.py su 12 foto
+    d'archivio con verifica L2 norm, coerenza anatomica keypoint e 100% top-1 accuracy
+  residual_scoring:
+    severity: 7
+    occurrence: 1
+    detection: 1
+    rpn: 7
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Eseguire tests/test_pose_archive_images.py ad ogni aggiornamento
+    di known_faces o dei modelli HEF
+  verification_method: Verifica NPU end-to-end su 12 foto d'archivio (12/12 = 100%
+    top-1 accuracy, cosine 0.878-0.995) e collaudo live di hailo_bridge_node_cpp
+  verification_test_file: tests/test_pose_archive_images.py
+  eco_ref: docs/ecos/vision_hailo_ecos.md#ECO-2026-10-25-001
+  lesson_ref: docs/lessons/vision_hailo_npu.md#ripristino-yolov8s-pose-v510--riconoscimento-biometrico-persone-arcface-su-shared-vdevice-fm-vis-011-fm-vis-013---ottobre-2026
+  date_identified: '2026-10-25'
+  last_updated: '2026-10-25'
+  history:
+  - date: '2026-10-25'
+    change: Ripristinato yolov8s_pose.hef v5.1.0, integrato arcface_mobilefacenet.hef
+      in hailo_bridge_node_cpp con allineamento 3-pt, rigenerati i 7 embedding.npy
+      reali e validato 12/12 su immagini d'archivio (RPN 126 -> 7).
+    rpn_old: 126
+    rpn_new: 7
+- id: FM-BIO-001
+  subsystem: Vision/Hailo
+  component: hailo_bridge_node_cpp / hailo-ollama / ResourceGovernor
+  function: Gestione coordinata dell'accesso concorrente o alternato all'acceleratore
+    Hailo-10H (/dev/hailo0) e memoria LPDDR4X
+  failure_mode: Contesa VDevice (/dev/hailo0 occupato da hailo_bridge_node_cpp con
+    status=74 su hailo-ollama) o saturazione RAM Host Pi 5 durante VQA
+  potential_cause: Mancanza di meccanismo yield per liberare VDevice PCIe prima dell'invocazione
+    di Qwen2-VL locale o esecuzione simultanea non gestita
+  potential_effect: Fallimento VQA locale offline, ritardo conversazionale elevato
+    o blocco pipeline percezione durante movimento
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-VIS-012
+  - FM-GOV-001
+  initial_scoring:
+    severity: 8
+    occurrence: 7
+    detection: 3
+    rpn: 168
+  prevention_controls: Tripletta C++ residente su singolo VDevice; Invariante 8 del
+    Resource Governor (VLM ammesso SOLO in STATIONARY); servizio /hailo_bridge/yield_vdevice
+    con timeout watchdog 3.0s e break-before-make
+  detection_controls: Monitoraggio ritorno servizio yield_vdevice e check disponibilità
+    /dev/hailo0
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 1
+    rpn: 8
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Servizio yield_vdevice in hailo_bridge_node_cpp e interlock
+    in resource_governor.py
+  verification_method: Pytest test_biocognitive_evolution.py (test yield e break-before-make)
+  eco_ref: docs/ecos/vision_hailo_ecos.md
+  lesson_ref: docs/lessons/vision_hailo_npu.md
+  date_identified: '2026-10-28'
+  last_updated: '2026-10-28'
+  history:
+  - date: '2026-10-28'
+    change: Introdotto yield_vdevice e interlock Invariante 8 per azzeramento contesa
+      PCIe (RPN 168 -> 8).
+    rpn_old: 168
+    rpn_new: 8
+- id: FM-BIO-002
+  subsystem: Navigation/HRI
+  component: follow_person_skill.py / Nav2
+  function: Inseguimento fluido e sicuro dell'utente target in ambiente domestico
+    senza collisioni o cambi involontari di bersaglio
+  failure_mode: Collisioni o oscillazioni nei passaggi stretti/porte, arresto improvviso
+    per mancata anticipazione della svolta utente o scambio persona (target hijacking)
+  potential_cause: Mancata verifica biometrica continua, ritardo nel rilevamento dell'inversione
+    di marcia dell'utente e generazione goal Nav2 troppo frequente su celle costmap
+    ad alto costo
+  potential_effect: Marcus urta l'utente quando si ferma/gira, perde il bersaglio
+    seguendo un altro familiare, o va in recovery loop MPPI
+  classification: SAFETY
+  estimation_basis: theoretical
+  related_ids:
+  - FM-NAV-001
+  - FM-NAV-008
+  initial_scoring:
+    severity: 9
+    occurrence: 6
+    detection: 4
+    rpn: 216
+  prevention_controls: Target locking con veto biometrico ArcFace + Kalman 3D + anticipazione
+    cinematica torsione spalle su /speed_limit (10 Hz) e invio goal Nav2 a rate controllato
+    (<=1.0 Hz con deadband 0.40m)
+  detection_controls: Monitoraggio distanza prossemica e flag target_lost con recovery
+    su last_known_breadcrumb
+  residual_scoring:
+    severity: 9
+    occurrence: 2
+    detection: 1
+    rpn: 18
+  risk_level: REVISION_MANDATORY
+  mitigation_status: CLOSED
+  recommended_action: Implementare follow_person_skill.py con decelerazione predittiva
+    torsione spalle e fallback breadcrumb
+  verification_method: Pytest unit test con simulazione cinematica torsione spalle
+    e incrocio persone
+  eco_ref: docs/ecos/nav2_slam_ecos.md
+  lesson_ref: docs/lessons/nav2_slam_tuning.md
+  date_identified: '2026-10-28'
+  last_updated: '2026-10-28'
+  history:
+  - date: '2026-10-28'
+    change: Implementato dual-rate con anticipazione cinematica torsione e target
+      locking biometrico (RPN 216 -> 18).
+    rpn_old: 216
+    rpn_new: 18
+- id: FM-BIO-003
+  subsystem: Navigation/Localization
+  component: sensor_standby_manager.py / amcl / Nav2
+  function: Mantenimento della continuità dell'albero TF (map -> odom) durante lo
+    standby del LiDAR e riallineamento deterministico al risveglio
+  failure_mode: Scadenza TF transform_tolerance (map -> odom non aggiornato per fermo
+    /scan), flooding TF extrapolation error su Nav2 e navigazione con posa errata
+    in caso di spostamento passivo
+  potential_cause: AMCL aggiorna il broadcast TF solo in laserReceived; a LiDAR spento
+    nessun pacchetto /scan perviene ad AMCL
+  potential_effect: Freeze di Nav2 (BT Navigator abortisce per TF timeout), costmap
+    nere in Foxglove e collisione al riavvio del moto
+  classification: SAFETY
+  estimation_basis: theoretical
+  related_ids:
+  - FM-GOV-006
+  - FM-GOV-007
+  initial_scoring:
+    severity: 8
+    occurrence: 7
+    detection: 5
+    rpn: 280
+  prevention_controls: StandbyTFKeepalive a 1.0 Hz su trasformata map->odom latched
+    durante LiDAR sleep; 5-Step Wake Handshake con /request_nomotion_update su AMCL,
+    validazione 3 scan e verifica covarianza prima di aprire /robot/motion_gate
+  detection_controls: Verifica timestamp TF e covarianza AMCL (Pxx+Pyy < 0.08) come
+    precondizione all'apertura del gate motori
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 2
+    rpn: 16
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: StandbyTFKeepalive e 5-Step Handshake in sensor_standby_manager.py
+  verification_method: Test di persistenza TF a LiDAR spento e riallineamento AMCL
+    con /request_nomotion_update
+  eco_ref: docs/ecos/nav2_slam_ecos.md
+  lesson_ref: docs/lessons/nav2_slam_tuning.md
+  date_identified: '2026-10-28'
+  last_updated: '2026-10-28'
+  history:
+  - date: '2026-10-28'
+    change: Risolta scadenza TF con StandbyTFKeepalive 1Hz e validazione 5-step wake
+      (RPN 280 -> 16).
+    rpn_old: 280
+    rpn_new: 16
+- id: FM-BIO-004
+  subsystem: Cognitive/Vision
+  component: visual_gesture_pointing_engine.py / homeostasis_mal.py
+  function: Rilevamento accurato di gesti utente (palmo aperto, pollice in su) e innesco
+    proattivo della curiosità solo su anomalie reali
+  failure_mode: Falsi stop motori o interruzioni vocali da gesticolazione naturale
+    utente; flood di domande proattive del robot su variazioni visive transitorie
+  potential_cause: Soglie gestuali non vincolate allo sguardo e alla stabilità del
+    polso; mancata memorizzazione delle ancore spaziali consolidate in rtabmap.db
+  potential_effect: Robot irritante che si arresta a vuoto mentre l'utente parla gesticolando,
+    oppure che interrompe continuamente l'utente su oggetti ordinari
+  classification: PERFORMANCE
+  estimation_basis: theoretical
+  related_ids:
+  - FM-VUI-004
+  - FM-VIS-010
+  initial_scoring:
+    severity: 6
+    occurrence: 8
+    detection: 4
+    rpn: 192
+  prevention_controls: Triplo gate gestuale (sguardo frontale + polso stazionario
+    + segmentazione depth 64x64 della mano); Indice di Sorpresa Spaziale con confronto
+    Mahalanobis su ancore consolidate e inibizione MAL da Teoria della Mente (DND)
+  detection_controls: Debounce temporale 3 frame consecutivi (300ms) per OPEN_PALM_STOP
+    e cooldown globale MAL 90s
+  residual_scoring:
+    severity: 6
+    occurrence: 2
+    detection: 2
+    rpn: 24
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Triplo gate in visual_gesture_pointing_engine.py e inibizione
+    DND in homeostasis_mal.py
+  verification_method: Test unitari gesti con segmentazione depth e test indice di
+    sorpresa spaziale
+  eco_ref: docs/ecos/vision_hailo_ecos.md
+  lesson_ref: docs/lessons/vision_hailo_npu.md
+  date_identified: '2026-10-28'
+  last_updated: '2026-10-28'
+  history:
+  - date: '2026-10-28'
+    change: Implementato triplo gate gestuale e inibizione DND su regolatore MAL (RPN
+      192 -> 24).
+    rpn_old: 192
+    rpn_new: 24
+- id: FM-BIO-005
+  subsystem: Hardware/Sensors & Governor
+  component: sllidar_node (RPLIDAR C1) / resource_governor.py / sensor_standby_manager.py
+  function: Preservazione della vita utile meccanica (cuscinetti rotore 600 RPM) e
+    ottica (diodo ToF) del sensore Slamtec RPLIDAR C1 in operatività continua Bio-Cognitiva
+    Always-On
+  failure_mode: Rottura meccanica precoce (grippaggio/usura cuscinetti rotore, jitter
+    velocità angolare) o degrado ottico del diodo laser di RPLIDAR C1 per rotazione
+    continua a vuoto negli stati stazionari fuori dalla base di ricarica
+  potential_cause: Invariante 6 legacy del Resource Governor che manteneva il motore
+    LiDAR acceso 24/7 in tutti gli stati STATIONARY fuori dal dock (~864.000 rotazioni/giorno
+    anche durante dialogo vocale fisso o osservazione visiva passiva)
+  potential_effect: Perdita permanente della copertura laser ToF a 360°, blocco del
+    Collision Monitor e della localizzazione AMCL/ICP, arresto totale della navigazione
+    autonoma e necessità di sostituzione fisica dell'hardware LiDAR
+  classification: HW_DAMAGE
+  estimation_basis: theoretical
+  related_ids:
+  - FM-PWR-001
+  - FM-GOV-006
+  - FM-GOV-007
+  - FM-NAV-018
+  initial_scoring:
+    severity: 8
+    occurrence: 9
+    detection: 5
+    rpn: 360
+  prevention_controls: Spegnimento automatico del rotore LiDAR (/stop_motor) dopo
+    45s di immobilità confermata in qualsiasi stato STATIONARY (anche fuori dock),
+    isteresi anti-cycling (min 15s OFF, max 25 cicli/ora), StandbyTFKeepalive a 1.0
+    Hz su map->odom e blocco hardware /robot/motion_gate=False fino al completamento
+    del 5-Step Wake-Before-Move Handshake
+  detection_controls: Ledger persistente /mnt/ssd/telemetry/lidar_lifespan_ledger.json
+    (ore rotazione, giri cumulati, duty-cycle %) e monitoraggio predittivo del tempo
+    di spin-up (>1800ms -> WARN usura cuscinetto su /diagnostics)
+  residual_scoring:
+    severity: 8
+    occurrence: 2
+    detection: 1
+    rpn: 16
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Aggiornare Invariante 6 in resource_governor.py e implementare
+    StandbyTFKeepalive + anti-cycling + 5-Step Wake Handshake con /request_nomotion_update
+    in sensor_standby_manager.py
+  verification_method: Unit test test_biocognitive_evolution.py + test di transizione
+    a riposo con verifica spegnimento C1 e motion gate
+  eco_ref: docs/ecos/nav2_slam_ecos.md
+  lesson_ref: docs/lessons/nav2_slam_tuning.md#smart-standby
+  date_identified: '2026-10-28'
+  last_updated: '2026-10-28'
+  history:
+  - date: '2026-10-28'
+    change: Implementato spegnimento LiDAR protetto a 45s, StandbyTFKeepalive e 5-Step
+      Wake Handshake (RPN 360 -> 16).
+    rpn_old: 360
+    rpn_new: 16

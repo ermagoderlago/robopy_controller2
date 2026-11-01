@@ -104,6 +104,46 @@ Versione: {robot.version}.
 """
         return manifest
 
+    def _collect_phase(self, cutoff_time: float) -> List[Memory]:
+        """[Auto-Dream Phase 1: Collect] Gathers 24h conversational & physical RPE memories."""
+        raw_conv = self.memory_store.get_recent(limit=300, memory_type=MemoryType.CONVERSATION)
+        raw_episodic = []
+        try:
+            raw_episodic = self.memory_store.get_recent(limit=100, memory_type=MemoryType.EPISODIC)
+        except Exception:
+            pass
+
+        all_memories = [m for m in (raw_conv + raw_episodic) if m.created_at > cutoff_time]
+        all_memories.sort(key=lambda m: m.created_at)
+        return all_memories
+
+    def _consolidate_phase(self, memories: List[Memory]) -> str:
+        """[Auto-Dream Phase 2: Consolidate] Applies logarithmic synaptic pruning S(t) = S0 * e^(-lambda * t)."""
+        import math
+        now = time.time()
+        lambda_decay = 0.05  # Per-hour decay rate
+
+        retained = []
+        for m in memories:
+            age_hours = max(0.0, (now - m.created_at) / 3600.0)
+            decay = math.exp(-lambda_decay * age_hours)
+            
+            # RPE significance bonus
+            rpe_val = 0.0
+            if m.metadata and "rpe" in m.metadata:
+                try:
+                    rpe_val = abs(float(m.metadata["rpe"]))
+                except Exception:
+                    pass
+
+            # High significance (|RPE| >= 0.3) or low decay retained
+            if rpe_val >= 0.30 or decay > 0.35:
+                dt = datetime.fromtimestamp(m.created_at).strftime("%H:%M:%S")
+                rpe_tag = f" [RPE={rpe_val:+.2f}]" if rpe_val > 0 else ""
+                retained.append(f"[{dt}]{rpe_tag} {m.content}")
+
+        return "\n".join(retained)
+
     async def run_analysis(self) -> Dict[str, Any]:
         """
         Run the nightly analysis.
@@ -116,30 +156,23 @@ Versione: {robot.version}.
         """
         self.logger.info("Starting Nightly Dream Analysis...")
         
-        # 1. Retrieve Memories (last 24h)
-        raw_memories = self.memory_store.get_recent(limit=300, memory_type=MemoryType.CONVERSATION)
-        
+        # --- OpenClaw Auto-Dream 3-Phase Execution ---
+        # Phase 1: Collect (Conversations + Physical/Social RPE Episodic Events)
         cutoff_time = time.time() - (24 * 3600)
-        day_memories = [m for m in raw_memories if m.created_at > cutoff_time]
+        day_memories = self._collect_phase(cutoff_time)
         
         if not day_memories:
             self.logger.info("No memories found for the last 24h. Skipping analysis.")
             return {"status": "skipped", "reason": "no_memories"}
+
+        # Phase 2: Consolidate (Logarithmic Pruning & RPE Priority)
+        context_text = self._consolidate_phase(day_memories)
             
-        # Sort chronologically
-        day_memories.sort(key=lambda m: m.created_at)
-        
-        # Format for LLM
-        context_text = ""
-        for m in day_memories:
-            dt = datetime.fromtimestamp(m.created_at).strftime("%H:%M:%S")
-            context_text += f"[{dt}] {m.content}\n"
-            
-        self.logger.info(f"Analyzing {len(day_memories)} memories...")
+        self.logger.info(f"Consolidated {len(day_memories)} memories into contextual belief digest...")
         
         system_manifest = self._get_system_manifest()
         
-        # 2. Choose analysis mode
+        # Phase 3: Evaluate (Synthesize, Refine & Commit with Atomic Rollback)
         use_collaboration = (
             self.deepseek_service is not None
             and hasattr(self.deepseek_service, 'is_available')
@@ -387,15 +420,49 @@ Versione: {robot.version}.
             "Genera il Report in Markdown (titolo H2 con Data). Sii onesto, tecnico dove serve, e propositivo."
         )
 
-    def _save_master_prompt(self, master_prompt: str):
-        """Save master prompt to file for system prompt integration."""
+    def _save_master_prompt(self, master_prompt: str) -> bool:
+        """
+        [3-Phase Auto-Dream: Phase 3 Evaluate & Commit]
+        Atomic rollback-safe file transaction for master prompt.
+        1. Validates non-empty prompt (> 50 chars).
+        2. Writes to temporary file: master_prompt.tmp (with fsync).
+        3. Backs up existing file to master_prompt.bak.
+        4. Atomically replaces master_prompt.txt with master_prompt.tmp using os.replace().
+        """
+        if not master_prompt or len(master_prompt.strip()) < 50:
+            self.logger.warning("Master prompt rejected: content empty or too short.")
+            return False
+
+        tmp_path = self.master_prompt_path + ".tmp"
+        bak_path = self.master_prompt_path + ".bak"
+
         try:
-            os.makedirs(os.path.dirname(self.master_prompt_path), exist_ok=True)
-            with open(self.master_prompt_path, "w", encoding="utf-8") as f:
+            target_dir = os.path.dirname(self.master_prompt_path)
+            os.makedirs(target_dir, exist_ok=True)
+
+            # 1. Scrittura sincrona su file temporaneo
+            with open(tmp_path, "w", encoding="utf-8") as f:
                 f.write(master_prompt)
-            self.logger.info(f"Master prompt saved to {self.master_prompt_path}")
+                f.flush()
+                os.fsync(f.fileno())
+
+            # 2. Backup del prompt precedente
+            if os.path.exists(self.master_prompt_path):
+                import shutil
+                shutil.copy2(self.master_prompt_path, bak_path)
+
+            # 3. Sostituzione atomica POSIX
+            os.replace(tmp_path, self.master_prompt_path)
+            self.logger.info(f"✅ [Auto-Dream Phase 3] Master prompt atomically committed to {self.master_prompt_path} (backup: {bak_path})")
+            return True
         except Exception as e:
-            self.logger.error(f"Failed to save master prompt: {e}")
+            self.logger.error(f"Failed atomic commit of master prompt: {e}")
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
+            return False
 
     def _append_to_log(self, content: str):
         """Append content to the improvement log."""

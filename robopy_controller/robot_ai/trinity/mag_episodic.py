@@ -86,7 +86,13 @@ class EpisodicMemoryEngine:
         for ep in memory_data.get("episodes", []):
             resp = ep.get('robot_response', '')
             resp_lower = resp.lower()
-            if "non ho visto molto di nuovo" in resp_lower or "problema di connessione" in resp_lower:
+            if any(bad in resp_lower for bad in (
+                "non ho visto molto di nuovo",
+                "problema di connessione",
+                "ho ricevuto il tuo messaggio! sono operativo",
+                "ho compreso la tua richiesta! tutti i miei sistemi",
+                "scusami, ho avuto un piccolo attimo di esitazione"
+            )):
                 continue
             ts = ep.get('timestamp')
             time_prefix = ""

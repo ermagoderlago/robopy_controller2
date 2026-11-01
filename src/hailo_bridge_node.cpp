@@ -18,6 +18,11 @@
 #include <vector>
 #include <chrono>
 #include <unordered_map>
+#include <filesystem>
+#include <fstream>
+#include <cmath>
+#include <algorithm>
+#include <cctype>
 
 #include <rclcpp/rclcpp.hpp>
 #include <image_transport/image_transport.hpp>
@@ -32,6 +37,7 @@
 #include <visualization_msgs/msg/marker_array.hpp>
 #include <visualization_msgs/msg/marker.hpp>
 #include <geometry_msgs/msg/point.hpp>
+#include <std_srvs/srv/set_bool.hpp>
 #include <array>
 
 #include <opencv2/opencv.hpp>
@@ -182,6 +188,8 @@ static const std::vector<std::pair<int, int>> COCO_SKELETON_PAIRS = {
 struct PersonPose {
     DetectionBBox bbox;
     std::array<Keypoint2D, 17> keypoints;
+    std::string recognized_name;
+    float face_similarity{0.0f};
 };
 
 class HailoBridgeNodeCpp : public rclcpp::Node {
@@ -199,6 +207,12 @@ public:
         this->declare_parameter<std::string>("pose_hef_path", "/mnt/ssd/models/yolov8s_pose.hef");
         this->declare_parameter<double>("pose_conf_threshold", 0.35);
 
+        // Biometric Face Recognition parameters (SPEC-03 ArcFace 512-dim on Shared VDevice)
+        this->declare_parameter<bool>("enable_face_recognition", true);
+        this->declare_parameter<std::string>("arcface_hef_path", "/mnt/ssd/models/arcface_mobilefacenet.hef");
+        this->declare_parameter<std::string>("known_faces_dir", "/mnt/ssd/robopy_controller_host/robopy_controller/known_faces");
+        this->declare_parameter<double>("face_similarity_threshold", 0.58);
+
         hef_path_ = this->get_parameter("hef_path").as_string();
         sim_mode_ = this->get_parameter("sim_mode").as_bool();
         rgb_topic_ = this->get_parameter("rgb_topic").as_string();
@@ -209,8 +223,18 @@ public:
         pose_hef_path_ = this->get_parameter("pose_hef_path").as_string();
         pose_conf_threshold_ = static_cast<float>(this->get_parameter("pose_conf_threshold").as_double());
 
-        RCLCPP_INFO(this->get_logger(), "🚀 Starting Hailo Bridge Node C++ (HEF: %s, Rate: %.1f Hz, Pose: %s)",
-                    hef_path_.c_str(), vlm_rate_hz_, enable_pose_ ? "ENABLED" : "DISABLED");
+        enable_face_recognition_ = this->get_parameter("enable_face_recognition").as_bool();
+        arcface_hef_path_ = this->get_parameter("arcface_hef_path").as_string();
+        known_faces_dir_ = this->get_parameter("known_faces_dir").as_string();
+        face_similarity_threshold_ = static_cast<float>(this->get_parameter("face_similarity_threshold").as_double());
+
+        RCLCPP_INFO(this->get_logger(), "🚀 Starting Hailo Bridge Node C++ (HEF: %s, Rate: %.1f Hz, Pose: %s, FaceID: %s)",
+                    hef_path_.c_str(), vlm_rate_hz_,
+                    enable_pose_ ? "ENABLED" : "DISABLED",
+                    enable_face_recognition_ ? "ENABLED" : "DISABLED");
+
+        // Load Known Faces L2-normalized 512-dim database from disk
+        load_known_faces();
 
         // Initialize Hailo NPU Device if available
         init_hailo_npu();
@@ -245,9 +269,28 @@ public:
             pub_pose_detections_ = this->create_publisher<vision_msgs::msg::Detection2DArray>("/hailo/pose/detections", 10);
         }
 
+        pub_face_detections_ = this->create_publisher<vision_msgs::msg::Detection2DArray>("/hailo/face/detections", 10);
+        pub_face_identity_ = this->create_publisher<std_msgs::msg::String>("/hailo/face/identity", 10);
+        sub_face_enroll_ = this->create_subscription<std_msgs::msg::String>(
+            "/hailo/face/enroll", 10,
+            std::bind(&HailoBridgeNodeCpp::enroll_callback, this, std::placeholders::_1));
+
+        // Hailo VDevice Yield Service for arbitration with local VLM (IMP-BIO-001)
+        srv_yield_vdevice_ = this->create_service<std_srvs::srv::SetBool>(
+            "/hailo_bridge/yield_vdevice",
+            [this](const std::shared_ptr<std_srvs::srv::SetBool::Request> request,
+                   std::shared_ptr<std_srvs::srv::SetBool::Response> response) {
+                vdevice_yielded_ = request->data;
+                response->success = true;
+                response->message = vdevice_yielded_ ? "Hailo VDevice yielded to external VLM." : "Hailo VDevice reclaimed for primary vision pipeline.";
+                RCLCPP_INFO(this->get_logger(), "🔄 [HAILO-ARBITRATION] %s", response->message.c_str());
+            });
+
         last_inference_time_ = std::chrono::steady_clock::now();
-        RCLCPP_INFO(this->get_logger(), "✅ Hailo Bridge C++ Node initialized successfully (Pose: %s).",
-                    enable_pose_ ? "ON" : "OFF");
+        RCLCPP_INFO(this->get_logger(), "✅ Hailo Bridge C++ Node initialized successfully (Pose: %s, FaceID: %s, KnownFaces: %zu).",
+                    enable_pose_ ? "ON" : "OFF",
+                    enable_face_recognition_ ? "ON" : "OFF",
+                    known_faces_db_.size());
     }
 
     ~HailoBridgeNodeCpp() override {
@@ -451,6 +494,65 @@ private:
                 }
             }
 
+            // Initialize ArcFace 512-dim Biometric InferModel on Shared VDevice (SPEC-03)
+            if (enable_face_recognition_) {
+                auto infer_model_arc_expected = vdevice_->create_infer_model(arcface_hef_path_);
+                if (!infer_model_arc_expected) {
+                    RCLCPP_WARN(this->get_logger(), "⚠️ Failed to create ArcFace InferModel from %s: %d (FaceID disabled)",
+                                arcface_hef_path_.c_str(), infer_model_arc_expected.status());
+                    hailo_arcface_ready_ = false;
+                } else {
+                    infer_model_arcface_ = infer_model_arc_expected.release();
+                    infer_model_arcface_->set_batch_size(1);
+
+                    const auto &arc_inputs = infer_model_arcface_->inputs();
+                    if (!arc_inputs.empty()) {
+                        arcface_input_name_ = arc_inputs[0].name();
+                    }
+                    for (const auto &outp : infer_model_arcface_->outputs()) {
+                        auto out_stream_exp = infer_model_arcface_->output(outp.name());
+                        if (out_stream_exp) {
+                            out_stream_exp->set_format_type(HAILO_FORMAT_TYPE_FLOAT32);
+                        }
+                        arcface_output_name_ = outp.name();
+                    }
+
+                    auto configured_arc_expected = infer_model_arcface_->configure();
+                    if (configured_arc_expected) {
+                        configured_infer_model_arcface_ = std::make_unique<hailort::ConfiguredInferModel>(configured_arc_expected.release());
+                        auto bindings_arc_expected = configured_infer_model_arcface_->create_bindings();
+                        if (bindings_arc_expected) {
+                            bindings_arcface_ = std::make_unique<hailort::ConfiguredInferModel::Bindings>(bindings_arc_expected.release());
+
+                            for (const auto &inp : infer_model_arcface_->inputs()) {
+                                std::string name = inp.name();
+                                size_t frame_size_bytes = inp.get_frame_size();
+                                arcface_input_buffers_[name].resize(frame_size_bytes, 0);
+                                auto in_stream = bindings_arcface_->input(name);
+                                if (in_stream) {
+                                    in_stream->set_buffer(hailort::MemoryView(
+                                        arcface_input_buffers_[name].data(), arcface_input_buffers_[name].size()
+                                    ));
+                                }
+                            }
+                            for (const auto &outp : infer_model_arcface_->outputs()) {
+                                std::string name = outp.name();
+                                size_t frame_size_bytes = outp.get_frame_size();
+                                arcface_output_buffers_[name].resize(frame_size_bytes / sizeof(float));
+                                auto out_stream = bindings_arcface_->output(name);
+                                if (out_stream) {
+                                    out_stream->set_buffer(hailort::MemoryView(
+                                        arcface_output_buffers_[name].data(), arcface_output_buffers_[name].size() * sizeof(float)
+                                    ));
+                                }
+                            }
+                            hailo_arcface_ready_ = true;
+                            RCLCPP_INFO(this->get_logger(), "👤 Hailo-10H ArcFace 512-dim InferModel configured on shared VDevice!");
+                        }
+                    }
+                }
+            }
+
             RCLCPP_INFO(this->get_logger(), "🧠 Hailo-10H NPU Hardware & InferModel configured successfully C++!");
             hailo_ready_ = true;
         } catch (const std::exception &e) {
@@ -464,6 +566,9 @@ private:
     }
 
     void rgb_callback(const sensor_msgs::msg::Image::ConstSharedPtr &msg) {
+        if (vdevice_yielded_.load()) {
+            return; // Hailo NPU yielded to local VLM (IMP-BIO-001)
+        }
         auto now = std::chrono::steady_clock::now();
         double elapsed_sec = std::chrono::duration<double>(now - last_inference_time_).count();
 
@@ -554,8 +659,9 @@ private:
             }
         }
         bool has_person = !person_detections.empty();
+        bool run_pose_pass = has_person || sim_mode_ || (enable_face_recognition_ && (num_frames_processed_ % 2 == 0));
 
-        if (enable_pose_ && (has_person || sim_mode_)) {
+        if (enable_pose_ && run_pose_pass) {
             if (hailo_pose_ready_) {
 #if HAILO_CPP_AVAILABLE
                 if (!pose_input_name_.empty() && pose_input_buffers_.count(pose_input_name_)) {
@@ -589,6 +695,11 @@ private:
                     if (p_status == HAILO_SUCCESS) {
                         poses = decode_pose_outputs(person_detections);
                         if (!poses.empty()) {
+                            if (person_detections.empty()) {
+                                for (const auto &p : poses) {
+                                    detections.push_back(p.bbox);
+                                }
+                            }
                             RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
                                 "🕺 [HAILO-POSE] Tracciate %zu persone con skeleton keypoints", poses.size());
                         }
@@ -600,6 +711,10 @@ private:
 #endif
             } else if (sim_mode_) {
                 poses = generate_sim_poses(person_detections);
+            }
+
+            if (enable_face_recognition_ && !poses.empty()) {
+                recognize_faces(msg->header, frame, poses, detections);
             }
 
             if (!poses.empty()) {
@@ -628,11 +743,11 @@ private:
                 static_cast<int>((det.xmax - det.xmin) * frame.cols),
                 static_cast<int>((det.ymax - det.ymin) * frame.rows)
             );
-            cv::rectangle(annotated_frame, bbox, cv::Scalar(0, 255, 0), 2);
-
             auto it_it = COCO_TO_ITALIAN.find(det.label);
             std::string italian_label = (it_it != COCO_TO_ITALIAN.end()) ? it_it->second : det.label;
             std::string label_str = italian_label + " " + cv::format("%.2f", det.confidence);
+            cv::Scalar box_color = (it_it != COCO_TO_ITALIAN.end()) ? cv::Scalar(0, 255, 0) : cv::Scalar(0, 215, 255);
+            cv::rectangle(annotated_frame, bbox, box_color, 2);
 
             int base_line = 0;
             cv::Size text_size = cv::getTextSize(label_str, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &base_line);
@@ -640,7 +755,7 @@ private:
             int text_y = std::max(text_size.height + 4, bbox.y);
             cv::rectangle(annotated_frame, cv::Point(text_x, text_y - text_size.height - 6),
                           cv::Point(text_x + text_size.width + 4, text_y),
-                          cv::Scalar(0, 255, 0), cv::FILLED);
+                          box_color, cv::FILLED);
             cv::putText(annotated_frame, label_str, cv::Point(text_x + 2, text_y - 4),
                         cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0), 1);
         }
@@ -923,9 +1038,6 @@ private:
 
     std::vector<PersonPose> decode_pose_outputs(const std::vector<DetectionBBox> &person_detections) {
         std::vector<PersonPose> result_poses;
-        if (person_detections.empty()) {
-            return result_poses;
-        }
 
         const float conf_thresh = pose_conf_threshold_;
         float orig_w = (pose_scale_ > 0.0f && last_img_w_ > 0) ? static_cast<float>(last_img_w_) : 640.0f;
@@ -1006,6 +1118,7 @@ private:
         std::array<ScalePointers, 3> scales;
         size_t num_scales = 0;
         static constexpr int kStrides[3] = {8, 16, 32};
+        float global_max_cls = 0.0f;
         for (int stride : kStrides) {
             const int gh = std::max(1, pose_input_h_ / stride);
             const int gw = std::max(1, pose_input_w_ / stride);
@@ -1014,7 +1127,12 @@ private:
             for (const auto &kv : pose_output_buffers_) {
                 const size_t n = kv.second.size();
                 if (n == cells * 64) sp.bbox_ptr = kv.second.data();
-                else if (n == cells * 1) sp.cls_ptr = kv.second.data();
+                else if (n == cells * 1) {
+                    sp.cls_ptr = kv.second.data();
+                    for (size_t ci = 0; ci < cells; ++ci) {
+                        if (sp.cls_ptr[ci] > global_max_cls) global_max_cls = sp.cls_ptr[ci];
+                    }
+                }
                 else if (n == cells * 51) sp.kpt_ptr = kv.second.data();
             }
             if (sp.bbox_ptr && sp.kpt_ptr) {
@@ -1029,10 +1147,6 @@ private:
             return result_poses;
         }
 
-        // Keypoint Energy & DFL Bounding Box IoU Matching (IMP-VIS-011, FM-VIS-011).
-        // Since the class head in yolov8s_pose.hef is pruned/zeroed (cls==0 everywhere), cells are
-        // selected by matching the cell's decoded DFL bounding box against YOLO's person detection (IoU),
-        // searching specifically within the anchor radius around the person's center, and validating keypoints.
         auto sigmoid = [](float v) {
             return 1.0f / (1.0f + std::exp(-std::clamp(v, -10.0f, 10.0f)));
         };
@@ -1066,7 +1180,63 @@ private:
             return (union_area > 0.0f) ? (inter / union_area) : 0.0f;
         };
 
-        for (const auto &person : person_detections) {
+        // If YOLO-seg did not report a person box (e.g. close-up face portrait), extract high-confidence
+        // person boxes directly from yolov8s_pose's own classification + DFL box heads when active.
+        std::vector<DetectionBBox> effective_persons = person_detections;
+        if (effective_persons.empty() && global_max_cls >= conf_thresh) {
+            std::vector<DetectionBBox> raw_pose_boxes;
+            for (size_t si = 0; si < num_scales; ++si) {
+                const auto &sc = scales[si];
+                if (!sc.cls_ptr || !sc.bbox_ptr) continue;
+                const int stride = sc.stride;
+                for (int gy = 0; gy < sc.gh; ++gy) {
+                    float cell_y_px = (gy + 0.5f) * stride;
+                    if (cell_y_px < pose_pad_y_ || cell_y_px > (pose_input_h_ - pose_pad_y_)) continue;
+                    for (int gx = 0; gx < sc.gw; ++gx) {
+                        const int cell_idx = gy * sc.gw + gx;
+                        const float cls_score = sc.cls_ptr[cell_idx];
+                        if (cls_score < conf_thresh) continue;
+                        const float *bc = sc.bbox_ptr + (cell_idx * 64);
+                        float dfl[4];
+                        for (int b = 0; b < 4; ++b) dfl[b] = decode_dfl_fn(bc + b * 16);
+                        float bx1 = (gx + 0.5f - dfl[0]) * stride;
+                        float by1 = (gy + 0.5f - dfl[1]) * stride;
+                        float bx2 = (gx + 0.5f + dfl[2]) * stride;
+                        float by2 = (gy + 0.5f + dfl[3]) * stride;
+                        float nx1 = std::clamp((bx1 - pose_pad_x_) / (pose_scale_ * orig_w), 0.0f, 1.0f);
+                        float ny1 = std::clamp((by1 - pose_pad_y_) / (pose_scale_ * orig_h), 0.0f, 1.0f);
+                        float nx2 = std::clamp((bx2 - pose_pad_x_) / (pose_scale_ * orig_w), 0.0f, 1.0f);
+                        float ny2 = std::clamp((by2 - pose_pad_y_) / (pose_scale_ * orig_h), 0.0f, 1.0f);
+                        if (nx2 > nx1 && ny2 > ny1) {
+                            raw_pose_boxes.push_back({nx1, ny1, nx2, ny2, cls_score, 0, "person"});
+                        }
+                    }
+                }
+            }
+            std::sort(raw_pose_boxes.begin(), raw_pose_boxes.end(),
+                      [](const DetectionBBox &a, const DetectionBBox &b) { return a.confidence > b.confidence; });
+            for (const auto &box : raw_pose_boxes) {
+                bool keep = true;
+                for (const auto &sel : effective_persons) {
+                    if (compute_box_iou(box.xmin, box.ymin, box.xmax, box.ymax,
+                                        sel.xmin, sel.ymin, sel.xmax, sel.ymax) > 0.45f) {
+                        keep = false;
+                        break;
+                    }
+                }
+                if (keep) {
+                    effective_persons.push_back(box);
+                }
+            }
+        }
+
+        if (effective_persons.empty()) {
+            return result_poses;
+        }
+
+        const bool has_active_cls_head = (global_max_cls >= 0.15f);
+
+        for (const auto &person : effective_persons) {
             const float px1_model = person.xmin * orig_w * pose_scale_ + pose_pad_x_;
             const float py1_model = person.ymin * orig_h * pose_scale_ + pose_pad_y_;
             const float px2_model = person.xmax * orig_w * pose_scale_ + pose_pad_x_;
@@ -1076,10 +1246,11 @@ private:
             const float p_cx = (px1_model + px2_model) * 0.5f;
             const float p_cy = (py1_model + py2_model) * 0.5f;
 
-            // Winner bookkeeping for pose cell selection (DFL Box IoU + Keypoint Energy)
+            // Winner bookkeeping for pose cell selection (Classification + DFL Box IoU + Keypoint Energy)
             int win_scale = -1, win_gx = 0, win_gy = 0;
             float win_score = -1.0f;
             float win_iou = 0.0f;
+            float win_cls = 0.0f;
             int win_visible = 0;
             float win_sum_conf = 0.0f;
             PersonPose best_pose;
@@ -1114,6 +1285,11 @@ private:
 
                         for (int gx = min_gx; gx <= max_gx; ++gx) {
                             const int cell_idx = gy * sc.gw + gx;
+                            const float cls_val = sc.cls_ptr ? sc.cls_ptr[cell_idx] : 0.0f;
+                            if (has_active_cls_head && cls_val < 0.15f) {
+                                continue;
+                            }
+
                             const float *bc = sc.bbox_ptr + (cell_idx * 64);
                             const float *kc = sc.kpt_ptr + (cell_idx * 51);
 
@@ -1157,7 +1333,8 @@ private:
                                 }
                             }
 
-                            if (visible_joints < 4) continue;
+                            const int min_req_joints = (has_active_cls_head && cls_val >= 0.35f) ? 3 : 4;
+                            if (visible_joints < min_req_joints) continue;
 
                             // 3. Anatomical Keypoint Validation
                             // Reject collapsed sticks at top border (Y=0.00) if person is in the lower frame
@@ -1175,8 +1352,13 @@ private:
                             else if (p_h >= 80.0f && p_h < 180.0f && stride == 16) scale_weight = 1.2f;
                             else if (p_h < 100.0f && stride == 8) scale_weight = 1.2f;
 
-                            // Composite score combining DFL IoU with person box + Keypoint energy + Torso
-                            const float score = (iou * 15.0f + sum_conf * 1.0f + visible_joints * 0.5f + torso_conf * 3.0f) * scale_weight;
+                            // Composite score combining Classification + DFL IoU + Keypoint energy + Torso
+                            float score = 0.0f;
+                            if (has_active_cls_head) {
+                                score = (cls_val * (0.5f + iou) * 25.0f + sum_conf * 1.0f + visible_joints * 0.4f + torso_conf * 2.0f) * scale_weight;
+                            } else {
+                                score = (iou * 15.0f + sum_conf * 1.0f + visible_joints * 0.5f + torso_conf * 3.0f) * scale_weight;
+                            }
 
                             if (score > win_score) {
                                 win_score = score;
@@ -1184,6 +1366,7 @@ private:
                                 win_gx = gx;
                                 win_gy = gy;
                                 win_iou = iou;
+                                win_cls = cls_val;
                                 win_visible = visible_joints;
                                 win_sum_conf = sum_conf;
                                 best_pose.keypoints = candidate_kpts;
@@ -1212,8 +1395,8 @@ private:
                 const auto &ank_l = best_pose.keypoints[15];
                 const auto &wsc = scales[win_scale];
                 RCLCPP_INFO(this->get_logger(),
-                    "🕺 [HAILO-POSE-MATCH] Stride=%d cell=(%d,%d) IoU=%.2f score=%.2f vis=%d sumConf=%.2f | Nose=(%.2f,%.2f c=%.2f) ShL=(%.2f,%.2f c=%.2f) ShR=(%.2f,%.2f c=%.2f) WriL=(%.2f,%.2f c=%.2f) WriR=(%.2f,%.2f c=%.2f) AnkL=(%.2f,%.2f c=%.2f)",
-                    wsc.stride, win_gx, win_gy, win_iou, win_score, win_visible, win_sum_conf,
+                    "🕺 [HAILO-POSE-MATCH] Stride=%d cell=(%d,%d) cls=%.2f IoU=%.2f score=%.2f vis=%d sumConf=%.2f | Nose=(%.2f,%.2f c=%.2f) ShL=(%.2f,%.2f c=%.2f) ShR=(%.2f,%.2f c=%.2f) WriL=(%.2f,%.2f c=%.2f) WriR=(%.2f,%.2f c=%.2f) AnkL=(%.2f,%.2f c=%.2f)",
+                    wsc.stride, win_gx, win_gy, win_cls, win_iou, win_score, win_visible, win_sum_conf,
                     nose.x, nose.y, nose.confidence,
                     sh_l.x, sh_l.y, sh_l.confidence,
                     sh_r.x, sh_r.y, sh_r.confidence,
@@ -1226,7 +1409,7 @@ private:
         if (should_log && !result_poses.empty()) {
             RCLCPP_INFO(this->get_logger(),
                 "🕺 [HAILO-POSE-OFFICIAL] Poses tracked: %zu (persons input: %zu)",
-                result_poses.size(), person_detections.size());
+                result_poses.size(), effective_persons.size());
         }
 
         return result_poses;
@@ -1377,9 +1560,338 @@ private:
                     }
                 }
                 marker_array.markers.push_back(bones_marker);
+
+                // 17 Normalized Keypoints Marker for Downstream Skills (FollowPerson, Gestures, ToM)
+                visualization_msgs::msg::Marker kp17_marker;
+                kp17_marker.header = header;
+                kp17_marker.header.frame_id = "camera_optical_frame";
+                kp17_marker.ns = "pose_keypoints_17";
+                kp17_marker.id = static_cast<int>(i);
+                kp17_marker.type = visualization_msgs::msg::Marker::POINTS;
+                kp17_marker.action = visualization_msgs::msg::Marker::ADD;
+                kp17_marker.scale.x = 0.02;
+                kp17_marker.scale.y = 0.02;
+                kp17_marker.scale.z = 0.02;
+                kp17_marker.color.r = 0.0f;
+                kp17_marker.color.g = 1.0f;
+                kp17_marker.color.b = 0.2f;
+                kp17_marker.color.a = 1.0f;
+                kp17_marker.lifetime = rclcpp::Duration::from_seconds(0.5);
+                kp17_marker.text = last_recognized_identity_;
+                for (size_t k = 0; k < 17; ++k) {
+                    geometry_msgs::msg::Point pt;
+                    pt.x = p.keypoints[k].x;
+                    pt.y = p.keypoints[k].y;
+                    pt.z = p.keypoints[k].confidence;
+                    kp17_marker.points.push_back(pt);
+                }
+                marker_array.markers.push_back(kp17_marker);
             }
 
             pub_pose_markers_->publish(marker_array);
+        }
+    }
+
+    // =========================================================================
+    // 👤 BIOMETRIC FACE RECOGNITION ON SHARED VDEVICE (SPEC-03, FM-VIS-007)
+    // =========================================================================
+
+    static bool read_npy_float32_512(const std::filesystem::path &npy_path, std::array<float, 512> &out_vec) {
+        std::ifstream ifs(npy_path, std::ios::binary | std::ios::ate);
+        if (!ifs.is_open()) return false;
+        const std::streamsize total_size = ifs.tellg();
+        constexpr std::streamsize payload_bytes = 512 * sizeof(float);
+        if (total_size < payload_bytes + 64) return false;
+
+        // NumPy .npy format stores the raw contiguous float32 array in the last 512*4 bytes
+        ifs.seekg(total_size - payload_bytes, std::ios::beg);
+        ifs.read(reinterpret_cast<char *>(out_vec.data()), payload_bytes);
+        if (!ifs) return false;
+
+        // Enforce strict L2 unit normalization (SPEC-03 Red Zone: ||v||_2 = 1.0)
+        float norm_sq = 0.0f;
+        for (float v : out_vec) norm_sq += v * v;
+        float norm = std::sqrt(norm_sq);
+        if (norm < 1e-6f || !std::isfinite(norm)) return false;
+        for (float &v : out_vec) v /= norm;
+        return true;
+    }
+
+    static bool save_npy_float32_512(const std::filesystem::path &npy_path, const std::array<float, 512> &vec) {
+        std::ofstream ofs(npy_path, std::ios::binary | std::ios::trunc);
+        if (!ofs.is_open()) return false;
+        // Standard NumPy v1.0 header for shape (512,), '<f4', C-contiguous, total header 128 bytes
+        const std::string magic = "\x93NUMPY\x01\x00";
+        std::string dict = "{'descr': '<f4', 'fortran_order': False, 'shape': (512,), }";
+        while ((magic.size() + 2 + dict.size() + 1) % 64 != 0) {
+            dict.push_back(' ');
+        }
+        dict.push_back('\n');
+        const uint16_t header_len = static_cast<uint16_t>(dict.size());
+        ofs.write(magic.data(), magic.size());
+        ofs.put(static_cast<char>(header_len & 0xFF));
+        ofs.put(static_cast<char>((header_len >> 8) & 0xFF));
+        ofs.write(dict.data(), dict.size());
+        ofs.write(reinterpret_cast<const char *>(vec.data()), 512 * sizeof(float));
+        return ofs.good();
+    }
+
+    void load_known_faces() {
+        known_faces_db_.clear();
+        std::error_code ec;
+        std::filesystem::path root(known_faces_dir_);
+        if (!std::filesystem::exists(root, ec) || !std::filesystem::is_directory(root, ec)) {
+            RCLCPP_WARN(this->get_logger(),
+                "👤 [HAILO-FACE] Directory known_faces non trovata: %s", known_faces_dir_.c_str());
+            return;
+        }
+
+        for (const auto &entry : std::filesystem::directory_iterator(root, ec)) {
+            if (!entry.is_directory(ec)) continue;
+            std::string person_name = entry.path().filename().string();
+            std::filesystem::path emb_path = entry.path() / "embedding.npy";
+            std::array<float, 512> emb{};
+            if (read_npy_float32_512(emb_path, emb)) {
+                known_faces_db_[person_name] = emb;
+                RCLCPP_INFO(this->get_logger(),
+                    "👤 [HAILO-FACE] Caricato embedding ArcFace 512-dim L2-norm per '%s'",
+                    person_name.c_str());
+            }
+        }
+        RCLCPP_INFO(this->get_logger(),
+            "👤 [HAILO-FACE] Database biometrico pronto: %zu identita' registrate (soglia=%.2f)",
+            known_faces_db_.size(), face_similarity_threshold_);
+    }
+
+    void enroll_callback(const std_msgs::msg::String::SharedPtr msg) {
+        std::string name = msg->data;
+        // Trim whitespace
+        name.erase(name.begin(), std::find_if(name.begin(), name.end(),
+            [](unsigned char ch) { return !std::isspace(ch); }));
+        name.erase(std::find_if(name.rbegin(), name.rend(),
+            [](unsigned char ch) { return !std::isspace(ch); }).base(), name.end());
+        std::transform(name.begin(), name.end(), name.begin(),
+            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+        if (name.empty()) return;
+        enroll_target_name_ = name;
+        enroll_samples_.clear();
+        RCLCPP_INFO(this->get_logger(),
+            "📸 [HAILO-FACE-ENROLL] Avviato enrollment dinamico per '%s' (raccolta 10 frame validi)...",
+            enroll_target_name_.c_str());
+    }
+
+    static cv::Mat compute_similarity_3pt(const cv::Point2f src[3]) {
+        // ArcFace standard 112x112 3-point reference landmarks: [img_left_eye, img_right_eye, nose]
+        static constexpr float dst[3][2] = {
+            {38.2946f, 51.6963f},
+            {73.5318f, 51.5014f},
+            {56.0252f, 71.7366f}
+        };
+        float sx_mean = (src[0].x + src[1].x + src[2].x) / 3.0f;
+        float sy_mean = (src[0].y + src[1].y + src[2].y) / 3.0f;
+        float dx_mean = (dst[0][0] + dst[1][0] + dst[2][0]) / 3.0f;
+        float dy_mean = (dst[0][1] + dst[1][1] + dst[2][1]) / 3.0f;
+
+        float num_a = 0.0f;
+        float num_b = 0.0f;
+        float den = 0.0f;
+        for (int i = 0; i < 3; ++i) {
+            float sx = src[i].x - sx_mean;
+            float sy = src[i].y - sy_mean;
+            float dx = dst[i][0] - dx_mean;
+            float dy = dst[i][1] - dy_mean;
+            num_a += sx * dx + sy * dy;
+            num_b += sx * dy - sy * dx;
+            den += sx * sx + sy * sy;
+        }
+        if (den < 1e-6f) {
+            return cv::Mat::eye(2, 3, CV_32F);
+        }
+        float a = num_a / den;
+        float b = num_b / den;
+        float tx = dx_mean - (a * sx_mean - b * sy_mean);
+        float ty = dy_mean - (b * sx_mean + a * sy_mean);
+
+        cv::Mat M(2, 3, CV_32F);
+        M.at<float>(0, 0) = a;  M.at<float>(0, 1) = -b; M.at<float>(0, 2) = tx;
+        M.at<float>(1, 0) = b;  M.at<float>(1, 1) =  a; M.at<float>(1, 2) = ty;
+        return M;
+    }
+
+    void recognize_faces(const std_msgs::msg::Header &header,
+                         const cv::Mat &frame_bgr,
+                         std::vector<PersonPose> &poses,
+                         std::vector<DetectionBBox> &detections) {
+        if (!enable_face_recognition_ || poses.empty() || frame_bgr.empty()) return;
+
+        vision_msgs::msg::Detection2DArray face_det_array;
+        face_det_array.header = header;
+
+        std::string best_frame_identity;
+        float best_frame_sim = 0.0f;
+
+        for (auto &pose : poses) {
+            // Keypoints: 0=nose, 1=left_eye (anatomical), 2=right_eye (anatomical)
+            const auto &kp_nose = pose.keypoints[0];
+            const auto &kp_leye = pose.keypoints[1];
+            const auto &kp_reye = pose.keypoints[2];
+
+            if (kp_nose.confidence < 0.45f || kp_leye.confidence < 0.45f || kp_reye.confidence < 0.45f) {
+                continue;
+            }
+
+            cv::Point2f pt_nose(kp_nose.x * frame_bgr.cols, kp_nose.y * frame_bgr.rows);
+            cv::Point2f pt_1(kp_leye.x * frame_bgr.cols, kp_leye.y * frame_bgr.rows);
+            cv::Point2f pt_2(kp_reye.x * frame_bgr.cols, kp_reye.y * frame_bgr.rows);
+
+            // In image coordinates, left-side eye has smaller X than right-side eye
+            cv::Point2f img_left_eye  = (pt_1.x < pt_2.x) ? pt_1 : pt_2;
+            cv::Point2f img_right_eye = (pt_1.x < pt_2.x) ? pt_2 : pt_1;
+            float eye_dist = cv::norm(img_right_eye - img_left_eye);
+            if (eye_dist < 8.0f) {
+                continue; // Face too small or turned away
+            }
+
+            std::string matched_name = "unknown";
+            float best_sim = 0.0f;
+
+#if HAILO_CPP_AVAILABLE
+            if (hailo_arcface_ready_ && !arcface_input_name_.empty() &&
+                arcface_input_buffers_.count(arcface_input_name_) &&
+                !arcface_output_name_.empty() &&
+                arcface_output_buffers_.count(arcface_output_name_)) {
+
+                cv::Point2f src_pts[3] = {img_left_eye, img_right_eye, pt_nose};
+                cv::Mat M = compute_similarity_3pt(src_pts);
+                cv::Mat aligned_bgr(112, 112, CV_8UC3);
+                cv::warpAffine(frame_bgr, aligned_bgr, M, cv::Size(112, 112),
+                               cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar(0, 0, 0));
+
+                // Quality guard against extreme dark/saturated IR frames (SPEC-03 Green Zone)
+                cv::Scalar mean_bgr = cv::mean(aligned_bgr);
+                double mean_luma = (mean_bgr[0] + mean_bgr[1] + mean_bgr[2]) / 3.0;
+                if (mean_luma >= 15.0 && mean_luma <= 245.0) {
+                    cv::Mat aligned_rgb(112, 112, CV_8UC3, arcface_input_buffers_[arcface_input_name_].data());
+                    cv::cvtColor(aligned_bgr, aligned_rgb, cv::COLOR_BGR2RGB);
+
+                    hailo_status af_status = configured_infer_model_arcface_->run(
+                        *bindings_arcface_, std::chrono::milliseconds(500));
+                    if (af_status == HAILO_SUCCESS) {
+                        const auto &raw_out = arcface_output_buffers_[arcface_output_name_];
+                        if (raw_out.size() >= 512) {
+                            std::array<float, 512> emb{};
+                            float norm_sq = 0.0f;
+                            for (size_t i = 0; i < 512; ++i) {
+                                emb[i] = raw_out[i];
+                                norm_sq += emb[i] * emb[i];
+                            }
+                            float norm = std::sqrt(norm_sq);
+                            if (norm > 1e-6f) {
+                                for (float &v : emb) v /= norm;
+
+                                // Handle dynamic enrollment if active
+                                if (!enroll_target_name_.empty()) {
+                                    enroll_samples_.push_back(emb);
+                                    RCLCPP_INFO(this->get_logger(),
+                                        "📸 [HAILO-FACE-ENROLL] Campione %zu/10 acquisito per '%s'",
+                                        enroll_samples_.size(), enroll_target_name_.c_str());
+                                    if (enroll_samples_.size() >= 10) {
+                                        std::array<float, 512> mean_emb{};
+                                        for (const auto &s : enroll_samples_) {
+                                            for (size_t i = 0; i < 512; ++i) mean_emb[i] += s[i];
+                                        }
+                                        float m_norm_sq = 0.0f;
+                                        for (float &v : mean_emb) {
+                                            v /= static_cast<float>(enroll_samples_.size());
+                                            m_norm_sq += v * v;
+                                        }
+                                        float m_norm = std::sqrt(m_norm_sq);
+                                        if (m_norm > 1e-6f) {
+                                            for (float &v : mean_emb) v /= m_norm;
+                                            known_faces_db_[enroll_target_name_] = mean_emb;
+                                            std::error_code ec;
+                                            std::filesystem::path p_dir = std::filesystem::path(known_faces_dir_) / enroll_target_name_;
+                                            std::filesystem::create_directories(p_dir, ec);
+                                            save_npy_float32_512(p_dir / "embedding.npy", mean_emb);
+                                            RCLCPP_INFO(this->get_logger(),
+                                                "✅ [HAILO-FACE-ENROLL] Enrollment completato e salvato per '%s'!",
+                                                enroll_target_name_.c_str());
+                                        }
+                                        enroll_target_name_.clear();
+                                        enroll_samples_.clear();
+                                    }
+                                }
+
+                                // Cosine similarity matching against enrolled database
+                                for (const auto &kv : known_faces_db_) {
+                                    float dot = 0.0f;
+                                    for (size_t i = 0; i < 512; ++i) {
+                                        dot += emb[i] * kv.second[i];
+                                    }
+                                    if (dot > best_sim) {
+                                        best_sim = dot;
+                                        matched_name = kv.first;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+#endif
+            const bool is_recognized = (best_sim >= face_similarity_threshold_ && matched_name != "unknown");
+            const std::string final_id = is_recognized ? matched_name : "unknown";
+
+            if (is_recognized) {
+                pose.recognized_name = final_id;
+                pose.face_similarity = best_sim;
+                if (best_sim > best_frame_sim) {
+                    best_frame_sim = best_sim;
+                    best_frame_identity = final_id;
+                }
+                // Enrich matching detection label for Foxglove / RViz display
+                for (auto &det : detections) {
+                    if (det.class_id == 0 &&
+                        std::abs(det.xmin - pose.bbox.xmin) < 0.08f &&
+                        std::abs(det.ymin - pose.bbox.ymin) < 0.08f) {
+                        det.label = final_id;
+                        det.confidence = best_sim;
+                    }
+                }
+            }
+
+            // Build face bounding box from facial keypoints for /hailo/face/detections
+            float f_cx = (img_left_eye.x + img_right_eye.x + pt_nose.x) / 3.0f;
+            float f_cy = (img_left_eye.y + img_right_eye.y + pt_nose.y) / 3.0f;
+            float f_size = std::max(32.0f, eye_dist * 2.8f);
+
+            vision_msgs::msg::Detection2D face_det;
+            face_det.header = header;
+            face_det.bbox.center.position.x = f_cx;
+            face_det.bbox.center.position.y = f_cy;
+            face_det.bbox.size_x = f_size;
+            face_det.bbox.size_y = f_size * 1.15;
+
+            vision_msgs::msg::ObjectHypothesisWithPose hyp;
+            hyp.hypothesis.class_id = final_id;
+            hyp.hypothesis.score = is_recognized ? best_sim : kp_nose.confidence;
+            face_det.results.push_back(hyp);
+            face_det_array.detections.push_back(face_det);
+        }
+
+        if (!face_det_array.detections.empty() && pub_face_detections_) {
+            pub_face_detections_->publish(face_det_array);
+        }
+
+        if (!best_frame_identity.empty() && pub_face_identity_) {
+            last_recognized_identity_ = best_frame_identity;
+            std_msgs::msg::String id_msg;
+            id_msg.data = best_frame_identity;
+            pub_face_identity_->publish(id_msg);
+            RCLCPP_INFO_THROTTLE(this->get_logger(), *this->get_clock(), 2000,
+                "👤 [HAILO-FACE-ID] Riconosciuto '%s' (cosine=%.3f)",
+                best_frame_identity.c_str(), best_frame_sim);
         }
     }
 
@@ -1435,6 +1947,30 @@ private:
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr pub_pose_markers_;
     rclcpp::Publisher<vision_msgs::msg::Detection2DArray>::SharedPtr pub_pose_detections_;
 
+    // Biometric Face Recognition on Shared VDevice (SPEC-03)
+    bool enable_face_recognition_{true};
+    std::string arcface_hef_path_;
+    std::string known_faces_dir_;
+    float face_similarity_threshold_{0.68f};
+    bool hailo_arcface_ready_{false};
+
+    std::string arcface_input_name_;
+    std::string arcface_output_name_;
+    std::unordered_map<std::string, std::vector<uint8_t>> arcface_input_buffers_;
+    std::unordered_map<std::string, std::vector<float>> arcface_output_buffers_;
+    std::unordered_map<std::string, std::array<float, 512>> known_faces_db_;
+    std::string enroll_target_name_;
+    std::vector<std::array<float, 512>> enroll_samples_;
+
+    rclcpp::Publisher<vision_msgs::msg::Detection2DArray>::SharedPtr pub_face_detections_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_face_identity_;
+    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr sub_face_enroll_;
+
+    // Hailo VDevice Yielding & Arbitration (IMP-BIO-001)
+    std::atomic<bool> vdevice_yielded_{false};
+    rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr srv_yield_vdevice_;
+    std::string last_recognized_identity_{"unknown"};
+
 #if HAILO_CPP_AVAILABLE
     std::unique_ptr<hailort::VDevice> vdevice_;
     std::shared_ptr<hailort::InferModel> infer_model_;
@@ -1444,6 +1980,10 @@ private:
     std::shared_ptr<hailort::InferModel> infer_model_pose_;
     std::unique_ptr<hailort::ConfiguredInferModel> configured_infer_model_pose_;
     std::unique_ptr<hailort::ConfiguredInferModel::Bindings> bindings_pose_;
+
+    std::shared_ptr<hailort::InferModel> infer_model_arcface_;
+    std::unique_ptr<hailort::ConfiguredInferModel> configured_infer_model_arcface_;
+    std::unique_ptr<hailort::ConfiguredInferModel::Bindings> bindings_arcface_;
 #endif
 };
 

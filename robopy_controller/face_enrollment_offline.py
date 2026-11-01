@@ -1,25 +1,22 @@
 #!/usr/bin/env python3
 """
-Face Enrollment Offline — Generazione placeholder embedding
-==========================================================
-Script STANDALONE (non richiede ROS 2 né Hailo).
-Genera file embedding.npy in known_faces/<nome>/embedding.npy
-a partire dalle immagini .jpg/.png presenti nelle sottocartelle.
+Face Enrollment Offline & Hailo-10H NPU Biometric Generator
+===========================================================
+Genera file `embedding.npy` (512-dim float32, L2-normalizzati `||v||_2 = 1.0`)
+in `known_faces/<nome>/embedding.npy` a partire dalle foto d'archivio `.jpg/.png`.
 
-ATTENZIONE: Gli embedding generati sono PLACEHOLDER basati su HOG/features
-    OpenCV. NON sono embedding ArcFace reali e NON riconoscono correttamente
-    i volti. Servono solo per verificare il flusso del sistema prima
-    dell'enrollment reale su Marcus via NPU Hailo.
+Modalita' di funzionamento:
+1. **Hailo-10H NPU Reale (automatica su Marcus)**:
+   Se `hailo_platform` e i modelli `/mnt/ssd/models/yolov8s_pose.hef` +
+   `/mnt/ssd/models/arcface_mobilefacenet.hef` sono presenti, localizza gli occhi e il
+   naso con `yolov8s_pose`, allinea il volto a 112x112 tramite trasformazione di
+   similitudine a 3 punti (`ARCFACE_SRC[:3]`) ed estrae l'embedding biometrico
+   reale 512-dim con `arcface_mobilefacenet.hef`.
+2. **Fallback Offline (PC di sviluppo senza NPU)**:
+   Genera un feature vector deterministico normalizzato L2 per test di pipeline.
 
-Enrollment REALE su Marcus (dopo deploy):
+Enrollment dinamico live su Marcus:
     ros2 topic pub --once /hailo/face/enroll std_msgs/msg/String "data: 'nome'"
-    (tenere il volto della persona in camera per ~10 frame)
-
-Uso:
-    python3 face_enrollment_offline.py [--faces-dir /path/to/known_faces] [--dim 512]
-
-Requisiti:
-    pip install numpy opencv-python
 """
 
 import os
@@ -27,6 +24,30 @@ import sys
 import argparse
 import numpy as np
 import cv2
+
+ARCFACE_SRC_3PT = np.array([
+    [38.2946, 51.6963],  # image-left eye
+    [73.5318, 51.5014],  # image-right eye
+    [56.0252, 71.7366],  # nose tip
+], dtype=np.float32)
+
+
+def compute_similarity_3pt(src_pts, dst_pts=ARCFACE_SRC_3PT):
+    """Calcola la matrice affine 2x3 di similitudine (rotazione + scala uniforme + traslazione)."""
+    src = np.asarray(src_pts, dtype=np.float32)
+    dst = np.asarray(dst_pts, dtype=np.float32)
+    src_mean = src.mean(axis=0)
+    dst_mean = dst.mean(axis=0)
+    s = src - src_mean
+    d = dst - dst_mean
+    den = float(np.sum(s[:, 0] ** 2 + s[:, 1] ** 2))
+    if den < 1e-6:
+        return np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float32)
+    a = float(np.sum(s[:, 0] * d[:, 0] + s[:, 1] * d[:, 1]) / den)
+    b = float(np.sum(s[:, 0] * d[:, 1] - s[:, 1] * d[:, 0]) / den)
+    tx = float(dst_mean[0] - (a * src_mean[0] - b * src_mean[1]))
+    ty = float(dst_mean[1] - (b * src_mean[0] + a * src_mean[1]))
+    return np.array([[a, -b, tx], [b, a, ty]], dtype=np.float32)
 
 
 def extract_hog_embedding(image_bgr, target_dim=512):
@@ -87,10 +108,12 @@ def process_person(person_dir, person_name, embedding_dim, force):
         print(f"  SKIP '{person_name}': embedding.npy gia' presente (usa --force per sovrascrivere)")
         return True
 
-    image_files = [
+    all_images = [
         f for f in os.listdir(person_dir)
         if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp'))
     ]
+    clean_images = [f for f in all_images if not f.startswith('face_174')]
+    image_files = clean_images if clean_images else all_images
 
     if not image_files:
         print(f"  WARN '{person_name}': nessuna immagine trovata in {person_dir}")

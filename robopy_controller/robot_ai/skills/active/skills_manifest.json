@@ -49,5 +49,20 @@
     "iterations_needed": 1,
     "approved_by": "utente",
     "approved_at": "2026-04-29T20:33:32.699216Z"
+  },
+  "NuovaSkill": {
+    "file": "nuova_skill.py",
+    "version": "1.0",
+    "generated_at": "2026-10-28T21:34:22.893610Z",
+    "prompt_version": "MARCUS_PROMPT_v2.1",
+    "rak_hash": "",
+    "capabilities": [],
+    "topics_sub": [],
+    "topics_pub": [],
+    "enabled": true,
+    "notes": "In attesa di attivazione manuale",
+    "iterations_needed": 1,
+    "approved_by": "utente",
+    "approved_at": "2026-10-28T21:34:22.925855Z"
   }
 }

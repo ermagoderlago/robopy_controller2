@@ -302,13 +302,24 @@ def generate_fallback_verbal_confirmation(func_name: str, args: Optional[Dict[st
     the model emitted only an action block without spoken text.
     Never leaks raw English function names.
     """
-    args = args or {}
+    args = dict(args or {})
     if func_name == "pause_or_resume_exploration":
         act = str(args.get("action", "pause")).lower()
         if act == "pause":
             return "Metto in pausa l'esplorazione."
         elif act == "resume":
             return "Riprendo subito l'esplorazione delle frontiere!"
+
+    if func_name == "navigate_to":
+        dest = args.get("destination") or args.get("target_room") or args.get("room")
+        if dest:
+            args["destination"] = dest
+
+    if func_name == "move_distance":
+        if "direction" not in args:
+            args["direction"] = "avanti"
+        if "distance_m" not in args and "distance" in args:
+            args["distance_m"] = args["distance"]
 
     template = ACTION_VERBAL_CONFIRMATIONS.get(func_name)
     if template:
@@ -390,7 +401,7 @@ class RawJsonCall:
     """Representation of an extracted function call before sandbox validation."""
     function_name: str
     arguments: Dict[str, Any]
-    raw_payload: str
+    raw_payload: str = ""
     extraction_latency_us: float = 0.0
     repaired: bool = False
 

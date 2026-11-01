@@ -703,5 +703,42 @@ async def test_memory_stability_100_cycles():
     logger.info("PASS: Memory stability 100 cycles (RSS delta = %.3f MB).", rss_delta)
 
 
+@pytest.mark.asyncio
+async def test_multi_turn_chatml_and_history_isolation():
+    """Verify that multi-turn ChatML prompts extract the latest user query and isolate recent dialogue."""
+    client = HailoQwenClient(HailoQwenConfig(enable_mock_fallback=True))
+    client.mode = InferenceMode.MOCK_ENGINE
+
+    # Multi-turn ChatML with multiple user/assistant blocks
+    multi_turn_prompt = (
+        "<|im_start|>system\nSei Marcus\n<|im_end|>\n"
+        "<|im_start|>user\nCiao Marcus, chi sei?\n<|im_end|>\n"
+        "<|im_start|>assistant\nSono Marcus...\n<|im_end|>\n"
+        "<|im_start|>user\nDove siamo?\n<|im_end|>\n"
+        "<|im_start|>assistant\n"
+    )
+    res_multi, _ = await client.generate(multi_turn_prompt)
+    assert any(w in res_multi.lower() for w in ["troviamo", "stanza", "salotto", "mappa", "qui"]), (
+        f"Expected location response for 'Dove siamo?', got: {res_multi}"
+    )
+
+    # TRINITY fused ChatML with [CONVERSAZIONE RECENTE] followed by user query
+    trinity_prompt = (
+        "<|im_start|>system\nSei Marcus\n<|im_end|>\n"
+        "<|im_start|>user\n"
+        "[CONVERSAZIONE RECENTE]\n"
+        "Utente: Ciao Marcus, chi sei?\n"
+        "Marcus: Sono Marcus...\n\n"
+        "Quanta batteria hai?\n"
+        "<|im_end|>\n"
+        "<|im_start|>assistant\n"
+    )
+    res_batt, _ = await client.generate(trinity_prompt)
+    assert any(w in res_batt.lower() for w in ["batteria", "volt", "%", "85%"]), (
+        f"Expected battery response for 'Quanta batteria hai?', got: {res_batt}"
+    )
+    await client.close()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])

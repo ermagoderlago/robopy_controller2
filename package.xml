@@ -28,6 +28,7 @@
   <depend>tf2_eigen</depend>
   <depend>image_transport</depend>
   <depend>nav_msgs</depend>
+  <depend>std_srvs</depend>
 
 
   <!-- Dipendenze di build -->

@@ -215,6 +215,10 @@ class LLMServiceNode(Node):
         """Crea il lock del circuit breaker nel thread corretto."""
         self._breaker._lock = asyncio.Lock()
 
+    @property
+    def circuit_breaker(self) -> CircuitBreaker:
+        return self._breaker
+
     # -----------------------------------------------------------------------
     # Parametri
     # -----------------------------------------------------------------------
@@ -415,11 +419,6 @@ class LLMServiceNode(Node):
             "circuit_breaker_state": self._breaker.state,  # property con threading.Lock
         }
         self.pub_stats.publish(String(data=json.dumps(stats)))
-
-    @property
-    def circuit_breaker(self):
-        """Espone il CircuitBreaker per interrogazione stato da ConversationManager."""
-        return self._breaker
 
     def _get_active_system_prompt(self) -> str:
         """
@@ -847,6 +846,8 @@ class LLMServiceNode(Node):
 
     def _on_live_fallback_needed(self, err_reason: str):
         self.get_logger().warning(f"⚠️ [Live API Fallback] Triggerato fallback su Qwen NPU per errore: {err_reason}")
+        if hasattr(self, '_breaker') and hasattr(self._breaker, 'trip_open'):
+            self._breaker.trip_open(300.0, reason=err_reason)
         if hasattr(self, 'pub_fallback'):
             msg = String()
             msg.data = f"Gemini non disponibile ({err_reason})"
@@ -917,28 +918,42 @@ class LLMServiceNode(Node):
 
     async def generate_live(self, prompt: str, context=None, functions=None, images=None, documents=None):
         """
-        Bridge verso il Live Connection Manager con supporto cross-loop.
+        Bridge verso il Live Connection Manager con supporto cross-loop e circuit breaker.
         """
+        if hasattr(self, '_breaker') and self._breaker.state == "OPEN":
+            raise Exception("Circuit breaker [llm] OPEN — live generation bloccata per failover locale")
+
         if self._live_mgr:
-            coro = self._live_mgr.generate_live(prompt, context, functions, images, documents)
-            future = asyncio.run_coroutine_threadsafe(coro, self._loop)
-            return await asyncio.wrap_future(future)
+            try:
+                coro = self._live_mgr.generate_live(prompt, context, functions, images, documents)
+                future = asyncio.run_coroutine_threadsafe(coro, self._loop)
+                return await asyncio.wrap_future(future)
+            except Exception as e:
+                str_e = str(e)
+                if any(tag in str_e for tag in ("RESOURCE_EXHAUSTED", "spending cap", "429", "PERMISSION_DENIED")):
+                    self.get_logger().warning(f"Errore quota in generate_live ({e}): apertura immediata circuit breaker per 300s.")
+                    if hasattr(self, '_breaker') and hasattr(self._breaker, 'trip_open'):
+                        self._breaker.trip_open(300.0, reason=str_e)
+                raise
         raise RuntimeError("Live connection manager non configurato.")
 
     async def send_audio_chunk(self, audio_data: bytes):
-        if self._live_mgr:
-            self._live_mgr.send_audio_chunk(audio_data)
+        mgr = getattr(self, '_live_mgr', None)
+        if mgr:
+            mgr.send_audio_chunk(audio_data)
 
     def is_duplicate_text(self, text: str) -> bool:
         """[v15.2] Verifica se il testo corrisponde a una trascrizione recente della Live API per evitare duplicati."""
-        if self._live_mgr and hasattr(self._live_mgr, 'is_duplicate_text'):
-            return self._live_mgr.is_duplicate_text(text)
+        mgr = getattr(self, '_live_mgr', None)
+        if mgr and hasattr(mgr, 'is_duplicate_text'):
+            return mgr.is_duplicate_text(text)
         return False
 
     def get_last_mic_audio_time(self) -> float:
         """[v15.2] Restituisce il timestamp dell'ultimo chunk audio registrato dal microfono."""
-        if self._live_mgr and hasattr(self._live_mgr, 'get_last_mic_audio_time'):
-            return self._live_mgr.get_last_mic_audio_time()
+        mgr = getattr(self, '_live_mgr', None)
+        if mgr and hasattr(mgr, 'get_last_mic_audio_time'):
+            return mgr.get_last_mic_audio_time()
         return 0.0
 
     def destroy_node(self):

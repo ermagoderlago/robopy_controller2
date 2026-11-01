@@ -88,6 +88,12 @@ class CognitiveIntentClassifier:
         r'\b(volume|altoparlante|alza|abbassa|massimo|minimo|testa|collo|servomotori)\b',
         # Situational Awareness
         r'\b(stanza\s+corrente|quale\s+stanza|dove\s+ti\s+trovi|in\s+quale\s+mappa)\b',
+        # Autobiographical & Temporal Analytics (MAG SQLite WAL)
+        r'\b(?:cosa|di\s+cosa)\s+(?:abbiamo|ci\s+siamo)\s+(?:discusso|discussp|parlato|detto)\b',
+        r'\b(?:discusso|discussp|parlato)\s+oggi\b',
+        r'\ba\s+che\s+ora\s+parliamo\b',
+        r'\bqualcosa\s+di\s+strano\b',
+        r'\bprogramma\s+dream\b',
     ]
     RE_OPERATIONAL = re.compile('|'.join(OPERATIONAL_PATTERNS), re.IGNORECASE)
 

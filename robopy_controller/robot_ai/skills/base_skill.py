@@ -38,6 +38,8 @@ class SkillErrorCode(Enum):
     EXTERNAL_SERVICE_ERROR = 'EXTERNAL_SERVICE_ERROR'
     PERMISSION_DENIED = 'PERMISSION_DENIED'
     UNKNOWN_ERROR = 'UNKNOWN_ERROR'
+    RESOURCE_BUSY = 'RESOURCE_BUSY'
+    INVALID_STATE = 'INVALID_STATE'
 
 
 @dataclass
@@ -92,6 +94,24 @@ class SkillResult:
             error_code=None,
             duration_ms=duration_ms,
         )
+
+    @classmethod
+    def success(
+        cls,
+        data: Optional[Dict[str, Any]] = None,
+        message: str = "",
+        speak: Optional[str] = None,
+        actions: Optional[List[Dict[str, Any]]] = None,
+        duration_ms: float = 0.0,
+    ) -> "SkillResult":
+        """Convenience alias: crea risultato di successo."""
+        return cls.success_result(
+            message=message,
+            data=data,
+            actions=actions,
+            speak=speak,
+            duration_ms=duration_ms,
+        )
     
     @staticmethod
     def failure_result(
@@ -108,6 +128,24 @@ class SkillResult:
             actions=[],
             speak=speak or f"Errore: {message}",
             error_code=error_code,
+            duration_ms=duration_ms,
+        )
+
+    @classmethod
+    def failure(
+        cls,
+        error_code: SkillErrorCode = SkillErrorCode.UNKNOWN_ERROR,
+        error_message: str = "",
+        message: str = "",
+        speak: Optional[str] = None,
+        duration_ms: float = 0.0,
+    ) -> "SkillResult":
+        """Convenience alias: crea risultato di fallimento."""
+        msg = error_message or message or "Errore sconosciuto"
+        return cls.failure_result(
+            message=msg,
+            error_code=error_code,
+            speak=speak,
             duration_ms=duration_ms,
         )
 

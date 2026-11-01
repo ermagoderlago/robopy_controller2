@@ -230,7 +230,7 @@ if [ -d "$SRC_DIR/nodes" ]; then
     fi
 fi
 
-for node_file in waveshare_motor_driver.py semantic_costmap_injector.py frontier_explorer_node.py sensor_standby_manager.py robot_health_supervisor.py battery_manager_node.py respeaker_vui_node.py; do
+for node_file in waveshare_motor_driver.py semantic_costmap_injector.py frontier_explorer_node.py sensor_standby_manager.py robot_health_supervisor.py battery_manager_node.py respeaker_vui_node.py multimodal_identity_node.py resource_governor_node.py; do
     src_file="$SRC_DIR/nodes/$node_file"
     if [ -f "$src_file" ]; then
         node_base="${node_file%.py}"
@@ -398,17 +398,28 @@ nohup ros2 run robopy_controller respeaker_vui_node --ros-args \
     > /home/robopy/robopy/logs/respeaker_vui_node.log 2>&1 &
 
 if [ "$ENABLE_HAILO" = "true" ]; then
-    echo "🧠 Starting hailo_bridge_node_cpp (NPU C++ Driver)..."
+    echo "🧠 Starting hailo_bridge_node_cpp (NPU C++ Driver, sim_mode=${HAILO_VISION_SIM:-false}, Shared VDevice: YOLO + Pose + ArcFace)..."
     > /home/robopy/robopy/logs/hailo_bridge_node.log
     nohup taskset -c 2,3 ros2 run robopy_controller hailo_bridge_node_cpp --ros-args \
         -p hef_path:=/mnt/ssd/models/marcus_unified.hef \
-        -p sim_mode:=False \
+        -p sim_mode:=${HAILO_VISION_SIM:-false} \
         -p rgb_topic:=/rgb/image \
         -p vlm_rate_hz:=5.0 \
         -p conf_threshold:=0.55 \
         -p enable_pose:=True \
+        -p pose_hef_path:=/mnt/ssd/models/yolov8s_pose.hef \
         -p pose_conf_threshold:=0.55 \
+        -p enable_face_recognition:=True \
+        -p arcface_hef_path:=/mnt/ssd/models/arcface_mobilefacenet.hef \
+        -p known_faces_dir:=/mnt/ssd/robopy_controller_host/robopy_controller/known_faces \
+        -p face_similarity_threshold:=0.68 \
         > /home/robopy/robopy/logs/hailo_bridge_node.log 2>&1 &
+
+    echo "🗺️ Starting marcus_semantic_mapper_cpp (3D Semantic Mapper & Spatial Surprise Engine)..."
+    > /home/robopy/robopy/logs/marcus_semantic_mapper.log
+    nohup taskset -c 2,3 ros2 run robopy_controller marcus_semantic_mapper_cpp \
+        --ros-args -p publish_debug:=false \
+        > /home/robopy/robopy/logs/marcus_semantic_mapper.log 2>&1 &
 else
     echo "💤 [POWER-SAFE] Salto avvio hailo_bridge_node_cpp (ENABLE_HAILO=false)."
 fi
@@ -458,7 +469,7 @@ if [ "$ENABLE_HAILO" = "true" ]; then
 
     echo "👤 Starting multimodal_identity_node (Face & Voice Fusion F2)..."
     > /home/robopy/robopy/logs/multimodal_identity_node.log
-    nohup ros2 run robopy_controller multimodal_identity_node \
+    nohup python3 -u /mnt/ssd/robopy_controller_host/robopy_controller/nodes/multimodal_identity_node.py \
         > /home/robopy/robopy/logs/multimodal_identity_node.log 2>&1 &
 
     if [ "$USE_UNIFIED_SUPERVISOR" != "true" ]; then
@@ -599,7 +610,7 @@ if [ "$USE_AMCL" = "true" ]; then
 fi
 
 echo "📌 [CPU-OPT] Forzatura Hot-Swap affinità CPU sui nodi C++..."
-for node_name in "fast_flow_vo_cpp" "rtabmap" "hailo_bridge_node_cpp"; do
+for node_name in "fast_flow_vo_cpp" "rtabmap" "hailo_bridge_node_cpp" "marcus_semantic_mapper_cpp"; do
     for pid in $(pgrep -f $node_name); do
         taskset -a -pc 2,3 $pid > /dev/null 2>&1 || true
     done

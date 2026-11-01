@@ -248,3 +248,61 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
 - **Test:** `tests/test_pose_gating_and_decoding.py` (3 nuovi test).
 - **Documentazione:** `docs/lessons/vision_hailo_npu.md`, `fmea/dfmea.yaml` (FM-VIS-011).
 - **Classificazione:** Zona Verde (SPEC-03: soglie/post-processing, nessun cambio HEF/interfacce ROS 2). Richiede ricompilazione C++ sul robot (`-j1`, nodi e watchdog fermi).
+
+---
+
+## 📈 ECO-2026-10-25-001: Ripristino YOLOv8s-Pose v5.1.0, Riconoscimento Biometrico Persone ArcFace C++ su Shared VDevice & Suite Test Immagini d'Archivio (FM-VIS-011, FM-VIS-013)
+* **Stato:** ✅ **Completato, Verificato su Immagini d'Archivio (12/12 = 100%) e Distribuito su Raspberry Pi 5**
+* **Descrizione:**
+  1. **Ripristino Modello NPU `yolov8s_pose.hef` v5.1.0 e Disattivazione `sim_mode`:**
+     - Sostituito il vecchio `/mnt/ssd/models/yolov8s_pose.hef` (14.7MB, 5 contesti, teste `cls` azzerate e bias statico su `conv72`) con il modello ufficiale Hailo Model Zoo `v5.1.0/hailo10h/yolov8s_pose.hef` (18.2MB, 4 contesti, compatibile con `h10-hailort 5.1.1`).
+     - Aggiornato `restart_hailo.sh` da `sim_mode:=${HAILO_VISION_SIM:-true}` a `sim_mode:=${HAILO_VISION_SIM:-false}` per eseguire realmente l'inferenza NPU sul robot.
+     - Aggiornato `decode_pose_outputs` in `src/hailo_bridge_node.cpp` per sfruttare la testa `cls_ptr` attiva (`cls >= 0.83 - 0.96` sui ritratti, `0.00` su sfondo vuoto) e supportare il rilevamento diretto da `yolov8s_pose` anche nei primi piani.
+  2. **Riconoscimento Biometrico Persone End-to-End (`arcface_mobilefacenet.hef`) in `hailo_bridge_node_cpp`:**
+     - Installato `/mnt/ssd/models/arcface_mobilefacenet.hef` (2.6MB, Single Context, 4.6ms) sul `VDevice` condiviso con `marcus_unified.hef` e `yolov8s_pose.hef`.
+     - Implementato l'allineamento facciale deterministico a 3 punti (`compute_similarity_3pt`) dai keypoint `left_eye`, `right_eye`, `nose` di `yolov8s_pose` al template canonico `112x112` di ArcFace.
+     - Rigenerati gli embedding 512-dim reali L2-normalizzati (`||v||_2 = 1.000000`) per tutte le 7 persone in `robopy_controller/known_faces/*/embedding.npy` (`edoardo`, `filippo`, `isabella`, `jacopo`, `luca`, `luisella`, `rosaria`).
+     - Pubblicazione in tempo reale su `/hailo/face/detections` (`Detection2DArray`), `/hailo/face/identity` (`String`, integrato con `multimodal_identity_node` -> `/identity/active_person`) e supporto enrollment dinamico su `/hailo/face/enroll`.
+  3. **Suite di Verifica Posa e Riconoscimento su Immagini d'Archivio (`tests/test_pose_archive_images.py`) & Fix Build/Avvio `multimodal_identity_node`:**
+     - Creata la suite automatica `tests/test_pose_archive_images.py` (24/24 test superati su Marcus inclusa inferenza live su `/dev/hailo0` tramite `InferModel` API) che certifica le 12 foto d'archivio, la normalizzazione L2 ($\|v\|_2 = 1.0 \pm 10^{-5}$), la separabilità inter-persona (`max_inter_sim < 0.45`), la geometria dell'allineamento 3-pt e l'accuratezza top-1 del 100% (12/12).
+     - Aggiunti `scripts/multimodal_identity_node` e `scripts/resource_governor_node` alla sezione `install(PROGRAMS ...)` di `CMakeLists.txt` e al ciclo hot-swap di `restart_hailo.sh`, risolvendo il mancato avvio (`No executable found`) di `multimodal_identity_node`.
+     - Telemetria runtime verificata su Raspberry Pi 5: `hailo_bridge_node_cpp` con tutti e 3 i modelli HEF attivi sul `VDevice` condiviso impiega solo il **14.7% CPU** (vincolato sui Core 2-3) e **182 MB RSS** (4.4% RAM).
+* **Modifiche apportate:**
+  - `src/hailo_bridge_node.cpp`, `CMakeLists.txt`, `restart_hailo.sh`, `robopy_controller/face_enrollment_offline.py`
+  - `robopy_controller/known_faces/*/embedding.npy` (7 persone)
+  - `tests/test_pose_archive_images.py`
+  - `docs/lessons/vision_hailo_npu.md`, `docs/ecos/vision_hailo_ecos.md`, `marcus_robot_guide.md`, `fmea/dfmea.yaml`, `fmea/FMEA_EXECUTIVE_REPORT.md`
+
+
+---
+
+## 📈 ECO-2026-10-28-001: Evoluzione Bio-Cognitiva: Riattivazione marcus_semantic_mapper_cpp, Arbitrato VDevice, Standby TF Keepalive e Skill Biometriche (FM-BIO-001..005)
+* **Stato:** ✅ **Completato, Verificato con Test Unitari (17/17 = 100%) e Compilato su Raspberry Pi 5**
+* **Descrizione:**
+  1. **Riattivazione `marcus_semantic_mapper_cpp` con Direct Depth Latch & Calcolo Sorpresa Spaziale 3D (IMP-BIO-004):**
+     - Riattivato l'eseguibile C++17 in `CMakeLists.txt` con compilazione `-O3 -mcpu=cortex-a76+crypto` vincolato ai Core 2 e 3.
+     - Implementato il Direct Depth Latch tramite mutex leggero per bypassare i drop dei messaggi asincroni tra NPU e Depth frame.
+     - Aggiunto il calcolo dell'Indice di Sorpresa Spaziale $S(\mathcal{O}_i) = 0.70 \cdot D_{\text{3D}} + 0.30 \cdot (1 - \text{conf})$ e la pubblicazione su `/vision/spatial_anomaly` per soglie $\ge 0.38$.
+  2. **Arbitrato NPU VDevice (`/hailo_bridge/yield_vdevice`) (IMP-BIO-001):**
+     - Introdotto il servizio ROS 2 `/hailo_bridge/yield_vdevice` per consentire a `hailo-ollama` (Qwen2-VL) di acquisire il controllo esclusivo del PCIe device `/dev/hailo0` senza terminare il nodo di visione C++.
+  3. **Preservazione Vita Utile LiDAR RPLIDAR C1 Fuori Dock & StandbyTFKeepalive (FM-BIO-005, IMP-BIO-005):**
+     - Aggiornata l'Invariante 6 di `resource_governor.py`: arresto motore laser ToF quando Marcus è in `STATIONARY` prolungato (>45s) senza intenzione di navigazione.
+     - Creato thread `StandbyTFKeepalive` a 1.0 Hz in `sensor_standby_manager.py` che mantiene viva la trasformata `map -> odom` su `/tf` estrapolando il timestamp a `now + 200ms`, prevenendo i timeout di `bt_navigator`.
+     - Implementato l'handshake a 5 fasi (Wake-Before-Move) con chiamata ad AMCL `/request_nomotion_update`.
+  4. **Homeostatic Drive Engine (MAL Matrix) & Bypass Proattivo Wake-Word (IMP-BIO-004):**
+     - Sviluppato `HomeostaticDriveEngine` con inibizione incrociata tra Curiosità, Socialità e Autonomia.
+     - Riconoscimento dello stato ToM `DO_NOT_DISTURB` al banco da lavoro che sopprime del 85% la curiosità e riduce il volume del TTS a 0.35x.
+     - Trigger proattivo su superamento soglia 0.38 con pubblicazione su `/ai/proactive/listen_window` per avviare il dialogo senza richiedere la wake-word.
+  5. **Tre Nuove Skill Fisiche e Sociali (IMP-BIO-002, IMP-BIO-004):**
+     - `FollowPersonSkill`: blocco biometrico su target ArcFace e fattore di decelerazione preventiva da torsione del busto.
+     - `VisualPointingSkill`: vettore di puntamento 3D dal braccio dell'utente con calcolo raggio di intersezione per analisi VLM.
+     - `SocialContextSkill`: Teoria della Mente e gestione autonoma locale dell'emergenza caduta (`FALL_EMERGENCY`).
+  6. **Nightly Auto-Dream 3-Phase (IMP-BIO-004):**
+     - Pipeline Collect, Consolidate con sfoltimento logaritmico Ebbinghaus e priorità RPE, ed Evaluate con commit atomico POSIX e backup di rollback `.bak`.
+* **Modifiche apportate:**
+  - `CMakeLists.txt`, `src/marcus_semantic_mapper_node.cpp`, `src/marcus_semantic_mapper_node.hpp`, `src/hailo_bridge_node.cpp`, `restart_hailo.sh`
+  - `robopy_controller/robot_ai/services/resource_governor.py`, `robopy_controller/nodes/sensor_standby_manager.py`, `robopy_controller/nodes/respeaker_vui_node.py`, `robopy_controller/nodes/engagement_monitor.py`
+  - `robopy_controller/robot_ai/cognitive/homeostasis_mal.py`, `robopy_controller/robot_ai/cognitive/theory_of_mind_engine.py`, `robopy_controller/robot_ai/cognitive/cognitive_core_node.py`
+  - `robopy_controller/robot_ai/orchestration/cognitive_graph.py`, `robopy_controller/robot_ai/orchestration/orchestrator.py`
+  - `robopy_controller/robot_ai/skills/base_skill.py`, `robopy_controller/robot_ai/skills/builtin/__init__.py`, `follow_person_skill.py`, `visual_pointing_skill.py`, `social_context_skill.py`
+  - `tests/test_biocognitive_evolution.py`, `scripts/validate_marcus_biocognitive_field.py`, `fmea/dfmea.yaml`, `docs/improvements/IMP-BIO-*.md`

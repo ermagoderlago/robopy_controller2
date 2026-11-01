@@ -85,5 +85,13 @@ Quando l'agente Antigravity riceve l'incarico di analizzare, correggere o potenz
    - Se tocca un elemento di **🟡 Zona Gialla**, l'agente DEVE generare una specifica di cambio architetturale formale (ECO proposal) e richiedere la convalida umana prima di scrivere il codice definitivo.
    - Se tocca un elemento di **🟢 Zona Verde**, l'agente può procedere autonomamente rispettando i range parametrici consentiti.
 4. **Verifica Cognitiva `[COGNITIVE_CHECK]`:** Dichiarare formalmente all'inizio della risposta la scheda letta e i vincoli verificati.
-5. **Esecuzione dei Test di Non-Regressione:** L'agente DEVE eseguire la suite di test specificata nella sezione 6 della scheda tecnica prima di finalizzare qualsiasi commit.
+5. **Esecuzione dei Test di Non-Regressione:** L'agente DEVE consultare la [Master Test Matrix](file:///d:/LUCA/robopy/docs/testing/TEST_REVERIFICATION_MATRIX.md) ed eseguire la suite di test specificata prima di finalizzare qualsiasi commit.
 6. **Aggiornamento Documentale:** Aggiornare la scheda tecnica (se vengono introdotte nuove capacità in zona verde), il file lezioni relativo in `/docs/lessons/`, e ricalcolare il DFMEA se necessario.
+
+---
+
+## 🧪 Matrice Master di Verifica e Validazione (Non-Regression Testing)
+
+In caso di refactoring o modifiche profonde al codice, fare riferimento al protocollo globale:
+👉 **[`docs/testing/TEST_REVERIFICATION_MATRIX.md`](file:///d:/LUCA/robopy/docs/testing/TEST_REVERIFICATION_MATRIX.md)**  
+Contiene l'inventario completo di tutti i test unitari, avversariali, benchmark NPU (40 prompt) e collaudi DDS/hardware per ogni sottosistema (`SPEC-01`..`SPEC-07`).

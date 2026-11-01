@@ -9,6 +9,7 @@ e genera un report esecutivo in Markdown `FMEA_EXECUTIVE_REPORT.md`.
 
 import sys
 import os
+import re
 from datetime import datetime
 try:
     import yaml
@@ -91,6 +92,13 @@ def process_fmea():
         entry["risk_level"] = risk
         stats["risk_levels"][risk] = stats["risk_levels"].get(risk, 0) + 1
 
+        # Rilevamento automatico / persistenza del test file di verifica
+        if not entry.get("verification_test_file"):
+            search_text = f"{entry.get('verification_method', '')} {entry.get('detection_controls', '')} {entry.get('recommended_action', '')}"
+            test_match = re.search(r'((?:tests|scripts)/[a-zA-Z0-9_\-]+\.py)', search_text)
+            if test_match:
+                entry["verification_test_file"] = test_match.group(1)
+
         # Gestione History
         history = entry.get("history", [])
         if not history:
@@ -141,36 +149,39 @@ def generate_markdown_report(entries, stats):
 
 ## 🚨 Modalità di Guasto ad Alta Priorità (REVISION_MANDATORY / HIGH / CRITICAL)
 
-| ID FM | Sottosistema | Componente | Modo di Guasto | S_init ➔ S_res | RPN_init ➔ RPN_res | Livello Rischio | Stato Mitigazione | ECO Ref |
-| :--- | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :--- |
+| ID FM | Sottosistema | Componente | Modo di Guasto | S_init ➔ S_res | RPN_init ➔ RPN_res | Livello Rischio | Stato Mitigazione | Test File Mitigazione | ECO Ref |
+| :--- | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :--- | :--- |
 """
 
     high_priority = [e for e in sorted_entries if e["risk_level"] in ["REVISION_MANDATORY", "CRITICAL", "HIGH"]]
     for e in high_priority:
         eco = f"[`{e['eco_ref']}`]({e['eco_ref']})" if e.get('eco_ref') else "N/A"
-        report_content += f"| **{e['id']}** | {e['subsystem']} | `{e['component']}` | {e['failure_mode']} | {e['initial_scoring']['severity']} ➔ {e['residual_scoring']['severity']} | {e['initial_scoring']['rpn']} ➔ **{e['residual_scoring']['rpn']}** | `{e['risk_level']}` | `{e['mitigation_status']}` | {eco} |\n"
+        test_file = f"`{e['verification_test_file']}`" if e.get('verification_test_file') else "N/A"
+        report_content += f"| **{e['id']}** | {e['subsystem']} | `{e['component']}` | {e['failure_mode']} | {e['initial_scoring']['severity']} ➔ {e['residual_scoring']['severity']} | {e['initial_scoring']['rpn']} ➔ **{e['residual_scoring']['rpn']}** | `{e['risk_level']}` | `{e['mitigation_status']}` | {test_file} | {eco} |\n"
 
     report_content += """\n---
 
 ## 📋 Registro Completo Failure Modes (Ordinato per RPN Residuo Decrescente)
 
-| ID FM | Sottosistema | Componente | Modo di Guasto | S_res | O_res | D_res | RPN Residuo | Livello Rischio | Stato | Lesson Ref |
-| :--- | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
+| ID FM | Sottosistema | Componente | Modo di Guasto | S_res | O_res | D_res | RPN Residuo | Livello Rischio | Stato | Test File Mitigazione | Lesson Ref |
+| :--- | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :--- | :--- |
 """
 
     for e in sorted_entries:
         lesson = f"[`{e['lesson_ref']}`]({e['lesson_ref']})" if e.get('lesson_ref') else "N/A"
-        report_content += f"| **{e['id']}** | {e['subsystem']} | `{e['component']}` | {e['failure_mode']} | {e['residual_scoring']['severity']} | {e['residual_scoring']['occurrence']} | {e['residual_scoring']['detection']} | **{e['residual_scoring']['rpn']}** | `{e['risk_level']}` | `{e['mitigation_status']}` | {lesson} |\n"
+        test_file = f"`{e['verification_test_file']}`" if e.get('verification_test_file') else "N/A"
+        report_content += f"| **{e['id']}** | {e['subsystem']} | `{e['component']}` | {e['failure_mode']} | {e['residual_scoring']['severity']} | {e['residual_scoring']['occurrence']} | {e['residual_scoring']['detection']} | **{e['residual_scoring']['rpn']}** | `{e['risk_level']}` | `{e['mitigation_status']}` | {test_file} | {lesson} |\n"
 
     report_content += """\n---
 
 ## 🔒 Protocollo Anti-Regressione & Regola Operativa per lo Sviluppatore AI
 
-Per ogni futura modifica al codice di Marcus, l'agente di sviluppo DEVI attenersi al seguente ciclo ad anello chiuso:
+Per ogni futura modifica al codice di Marcus, l'agente di sviluppo DEVE attenersi al seguente ciclo ad anello chiuso:
 1. **Consultazione DFMEA:** Prima di modificare un nodo ROS 2 o uno script, ispezionare `fmea/dfmea.yaml` per individuare i guasti correlati.
 2. **Aggiornamento o Creazione Entry:** Se la modifica introduce un nuovo potenziale guasto o ne mitiga uno esistente, aggiornare il punteggio `residual_scoring` ed aggiungere un elemento in `history`.
-3. **Esecuzione Ricalcolo:** Eseguire `python fmea/calculate_and_report_fmea.py` per sincronizzare RPN e report.
-4. **Verifica Override:** Assicurarsi che nessuna voce con $S \\ge 9$ rimanga con `mitigation_status: OPEN` senza una misura di contenimento architetturale testata e registrata nel corrispondente file ECO under `docs/ecos/`.
+3. **Esecuzione Test di Mitigazione:** Eseguire la suite di test specificata in `verification_test_file` e nella [Master Test Matrix](/docs/testing/TEST_REVERIFICATION_MATRIX.md) per validare la mitigazione.
+4. **Esecuzione Ricalcolo:** Eseguire `python fmea/calculate_and_report_fmea.py` per sincronizzare RPN e report esecutivo.
+5. **Verifica Override:** Assicurarsi che nessuna voce con $S \ge 9$ rimanga con `mitigation_status: OPEN` senza una misura di contenimento architetturale testata e registrata nel corrispondente file ECO under `docs/ecos/`.
 """
 
     with open(REPORT_PATH, "w", encoding="utf-8") as f:

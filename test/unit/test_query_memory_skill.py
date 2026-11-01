@@ -88,15 +88,14 @@ def test_query_memory_skill_matching():
     """Verify confidence score matching for direct memory access requests."""
     skill = QueryMemorySkill()
 
-    # Direct triggers: should match >= 0.95
-    assert skill.match("accedi ai dati della memoria") >= 0.95
-    assert skill.match("cosa c'è nella memoria?") >= 0.95
-    assert skill.match("cosa ti ricordi?") >= 0.95
-    assert skill.match("cerca nella memoria") >= 0.95
-    assert skill.match("fatti appresi") >= 0.95
+    # Administrative triggers: match with confidence >= 0.80 but < 0.95 to preserve TRINITY LLM primacy
+    assert skill.match("accedi ai dati della memoria") >= 0.80
+    assert skill.match("interroga il database della memoria") >= 0.80
 
-    # General memory search request: should match >= 0.90
-    assert skill.match("mostrami cosa hai imparato finora") >= 0.90
+    # Conversational memory queries must NOT trigger fast-path skill matching (< 0.95)
+    assert skill.match("cosa ti ricordi?") < 0.95
+    assert skill.match("fatti appresi") < 0.95
+    assert skill.match("mostrami cosa hai imparato finora") < 0.95
 
     # Irrelevant request
     assert skill.match("che ore sono?") == 0.0

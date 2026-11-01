@@ -386,16 +386,32 @@ class MAGDatabase:
                 raise
 
     def _sanitize_fts_query(self, query: str) -> str:
-        """Sanitizes input string for FTS5 queries."""
+        """Sanitizes input string for FTS5 queries, filtering Italian stop-words to prevent noise dilution."""
         import re
         tokens = re.findall(r'\w+', query)
         if not tokens:
             return ""
-        # Join words with OR for high recall
-        return " OR ".join(tokens)
+        stop_words = {
+            "il", "lo", "la", "i", "gli", "le", "un", "uno", "una",
+            "di", "a", "da", "in", "con", "su", "per", "tra", "fra",
+            "e", "ed", "o", "ma", "se", "che", "chi", "cui", "non",
+            "è", "sono", "sei", "siamo", "siete", "era", "stato",
+            "ho", "hai", "ha", "abbiamo", "avete", "hanno",
+            "mi", "ti", "si", "ci", "vi", "ne", "lo", "la", "li", "le",
+            "mio", "mia", "miei", "mie", "tuo", "tua", "tuoi", "tue",
+            "suo", "sua", "suoi", "sue", "nostro", "nostra",
+            "questo", "questa", "questi", "queste", "quello", "quella",
+            "cosa", "come", " dove", "quando", "perché", "perche", "qual", "quale", "quali",
+            "dimmi", "parlami", "raccontami", "sai", "ricordi", "ricorda",
+            "test", "prova", "marcus", "markus", "marcos", "ciao", "ehi", "hey", "ok", "bene"
+        }
+        substantive = [t for t in tokens if len(t) >= 2 and t.lower() not in stop_words]
+        selected = substantive if substantive else [t for t in tokens if len(t) >= 2] or tokens
+        # Join words with OR for high recall on substantive entities
+        return " OR ".join(selected)
 
     def search_episodes_fts(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
-        """Search episodes using Full-Text Search."""
+        """Search episodes using Full-Text Search, deprioritizing generic fallback boilerplate."""
         clean_q = self._sanitize_fts_query(query)
         if not clean_q:
             return []
@@ -407,6 +423,9 @@ class MAGDatabase:
                     SELECT e.* FROM episodes_fts f
                     JOIN episodes e ON e.rowid = f.rowid
                     WHERE episodes_fts MATCH ?
+                      AND e.robot_response NOT LIKE 'Ho ricevuto il tuo messaggio!%'
+                      AND e.robot_response NOT LIKE 'Ho compreso la tua richiesta!%'
+                      AND e.robot_response NOT LIKE 'Scusami, ho avuto un piccolo attimo di esitazione%'
                     ORDER BY rank
                     LIMIT ?
                 ''', (clean_q, limit))

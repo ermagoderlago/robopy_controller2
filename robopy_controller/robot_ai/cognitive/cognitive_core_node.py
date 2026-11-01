@@ -24,9 +24,11 @@ from rclpy.node import Node
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from std_msgs.msg import String, Bool
 from geometry_msgs.msg import Twist
+from sensor_msgs.msg import BatteryState
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 from robopy_controller.robot_ai.rag.chroma_native_store import get_chroma_client
+from robopy_controller.robot_ai.cognitive.homeostasis_mal import HomeostaticDriveEngine
 from robopy_controller.srv import MemoryRecall
 
 logger = logging.getLogger("cognitive_core_node")
@@ -84,6 +86,14 @@ class CognitiveCoreNode(Node):
         self.cmd_vel_pub = self.create_publisher(Twist, "/cmd_vel", 10)
         self.offline_mode_pub = self.create_publisher(Bool, "/hailo/trigger/offline_mode", 10)
         self.dream_report_pub = self.create_publisher(String, "/marcus/dream/report", 10)
+
+        # Homeostatic MAL Publishers (IMP-BIO-004)
+        self.drives_pub = self.create_publisher(String, "/ai/cognitive/drives", 10)
+        self.proactive_listen_pub = self.create_publisher(Bool, "/ai/proactive/listen_window", 10)
+        self.proactive_speech_pub = self.create_publisher(String, "/ai/conversation/proactive_speech", 10)
+
+        # Homeostatic MAL Engine instance
+        self.drive_engine = HomeostaticDriveEngine()
         
         # Client servizio MemoryRecall
         self.recall_client = self.create_client(MemoryRecall, "/memory/recall", callback_group=self.client_cb_group)
@@ -124,12 +134,27 @@ class CognitiveCoreNode(Node):
             10,
             callback_group=self.sub_cb_group
         )
+
+        # Homeostatic MAL Subscribers
+        self.sub_spatial_anomaly = self.create_subscription(
+            String, "/vision/spatial_anomaly", self._on_spatial_anomaly, 10, callback_group=self.sub_cb_group
+        )
+        self.sub_tom_state = self.create_subscription(
+            String, "/marcus/social_context/tom_state", self._on_tom_state, 10, callback_group=self.sub_cb_group
+        )
+        self.sub_face_identity = self.create_subscription(
+            String, "/hailo/face/identity", self._on_face_identity, 10, callback_group=self.sub_cb_group
+        )
+        self.sub_battery = self.create_subscription(
+            BatteryState, "/battery_state", self._on_battery_state, 10, callback_group=self.sub_cb_group
+        )
         
         # Timers
         self.state_timer = self.create_timer(1.0, self._check_state_transitions, callback_group=self.timer_cb_group)
         self.dmn_timer = self.create_timer(10.0, self._run_dmn_tick, callback_group=self.timer_cb_group)
+        self.drives_timer = self.create_timer(0.5, self._step_homeostatic_drives, callback_group=self.timer_cb_group)
         
-        self.get_logger().info("Nodo cognitive_core_node avviato ed allineato.")
+        self.get_logger().info("Nodo cognitive_core_node avviato ed allineato con Homeostatic MAL Engine.")
 
     def _lifecycle_callback(self, msg: String):
         """
@@ -164,6 +189,70 @@ class CognitiveCoreNode(Node):
         self.get_logger().error(f"Ricevuto interrupt Amigdala: {msg.data}")
         # Commuta lo stato cognitivo globale in emergenza o sentinella immediata
         self._transition_to("SENTINELLA", "low_road_hijack")
+
+    def _on_spatial_anomaly(self, msg: String):
+        """Riceve anomalie spaziali 3D da marcus_semantic_mapper_cpp (IMP-BIO-004)."""
+        try:
+            data = json.loads(msg.data)
+            self.drive_engine.inject_spatial_anomaly(data)
+            self.get_logger().info(f"✨ [Homeostasis] Anomalia spaziale '{data.get('label')}' iniettata nella curiosità.")
+        except Exception as e:
+            self.get_logger().error(f"Errore parsing anomalia spaziale: {e}")
+
+    def _on_tom_state(self, msg: String):
+        """Riceve lo stato di Teoria della Mente (ToM) da TheoryOfMindEngine."""
+        self.drive_engine.tom_state = msg.data.strip()
+
+    def _on_face_identity(self, msg: String):
+        """Riceve l'identità biometrica confermata da ArcFace."""
+        self.drive_engine.recognized_person_name = msg.data.strip()
+
+    def _on_battery_state(self, msg: BatteryState):
+        """Aggiorna tensione e SOC per la pulsione di autonomia."""
+        self.drive_engine.update_telemetry(
+            battery_voltage=msg.voltage,
+            battery_soc=msg.percentage,
+            tom_state=self.drive_engine.tom_state,
+            recognized_person=self.drive_engine.recognized_person_name
+        )
+
+    def _step_homeostatic_drives(self):
+        """Esegue il ciclo periodico di aggiornamento delle pulsioni concorrenti MAL (2 Hz)."""
+        drives, proactive_event = self.drive_engine.step(dt=0.5)
+
+        # Telemetria per Foxglove Studio
+        msg_drives = String()
+        msg_drives.data = json.dumps(drives)
+        self.drives_pub.publish(msg_drives)
+
+        if proactive_event is not None:
+            self.get_logger().info(
+                f"🌟 [PROACTIVE-TRIGGER] Pulsione '{proactive_event.drive_name}' superata soglia "
+                f"({proactive_event.drive_intensity:.2f}) -> {proactive_event.trigger_reason}"
+            )
+            # 1. Emissione frase proattiva
+            if proactive_event.suggested_utterance:
+                u_msg = String()
+                u_msg.data = proactive_event.suggested_utterance
+                self.proactive_speech_pub.publish(u_msg)
+
+            # 2. Apertura finestra ascolto (Bypass wake-word)
+            l_msg = Bool()
+            l_msg.data = True
+            self.proactive_listen_pub.publish(l_msg)
+
+            # 3. Pubblicazione intento proattivo
+            i_msg = String()
+            i_msg.data = json.dumps({
+                "type": "PROACTIVE_DRIVE",
+                "drive": proactive_event.drive_name,
+                "intensity": proactive_event.drive_intensity,
+                "reason": proactive_event.trigger_reason,
+                "target_object": proactive_event.target_object,
+                "target_identity": proactive_event.target_identity,
+                "suggested_utterance": proactive_event.suggested_utterance
+            })
+            self.intent_pub.publish(i_msg)
 
     def _startle_callback(self, msg: String):
         """

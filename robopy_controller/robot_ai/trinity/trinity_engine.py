@@ -96,10 +96,13 @@ class TrinityEngine:
             self.logger.warning(f"MAG initialization error: {e}")
             self.mag_episodic = None
 
-        # 6. ROS 2 Subscriptions for Exploration & Semantic Events
+        # 6. ROS 2 Subscriptions for Exploration, Semantic Events & Battery State
         self.sub_explore_status = None
         self.sub_target_event = None
+        self.sub_battery_state = None
         if self.node is not None:
+            if self.cag and hasattr(self.cag, "hardware") and hasattr(self.cag.hardware, "setup_ros"):
+                self.cag.hardware.setup_ros(self.node)
             self._setup_ros_exploration_subs()
 
         self.logger.info(f"🧠 TrinityEngine initialized successfully. Enabled: {self.enabled}")
@@ -179,9 +182,9 @@ class TrinityEngine:
             except Exception as e:
                 self.logger.warning(f"RAG knowledge search error: {e}")
 
-        # Se non ci sono risultati da ChromaDB o se la query riguarda direttamente la documentazione tecnica
+        # Cerca nella documentazione tecnica (DFMEA, ECO, SPEC) solo se la query la richiede esplicitamente
         doc_keywords = ["fmea", "dfmea", "eco", "spec", "scheda", "regol", "lezion", "lesson", "antigravity", "quota", "evoluzion"]
-        if not res_text or res_text == "No relevant context found." or any(k in clean_text.lower() for k in doc_keywords):
+        if any(k in clean_text.lower() for k in doc_keywords):
             try:
                 from ..services.robot_documentation_service import RobotDocumentationService
                 doc_service = RobotDocumentationService()
@@ -202,8 +205,10 @@ class TrinityEngine:
     async def _retrieve_cag_context(self) -> Dict[str, str]:
         """Retrieves live CAG context snapshot."""
         if not self.cag:
+            from .cag_hardware_collector import HardwareStateCollector
+            default_hw = HardwareStateCollector().to_text()
             return {
-                "cag_hardware": "",
+                "cag_hardware": default_hw,
                 "cag_ros": "",
                 "cag_environment": "",
                 "cag_errors": "",
@@ -218,8 +223,12 @@ class TrinityEngine:
                 except Exception as e:
                     self.logger.debug(f"HA context provider error: {e}")
 
+            hw_text = snapshot.get("hardware_text", "")
+            if not hw_text and hasattr(self.cag, "hardware") and self.cag.hardware:
+                hw_text = self.cag.hardware.to_text()
+
             return {
-                "cag_hardware": snapshot.get("hardware_text", ""),
+                "cag_hardware": hw_text,
                 "cag_ros": snapshot.get("ros_text", ""),
                 "cag_environment": snapshot.get("env_text", ""),
                 "cag_errors": snapshot.get("error_text", ""),
@@ -389,7 +398,7 @@ class TrinityEngine:
             self.logger.error(f"Failed to record interaction in MAG: {e}")
 
     def _setup_ros_exploration_subs(self):
-        """Sets up ROS 2 subscribers for exploration status and target discovery events."""
+        """Sets up ROS 2 subscribers for exploration status, target discovery, semantic objects, and room."""
         try:
             from std_msgs.msg import String
             self.sub_explore_status = self.node.create_subscription(
@@ -404,9 +413,73 @@ class TrinityEngine:
                 self._on_exploration_target_event,
                 10
             )
-            self.logger.info("📡 TrinityEngine: sottoscrizione a /frontier_exploration/status e /exploration/target_event completata.")
+            self.sub_current_room = self.node.create_subscription(
+                String,
+                "/robot/current_room",
+                self._on_current_room,
+                10
+            )
+            try:
+                from robopy_controller.msg import SemanticObjectArray
+                self.sub_semantic_objs = self.node.create_subscription(
+                    SemanticObjectArray,
+                    "/hailo/semantic_objects",
+                    self._on_semantic_objects,
+                    5
+                )
+            except Exception:
+                self.sub_semantic_objs = None
+
+            try:
+                from sensor_msgs.msg import BatteryState
+                self.sub_battery_state = self.node.create_subscription(
+                    BatteryState,
+                    "/battery_state",
+                    self._on_battery_state,
+                    10
+                )
+            except Exception as batt_err:
+                self.logger.debug(f"Subscription /battery_state fallback: {batt_err}")
+                self.sub_battery_state = None
+            self.logger.info("📡 TrinityEngine: sottoscrizione a /frontier_exploration/status, /exploration/target_event, /hailo/semantic_objects e /battery_state completata.")
         except Exception as e:
             self.logger.warning(f"Errore inizializzazione subscription ROS in TrinityEngine: {e}")
+
+    def _on_battery_state(self, msg):
+        """Aggiorna la telemetria live della batteria nel CAG HardwareStateCollector."""
+        try:
+            if self.cag and hasattr(self.cag, "hardware") and self.cag.hardware:
+                self.cag.hardware.update_battery_state(msg)
+                if hasattr(self.cag, "_last_update_time"):
+                    self.cag._last_update_time = 0.0
+        except Exception as e:
+            self.logger.debug(f"Errore gestione telemetria battery_state: {e}")
+
+    def _on_current_room(self, msg):
+        """Aggiorna la stanza corrente nel CAG."""
+        try:
+            room = (msg.data or "").strip()
+            if room and room.lower() != "unknown" and self.cag and hasattr(self.cag, "environment"):
+                self.cag.environment.room_name = room
+                if self.world_model is not None:
+                    setattr(self.world_model, "current_room", room)
+        except Exception:
+            pass
+
+    def _on_semantic_objects(self, msg):
+        """Aggiorna gli oggetti visivi rilevati da YOLO NPU nel CAG."""
+        try:
+            if not self.cag or not hasattr(self.cag, "environment"):
+                return
+            objs = []
+            humans = list(self.cag.environment.recognized_humans)
+            for obj in getattr(msg, "objects", []):
+                lbl = (getattr(obj, "label", "") or "").strip()
+                if lbl and lbl not in objs:
+                    objs.append(lbl)
+            self.cag.environment.update_perception(humans, objs)
+        except Exception:
+            pass
 
     def _on_exploration_status(self, msg):
         """Aggiorna la telemetria di esplorazione in tempo reale nel CAG."""

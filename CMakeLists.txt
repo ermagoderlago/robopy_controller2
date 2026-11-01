@@ -76,33 +76,34 @@ install(TARGETS fast_flow_vo_cpp
   DESTINATION lib/${PROJECT_NAME}
 )
 
-# NEW: Marcus Semantic Mapper Node (fuses Hailo NPU detections and Depth)
-# add_executable(marcus_semantic_mapper_cpp
-#   src/marcus_semantic_mapper_node.cpp
-# )
-# ament_target_dependencies(marcus_semantic_mapper_cpp
-#   rclcpp
-#   std_msgs
-#   geometry_msgs
-#   sensor_msgs
-#   diagnostic_msgs
-#   visualization_msgs
-#   rtabmap_msgs
-#   message_filters
-#   tf2
-#   tf2_ros
-#   tf2_geometry_msgs
-#   cv_bridge
-#   tf2_eigen
-# )
-# target_include_directories(marcus_semantic_mapper_cpp PRIVATE ${EIGEN3_INCLUDE_DIR})
-# target_link_libraries(marcus_semantic_mapper_cpp
-#   ${OpenCV_LIBRARIES}
-#   Eigen3::Eigen
-# )
+# NEW: Marcus Semantic Mapper Node (fuses Hailo NPU detections and Depth - Re-activated for Spatial Surprise)
+add_executable(marcus_semantic_mapper_cpp
+  src/marcus_semantic_mapper_node.cpp
+)
+target_compile_options(marcus_semantic_mapper_cpp PRIVATE -O3 -mcpu=cortex-a76+crypto)
+ament_target_dependencies(marcus_semantic_mapper_cpp
+  rclcpp
+  std_msgs
+  geometry_msgs
+  sensor_msgs
+  diagnostic_msgs
+  visualization_msgs
+  rtabmap_msgs
+  message_filters
+  tf2
+  tf2_ros
+  tf2_geometry_msgs
+  cv_bridge
+  tf2_eigen
+)
+target_include_directories(marcus_semantic_mapper_cpp PRIVATE ${EIGEN3_INCLUDE_DIR})
+target_link_libraries(marcus_semantic_mapper_cpp
+  ${OpenCV_LIBRARIES}
+  Eigen3::Eigen
+)
 rosidl_get_typesupport_target(typesupport_target "${PROJECT_NAME}" "rosidl_typesupport_cpp")
-# target_link_libraries(marcus_semantic_mapper_cpp "${typesupport_target}")
-# add_dependencies(marcus_semantic_mapper_cpp ${PROJECT_NAME}__rosidl_generator_cpp)
+target_link_libraries(marcus_semantic_mapper_cpp "${typesupport_target}")
+add_dependencies(marcus_semantic_mapper_cpp ${PROJECT_NAME}__rosidl_generator_cpp)
 
 # Workaround: copy visibility control header during build to prevent Ninja deletion bug
 add_custom_target(copy_visibility_control_header ALL
@@ -113,13 +114,18 @@ add_custom_target(copy_visibility_control_header ALL
   COMMENT "Copying C++ visibility control header to prevent Ninja deletion"
 )
 add_dependencies(copy_visibility_control_header ${PROJECT_NAME}__cpp)
-# add_dependencies(marcus_semantic_mapper_cpp copy_visibility_control_header)
+add_dependencies(marcus_semantic_mapper_cpp copy_visibility_control_header)
+
+install(TARGETS marcus_semantic_mapper_cpp
+  DESTINATION lib/${PROJECT_NAME}
+)
 
 # =============================================================================
 # C++ Native Hailo Bridge Node
 # =============================================================================
 find_package(rcl_interfaces REQUIRED)
 find_package(rosidl_runtime_cpp REQUIRED)
+find_package(std_srvs REQUIRED)
 find_library(HAILORT_LIB hailort REQUIRED)
 
 add_executable(hailo_bridge_node_cpp src/hailo_bridge_node.cpp)
@@ -129,6 +135,7 @@ ament_target_dependencies(hailo_bridge_node_cpp
   rcl_interfaces
   rosidl_runtime_cpp
   std_msgs
+  std_srvs
   sensor_msgs
   geometry_msgs
   vision_msgs
@@ -192,6 +199,8 @@ install(PROGRAMS
   scripts/robot_health_supervisor
   scripts/sensor_standby_manager
   scripts/frontier_explorer_node
+  scripts/multimodal_identity_node
+  scripts/resource_governor_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

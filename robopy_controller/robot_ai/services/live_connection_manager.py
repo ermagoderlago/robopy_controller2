@@ -380,6 +380,24 @@ class LiveConnectionManager:
         """Alias matching test harness and E2E suites."""
         return self.trigger_conversation(reason="request_session", current_time=current_time)
 
+    def open_proactive_window(
+        self,
+        reason: str = "homeostatic_drive",
+        duration_s: float = 15.0,
+        current_time: Optional[float] = None
+    ) -> LiveState:
+        """
+        [IMP-BIO-004] Opens conversational window proactively by waking WebSocket
+        and bypassing wake-word gating for duration_s.
+        """
+        now = current_time if current_time is not None else time.monotonic()
+        self.proactive_window_until = now + duration_s
+        return self.trigger_conversation(reason=f"proactive_{reason}", current_time=now)
+
+    def is_proactive_window_open(self, current_time: Optional[float] = None) -> bool:
+        now = current_time if current_time is not None else time.monotonic()
+        return now < getattr(self, "proactive_window_until", 0.0)
+
     def on_user_activity(self, current_time: Optional[float] = None) -> None:
         """
         Thread-safe entry point called when user speech or VAD activity is detected.
@@ -493,6 +511,21 @@ class LiveConnectionManager:
 
     async def _do_connect_async(self, reason: str = ""):
         """Performs connection attempt with exponential backoff (max 3 retries)."""
+        import os
+        if (
+            os.path.exists("/tmp/marcus_force_local_npu")
+            or os.environ.get("FORCE_LOCAL_NPU", "0").lower() in ("1", "true", "yes")
+            or os.environ.get("MARCUS_LOCAL_ONLY", "0").lower() in ("1", "true", "yes")
+        ):
+            self.logger.info("📡 [Live FSM] FORCE_LOCAL_NPU active: fast-bypassing Gemini Live WebSocket to local Hailo Qwen.")
+            self._transition_to(LiveState.DISCONNECTED, reason="force_local_npu")
+            if self.on_fallback_needed:
+                try:
+                    self.on_fallback_needed("Force local NPU active")
+                except Exception as fb_err:
+                    self.logger.error(f"Fallback callback error: {fb_err}")
+            return
+
         if self._live_lock:
             async with self._live_lock:
                 if self._live_session:
@@ -575,6 +608,9 @@ class LiveConnectionManager:
                 err_str = str(e).lower()
                 if any(kw in err_str for kw in ("resume", "expired", "invalid", "handle", "1008")):
                     self._resumption_token = None
+                if any(kw in err_str for kw in ("spending cap", "quota", "resource_exhausted", "429")):
+                    self.logger.warning("Cloud quota exhausted / spend cap reached: fast-failover to NPU immediately.")
+                    break
                 if retries < self.MAX_CONNECT_RETRIES:
                     await asyncio.sleep(backoff)
                     backoff *= 1.5

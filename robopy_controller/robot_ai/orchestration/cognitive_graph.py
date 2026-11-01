@@ -36,6 +36,11 @@ class MarcusAgentState:
         self.inhibited_skills: List[str] = []
         self.system_prompt_override: str = ""
 
+        # Homeostatic MAL and Theory of Mind fields (IMP-BIO-004)
+        self.drives: Dict[str, float] = {"curiosity": 0.05, "sociality": 0.05, "autonomy": 0.05}
+        self.proactive_trigger: Optional[Dict[str, Any]] = None
+        self.tom_state: str = "ENGAGED"
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "messages": self.messages,
@@ -44,7 +49,10 @@ class MarcusAgentState:
             "last_rpe": self.last_rpe,
             "feedback_context": self.feedback_context,
             "inhibited_skills": self.inhibited_skills,
-            "system_prompt_override": self.system_prompt_override
+            "system_prompt_override": self.system_prompt_override,
+            "drives": self.drives,
+            "proactive_trigger": self.proactive_trigger,
+            "tom_state": self.tom_state
         }
 
     def update(self, **kwargs) -> None:
@@ -83,13 +91,28 @@ class CriticEvaluatorNode:
         feedback_source = "neutral"
         skill_name = "general"
 
-        # 1. Analyze ROS 2 deterministic outcomes / logs
+        # 1. Analyze ROS 2 deterministic outcomes, physical metrics and visual gestures
         if skill_outcome:
             skill_name = skill_outcome.get("skill_name", "unknown")
             success = skill_outcome.get("success", True)
             error_msg = skill_outcome.get("error_message", "")
-            
-            if not success:
+            gesture = skill_outcome.get("gesture", "")
+            target_lost = skill_outcome.get("target_lost", False)
+            eye_contact_lost = skill_outcome.get("eye_contact_lost", False)
+
+            if gesture == "THUMBS_UP":
+                feedback_val = 0.8
+                feedback_source = "gesture_thumbs_up_approval"
+            elif gesture == "OPEN_PALM":
+                feedback_val = 0.0
+                feedback_source = "visual_barge_in_hard_stop"
+            elif target_lost:
+                feedback_val = -0.7
+                feedback_source = "person_following_target_lost"
+            elif eye_contact_lost:
+                feedback_val = -0.3
+                feedback_source = "social_gaze_disengaged"
+            elif not success:
                 feedback_val = -1.0
                 feedback_source = f"ros2_error: {error_msg}"
             else:

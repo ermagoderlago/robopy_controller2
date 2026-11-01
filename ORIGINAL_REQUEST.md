@@ -229,3 +229,54 @@ Modificare il ciclo di vita della connessione WebSocket verso Gemini Live per ap
 - [ ] Fase 1 completata e superata con suite di benchmark NPU dedicata prima di toccare il router ROS 2.
 - [ ] Fase 2 completata con unit test su 100 prompt categorizzati prima di integrare le skill in Fase 3.
 - [ ] Fase 3 validata con test JSON prima dell'integrazione audio VUI finale.
+
+
+## Follow-up — 2026-10-17T22:11:14Z
+
+This is a single self-contained fix; keep it small and focused. Diagnose, repair, and verify the local voice and cognitive pipeline on the Marcus robot (`robopy`) so that wake-word detection ("Marcus") works reliably, exhausted Gemini Live credits trigger an immediate circuit-breaker fallback to local Qwen on the Hailo-10H NPU without per-turn delays, and Qwen accurately answers both general and TRINITY memory-backed questions during multi-turn conversations on the live robot.
+
+Working directory: d:\LUCA\robopy
+Integrity mode: development
+
+## Reference Material & Governance Constraints
+- Read and strictly obey `d:\LUCA\robopy\marcus_core_rules.md` and the technical specifications:
+  - `d:\LUCA\robopy\docs\specs\SPEC-04_audio_vui_pipeline.md` (Audio VUI & KWS Red Zones: 16kHz mono PCM, left channel `data[:, 0]`, 3.0x input attenuation, 48kHz DAC resampling, 0.1x TTS barge-in gain)
+  - `d:\LUCA\robopy\docs\specs\SPEC-05_cognitive_brain_trinity.md` (TRINITY RAG/CAG/MAG Red Zones: max 2500 token budget, SQLite WAL, LLM cognitive primacy, <10ms emergency stop fast-path)
+  - `d:\LUCA\robopy\docs\specs\SPEC-03_vision_and_hailo_npu.md` (Hailo-10H NPU & VDevice constraints)
+
+## Requirements
+
+### R1. Wake-Word ("Marcus") Detection Restoration
+Diagnose why the VUI pipeline (`respeaker_vui_node` and associated audio/VAD/KWS/gain/noise-gate filters) stopped reliably detecting the wake word "Marcus" after recent audio changes, and fix the detection path so "Marcus" triggers session activation reliably without violating any `SPEC-04` Red Zone constraint.
+
+### R2. Instant Gemini-to-Qwen Circuit-Breaker Fallback
+Ensure that when Gemini Live API credits/quota are exhausted or connection fails, the pipeline activates a circuit breaker that routes the current and subsequent conversational turns directly to the local Qwen model on the Hailo-10H NPU without waiting for repeated cloud timeouts on every turn.
+
+### R3. Qwen + TRINITY Memory Integration & Response Reliability
+Diagnose and fix why local Qwen on the Hailo-10H NPU fails to answer certain prompts, ignores TRINITY memory context (MAG SQLite WAL, RAG ChromaDB, CAG telemetry), or replies with generic fallback phrases such as "sono pronto" instead of answering the user's question. Ensure prompt formatting, token budgeting, output parsing, and memory injection allow Qwen to answer both general and memory/identity questions accurately in Italian.
+
+### R4. Multi-Turn NPU & Memory Conversation Benchmark (Pre-Fix & Post-Fix)
+Create an automated test/benchmark script that runs multi-turn conversations (covering general Q&A, identity recall, and TRINITY episodic/semantic memory queries) against Qwen on the live Hailo-10H NPU as well as the wake-word/routing pipeline. Use it to reproduce the issues, verify the fixes on the physical robot, and ensure all non-regression test suites pass.
+
+### R5. Controlled Hardware, SSH, and Documentation Discipline
+The physical robot Marcus is online and accessible via `wsl ssh robopy@marcus`.
+- Always include the required ROS 2 / CycloneDDS environment variables (`ROS_DOMAIN_ID=42`, `RMW_IMPLEMENTATION=rmw_cyclonedds_cpp`, `CYCLONEDDS_URI=/tmp/cyclonedds_robopy.xml`) when inspecting live ROS 2 nodes/topics over SSH.
+- Respect the 4GB RAM ceiling on Raspberry Pi 5; use Python hot-swap / `./sync_marcus.sh` for Python changes, and never run `colcon build` without stopping active nodes/watchdog and enforcing `MAKEFLAGS="-j1" colcon build --parallel-workers 1`.
+- Update `fmea/dfmea.yaml`, run `python fmea/calculate_and_report_fmea.py`, and document findings in `/docs/lessons/`.
+
+## Acceptance Criteria
+
+### Wake-Word & Audio Non-Regression
+- [ ] Programmatic wake-word trigger test confirms "Marcus" is reliably detected through the VUI audio filtering and KWS pipeline without false suppression from noise-gate or gain staging.
+- [ ] All `SPEC-04` unit tests pass (`pytest tests/test_audio_buffer_manager.py tests/test_vui_audio_resampling.py tests/test_voiceprint_manager.py tests/test_extended_session_gating.py -v`).
+
+### Circuit-Breaker & Local Qwen Routing
+- [ ] With Gemini Live unavailable or out of quota, conversational turns route immediately to local Qwen without per-turn cloud connection timeout delays.
+
+### Multi-Turn NPU & Memory Conversation Verification
+- [ ] Automated multi-turn conversation test executed against the live Hailo-10H NPU on `robopy@marcus` (at least 6 turns covering general questions, robot identity, and TRINITY memory recall/facts) achieves 100% valid, contextually relevant Italian responses.
+- [ ] Zero empty responses and zero generic "sono pronto" fallback replies when querying memory or conversational topics.
+- [ ] All `SPEC-05` unit tests pass (`pytest tests/test_trinity_engine.py tests/test_metaprompt_fusion.py tests/test_amygdala.py tests/test_mag_database.py -v`).
+
+### Deployment & Governance
+- [ ] Fixed code is synchronized to `robopy@marcus` (including `install/` Python hot-swap), active services/nodes are verified healthy on the robot, and `python fmea/calculate_and_report_fmea.py` completes with zero errors.

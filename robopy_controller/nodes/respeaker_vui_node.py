@@ -345,6 +345,7 @@ class ReSpeakerVUINode(Node):
         self.asr_text_pub  = self.create_publisher(String,    '/respeaker/asr_text',     10)  # [v19.1] ASR Text stream
         self.transcript_pub = self.create_publisher(String,   '/robopy/vui/transcript',  10)  # [v19.1] VUI Transcript
         self.vui_kpi_pub    = self.create_publisher(String,   '/robopy/vui/diagnostics', 10)  # [Fase 5] VUI KPI Diagnostics
+        self.voice_cmd_pub  = self.create_publisher(String,   'ai/input/voice_test',     10)  # [v23.1] Post-wakeword voice query bridge to AIOrchestrator
 
         # [v3.0] _pub_speech alias per il VAD gate (usa lo stesso topic audio_pub)
         self._pub_speech  = self.audio_pub
@@ -365,6 +366,10 @@ class ReSpeakerVUINode(Node):
         # Lifecycle Operating State Subscription
         self.sub_operating_state = self.create_subscription(
             String, '/system/operating_state', self._operating_state_callback, 10)
+
+        # Proactive Gating Bypass from System 2 (IMP-BIO-004)
+        self.sub_proactive_listen = self.create_subscription(
+            Bool, '/ai/proactive/listen_window', self._proactive_listen_window_cb, 10)
 
         # ------------------------------------------------------------------ #
         # Timer e loop asincroni
@@ -799,6 +804,8 @@ class ReSpeakerVUINode(Node):
     def _mic_mute_cb(self, msg: Bool):
         if msg.data:
             self._stop_listen_timer()
+            if getattr(self, 'vosk_mgr', None):
+                self.vosk_mgr.set_listening_mode(False)
             self._ev_listening.clear()
             self.set_led(self._current_mood)
             # Svuota la coda audio per interrompere immediatamente il parlato
@@ -809,10 +816,12 @@ class ReSpeakerVUINode(Node):
                     break
         else:
             # Unmute: abilita l'ascolto hardware passivo della wake word senza aprire
-            # forzatamente una finestra di conversazione attiva (gestita unicamente da _on_wakeword_detected)
-            self._stop_listen_timer()
-            self._ev_listening.clear()
-            self.set_led(self._current_mood)
+            # forzatamente una finestra di conversazione attiva, MA se _ev_listening è già
+            # attivo (es. appena attivato da _on_wakeword_detected che pubblica mic_mute=False),
+            # NON cancellare _ev_listening né fermare il timer!
+            if not self._ev_listening.is_set():
+                self._stop_listen_timer()
+                self.set_led(self._current_mood)
 
     def _interrupt_cb(self, msg: Bool):
         if msg.data:
@@ -952,6 +961,8 @@ class ReSpeakerVUINode(Node):
             return
 
         self._stop_listen_timer()
+        if getattr(self, 'vosk_mgr', None):
+            self.vosk_mgr.set_listening_mode(False)
         self._ev_listening.clear()
 
         self.get_logger().info(
@@ -1120,7 +1131,7 @@ class ReSpeakerVUINode(Node):
                 self._speaker_enroll_pub.publish(msg_enroll)
 
         # Rilevamento Wake Word con varianti fonetiche italiane ("marcus", "markus", "marcos")
-        # [FM-VUI-042] Escluso "marco" e introdotto regex \b per prevenire falsi risvegli da TV o conversazioni terzi
+        # Esclude rigorosamente il nome proprio italiano "marco" per azzerare i falsi positivi (FIX-12a / FM-VUI-037)
         import re
         ww_detected = bool(re.search(r'\b(marcus|markus|marcos)\b', text_lower))
         already_listening = self._ev_listening.is_set()
@@ -1141,6 +1152,37 @@ class ReSpeakerVUINode(Node):
                 else:
                     self._on_wakeword_detected()
 
+        # [v23.1] Inoltro trascrizione vocale completa ad AIOrchestrator (per fallback Qwen NPU o sessione vocale attiva)
+        if not is_partial and not is_speaker_active and (already_listening or ww_detected):
+            query_text = re.sub(
+                r'^\s*(?:ehi\s+|hey\s+|ciao\s+|salve\s+|ok\s+)?(?:marcus|markus|marcos)\b[\s,\.:;!\?-]*',
+                '',
+                text,
+                flags=re.IGNORECASE
+            ).strip()
+            query_text = re.sub(r'\[unk\]', '', query_text, flags=re.IGNORECASE).strip()
+            if query_text and len(query_text) >= 2 and not re.fullmatch(r'(?:marcus|markus|marcos)', query_text, flags=re.IGNORECASE):
+                now_mono = time.monotonic()
+                last_voice_q = getattr(self, '_last_voice_query_text', '')
+                last_voice_ts = getattr(self, '_last_voice_query_ts', 0.0)
+                if query_text.lower() != last_voice_q or (now_mono - last_voice_ts) > 1.5:
+                    self._last_voice_query_text = query_text.lower()
+                    self._last_voice_query_ts = now_mono
+                    self._listen_timer_start = now_mono
+                    self._start_listen_timer()
+                    self.set_led('THINKING')
+                    self.get_logger().info(f"🧠 [VUI -> Orchestrator] Inoltro richiesta vocale post-wakeword: '{query_text}'")
+                    if hasattr(self, 'voice_cmd_pub') and self.voice_cmd_pub:
+                        v_msg = String()
+                        v_msg.data = query_text
+                        self.voice_cmd_pub.publish(v_msg)
+
+    def _proactive_listen_window_cb(self, msg: Bool):
+        """[IMP-BIO-004] Gestisce l'apertura proattiva della finestra conversazionale senza wakeword vocale."""
+        if msg.data:
+            self.get_logger().info("✨ [PROACTIVE-VUI] Ricevuto trigger proattivo da Sistema 2 -> Apertura finestra ascolto.")
+            self._on_wakeword_detected()
+
     def _on_wakeword_detected(self):
         """Gestisce le azioni da compiere quando viene rilevata la wake word."""
         now = time.monotonic()
@@ -1152,6 +1194,8 @@ class ReSpeakerVUINode(Node):
 
         self.get_logger().info("WAKE WORD 'MARCUS' RILEVATA! Avvio finestra conversazione (8s)...")
         self._ev_listening.set()
+        if getattr(self, 'vosk_mgr', None):
+            self.vosk_mgr.set_listening_mode(True)
         self.set_led('LISTENING')
 
         # [FM-VUI-038] Reset pulito dello stato VAD per evitare che la pronuncia stessa

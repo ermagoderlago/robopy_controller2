@@ -265,3 +265,32 @@ improvements:
 
 
 
+  FM-BIO-001:
+    title: "Miglioramento Hailo: Arbitraggio Dinamico VDevice PCIe e Break-Before-Make Qwen2-VL"
+    file: "docs/improvements/IMP-BIO-001_hailo_vdevice_arbitration.md"
+    status: "COMPLETED"
+    domain: "vision_hailo"
+
+  FM-BIO-002:
+    title: "Miglioramento HRI: Intelligent Person Following con Veto Biometrico ArcFace e Decelerazione Torsione Spalle"
+    file: "docs/improvements/IMP-BIO-002_biometric_person_following.md"
+    status: "COMPLETED"
+    domain: "nav2_slam"
+
+  FM-BIO-003:
+    title: "Miglioramento Navigazione: Standby TF Keepalive e 5-Step Wake Handshake con /request_nomotion_update"
+    file: "docs/improvements/IMP-BIO-003_kinematic_wake_tf_handshake.md"
+    status: "COMPLETED"
+    domain: "nav2_slam"
+
+  FM-BIO-004:
+    title: "Miglioramento Cognitivo: Triplo Gate Gesti di Sicurezza e Omeostasi MAL con Inibizione Teoria della Mente"
+    file: "docs/improvements/IMP-BIO-004_gesture_and_mal_homeostasis.md"
+    status: "COMPLETED"
+    domain: "cognitive_ai"
+
+  FM-BIO-005:
+    title: "Miglioramento Hardware: Salvaguardia Meccanica/Ottica RPLIDAR C1 con Spegnimento Stazionario Fuori Dock e Anti-Cycling"
+    file: "docs/improvements/IMP-BIO-005_lidar_lifespan_preservation.md"
+    status: "COMPLETED"
+    domain: "hardware_power"
