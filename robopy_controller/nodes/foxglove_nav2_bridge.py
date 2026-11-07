@@ -8,6 +8,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
 from geometry_msgs.msg import PoseStamped
+from std_msgs.msg import Bool
 from nav2_msgs.action import NavigateToPose
 
 class FoxgloveNav2Bridge(Node):
@@ -30,15 +31,25 @@ class FoxgloveNav2Bridge(Node):
             10
         )
         
+        # Publish explicit navigation intent to ResourceGovernor & SensorStandbyManager (FM-NAV-041)
+        self.nav_intent_pub = self.create_publisher(Bool, '/robot/nav_intent', 10)
+        
         # Action client for Nav2
         self.action_client = ActionClient(self, NavigateToPose, '/navigate_to_pose')
         self.get_logger().info("Foxglove-to-Nav2 Bridge instantiated. Waiting for goals on /goal_pose...")
 
+    def _publish_nav_intent(self, active: bool):
+        msg = Bool()
+        msg.data = bool(active)
+        self.nav_intent_pub.publish(msg)
+
     def goal_pose_callback(self, msg: PoseStamped):
         self.get_logger().info(f"Received new 2D goal from Foxglove: x={msg.pose.position.x:.2f}, y={msg.pose.position.y:.2f}. Translating to Nav2 BT Action...")
+        self._publish_nav_intent(True)
         
         if not self.action_client.wait_for_server(timeout_sec=2.0):
             self.get_logger().error("Nav2 Action Server (/navigate_to_pose) not available! Is bt_navigator running?")
+            self._publish_nav_intent(False)
             return
 
         goal_msg = NavigateToPose.Goal()
@@ -46,7 +57,19 @@ class FoxgloveNav2Bridge(Node):
         goal_msg.behavior_tree = "" # Usa il default
 
         self.get_logger().info("Sending goal to Nav2 bt_navigator...")
-        self.action_client.send_goal_async(goal_msg)
+        send_future = self.action_client.send_goal_async(goal_msg)
+        send_future.add_done_callback(self._goal_response_callback)
+
+    def _goal_response_callback(self, future):
+        try:
+            goal_handle = future.result()
+            if not goal_handle.accepted:
+                self._publish_nav_intent(False)
+                return
+            res_future = goal_handle.get_result_async()
+            res_future.add_done_callback(lambda _f: self._publish_nav_intent(False))
+        except Exception:
+            self._publish_nav_intent(False)
 
 def main(args=None):
     rclpy.init(args=args)

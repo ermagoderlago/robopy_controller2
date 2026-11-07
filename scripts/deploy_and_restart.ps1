@@ -1,11 +1,11 @@
 # Deploy automatico e riavvio per Marcus (Bio-Cognitive Evolution)
-$target_ip = "192.168.1.11"
-Write-Host "Verifica connettività verso Marcus ($target_ip)..."
+$target_host = "robopy@marcus"
+Write-Host "Verifica connettivita verso Marcus ($target_host)..."
 
 $online = $false
-for ($i = 0; $i -lt 10; $i++) {
-    $ping = ping -n 1 -w 500 $target_ip
-    if ($LASTEXITCODE -eq 0) {
+for ($i = 0; $i -lt 5; $i++) {
+    $test = echo "PING" | ssh -o BatchMode=yes -o ConnectTimeout=5 $target_host "cat -" 2>$null
+    if ($test -eq "PING") {
         $online = $true
         break
     }
@@ -17,58 +17,73 @@ if (-not $online) {
     exit 2
 }
 
-Write-Host "🟢 Marcus ONLINE! Arresto preventivo nodi e watchdog (marcus_core_rules.md)..."
-ssh -o StrictHostKeyChecking=no "robopy@${target_ip}" "sudo systemctl stop marcus-watchdog 2>/dev/null; pkill -9 -f watchdog.sh 2>/dev/null; pkill -9 -f restart_hailo.sh 2>/dev/null; pkill -9 -f ros2 2>/dev/null; echo 'NODES_STOPPED'"
+Write-Host " Marcus ONLINE! Arresto preventivo nodi e watchdog (marcus_core_rules.md)..."
+ssh -o BatchMode=yes $target_host "sudo systemctl stop marcus-watchdog 2>/dev/null; pkill -9 -f watchdog.sh 2>/dev/null; pkill -9 -f restart_hailo.sh 2>/dev/null; pkill -9 -f ros2 2>/dev/null; echo 'NODES_STOPPED'"
 
-Write-Host "📦 Trasferimento sorgenti C++ e CMakeLists.txt..."
-scp -o StrictHostKeyChecking=no CMakeLists.txt "robopy@${target_ip}:/mnt/ssd/robopy_controller_host/"
-scp -o StrictHostKeyChecking=no restart_hailo.sh "robopy@${target_ip}:/mnt/ssd/robopy_controller_host/"
-scp -o StrictHostKeyChecking=no src/hailo_bridge_node.cpp "robopy@${target_ip}:/mnt/ssd/robopy_controller_host/src/"
-scp -o StrictHostKeyChecking=no src/marcus_semantic_mapper_node.cpp "robopy@${target_ip}:/mnt/ssd/robopy_controller_host/src/"
-scp -o StrictHostKeyChecking=no src/marcus_semantic_mapper_node.hpp "robopy@${target_ip}:/mnt/ssd/robopy_controller_host/src/"
+Write-Host " Trasferimento file di configurazione, launch e avvio..."
+scp -o BatchMode=yes restart_hailo.sh "${target_host}:/mnt/ssd/robopy_controller_host/"
+scp -o BatchMode=yes launch/custom_nav2_launch.py "${target_host}:/mnt/ssd/robopy_controller_host/launch/"
+scp -o BatchMode=yes robopy_controller/config/nav2_params_jazzy.yaml "${target_host}:/mnt/ssd/robopy_controller_host/robopy_controller/config/"
 
-Write-Host "📦 Trasferimento nodi e servizi Bio-Cognitivi Python..."
-scp -o StrictHostKeyChecking=no robopy_controller/nodes/sensor_standby_manager.py "robopy@${target_ip}:/mnt/ssd/robopy_controller_host/robopy_controller/nodes/"
-scp -o StrictHostKeyChecking=no robopy_controller/nodes/respeaker_vui_node.py "robopy@${target_ip}:/mnt/ssd/robopy_controller_host/robopy_controller/nodes/"
-scp -o StrictHostKeyChecking=no robopy_controller/nodes/engagement_monitor.py "robopy@${target_ip}:/mnt/ssd/robopy_controller_host/robopy_controller/nodes/"
-scp -o StrictHostKeyChecking=no robopy_controller/robot_ai/services/resource_governor.py "robopy@${target_ip}:/mnt/ssd/robopy_controller_host/robopy_controller/robot_ai/services/"
-scp -o StrictHostKeyChecking=no robopy_controller/robot_ai/services/live_connection_manager.py "robopy@${target_ip}:/mnt/ssd/robopy_controller_host/robopy_controller/robot_ai/services/"
-scp -o StrictHostKeyChecking=no robopy_controller/robot_ai/services/visual_gesture_pointing_engine.py "robopy@${target_ip}:/mnt/ssd/robopy_controller_host/robopy_controller/robot_ai/services/"
-scp -o StrictHostKeyChecking=no robopy_controller/robot_ai/services/nightly_dream_service.py "robopy@${target_ip}:/mnt/ssd/robopy_controller_host/robopy_controller/robot_ai/services/"
-scp -o StrictHostKeyChecking=no robopy_controller/robot_ai/cognitive/homeostasis_mal.py "robopy@${target_ip}:/mnt/ssd/robopy_controller_host/robopy_controller/robot_ai/cognitive/"
-scp -o StrictHostKeyChecking=no robopy_controller/robot_ai/cognitive/theory_of_mind_engine.py "robopy@${target_ip}:/mnt/ssd/robopy_controller_host/robopy_controller/robot_ai/cognitive/"
-scp -o StrictHostKeyChecking=no robopy_controller/robot_ai/cognitive/cognitive_core_node.py "robopy@${target_ip}:/mnt/ssd/robopy_controller_host/robopy_controller/robot_ai/cognitive/"
-scp -o StrictHostKeyChecking=no robopy_controller/robot_ai/orchestration/cognitive_graph.py "robopy@${target_ip}:/mnt/ssd/robopy_controller_host/robopy_controller/robot_ai/orchestration/"
+Write-Host " Trasferimento nodi di navigazione, costmap e supervisione..."
+scp -o BatchMode=yes robopy_controller/nodes/semantic_costmap_injector.py "${target_host}:/mnt/ssd/robopy_controller_host/robopy_controller/nodes/"
+scp -o BatchMode=yes robopy_controller/nodes/sensor_standby_manager.py "${target_host}:/mnt/ssd/robopy_controller_host/robopy_controller/nodes/"
+scp -o BatchMode=yes robopy_controller/nodes/resource_governor_node.py "${target_host}:/mnt/ssd/robopy_controller_host/robopy_controller/nodes/"
+scp -o BatchMode=yes robopy_controller/nodes/frontier_explorer_node.py "${target_host}:/mnt/ssd/robopy_controller_host/robopy_controller/nodes/"
+scp -o BatchMode=yes robopy_controller/nodes/foxglove_nav2_bridge.py "${target_host}:/mnt/ssd/robopy_controller_host/robopy_controller/nodes/"
 
-Write-Host "📦 Trasferimento Skills Biometriche e Sociali..."
-scp -o StrictHostKeyChecking=no robopy_controller/robot_ai/skills/base_skill.py "robopy@${target_ip}:/mnt/ssd/robopy_controller_host/robopy_controller/robot_ai/skills/"
-scp -o StrictHostKeyChecking=no robopy_controller/robot_ai/skills/orchestrator.py "robopy@${target_ip}:/mnt/ssd/robopy_controller_host/robopy_controller/robot_ai/skills/"
-scp -o StrictHostKeyChecking=no robopy_controller/robot_ai/skills/builtin/__init__.py "robopy@${target_ip}:/mnt/ssd/robopy_controller_host/robopy_controller/robot_ai/skills/builtin/"
-scp -o StrictHostKeyChecking=no robopy_controller/robot_ai/skills/builtin/follow_person_skill.py "robopy@${target_ip}:/mnt/ssd/robopy_controller_host/robopy_controller/robot_ai/skills/builtin/"
-scp -o StrictHostKeyChecking=no robopy_controller/robot_ai/skills/builtin/visual_pointing_skill.py "robopy@${target_ip}:/mnt/ssd/robopy_controller_host/robopy_controller/robot_ai/skills/builtin/"
-scp -o StrictHostKeyChecking=no robopy_controller/robot_ai/skills/builtin/social_context_skill.py "robopy@${target_ip}:/mnt/ssd/robopy_controller_host/robopy_controller/robot_ai/skills/builtin/"
+Write-Host " Trasferimento servizi AI, cognitive, skills e sandbox..."
+scp -o BatchMode=yes robopy_controller/robot_ai/services/resource_governor.py "${target_host}:/mnt/ssd/robopy_controller_host/robopy_controller/robot_ai/services/"
+scp -o BatchMode=yes robopy_controller/robot_ai/skills/builtin/navigation_skill.py "${target_host}:/mnt/ssd/robopy_controller_host/robopy_controller/robot_ai/skills/builtin/"
+scp -o BatchMode=yes robopy_controller/robot_ai/integrations/navigation.py "${target_host}:/mnt/ssd/robopy_controller_host/robopy_controller/robot_ai/integrations/"
+scp -o BatchMode=yes robopy_controller/robot_ai/trinity/kinematic_sandbox.py "${target_host}:/mnt/ssd/robopy_controller_host/robopy_controller/robot_ai/trinity/"
 
-Write-Host "📦 Trasferimento script di validazione e documentazione FMEA..."
-scp -o StrictHostKeyChecking=no scripts/validate_marcus_biocognitive_field.py "robopy@${target_ip}:/mnt/ssd/robopy_controller_host/scripts/"
-scp -o StrictHostKeyChecking=no fmea/dfmea.yaml "robopy@${target_ip}:/mnt/ssd/robopy_controller_host/fmea/"
-scp -o StrictHostKeyChecking=no fmea/IMPROVEMENT_INDEX.yaml "robopy@${target_ip}:/mnt/ssd/robopy_controller_host/fmea/"
-scp -o StrictHostKeyChecking=no docs/improvements/IMP-BIO-*.md "robopy@${target_ip}:/mnt/ssd/robopy_controller_host/docs/improvements/"
+Write-Host " Trasferimento documentazione FMEA, ECO, lezioni e guide aggiornate..."
+scp -o BatchMode=yes fmea/dfmea.yaml "${target_host}:/mnt/ssd/robopy_controller_host/fmea/"
+scp -o BatchMode=yes fmea/FMEA_EXECUTIVE_REPORT.md "${target_host}:/mnt/ssd/robopy_controller_host/fmea/"
+scp -o BatchMode=yes fmea/IMPROVEMENT_INDEX.yaml "${target_host}:/mnt/ssd/robopy_controller_host/fmea/"
+scp -o BatchMode=yes docs/improvements/IMP-NAV-041_motion_deadlock_resolution.md "${target_host}:/mnt/ssd/robopy_controller_host/docs/improvements/"
+scp -o BatchMode=yes docs/lessons/nav2_slam_tuning.md "${target_host}:/mnt/ssd/robopy_controller_host/docs/lessons/"
+scp -o BatchMode=yes docs/ecos/nav2_slam_ecos.md "${target_host}:/mnt/ssd/robopy_controller_host/docs/ecos/"
+scp -o BatchMode=yes marcus_robot_guide.md "${target_host}:/mnt/ssd/robopy_controller_host/"
+scp -o BatchMode=yes GAZEBO_WSL_GUIDE.md "${target_host}:/mnt/ssd/robopy_controller_host/"
 
-Write-Host "🔄 Aggiornamento install site-packages e build sequenziale C++ (marcus_core_rules.md)..."
-ssh -o StrictHostKeyChecking=no "robopy@${target_ip}" @"
-chmod +x /mnt/ssd/robopy_controller_host/restart_hailo.sh /mnt/ssd/robopy_controller_host/scripts/validate_marcus_biocognitive_field.py
+Write-Host " Hot-Swap Python in install/ (SPEC-07: aggiornamento rapido senza OOM build)..."
+$remote_hotswap = @'
+TARGET_DIR="/mnt/ssd/robopy_controller_host"
+SITE_PKGS="$TARGET_DIR/install/robopy_controller/lib/python3.11/site-packages"
+LIB_BIN="$TARGET_DIR/install/robopy_controller/lib/robopy_controller"
+SHARE_DIR="$TARGET_DIR/install/robopy_controller/share/robopy_controller"
 
-# Hot-swap Python in install directory
-cp -u -r /mnt/ssd/robopy_controller_host/robopy_controller/nodes/* /mnt/ssd/robopy_controller_host/install/robopy_controller/lib/python3.11/site-packages/robopy_controller/nodes/ 2>/dev/null
-cp -u -r /mnt/ssd/robopy_controller_host/robopy_controller/robot_ai/* /mnt/ssd/robopy_controller_host/install/robopy_controller/lib/python3.11/site-packages/robopy_controller/robot_ai/ 2>/dev/null
+# Copia i nodi e la libreria Python in site-packages
+cp -u -r $TARGET_DIR/robopy_controller/nodes/* "$SITE_PKGS/robopy_controller/nodes/" 2>/dev/null || true
+cp -u -r $TARGET_DIR/robopy_controller/robot_ai/* "$SITE_PKGS/robopy_controller/robot_ai/" 2>/dev/null || true
 
-# Sequential C++ compilation with Pi 5 Cortex-A76 flags
-cd /mnt/ssd/robopy_controller_host
-source /home/robopy/ros2_jazzy/install/setup.bash
-MAKEFLAGS="-j1" colcon build --packages-select robopy_controller --parallel-workers 1 --cmake-args -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-O3 -mcpu=cortex-a76+crypto" --executor sequential
-"@
+# Copia gli eseguibili in lib/robopy_controller/
+cp -u $TARGET_DIR/robopy_controller/nodes/*.py "$LIB_BIN/" 2>/dev/null || true
 
-Write-Host "🚀 Riavvio stack su Marcus (modalità AMCL piano terra, Hailo abilitato)..."
-ssh -o StrictHostKeyChecking=no "robopy@${target_ip}" "cd /mnt/ssd/robopy_controller_host && ./restart_hailo.sh --enable-hailo --amcl --map=/mnt/ssd/maps/piano_terra_opt.yaml"
+# Copia launch e config in share
+cp -u $TARGET_DIR/launch/* "$SHARE_DIR/launch/" 2>/dev/null || true
+cp -u $TARGET_DIR/robopy_controller/config/* "$SHARE_DIR/config/" 2>/dev/null || true
 
-Write-Host "✅ DEPLOY_AND_RESTART_COMPLETED"
+# Assicura symlink canonici (SPEC-07 / FM-SYS-010)
+ln -sfn "$TARGET_DIR/robopy_controller/robot_ai" "$SITE_PKGS/robopy_controller/robot_ai"
+ln -sfn "$TARGET_DIR/robopy_controller/nodes" "$SITE_PKGS/robopy_controller/nodes"
+ln -sfn "$SITE_PKGS/robopy_controller/robot_ai" "$SITE_PKGS/robot_ai"
+
+# Permessi di esecuzione e rimozione caratteri CRLF (\r)
+chmod +x $TARGET_DIR/*.sh $TARGET_DIR/scripts/* "$LIB_BIN"/*.py $TARGET_DIR/robopy_controller/nodes/*.py 2>/dev/null || true
+cp -f $TARGET_DIR/restart_hailo.sh /home/robopy/restart_hailo.sh 2>/dev/null || true
+chmod +x /home/robopy/restart_hailo.sh 2>/dev/null || true
+
+find $TARGET_DIR -maxdepth 1 -name '*.sh' -exec sed -i 's/\r$//' {} + 2>/dev/null || true
+find $TARGET_DIR/scripts -type f -exec sed -i 's/\r$//' {} + 2>/dev/null || true
+sed -i 's/\r$//' /home/robopy/restart_hailo.sh 2>/dev/null || true
+
+echo "HOTSWAP_COMPLETED"
+'@
+
+echo "$remote_hotswap" | ssh -o BatchMode=yes $target_host "tr -d '\r' | bash"
+
+Write-Host " Sincronizzazione ed Hot-Swap completati con successo!"
+

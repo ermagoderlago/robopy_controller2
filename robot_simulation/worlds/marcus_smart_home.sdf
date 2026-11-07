@@ -1,0 +1,236 @@
+<?xml version="1.0" ?>
+<sdf version="1.9">
+  <world name="marcus_smart_home">
+    <!-- Fisica a 250 Hz (step 4ms) ottimizzata per Ryzen 5 3500U WSL2 -->
+    <physics name="4ms" type="ode">
+      <max_step_size>0.004</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+      <real_time_update_rate>250.0</real_time_update_rate>
+    </physics>
+
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
+
+    <!-- Luce Solare Domestica -->
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 8 0 0 0</pose>
+      <diffuse>0.85 0.85 0.82 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <direction>-0.3 0.2 -0.9</direction>
+    </light>
+
+    <!-- Pavimento Principale (Con apertura per Trappola Scale Negativa in x=-3.5, y=-2.5) -->
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>12 10</size>
+            </plane>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>12 10</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.75 0.72 0.68 1</ambient>
+            <diffuse>0.75 0.72 0.68 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- =================================================================
+         MURI PERIMETRALI CASA (10m x 8m: X in [-5, +5], Y in [-4, +4])
+         ================================================================= -->
+    <model name="wall_north">
+      <static>true</static>
+      <pose>0 4.0 1.0 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>10.0 0.15 2.0</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>10.0 0.15 2.0</size></box></geometry>
+          <material><ambient>0.85 0.85 0.90 1</ambient><diffuse>0.85 0.85 0.90 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="wall_south">
+      <static>true</static>
+      <pose>0 -4.0 1.0 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>10.0 0.15 2.0</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>10.0 0.15 2.0</size></box></geometry>
+          <material><ambient>0.85 0.85 0.90 1</ambient><diffuse>0.85 0.85 0.90 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="wall_east">
+      <static>true</static>
+      <pose>5.0 0 1.0 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>0.15 8.0 2.0</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.15 8.0 2.0</size></box></geometry>
+          <material><ambient>0.85 0.85 0.90 1</ambient><diffuse>0.85 0.85 0.90 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="wall_west">
+      <static>true</static>
+      <pose>-5.0 0 1.0 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>0.15 8.0 2.0</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.15 8.0 2.0</size></box></geometry>
+          <material><ambient>0.85 0.85 0.90 1</ambient><diffuse>0.85 0.85 0.90 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- =================================================================
+         MURI DIVISORI INTERNI (Salotto <-> Cucina <-> Studio)
+         Con porte di passaggio da 0.85m
+         ================================================================= -->
+    <model name="partition_kitchen_salotto">
+      <static>true</static>
+      <pose>-1.0 2.4 1.0 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>0.12 3.2 2.0</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.12 3.2 2.0</size></box></geometry>
+          <material><ambient>0.78 0.80 0.85 1</ambient><diffuse>0.78 0.80 0.85 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="partition_studio_salotto">
+      <static>true</static>
+      <pose>2.6 -1.0 1.0 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>4.8 0.12 2.0</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>4.8 0.12 2.0</size></box></geometry>
+          <material><ambient>0.78 0.80 0.85 1</ambient><diffuse>0.78 0.80 0.85 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- =================================================================
+         CUCCIA / STAZIONE DI RICARICA (SPEC-06: x=0.0, y=0.0)
+         ================================================================= -->
+    <model name="charging_dock">
+      <static>true</static>
+      <pose>0.0 0.0 0.01 0 0 0</pose>
+      <link name="link">
+        <visual name="pad">
+          <geometry><cylinder><radius>0.30</radius><length>0.02</length></cylinder></geometry>
+          <material><ambient>0.1 0.85 0.3 1</ambient><diffuse>0.1 0.85 0.3 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- =================================================================
+         ARREDAMENTO SALOTTO, CUCINA E STUDIO
+         ================================================================= -->
+    <model name="sofa_salotto">
+      <static>true</static>
+      <pose>2.2 1.8 0.42 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>1.6 0.8 0.84</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>1.6 0.8 0.84</size></box></geometry>
+          <material><ambient>0.25 0.38 0.65 1</ambient><diffuse>0.25 0.38 0.65 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="tv_salotto">
+      <static>true</static>
+      <pose>3.5 0.0 0.65 0 0 1.5708</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>1.1 0.3 1.3</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>1.1 0.3 1.3</size></box></geometry>
+          <material><ambient>0.15 0.15 0.15 1</ambient><diffuse>0.15 0.15 0.15 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="table_cucina">
+      <static>true</static>
+      <pose>-2.2 1.8 0.38 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>1.2 0.9 0.76</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>1.2 0.9 0.76</size></box></geometry>
+          <material><ambient>0.55 0.38 0.20 1</ambient><diffuse>0.55 0.38 0.20 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="fridge_cucina">
+      <static>true</static>
+      <pose>-3.8 2.5 0.85 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>0.75 0.75 1.70</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.75 0.75 1.70</size></box></geometry>
+          <material><ambient>0.9 0.9 0.92 1</ambient><diffuse>0.9 0.9 0.92 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="workbench_studio">
+      <static>true</static>
+      <pose>2.1 -2.4 0.38 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>1.4 0.7 0.76</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>1.4 0.7 0.76</size></box></geometry>
+          <material><ambient>0.45 0.30 0.15 1</ambient><diffuse>0.45 0.30 0.15 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- =================================================================
+         ZONA SCALE / OSTACOLO NEGATIVO (>15cm Drop-Off - FM-NAV-009)
+         Coordinate: x in [-4.2, -2.8], y in [-3.2, -1.8], Delta Z = -0.35m
+         ================================================================= -->
+    <model name="stairs_dropoff_hazard">
+      <static>true</static>
+      <pose>-3.5 -2.5 0.01 0 0 0</pose>
+      <link name="link">
+        <visual name="warning_border">
+          <geometry><box><size>1.4 1.4 0.02</size></box></geometry>
+          <material><ambient>0.95 0.2 0.1 1</ambient><diffuse>0.95 0.2 0.1 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- =================================================================
+         ATTORE UMANO VIRTUALE: LUCA (Familiare Biometrico ArcFace)
+         ================================================================= -->
+    <model name="human_luca">
+      <static>true</static>
+      <pose>1.8 0.5 0.85 0 0 3.14159</pose>
+      <link name="body">
+        <collision name="c"><geometry><cylinder><radius>0.24</radius><length>1.70</length></cylinder></geometry></collision>
+        <visual name="torso">
+          <geometry><cylinder><radius>0.22</radius><length>1.40</length></cylinder></geometry>
+          <material><ambient>0.15 0.55 0.85 1</ambient><diffuse>0.15 0.55 0.85 1</diffuse></material>
+        </visual>
+        <visual name="head">
+          <pose>0 0 0.82 0 0 0</pose>
+          <geometry><sphere><radius>0.14</radius></sphere></geometry>
+          <material><ambient>0.92 0.76 0.65 1</ambient><diffuse>0.92 0.76 0.65 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+  </world>
+</sdf>

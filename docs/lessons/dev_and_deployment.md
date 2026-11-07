@@ -243,3 +243,14 @@ source /mnt/ssd/robopy_controller_host/install/setup.bash 2>/dev/null
   3. **Fase 3 (Consolidamento URDF TF):** Rimossi i 7 processi `static_transform_publisher` da `restart_hailo.sh`, delegando la pubblicazione interamente a `robot_state_publisher` su `robopy.urdf` (-13.4% CPU, -330 MB RAM).
   4. **Fase 4 (Demone Supervisori Unificato):** Creato `robopy_controller/nodes/marcus_supervisors_daemon.py` che orchestra in un unico processo ed un unico partecipante DDS i 6 micro-nodi di supervisione (`battery_manager`, `robot_health`, `sensor_standby`, `resource_governor`, `cloud_watchdog`, `foxglove_bridge`), risparmiando ~300 MB RAM e ~35% CPU.
 
+---
+
+## 🌐 Gazebo Harmonic Digital Twin su WSL2, Emulazione NPU Hailo-10H & Shadow Memory Sandbox (FM-SIM-001, FM-COG-001)
+
+* **Contesto Hardware PC Host:** Per eseguire l'intero Digital Twin di Marcus (Gazebo Harmonic + ROS 2 Jazzy + Nav2 + TRINITY Brain) su un PC Windows dotato di APU Ryzen 5 3500U (~6.94 GB RAM utilizzabile) e privo dell'acceleratore fisico PCIe Hailo-10H:
+  1. **Tetto RAM WSL2 (`C:\Users\<user>\.wslconfig`):** Limitare la VM WSL2 a `memory=4500MB`, `swap=4GB`, `networkingMode=mirrored` ed eseguire Gazebo Harmonic in modalità server headless (`gz sim -s -r`) visualizzando il 3D su Windows tramite **Foxglove Studio** (`ws://localhost:8765`). Questo evita contesa tra Ogre2 e il Desktop Window Manager di Windows.
+  2. **Conversione Depth `32FC1 -> 16UC1` (`marcus_hardware_sim_bridge.py`):** Il sensore `rgbd_camera` di Gazebo pubblica la profondità in metri float32 (`32FC1`), mentre i nodi di sicurezza di Marcus (`SPEC-02` Zona Rossa) richiedono tassativamente `16UC1` in millimetri (`uint16`). Il bridge converte ogni frame in-place su un buffer NumPy `(480, 640)` pre-allocato a zero allocazioni dinamiche.
+  3. **Emulazione Deterministica NPU Hailo-10H (`hailo_digital_twin_node.py`):** Sostituisce trasparentemente il binario `hailo_bridge_node_cpp` esponendo gli stessi topic (`/hailo/detections`, `/hailo/yolo/detections`, `/hailo/pose/detections`, `/hailo/pose/skeletons`, `/hailo/face/identity`, `/hailo/vlad_descriptor`, `/vision/spatial_anomaly`) e il servizio `/hailo_bridge/yield_vdevice`, mantenendo la normalizzazione L2 rigorosa $\|v\|_2 = 1.0 \pm 10^{-5}$ su vettori ArcFace 512-dim e NetVLAD 4096-dim.
+  4. **Isolamento Copy-on-Write della Memoria (`ShadowMemorySandbox` - `FM-SIM-001`):** Ogni sessione di simulazione o test avversariale clona `mag_database.db`, ChromaDB e `known_faces/` in `/tmp/marcus_shadow_sandbox_<id>` e verifica tramite hash SHA-256 al teardown che i database di produzione non abbiano subito alcuna modifica.
+
+

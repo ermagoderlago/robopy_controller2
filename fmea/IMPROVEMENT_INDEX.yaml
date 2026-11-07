@@ -294,3 +294,9 @@ improvements:
     file: "docs/improvements/IMP-BIO-005_lidar_lifespan_preservation.md"
     status: "COMPLETED"
     domain: "hardware_power"
+
+  FM-NAV-041:
+    title: "Miglioramento Navigazione: Risoluzione Deadlock Nav2 Standby/Motion-Gate, Heading Tracking Rotazioni Pure e Filtraggio Piano Terra 2.5D"
+    file: "docs/improvements/IMP-NAV-041_motion_deadlock_resolution.md"
+    status: "COMPLETED"
+    domain: "nav2_slam"

@@ -480,3 +480,30 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
      - Creato documento centrale di governance che cataloga tutti i test da eseguire a seguito di modifiche profonde al codice per ogni sottosistema (`SPEC-01`..`SPEC-07`).
   4. **Integrazione Tracciabilità DFMEA (`fmea/dfmea.yaml` & `calculate_and_report_fmea.py`):**
      - Esplicitato il mapping tra failure mode e file di test di mitigazione (`verification_test_file`), aggiornando lo script di calcolo FMEA per generare il report esecutivo integrato.
+
+---
+
+## 📈 ECO-2026-11-05-GAZEBO-COGNITIVE-GYM: Gazebo Harmonic Digital Twin, Hailo-10H NPU Emulator, Interactive Virtual Humans & Intrinsic Motivation/Dopamine/Instinct Engine (FM-SIM-001, FM-COG-001)
+* **Autore:** 🤖 **Antigravity Lead Orchestrator**
+* **Data Creazione:** 2026-11-05 22:15:00
+* **Sottosistema:** `Simulation/Digital Twin, Vision/Hailo Emulator & AI/Cognitive Intrinsic Motivation`
+* **Stato:** ✅ **Completato, Collaudato e Certificato al 100%** (17/17 test `test/sim/` passati in 0.99s, 100% GREEN)
+* **Descrizione:**
+  Creazione della Palestra Cognitiva e Fisica 3D completa in Gazebo Harmonic (ROS 2 Jazzy su WSL2 Ubuntu 24.04) per testare, validare e far evolvere il 100% delle funzionalità di Marcus su PC privo di NPU Hailo-10H fisica, dotando Marcus di autonomia biomimetica guidata da Curiosità Epistemica, Ricompense Dopaminergiche (RPE) e Istinti di Sopravvivenza/Socialità:
+  1. **Infrastruttura WSL2 & Copy-on-Write Shadow Memory Sandbox (`FM-SIM-001`):**
+     - Configurazione `.wslconfig` (`memory=4500MB`, `processors=6`, `networkingMode=mirrored`) e script `robot_simulation/scripts/configure_wsl2_host.bat` + `install_deps.sh` (con build sequenziale `MAKEFLAGS="-j1"` e CycloneDDS Unicast a 200 partecipanti).
+     - Creato `robopy_controller/robot_ai/trinity/shadow_memory_sandbox.py` (`ShadowMemorySandbox`): isolamento Copy-on-Write su `/tmp/marcus_shadow_sandbox_<id>` per SQLite WAL `mag_database.db`, ChromaDB e `known_faces/`, con verifica crittografica SHA-256 di integrità zero-leakage sui DB di produzione.
+  2. **Gemello Fisico 1:1 (`marcus_sim.xacro`) & Emulatore Hardware ESP32 + BMS 3S2P (`marcus_hardware_sim_bridge.py`):**
+     - Allineamento 1:1 di `robot_simulation/urdf/marcus_sim.xacro` con `urdf/robopy.urdf` ($R_{wheel}=0.0335\text{ m}$, $W_{sep}=0.285\text{ m}$, 1440 CPR, RPLIDAR C1 360° 10Hz, OAK-D Lite RGB-D pitch $-8^\circ$, IMU BMI270 50Hz, ultrasuoni e `tail_joint` $[-45^\circ, +45^\circ]$).
+     - Implementato `MarcusHardwareSimEngine`: Watchdog hardware inviolabile 500ms (`SPEC-01` Zona Rossa), clamping $0.40\text{ m/s}$ ($0.20\text{ m/s}$ in ECO) e $1.80\text{ rad/s}$, S-Curve Jerk Limiter $C^1$, odometria Runge-Kutta 2° ordine, rilevamento stallo meccanico $>1.0\text{ s}$, conversione zero-alloc `32FC1 -> 16UC1` in mm (`SPEC-02` Zona Rossa), e scarica/ricarica batteria LiPo 3S2P (`SPEC-06`).
+  3. **Emulatore Digital Twin NPU Hailo-10H (`hailo_digital_twin_node.py` - `SPEC-03`):**
+     - Implementato `HailoDigitalTwinEngine`: Frustum culling 3D (FOV 69°), raycasting di occlusione su muri e buffer Depth `16UC1`, YOLOv8s + YOLOv8s-Pose a 17 keypoints COCO, SCRFD + ArcFace 512-dim con normalizzazione L2 rigorosa ($\|v\|_2 = 1.0 \pm 10^{-5}$), Dynamic Enrollment a 10 campioni, NetVLAD 4096-dim, servizio `/hailo_bridge/yield_vdevice` e generatore di sorpresa spaziale `/vision/spatial_anomaly`.
+  4. **Mondo Domestico Multi-Stanza (`marcus_smart_home.sdf`) & Attori Umani Virtuali Interattivi (`virtual_human_actors_node.py`):**
+     - Appartamento $10\text{ m} \times 8\text{ m}$ con Salotto, Cucina, Studio, Cuccia di ricarica a `(0,0)`, porte strette e rampa scale in discesa (`stairs_dropoff_hazard`, $\Delta Z = -35\text{ cm} > 15\text{ cm}$ per `FM-NAV-009`).
+     - Attori umani `Luca` e `Ospite` con navigazione multi-stanza, posture (`STANDING`, `WAVING`, `DO_NOT_DISTURB_DESK`, `FALL_EMERGENCY`), dialogo bidirezionale in italiano con feedback di ricompensa sociale e sintesi audio PCM 16000 Hz Mono 16-bit (`normal_speech`, `vocal_stress_scream`, `startle_bang`).
+  5. **Motore Biomimetico di Curiosità, Dopamina (RPE) e Istinti (`intrinsic_motivation_and_reward_engine.py` - `FM-COG-001`):**
+     - Implementato `DopamineRewardAndInstinctEngine`: pulsioni omeostatiche MAL (Curiosità, Socialità, Autonomia), calcolo Rescorla-Wagner $\delta_{RPE} = R_{actual} - R_{expected}$, riassorbimento sinaptico esponenziale (`REUPTAKE_LAMBDA = 0.12` verso baseline $D_0 = 0.30$), Efficacy Audit tramite Entropia Comportamentale di Shannon $H(A)$, Fear & Bottleneck Map, scodinzolio espressivo e validazione pre-flight obbligatoria con `TrinityKinematicSandbox`.
+  6. **Valutatore Spaziale (`marcus_gym_evaluator_node.py`) & Suite di Test (`test/sim/`):**
+     - 17 test automatici in `test_virtual_world_validation.py`, `test_hailo_digital_twin.py`, `test_navigation_and_stairs_safety.py` e `test_curiosity_rewards_and_instincts.py` (17/17 PASS).
+     - Chiusi `FM-COG-001` (RPN 294 -> 7) e `FM-SIM-001` (RPN 336 -> 8 e 168 -> 6) in `fmea/dfmea.yaml`.
+

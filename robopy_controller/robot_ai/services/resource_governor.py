@@ -105,7 +105,7 @@ class ResourceGovernorEngine:
         waking_duration_s: float = 2.0,
         stopping_duration_s: float = 0.5,
         dialogue_timeout_s: float = 180.0,
-        standstill_lidar_timeout_s: float = 45.0,
+        standstill_lidar_timeout_s: float = 90.0,
         shadow_mode: bool = True
     ):
         self.idle_dock_timeout_s = idle_dock_timeout_s
@@ -130,6 +130,7 @@ class ResourceGovernorEngine:
         # Flag telemetrici
         self.is_in_dock = False
         self.current_speed = 0.0
+        self.current_angular_speed = 0.0
         self.person_detected = False
         self.cloud_connected = True
         self.scan_consistency_ok = True
@@ -146,17 +147,21 @@ class ResourceGovernorEngine:
         is_charging_or_docked: bool,
         person_present: bool = False,
         cloud_online: bool = True,
-        scan_to_map_match_ok: bool = True
+        scan_to_map_match_ok: bool = True,
+        angular_speed: float = 0.0
     ):
         """Aggiorna i segnali telemetrici dei sensori di sistema."""
         now = time.monotonic()
         self.current_speed = abs(linear_speed)
+        self.current_angular_speed = abs(angular_speed)
         self.is_in_dock = bool(is_charging_or_docked)
         self.person_detected = bool(person_present)
         self.cloud_connected = bool(cloud_online)
         self.scan_consistency_ok = bool(scan_to_map_match_ok)
 
-        if self.current_speed < 0.02:
+        # [FM-NAV-041] Anche la rotazione sul posto (angular_speed >= 0.05 rad/s) è moto attivo:
+        # impedisce falsi positivi 'stalled_standstill' che chiudono /robot/motion_gate a metà curva!
+        if self.current_speed < 0.02 and self.current_angular_speed < 0.05:
             pass
         else:
             self._last_velocity_zero_time = now
@@ -174,9 +179,10 @@ class ResourceGovernorEngine:
             self._transition_kinematic(KinematicState.WAKING, reason="interaction_wake")
 
     def request_navigation(self):
-        """Notifica un intent di navigazione da TRINITY / Gemini Live."""
+        """Notifica un intent di navigazione da TRINITY / Gemini Live / Nav2."""
         self.nav_intent_active = True
         self.explicit_vlm_requested = False
+        self._last_velocity_zero_time = time.monotonic()
         if self.cognitive_state == CognitiveState.LOCAL_VLM:
             # Break-before-make: scarica VLM prima di qualsiasi avvio al moto
             self._transition_cognitive(CognitiveState.ENGAGED, reason="nav_intent_preemption")
@@ -262,12 +268,20 @@ class ResourceGovernorEngine:
         elif self.kinematic_state == KinematicState.MOVING:
             if not self.nav_intent_active:
                 self._transition_kinematic(KinematicState.STOPPING, reason="nav_intent_cleared")
-            elif self.current_speed < 0.01 and (now - self._last_velocity_zero_time > 3.0):
-                # Stallo prolungato a velocità nulla
+            elif (
+                self.current_speed < 0.01
+                and self.current_angular_speed < 0.03
+                and (now - self._last_velocity_zero_time > 8.0)
+            ):
+                # Stallo prolungato a velocità lineare e angolare nulla
                 self._transition_kinematic(KinematicState.STOPPING, reason="stalled_standstill")
 
         elif self.kinematic_state == KinematicState.STOPPING:
-            if self.current_speed < 0.01 and (now - self._state_enter_time >= self.stopping_duration_s):
+            if (
+                self.current_speed < 0.01
+                and self.current_angular_speed < 0.03
+                and (now - self._state_enter_time >= self.stopping_duration_s)
+            ):
                 self._transition_kinematic(KinematicState.STATIONARY, reason="standstill_confirmed")
 
         # 3. Risoluzione del Profilo di Risorse
@@ -349,9 +363,14 @@ class ResourceGovernorEngine:
                 vlm_loaded=False
             )
 
-        # Calcolo stato di riposo LiDAR prolungato a robot fermo (IMP-BIO-005, FM-BIO-005)
+        # [Invariante 6 rev. FM-BIO-005 + FM-NAV-041] LiDAR spento ammesso in DOCKED_SLEEP oppure in STATIONARY
+        # dopo standstill_lidar_timeout_s a velocità nulla e SENZA alcun nav_intent attivo.
+        # Non appena arriva /goal_pose, /plan, /cmd_vel_nav o /robot/nav_intent, request_navigation()
+        # riattiva istantaneamente il LiDAR spezzando il deadlock con collision_monitor.
         now = time.monotonic()
-        stationary_lidar_off = (k == KinematicState.STATIONARY and 
+        stationary_lidar_off = (k == KinematicState.STATIONARY and
+                                self.current_speed < 0.01 and
+                                self.current_angular_speed < 0.03 and
                                 (now - self._last_velocity_zero_time > self.standstill_lidar_timeout_s) and
                                 not self.nav_intent_active)
 
@@ -397,10 +416,13 @@ class ResourceGovernorEngine:
         if profile.motion_gate_open and self.kinematic_state != KinematicState.MOVING:
             self._trigger_violation("INVARIANT_5: Motion Gate aperto fuori dallo stato MOVING!")
 
-        # Invariante 6: LiDAR spento ammesso SOLO in DOCKED_SLEEP o STATIONARY prolungato (>45s) senza intent nav
+        # Invariante 6 (rev. FM-BIO-005 + FM-NAV-041): LiDAR spento ammesso SOLO in DOCKED_SLEEP o STATIONARY fermo senza nav_intent
         if not profile.lidar_active:
             allowed = (self.kinematic_state == KinematicState.DOCKED_SLEEP) or (
-                self.kinematic_state == KinematicState.STATIONARY and not self.nav_intent_active and not profile.motion_gate_open
+                self.kinematic_state == KinematicState.STATIONARY and
+                self.current_speed < 0.01 and
+                not self.nav_intent_active and
+                not profile.motion_gate_open
             )
             if not allowed:
                 self._trigger_violation(f"INVARIANT_6: LiDAR spento nello stato non ammesso {self.kinematic_state}!")

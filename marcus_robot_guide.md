@@ -337,11 +337,36 @@ Marcus può dialogare in linguaggio naturale con l'utente su qualsiasi aspetto d
 | **Salva Mappa 2D** | `./scripts/save_map.sh [nome_mappa]` | Esporta `/map` in `/mnt/ssd/maps/<nome_mappa>.yaml` e `.pgm` via `map_saver_cli` di Nav2. |
 | **Naviga (Mappa Statica)** | `./restart_hailo.sh --amcl --map=/mnt/ssd/maps/<nome>.yaml` | **Opzione A (FM-NAV-030):** Attiva AMCL (10 Hz) e Map Server per localizzazione su mappa nota. RTAB-Map disattiva `publish_tf` e salvataggio incrementale, mantenendo attive la sicurezza 2.5D, prevenzione scale e memorie TRINITY senza conflitti TF REP-105. |
 
-### 2. Sincronizzazione & Auto-Aggiornamento del Codice (`sync_marcus.sh`)
+### 2. Sincronizzazione & Auto-Aggiornamento del Codice (`sync_marcus.sh` / `deploy_and_restart.ps1`)
 
-La sincronizzazione tra macchina di sviluppo (PC) e robot (Raspberry Pi 5) è gestita in sicurezza dallo script `./sync_marcus.sh`:
+La sincronizzazione tra macchina di sviluppo (PC) e robot (Raspberry Pi 5) è gestita in sicurezza dallo script `./sync_marcus.sh` (Linux/WSL) e da `scripts/deploy_and_restart.ps1` (PowerShell nativo su Windows):
 * **SSH Multiplexing (ControlMaster):** Una sola richiesta di password SSH per tutta la sessione.
 * **Anti-Flattening Guard (Back-Sync Robot ➔ PC):** Recupera preventivamente dal robot le abilità generate dall'IA (`skills/`), i log, i registri evolutivi (`docs/evolution/`) e la DFMEA (`fmea/dfmea.yaml`), impedendo che una modifica da PC cancelli il lavoro autonomo di Marcus.
 * **Forward-Sync Protetto (PC ➔ Robot):** Utilizza il flag `-u` (`--update`) per sincronizzare solo i file più recenti.
 * **Python Hot-Swap Istantaneo & Symlink Canonici (FM-SYS-010):** Sincronizza `nodes/`, `robot_ai/` e `launch/` direttamente nella directory sorgente e assicura tramite `ln -sfn` che `install/robopy_controller/lib/python3.11/site-packages/robopy_controller/` punti direttamente ai sorgenti attivi. Questo elimina permanentemente il rischio di versioni orfane o statiche duplicate e garantisce l'applicazione istantanea al 100% di ogni modifica al riavvio del nodo.
+* **Windows One-Click Deploy:** Da PowerShell, eseguire `.\scripts\deploy_and_restart.ps1` per sincronizzare, eseguire l'hot-swap in `/mnt/ssd/robopy_controller_host/` e riavviare l'intero stack robot in modalità headless.
+
+### 3. Palestra Cognitiva & Digital Twin 3D in Gazebo Harmonic (`robot_simulation`)
+
+Per collaudare e far evolvere Marcus su PC Windows (anche senza NPU Hailo-10H fisica) in un appartamento multi-stanza (`marcus_smart_home.sdf`) o nei mondi progressivi con umani virtuali che parlano e interagiscono con lui:
+* **Mondi Progressivi di Navigazione:**
+  - `world_01_simple_room.sdf`: Stanza quadrata 6x6 m per test base di allineamento e pianificazione.
+  - `world_02_medium_apartment.sdf`: Appartamento multi-vano con corridoi e passaggi porta stretti ($0.85\text{ m}$).
+  - `world_03_extreme_labyrinth.sdf`: Labirinto estremo per stress test del planner e controller Nav2 in presenza di bivi e trappole a U.
+  - `marcus_smart_home.sdf`: Casa completa arredata con dislivelli scale, attori umani virtuali e docking station.
+* **Avvio Completo in WSL2 (Ubuntu 24.04 + ROS 2 Jazzy + Gazebo Harmonic):**
+  ```bash
+  bash /mnt/d/LUCA/robopy/robot_simulation/scripts/start_gazebo_marcus.sh
+  ```
+* **Emulatore NPU Hailo-10H (`hailo_digital_twin_node.py`):** Simula YOLOv8s, Pose 17-keypoints COCO, biometria facciale SCRFD + ArcFace 512-dim L2, NetVLAD 4096-dim e Sorpresa Spaziale 3D (`/vision/spatial_anomaly`).
+* **Autonomia Biomimetica (`intrinsic_motivation_and_reward_engine.py`):** Marcus esplora e interagisce mosso da **Curiosità Epistemica**, **Ricompense Dopaminergiche (RPE)** con riassorbimento sinaptico ed Efficacy Audit di Shannon $H(A)$ (`FM-COG-001`), **Socialità & Teoria della Mente** (inibizione dell'85% in `DO_NOT_DISTURB`) e **Istinti di Sopravvivenza** (barriera scale $>15\text{ cm}$, homing alla cuccia a $\le 10.15\text{ V}$, Amigdala Low-Road Hijack), isolando ogni ricordo sintetico nella `ShadowMemorySandbox` (`FM-SIM-001`).
+* **Suite di Validazione Automatica (25 Test in $< 1.5\text{ s}$ su Windows o WSL):**
+  ```powershell
+  # Esecuzione immediata con batch script
+  .\run_sim_tests.bat
+
+  # Oppure tramite uv run diretto
+  & "$HOME\.local\bin\uv.exe" run --python 3.11 --with pytest --with numpy --with pyyaml --with httpx python -m pytest test/sim/ -v
+  ```
+
 

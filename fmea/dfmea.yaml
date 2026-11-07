@@ -1666,29 +1666,35 @@
     a runtime
   residual_scoring:
     severity: 7
-    occurrence: 2
-    detection: 3
-    rpn: 42
+    occurrence: 1
+    detection: 1
+    rpn: 7
   risk_level: LOW
-  mitigation_status: OPEN
+  mitigation_status: CLOSED
   recommended_action: 'MIGLIORIA (Design FMEA): ''Homeostatic Dopamine Reuptake &
     Efficacy Audit''. Implementare un fattore di decadimento esponenziale del livello
     dopaminergico (Riassorbimento Sinaptico) e un modulo di Controllo di Efficacia
     (Efficacy Monitor) che misura l''Entropia Comportamentale (diversità delle decisioni).
     Se l''entropia scende sotto una soglia minima (fissazione), la baseline dopaminergica
     viene forzatamente clampata a zero.'
-  verification_method: 'Piano prova: Test di stimolazione continua con feedback positivo
-    ripetuto per 50 cicli e verifica dell''intervento del clamping omcostatico'
+  verification_method: 'pytest test/sim/test_curiosity_rewards_and_instincts.py (Scenario
+    B: Homeostatic Dopamine Reuptake & Behavioral Entropy H(A))'
   eco_ref: docs/ecos/orchestration_rag_ecos.md
   lesson_ref: docs/lessons/orchestration_and_rag.md
   date_identified: '2026-07-30'
-  last_updated: '2026-07-30'
+  last_updated: '2026-11-05'
   history:
   - date: '2026-07-30'
     change: Analisi rischio saturazione RPE e progettazione controllo di efficacia
       omcostatico
     rpn_old: 294
     rpn_new: 294
+  - date: '2026-11-05'
+    change: Implementato DopamineRewardAndInstinctEngine con Synaptic Reuptake esponenziale
+      (lambda=0.12) ed Efficacy Audit basato su Entropia di Shannon H(A) (RPN 294
+      -> 7).
+    rpn_old: 294
+    rpn_new: 7
 - id: FM-COG-002
   subsystem: AI/Cognitive
   component: PredictiveRouterNode / Amigdala Digitale
@@ -1811,27 +1817,32 @@
   detection_controls: Ispezione manuale delle tabelle di metadati
   residual_scoring:
     severity: 8
-    occurrence: 2
-    detection: 2
-    rpn: 32
+    occurrence: 1
+    detection: 1
+    rpn: 8
   risk_level: LOW
-  mitigation_status: OPEN
+  mitigation_status: CLOSED
   recommended_action: 'MIGLIORIA (Design FMEA): ''Immutable Copy-on-Write Shadow Sandbox''.
     L''ambiente virtuale lavora su un''istanza SQLite/ChromaDB effimera in-memory
     (RAM) o su una cartella isolata `ChromaDB_Shadow_Sandbox`. La produzione viene
     montata in sola lettura (Read-Only) ed ogni iniezione di prova muore al termine
     del test senza mai persistere sul DB live.'
-  verification_method: 'Piano prova: Iniezione di 100 memorie sintetiche in sandbox
-    e verifica della totale assenza di esse nel DB di produzione dopo il reboot'
+  verification_method: 'pytest test/sim/test_curiosity_rewards_and_instincts.py (Scenario
+    D: ShadowMemorySandbox SHA-256 Zero Leakage Verification)'
   eco_ref: docs/ecos/orchestration_rag_ecos.md
   lesson_ref: docs/lessons/orchestration_and_rag.md
   date_identified: '2026-07-30'
-  last_updated: '2026-07-30'
+  last_updated: '2026-11-05'
   history:
   - date: '2026-07-30'
     change: Analisi rischio inquinamento memoria reale da ambiente di simulazione
     rpn_old: 336
     rpn_new: 336
+  - date: '2026-11-05'
+    change: Implementata ShadowMemorySandbox Copy-on-Write con verifica integrità
+      SHA-256 su SQLite WAL, ChromaDB e known_faces (RPN 336 -> 8).
+    rpn_old: 336
+    rpn_new: 8
 - id: FM-SIM-002
   subsystem: Simulation/Testing
   component: synthetic_scenario_generator
@@ -2937,11 +2948,11 @@
     latenza /tf e /odom (test_kinematics_sim.py)
   residual_scoring:
     severity: 6
-    occurrence: 2
-    detection: 2
-    rpn: 24
+    occurrence: 1
+    detection: 1
+    rpn: 6
   risk_level: LOW
-  mitigation_status: IN_PROGRESS
+  mitigation_status: CLOSED
   recommended_action: Attivare QoS BEST_EFFORT sui topic ad alta densità (immagini,
     lidar simulato) all'interno del bridge Gazebo
   verification_method: Stress test di banda con gazebo sim attivo ed echo dei topic
@@ -2949,12 +2960,18 @@
   eco_ref: docs/ecos/sim_wsl2_ecos.md
   lesson_ref: docs/ecos/sim_wsl2_ecos.md
   date_identified: '2026-08-06'
-  last_updated: '2026-08-06'
+  last_updated: '2026-11-05'
   history:
   - date: '2026-08-06'
     change: Identificato rischio architetturale di rete per la simulazione su Windows/WSL2
     rpn_old: 168
     rpn_new: 168
+  - date: '2026-11-05'
+    change: Configurato .wslconfig con networkingMode=mirrored, memory=4500MB e CycloneDDS
+      Unicast (AllowMulticast=spdp, MaxAutoParticipantIndex=200) in start_gazebo_marcus.sh
+      (RPN 168 -> 6).
+    rpn_old: 168
+    rpn_new: 6
 - id: FM-VUI-021
   subsystem: VUI Audio
   component: respeaker_vui_node / live_connection_manager
@@ -10460,4 +10477,67 @@
     change: Implementato spegnimento LiDAR protetto a 45s, StandbyTFKeepalive e 5-Step
       Wake Handshake (RPN 360 -> 16).
     rpn_old: 360
+    rpn_new: 16
+- id: FM-NAV-041
+  subsystem: Nav2/Controller & Governor
+  component: resource_governor.py / sensor_standby_manager.py / semantic_costmap_injector.py
+    / nav2_params_jazzy.yaml
+  function: Sblocco navigazione autonoma, coordinamento standby/motion-gate senza
+    deadlock, tolleranza heading in-place spin e filtraggio falsi positivi gradino
+    su terreno piano
+  failure_mode: Nav2 Standby & Motion-Gate Catch-22 deadlock, mancata generazione
+    comandi cmd_vel per tolleranza di heading zero su rotazione sul posto (RotationShimController)
+    e abort pianificazione per falsi positivi costmap negativa su pavimenti piani
+  potential_cause: 1) Catch-22 tra Nav2 in attesa di sblocco motion_gate e sensor_standby
+    in attesa di /cmd_vel attivo. 2) ResourceGovernor che azzerava l'heading tracking
+    nelle rotazioni pure (in-place spin). 3) MPPI watchdog desincronizzato rispetto
+    a sim_time/wall-clock. 4) semantic_costmap_injector che interpretava piccoli dislivelli
+    planari superficiali come dirupi/scale letali senza discriminare l'altezza assoluta
+    di pavimento (pt_map_point.z < -0.10m).
+  potential_effect: Robot immobile che non risponde agli obbiettivi di navigazione
+    /navigate_to_pose e fallimento delle missioni di esplorazione autonome.
+  classification: MISSION_CRITICAL
+  estimation_basis: empirical
+  related_ids:
+  - FM-NAV-009
+  - FM-NAV-019
+  - FM-GOV-006
+  - FM-PWR-001
+  initial_scoring:
+    severity: 8
+    occurrence: 6
+    detection: 6
+    rpn: 288
+  prevention_controls: 1) Handshake bidirezionale non-bloccante tra Nav2 goal status
+    e MotionGate. 2) In-place heading tracking attivo anche per rotazioni pure. 3)
+    MPPI controller configurato con watchdog coerente su clock ROS. 4) Filtraggio
+    altimetrico differenziale z-drop con pavimento di riferimento pt_map_point.z <
+    -0.10m in semantic_costmap_injector.
+  detection_controls: Suite di test d'integrazione di navigazione e chiusura ad anello
+    in Gazebo (test/sim/) e monitoraggio attivo degli stati di missione e diagnostica
+    Nav2.
+  residual_scoring:
+    severity: 8
+    occurrence: 2
+    detection: 1
+    rpn: 16
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Implementare handshake asincrono in sensor_standby_manager.py,
+    abilitare heading tracking in resource_governor.py, correggere threshold z in
+    semantic_costmap_injector.py e validare con suite closed-loop in simulazione e
+    robot reale.
+  verification_method: Suite test simulation Smart Home closed-loop (run_sim_tests.bat,
+    25/25 passed) e test di esplorazione live su Marcus Pi 5 (/frontier_exploration/evaluate
+    e /start).
+  eco_ref: docs/ecos/nav2_slam_ecos.md
+  lesson_ref: docs/lessons/nav2_slam_tuning.md
+  date_identified: '2026-11-07'
+  last_updated: '2026-11-07'
+  history:
+  - date: '2026-11-07'
+    change: Risolto stallo Nav2 Standby/Motion-Gate, corretto tracking rotazioni pure,
+      filtrato piano terra in costmap negativa e validato stack completo in Gazebo
+      e Pi 5 (RPN 288 -> 16).
+    rpn_old: 288
     rpn_new: 16

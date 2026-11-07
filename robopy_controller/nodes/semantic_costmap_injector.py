@@ -51,6 +51,7 @@ class SemanticCostmapInjector(Node):
         self.declare_parameter('depth_topic', '/camera/depth/image_raw')
         self.declare_parameter('min_drop_height_m', 0.15)
         self.declare_parameter('max_floor_distance_m', 2.5)
+        self.declare_parameter('negative_obstacle_decay_sec', 180.0)
 
         # Configurable obstacle classes whitelist [FM-SEM-001]
         self.declare_parameter('obstacle_classes', [
@@ -77,6 +78,7 @@ class SemanticCostmapInjector(Node):
         self.depth_topic = self.get_parameter('depth_topic').value
         self.min_drop_height = float(self.get_parameter('min_drop_height_m').value)
         self.max_floor_dist = float(self.get_parameter('max_floor_distance_m').value)
+        self.negative_obstacle_decay_time = float(self.get_parameter('negative_obstacle_decay_sec').value)
         self.allowed_classes = set(c.lower() for c in self.get_parameter('obstacle_classes').value)
 
         # Active search target for semantic biased exploration and goal reaching
@@ -371,8 +373,39 @@ class SemanticCostmapInjector(Node):
 
             for col in range(num_u):
                 last_valid_pt = None
+                last_valid_depth = None
                 for row in range(num_v):
+                    d_val = float(sub_depth[row, col])
                     if not valid_mask[row, col]:
+                        # [FM-NAV-009 / FM-NAV-041] Voragine profonda oltre max_floor_dist:
+                        # verifica che il raggio non stia semplicemente scavalcando un oggetto basso
+                        # (es. charging_dock h=12cm o cassa) atterrando sul pavimento piano (z_eval ~ 0m) dietro di esso!
+                        if (
+                            last_valid_pt is not None
+                            and last_valid_depth is not None
+                            and last_valid_depth < 1.80
+                            and (math.isinf(d_val) or d_val - last_valid_depth > 1.20)
+                        ):
+                            if rot_mat[2, 1] < -0.5:
+                                d_eval = 3.5 if math.isinf(d_val) else d_val
+                                u_px = float(u_coords[col])
+                                v_px = float(v_coords[row])
+                                z_eval = float(
+                                    trans_vec[2]
+                                    + rot_mat[2, 0] * ((u_px - cx) * d_eval / fx)
+                                    + rot_mat[2, 1] * ((v_px - cy) * d_eval / fy)
+                                    + rot_mat[2, 2] * d_eval
+                                )
+                                if (
+                                    last_valid_pt.z <= 0.10
+                                    and z_eval < -self.min_drop_height
+                                    and (last_valid_pt.z - z_eval) > self.min_drop_height
+                                ):
+                                    self._register_negative_obstacle(last_valid_pt, now_sec)
+                                    break
+                            else:
+                                self._register_negative_obstacle(last_valid_pt, now_sec)
+                                break
                         continue
 
                     p_map = pts_map_grid[row, col]
@@ -381,18 +414,25 @@ class SemanticCostmapInjector(Node):
                     pt_map_point.y = float(p_map[1])
                     pt_map_point.z = float(p_map[2])
 
-                    # FM-NAV-009: Rilevamento vero dislivello / scala (salto relativo dz > min_drop_height)
-                    # Non segnalare il normale orizzonte visivo del sensore o il pavimento inclinato
+                    # FM-NAV-009: Rilevamento vero dislivello / scala (salto relativo dz > min_drop_height e quota sotto il piano terra)
+                    # Non segnalare il normale orizzonte visivo del sensore o la discesa da oggetti rialzati al pavimento piano
                     if last_valid_pt is not None:
                         dz = last_valid_pt.z - pt_map_point.z
-                        if dz > self.min_drop_height:
+                        if dz > self.min_drop_height and (rot_mat[2, 1] >= -0.5 or pt_map_point.z < -0.10):
                             self._register_negative_obstacle(last_valid_pt, now_sec)
+                            if rot_mat[2, 1] < -0.5:
+                                self._register_negative_obstacle(pt_map_point, now_sec)
+                                continue
                             break
                     elif pt_map_point.z < -0.30:
                         self._register_negative_obstacle(pt_map_point, now_sec)
+                        if rot_mat[2, 1] < -0.5:
+                            continue
                         break
 
-                    last_valid_pt = pt_map_point
+                    if rot_mat[2, 1] >= -0.5 or pt_map_point.z >= -0.10:
+                        last_valid_pt = pt_map_point
+                        last_valid_depth = d_val
 
         except Exception as e:
             self.get_logger().error(f"Errore nel rilevamento ostacoli negativi depth: {e}", throttle_duration_sec=10.0)
@@ -435,9 +475,12 @@ class SemanticCostmapInjector(Node):
         expired_keys = []
 
         with self.lock:
-            # Identifica gli ostacoli scaduti
+            # Identifica gli ostacoli scaduti (dislivelli/scale strutturali usano negative_obstacle_decay_time
+            # per non essere cancellati dal raytracing 2D del LiDAR planare mentre il robot li aggira di lato)
+            neg_decay = float(getattr(self, 'negative_obstacle_decay_time', self.decay_time))
             for key, obs in self.active_obstacles.items():
-                if now - obs['timestamp'] > self.decay_time:
+                ttl = neg_decay if obs.get('label') == 'negative_obstacle' else self.decay_time
+                if now - obs['timestamp'] > ttl:
                     expired_keys.append(key)
 
             # Rimuove ostacoli scaduti

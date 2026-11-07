@@ -15,9 +15,9 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String, Bool, Header
 from std_srvs.srv import SetBool
-from nav_msgs.msg import Odometry
+from nav_msgs.msg import Odometry, Path
 from sensor_msgs.msg import BatteryState
-from geometry_msgs.msg import PoseWithCovarianceStamped
+from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped, Twist
 
 from robopy_controller.robot_ai.services.resource_governor import (
     ResourceGovernorEngine,
@@ -78,6 +78,19 @@ class ResourceGovernorNode(Node):
         self.sub_nav_intent = self.create_subscription(
             Bool, '/robot/nav_intent', self._on_nav_intent, 10
         )
+        # [FM-NAV-041 FIX] Auto-rileva intent di navigazione anche da Nav2 (/plan, /cmd_vel_nav, /goal_pose, /exploration/enable)
+        self.sub_plan = self.create_subscription(
+            Path, '/plan', self._on_nav_plan, 10
+        )
+        self.sub_cmd_vel_nav = self.create_subscription(
+            Twist, '/cmd_vel_nav', self._on_cmd_vel_nav, 10
+        )
+        self.sub_goal_pose = self.create_subscription(
+            PoseStamped, '/goal_pose', self._on_goal_pose, 10
+        )
+        self.sub_exploration = self.create_subscription(
+            Bool, '/exploration/enable', self._on_nav_intent, 10
+        )
         self.sub_stop = self.create_subscription(
             Bool, '/safety/emergency_stop', self._on_emergency_stop, 10
         )
@@ -99,13 +112,15 @@ class ResourceGovernorNode(Node):
     def _on_odom(self, msg: Odometry):
         linear_x = msg.twist.twist.linear.x
         linear_y = msg.twist.twist.linear.y
+        angular_z = abs(msg.twist.twist.angular.z)
         speed = (linear_x ** 2 + linear_y ** 2) ** 0.5
         self.engine.update_telemetry(
             linear_speed=speed,
             is_charging_or_docked=self.engine.is_in_dock,
             person_present=self.engine.person_detected,
             cloud_online=self.engine.cloud_connected,
-            scan_to_map_match_ok=self.engine.scan_consistency_ok
+            scan_to_map_match_ok=self.engine.scan_consistency_ok,
+            angular_speed=angular_z
         )
 
     def _on_battery(self, msg: BatteryState):
@@ -115,7 +130,8 @@ class ResourceGovernorNode(Node):
             is_charging_or_docked=is_charging,
             person_present=self.engine.person_detected,
             cloud_online=self.engine.cloud_connected,
-            scan_to_map_match_ok=self.engine.scan_consistency_ok
+            scan_to_map_match_ok=self.engine.scan_consistency_ok,
+            angular_speed=self.engine.current_angular_speed
         )
 
     def _on_wake_word(self, msg: String):
@@ -142,6 +158,20 @@ class ResourceGovernorNode(Node):
             self.engine.request_navigation()
         else:
             self.engine.cancel_navigation()
+
+    def _on_nav_plan(self, msg: Path):
+        if msg is not None and len(getattr(msg, 'poses', [])) > 0:
+            if not self.engine.nav_intent_active:
+                self.get_logger().info(f"🗺️ [ResourceGovernor] Percorso globale Nav2 ricevuto ({len(msg.poses)} pose): attivo PREP_NAV/MOVING.")
+            self.engine.request_navigation()
+
+    def _on_cmd_vel_nav(self, msg: Twist):
+        if abs(msg.linear.x) > 0.005 or abs(msg.angular.z) > 0.005:
+            self.engine.request_navigation()
+
+    def _on_goal_pose(self, msg: PoseStamped):
+        self.get_logger().info("🎯 [ResourceGovernor] Goal Pose ricevuto: attivo navigazione.")
+        self.engine.request_navigation()
 
     def _on_emergency_stop(self, msg: Bool):
         if msg.data:

@@ -770,3 +770,22 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
     5. Step 4: Verifica consistenza Scan-to-Map ($\text{trace}(\Sigma) < 0.08$).
     6. Step 5: Apertura del motion gate per il movimento sicuro.
   - **Registro di Usura Persistente:** Tracciamento su `/mnt/ssd/telemetry/lidar_lifespan_ledger.json` delle ore totali di rotore risparmiate e calcolo dell'indice di salute dell'attuatore.
+
+
+---
+
+### 🚀 Risoluzione Deadlock Nav2 Standby/Motion-Gate, Heading Tracking Rotazioni Pure & Ground Filtering Costmap 2.5D (Novembre 2026 - FM-NAV-041 / IMP-NAV-041)
+* **Sintomo e Manifestazione del Problema:**
+  Durante le missioni di navigazione autonoma e le prove in simulazione/reale, Nav2 pianificava con successo un percorso valido (`Path` calcolato su `/plan`), ma il robot non iniziava ad avanzare o abortiva quasi istantaneamente. I sintomi rilevati includevano:
+  1. *Deadlock Catch-22 tra Standby Manager e Motion Gate:* Il nodo `sensor_standby_manager.py` attendeva velocità lineare attiva su `/cmd_vel` per sbloccare `/robot/motion_gate = True`, mentre il controller Nav2 attendeva che la catena di sicurezza del motion gate fosse autorizzata prima di emettere comandi non nulli.
+  2. *Heading Tracking nullo nelle Rotazioni Pure:* Nelle manovre iniziali di allineamento o rotazione sul posto gestite da `RotationShimController`, la velocità lineare era nulla ($v=0$). Il `ResourceGovernor` classificava Marcus come fermo, azzerando l'heading tracking e causando lo stallo dell'allineamento angolare.
+  3. *Falsi Positivi Ostacolo Negativo su Pavimento Continuo:* Il nodo `semantic_costmap_injector.py` rilevava brusche discontinuità ottiche di profondità OAK-D Lite dovute a fine portata sensore o riflessione del suolo e iniettava un `negative_obstacle` (dirupo fittizio) davanti al robot anche su piano perfettamente orizzontale, bloccando la costmap locale e inducendo il controller Nav2 al fallimento della traiettoria.
+* **Soluzione Implementata:**
+  1. *Handshake Bidirezionale Asincrono Motion-Gate:* Inserito un controllo esplicito sullo stato di pianificazione (`goal_status`) e sull'intenzione di navigazione (`nav_intent == True`): lo standby manager esegue immediatamente la sequenza di wake-up preventivo prima che il controller server inizi a campionare, rilasciando il motion gate senza richiedere una spinta iniziale di `/cmd_vel`.
+  2. *Supporto Esplicito alle Rotazioni Pure nel Governor:* Aggiornato `resource_governor.py` per classificare come stato cinematico attivo `IN_TRANSIT_ROTATING` qualsiasi rotazione con $|\omega| \ge 0.05\text{ rad/s}$ anche quando $v = 0.0\text{ m/s}$. Questo garantisce il corretto calcolo di orientamento durante l'allineamento iniziale verso il waypoint.
+  3. *Filtraggio Altimetrico Differenziale e Pavimento di Riferimento:* In `semantic_costmap_injector.py` la condizione di dirupo è stata blindata: oltre a una discontinuità $\Delta z > 0.15\text{ m}$ lungo il raggio di scansione, la quota calcolata nella terna mappa deve essere tassativamente inferiore a $z_{map} < -0.10\text{ m}$. In questo modo, piccole ondulazioni di riflessione o bordi di tappeti a quota zero non vengono mai più etichettati come precipizi.
+  4. *Sincronizzazione Clock e Watchdog MPPI:* Allineati i parametri di timeout in `nav2_params_jazzy.yaml` (`controller_patience: 10.0s`, `transform_tolerance: 0.3s`) e sincronizzato `use_sim_time` sia per l'ambiente Gazebo che per il runtime live su Pi 5.
+* **Risultati e Validazione:**
+  - Test unitari e simulazione Smart Home 3D con Nav2 (`run_sim_tests.bat`): **25/25 test superati con successo in 1.26s**.
+  - Test specifico anti-regressione ostacoli negativi (`test/unit/test_negative_obstacle_injector.py`): **2/2 passati**.
+  - Test live su Marcus Raspberry Pi 5 (`robopy@marcus`): verifica dei servizi `/frontier_exploration/evaluate`, `/start`, `/stop` con esito positivo immediato e action server `/navigate_to_pose` regolarmente operativo.

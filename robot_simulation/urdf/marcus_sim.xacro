@@ -1,42 +1,68 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="marcus">
 
-  <!-- Base Link -->
+  <!-- =====================================================================
+       MARCUS DIGITAL TWIN URDF/XACRO (Gazebo Harmonic + ROS 2 Jazzy)
+       Allineato 1:1 con urdf/robopy.urdf, SPEC-01, SPEC-02, SPEC-03
+       Quote fisiche:
+         - Raggio ruota: 0.0335 m (D = 67 mm)
+         - Carreggiata (wheel_separation): 0.285 m
+         - Encoder: 1440 CPR
+         - RPLIDAR C1 360 ToF: xyz="0.08 0 0.18" yaw=pi
+         - OAK-D Lite RGB-D: xyz="0.0332 0 0.2616" pitch=-8 deg (-0.1396 rad)
+         - Ultrasuoni: xyz="0.12 0 0.05"
+         - Coda espressiva (servo_coda): xyz="-0.125 0 0.10", [-45 deg, +45 deg]
+       ===================================================================== -->
+
+  <!-- BASE LINK -->
   <link name="base_link">
     <inertial>
-      <mass value="5.0"/>
-      <origin xyz="0 0 0"/>
-      <inertia ixx="0.05" ixy="0" ixz="0" iyy="0.05" iyz="0" izz="0.1"/>
+      <mass value="3.8"/>
+      <origin xyz="0 0 0.08" rpy="0 0 0"/>
+      <inertia ixx="0.025" ixy="0" ixz="0" iyy="0.032" iyz="0" izz="0.045"/>
     </inertial>
     <visual>
+      <origin xyz="0 0 0.08" rpy="0 0 0"/>
       <geometry>
-        <cylinder radius="0.2" length="0.1"/>
+        <box size="0.25 0.22 0.12"/>
       </geometry>
-      <material name="blue">
-        <color rgba="0 0 1 1"/>
+      <material name="marcus_dark">
+        <color rgba="0.18 0.18 0.22 1.0"/>
       </material>
     </visual>
     <collision>
+      <origin xyz="0 0 0.08" rpy="0 0 0"/>
       <geometry>
-        <cylinder radius="0.2" length="0.1"/>
+        <box size="0.25 0.22 0.12"/>
       </geometry>
     </collision>
   </link>
 
-  <!-- Left Wheel -->
+  <!-- BASE FOOTPRINT (REP-105 ground projection Z=0) -->
+  <link name="base_footprint"/>
+  <joint name="base_footprint_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="base_footprint"/>
+    <origin xyz="0 0 -0.0335" rpy="0 0 0"/>
+  </joint>
+
+  <!-- LEFT WHEEL (R=0.0335m, Y=+0.1425m) -->
   <link name="left_wheel">
     <inertial>
-      <mass value="0.5"/>
-      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
+      <mass value="0.35"/>
+      <inertia ixx="0.0002" ixy="0" ixz="0" iyy="0.0002" iyz="0" izz="0.0004"/>
     </inertial>
     <visual>
       <geometry>
-        <cylinder radius="0.05" length="0.02"/>
+        <cylinder radius="0.0335" length="0.04"/>
       </geometry>
+      <material name="track_black">
+        <color rgba="0.1 0.1 0.1 1.0"/>
+      </material>
     </visual>
     <collision>
       <geometry>
-        <cylinder radius="0.05" length="0.02"/>
+        <cylinder radius="0.0335" length="0.04"/>
       </geometry>
     </collision>
   </link>
@@ -44,25 +70,28 @@
   <joint name="left_wheel_joint" type="continuous">
     <parent link="base_link"/>
     <child link="left_wheel"/>
-    <origin xyz="0 0.22 -0.05" rpy="-1.5707 0 0"/>
+    <origin xyz="0 0.1425 0.0" rpy="-1.5707963 0 0"/>
     <axis xyz="0 0 1"/>
-    <limit effort="10.0" velocity="10.0"/>
+    <limit effort="12.0" velocity="15.0"/>
   </joint>
 
-  <!-- Right Wheel -->
+  <!-- RIGHT WHEEL (R=0.0335m, Y=-0.1425m) -->
   <link name="right_wheel">
     <inertial>
-      <mass value="0.5"/>
-      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
+      <mass value="0.35"/>
+      <inertia ixx="0.0002" ixy="0" ixz="0" iyy="0.0002" iyz="0" izz="0.0004"/>
     </inertial>
     <visual>
       <geometry>
-        <cylinder radius="0.05" length="0.02"/>
+        <cylinder radius="0.0335" length="0.04"/>
       </geometry>
+      <material name="track_black">
+        <color rgba="0.1 0.1 0.1 1.0"/>
+      </material>
     </visual>
     <collision>
       <geometry>
-        <cylinder radius="0.05" length="0.02"/>
+        <cylinder radius="0.0335" length="0.04"/>
       </geometry>
     </collision>
   </link>
@@ -70,20 +99,20 @@
   <joint name="right_wheel_joint" type="continuous">
     <parent link="base_link"/>
     <child link="right_wheel"/>
-    <origin xyz="0 -0.22 -0.05" rpy="-1.5707 0 0"/>
+    <origin xyz="0 -0.1425 0.0" rpy="-1.5707963 0 0"/>
     <axis xyz="0 0 1"/>
-    <limit effort="10.0" velocity="10.0"/>
+    <limit effort="12.0" velocity="15.0"/>
   </joint>
 
-  <!-- Caster Wheel -->
-  <link name="caster_wheel">
+  <!-- FRONT & REAR PASSIVE CASTERS FOR STABILITY -->
+  <link name="front_caster">
     <inertial>
-      <mass value="0.1"/>
-      <inertia ixx="0.0001" ixy="0" ixz="0" iyy="0.0001" iyz="0" izz="0.0001"/>
+      <mass value="0.08"/>
+      <inertia ixx="0.00005" ixy="0" ixz="0" iyy="0.00005" iyz="0" izz="0.00005"/>
     </inertial>
     <collision>
       <geometry>
-        <sphere radius="0.05"/>
+        <sphere radius="0.0165"/>
       </geometry>
       <surface>
         <friction>
@@ -95,61 +124,251 @@
       </surface>
     </collision>
   </link>
-
-  <joint name="caster_joint" type="fixed">
+  <joint name="front_caster_joint" type="fixed">
     <parent link="base_link"/>
-    <child link="caster_wheel"/>
-    <origin xyz="0.15 0 -0.05" rpy="0 0 0"/>
+    <child link="front_caster"/>
+    <origin xyz="0.10 0 -0.017" rpy="0 0 0"/>
   </joint>
 
-  <!-- OAK-D Lite Extrinsics -->
+  <link name="rear_caster">
+    <inertial>
+      <mass value="0.08"/>
+      <inertia ixx="0.00005" ixy="0" ixz="0" iyy="0.00005" iyz="0" izz="0.00005"/>
+    </inertial>
+    <collision>
+      <geometry>
+        <sphere radius="0.0165"/>
+      </geometry>
+      <surface>
+        <friction>
+          <ode>
+            <mu>0.001</mu>
+            <mu2>0.001</mu2>
+          </ode>
+        </friction>
+      </surface>
+    </collision>
+  </link>
+  <joint name="rear_caster_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="rear_caster"/>
+    <origin xyz="-0.10 0 -0.017" rpy="0 0 0"/>
+  </joint>
+
+  <!-- RPLIDAR C1 (360 ToF Laser Scan, Z=0.18m, yaw=180 deg) -->
+  <link name="laser">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.032" length="0.04"/>
+      </geometry>
+      <material name="lidar_blue">
+        <color rgba="0.15 0.35 0.85 1.0"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="laser_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="laser"/>
+    <origin xyz="0.08 0.0 0.18" rpy="0.0 0.0 3.14159265"/>
+  </joint>
+
+  <!-- OAK-D LITE CAMERA (Z=0.2616m, pitch=-0.1396 rad / 8 deg UP) -->
+  <link name="oak_camera_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.02 0.09 0.03"/>
+      </geometry>
+      <material name="camera_silver">
+        <color rgba="0.75 0.75 0.75 1.0"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="oak_camera_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="oak_camera_link"/>
+    <origin xyz="0.0332 0.0 0.2616" rpy="0.0 -0.1396 0.0"/>
+  </joint>
+
+  <!-- Alias camera_link per compatibilita' legacy -->
   <link name="camera_link"/>
-  <joint name="camera_joint" type="fixed">
-    <parent link="base_link"/>
+  <joint name="camera_link_alias_joint" type="fixed">
+    <parent link="oak_camera_link"/>
     <child link="camera_link"/>
-    <origin xyz="0.2 0 0.1" rpy="0 0 0"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
   </joint>
 
+  <!-- REP-103 Optical Frames -->
   <link name="camera_optical_frame"/>
   <joint name="camera_optical_joint" type="fixed">
-    <parent link="camera_link"/>
+    <parent link="oak_camera_link"/>
     <child link="camera_optical_frame"/>
-    <origin xyz="0 0 0" rpy="-1.5707 0 -1.5707"/>
+    <origin xyz="0 0 0" rpy="-1.5707963 0.0 -1.5707963"/>
   </joint>
 
-  <!-- Plugins for Gazebo Harmonic -->
+  <link name="oak_left_camera_optical_frame"/>
+  <joint name="oak_left_camera_optical_joint" type="fixed">
+    <parent link="oak_camera_link"/>
+    <child link="oak_left_camera_optical_frame"/>
+    <origin xyz="0 0 0" rpy="-1.5707963 0.0 -1.5707963"/>
+  </joint>
+
+  <link name="oak_imu_frame"/>
+  <joint name="oak_imu_joint" type="fixed">
+    <parent link="oak_camera_link"/>
+    <child link="oak_imu_frame"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <!-- CHASSIS IMU & BMI270 -->
+  <link name="chassis_imu_link"/>
+  <joint name="chassis_imu_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="chassis_imu_link"/>
+    <origin xyz="0.0 0.0 0.05" rpy="0 0 0"/>
+  </joint>
+
+  <link name="imu_link"/>
+  <joint name="imu_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="imu_link"/>
+    <origin xyz="0.10 0.0 0.15" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ULTRASONIC SENSOR -->
+  <link name="ultrasonic_sensor"/>
+  <joint name="ultrasonic_sensor_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="ultrasonic_sensor"/>
+    <origin xyz="0.12 0.0 0.05" rpy="0 0 0"/>
+  </joint>
+
+  <!-- SERVO CODA ESPRESSIVA (SPEC-01 Green Zone: [-45 deg, +45 deg]) -->
+  <link name="tail_link">
+    <inertial>
+      <mass value="0.03"/>
+      <inertia ixx="0.00001" ixy="0" ixz="0" iyy="0.00001" iyz="0" izz="0.00001"/>
+    </inertial>
+    <visual>
+      <origin xyz="-0.04 0 0.02" rpy="0 -0.4 0"/>
+      <geometry>
+        <cylinder radius="0.008" length="0.09"/>
+      </geometry>
+      <material name="marcus_orange">
+        <color rgba="0.95 0.45 0.10 1.0"/>
+      </material>
+    </visual>
+  </link>
+  <joint name="tail_joint" type="revolute">
+    <parent link="base_link"/>
+    <child link="tail_link"/>
+    <origin xyz="-0.125 0.0 0.10" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-0.7854" upper="0.7854" effort="1.5" velocity="6.0"/>
+  </joint>
+
+  <!-- =====================================================================
+       GAZEBO HARMONIC PLUGINS
+       ===================================================================== -->
   <gazebo>
     <plugin filename="gz-sim-diff-drive-system" name="gz::sim::systems::DiffDrive">
       <left_joint>left_wheel_joint</left_joint>
       <right_joint>right_wheel_joint</right_joint>
-      <wheel_separation>0.44</wheel_separation>
-      <wheel_radius>0.05</wheel_radius>
+      <wheel_separation>0.285</wheel_separation>
+      <wheel_radius>0.0335</wheel_radius>
       <odom_publish_frequency>50</odom_publish_frequency>
-      <topic>cmd_vel</topic>
-      <odom_topic>odom</odom_topic>
-      <tf_topic>tf</tf_topic>
+      <max_linear_velocity>0.40</max_linear_velocity>
+      <min_linear_velocity>-0.40</min_linear_velocity>
+      <max_angular_velocity>1.80</max_angular_velocity>
+      <min_angular_velocity>-1.80</min_angular_velocity>
+      <topic>/gz/cmd_vel_safe</topic>
+      <odom_topic>/gz/odom_raw</odom_topic>
+      <tf_topic>/tf</tf_topic>
       <frame_id>odom</frame_id>
       <child_frame_id>base_link</child_frame_id>
     </plugin>
+
+    <plugin filename="gz-sim-joint-state-publisher-system" name="gz::sim::systems::JointStatePublisher">
+      <topic>joint_states</topic>
+    </plugin>
   </gazebo>
 
-  <gazebo reference="camera_link">
-    <sensor name="camera_sensor" type="rgbd_camera">
+  <!-- WHEEL FRICTION FOR CRISP DIFFERENTIAL DRIVE IN GAZEBO ODE -->
+  <gazebo reference="left_wheel">
+    <mu1>1.2</mu1>
+    <mu2>1.2</mu2>
+  </gazebo>
+  <gazebo reference="right_wheel">
+    <mu1>1.2</mu1>
+    <mu2>1.2</mu2>
+  </gazebo>
+  <gazebo reference="front_caster">
+    <mu1>0.001</mu1>
+    <mu2>0.001</mu2>
+  </gazebo>
+  <gazebo reference="rear_caster">
+    <mu1>0.001</mu1>
+    <mu2>0.001</mu2>
+  </gazebo>
+
+  <!-- RPLIDAR C1 360 ToF Sensor (10 Hz) -->
+  <gazebo reference="laser">
+    <sensor name="rplidar_c1" type="gpu_lidar">
+      <pose>0 0 0 0 0 0</pose>
+      <topic>/gz/scan_raw</topic>
+      <gz_frame_id>laser</gz_frame_id>
+      <update_rate>10</update_rate>
+      <always_on>1</always_on>
+      <visualize>false</visualize>
+      <lidar>
+        <scan>
+          <horizontal>
+            <samples>360</samples>
+            <resolution>1</resolution>
+            <min_angle>-3.14159265</min_angle>
+            <max_angle>3.14159265</max_angle>
+          </horizontal>
+        </scan>
+        <range>
+          <min>0.10</min>
+          <max>12.0</max>
+          <resolution>0.01</resolution>
+        </range>
+      </lidar>
+    </sensor>
+  </gazebo>
+
+  <!-- OAK-D Lite RGB-D Camera (640x480 @ 3 Hz, hfov=1.1171986 rad => fx=fy=512.0 matching semantic_costmap_injector 1.25 Hz) -->
+  <gazebo reference="oak_camera_link">
+    <sensor name="oak_rgbd_camera" type="rgbd_camera">
       <camera>
-        <horizontal_fov>1.309</horizontal_fov> <!-- 75 degrees -->
+        <horizontal_fov>1.1171986</horizontal_fov>
         <image>
           <width>640</width>
           <height>480</height>
+          <format>R8G8B8</format>
         </image>
         <clip>
-          <near>0.2</near>
+          <near>0.20</near>
           <far>10.0</far>
         </clip>
       </camera>
       <always_on>1</always_on>
-      <update_rate>30</update_rate>
-      <visualize>true</visualize>
-      <topic>camera</topic>
+      <update_rate>3</update_rate>
+      <visualize>false</visualize>
+      <topic>/camera</topic>
+      <gz_frame_id>camera_optical_frame</gz_frame_id>
+    </sensor>
+  </gazebo>
+
+  <!-- IMU BMI270 Sensor (50 Hz) -->
+  <gazebo reference="imu_link">
+    <sensor name="bmi270_imu" type="imu">
+      <always_on>1</always_on>
+      <update_rate>50</update_rate>
+      <topic>/imu/data</topic>
+      <gz_frame_id>imu_link</gz_frame_id>
     </sensor>
   </gazebo>
 

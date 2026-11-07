@@ -113,12 +113,19 @@ class NavigationClient:
         self._node = node
         self._action_client = None
         self._cmd_vel_pub = cmd_vel_pub
+        self._nav_intent_pub = None
         if HAS_ROS and self._node and not self._cmd_vel_pub:
             try:
                 self._cmd_vel_pub = self._node.create_publisher(Twist, '/cmd_vel', 10)
                 self.logger.info("Automatically created /cmd_vel publisher fallback in NavigationClient")
             except Exception as e:
                 self.logger.error(f"Failed to create /cmd_vel publisher fallback: {e}")
+        if HAS_ROS and self._node:
+            try:
+                from std_msgs.msg import Bool
+                self._nav_intent_pub = self._node.create_publisher(Bool, '/robot/nav_intent', 10)
+            except Exception:
+                self._nav_intent_pub = None
         self._latest_scan: Optional[LaserScan] = None
         self._scan_sub = None
         self._current_odom_pose: Optional[tuple] = None # (x, y, yaw)
@@ -360,7 +367,15 @@ class NavigationClient:
         self._last_stasi_pos = None
         self._stasi_start_time = None
         
-        # Publish event
+        # Publish event & explicit /robot/nav_intent (FM-NAV-041)
+        if self._nav_intent_pub and HAS_ROS:
+            try:
+                from std_msgs.msg import Bool
+                intent_msg = Bool()
+                intent_msg.data = True
+                self._nav_intent_pub.publish(intent_msg)
+            except Exception:
+                pass
         self.event_bus.publish(EventType.NAVIGATION_STARTED, {
             "x": x, "y": y, "theta": theta
         })
@@ -377,6 +392,14 @@ class NavigationClient:
         
         if not goal_handle.accepted:
             self._status = NavigationStatus.FAILED
+            if self._nav_intent_pub and HAS_ROS:
+                try:
+                    from std_msgs.msg import Bool
+                    intent_msg = Bool()
+                    intent_msg.data = False
+                    self._nav_intent_pub.publish(intent_msg)
+                except Exception:
+                    pass
             self.event_bus.publish(EventType.NAVIGATION_FAILED, {
                 "reason": "Goal rejected"
             })
@@ -388,6 +411,15 @@ class NavigationClient:
         result_future = goal_handle.get_result_async()
         result = await result_future
         
+        if self._nav_intent_pub and HAS_ROS:
+            try:
+                from std_msgs.msg import Bool
+                intent_msg = Bool()
+                intent_msg.data = False
+                self._nav_intent_pub.publish(intent_msg)
+            except Exception:
+                pass
+
         if result.status == GoalStatus.STATUS_SUCCEEDED:
             self._status = NavigationStatus.SUCCEEDED
             self.event_bus.publish(EventType.NAVIGATION_COMPLETED, {

@@ -225,6 +225,8 @@ class TrinityKinematicSandbox:
             args = dict(cmd_input.arguments) if isinstance(cmd_input.arguments, dict) else {}
             if fn == "navigate_to" and "destination" not in args and "target_room" in args:
                 args["destination"] = args["target_room"]
+            if fn == "move_distance" and "direction" not in args and ("distance" in args or "dist" in args):
+                args["direction"] = "avanti"
             return (
                 KinematicCommand(
                     function_name=fn,
@@ -300,19 +302,17 @@ class TrinityKinematicSandbox:
 
         # 2. Specific argument schemas
         if func_name == "move_distance":
-            if "direction" not in args:
-                args["direction"] = "avanti"
             if "distance_m" not in args:
                 dist_alt = args.get("distance") or args.get("dist")
                 if dist_alt is not None:
                     args["distance_m"] = dist_alt
-                else:
-                    return self._fail(
-                        KinematicSandboxErrorCode.MISSING_REQUIRED_ARGUMENT,
-                        "Parametri 'direction' e 'distance_m' obbligatori per move_distance.",
-                        ctx,
-                        t0,
-                    )
+            if "direction" not in args or "distance_m" not in args:
+                return self._fail(
+                    KinematicSandboxErrorCode.MISSING_REQUIRED_ARGUMENT,
+                    "Parametri 'direction' e 'distance_m' obbligatori per move_distance.",
+                    ctx,
+                    t0,
+                )
             direction = args.get("direction")
             if not isinstance(direction, str):
                 return self._fail(

@@ -262,6 +262,13 @@ def generate_launch_description():
                         plugin='nav2_controller::ControllerServer',
                         name='controller_server',
                         parameters=[configured_params],
+                        remappings=remappings + [('cmd_vel', 'cmd_vel_nav')],
+                    ),
+                    ComposableNode(
+                        package='nav2_collision_monitor',
+                        plugin='nav2_collision_monitor::CollisionMonitor',
+                        name='collision_monitor',
+                        parameters=[configured_params],
                         remappings=remappings,
                     ),
                     ComposableNode(

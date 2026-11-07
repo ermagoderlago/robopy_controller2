@@ -580,3 +580,41 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
 
 
 
+
+---
+
+## 📈 ECO-2026-11-07-001: Risoluzione Deadlock Nav2 Standby/Motion-Gate, Heading Tracking Rotazioni Pure & Ground Filtering Costmap 2.5D
+* **Stato:** ✅ **Completato, Sincronizzato con Hot-Swap su Marcus Pi 5 e Testato con Successo**
+* **Autore:** 🤖 **Generata autonomamente da Marcus** (Antigravity Engine)
+* **DFMEA Correlati:** `FM-NAV-041`, `FM-NAV-009`, `FM-NAV-019`, `FM-GOV-006`, `FM-PWR-001`
+* **Descrizione dell'intervento:**
+  1. **Risoluzione Deadlock Interblocco Catch-22 (`sensor_standby_manager.py`):**
+     - Eliminata la dipendenza circolare in cui lo standby manager attendeva `/cmd_vel` non nullo per sbloccare il motion gate, mentre il controller Nav2 attendeva il motion gate sbloccato prima di muovere il robot.
+     - Introdotto lo sblocco preventivo asincrono quando una missione Nav2 è accettata o in esecuzione.
+  2. **Supporto Rotazioni Pure sul Posto (`resource_governor.py`, `resource_governor_node.py`):**
+     - Aggiunta la soglia di velocità angolare ($|\omega| \ge 0.05\text{ rad/s}$) alla definizione di moto attivo `IN_TRANSIT_ROTATING`.
+     - Evitato che rotazioni differenziali pure sul posto (es. `RotationShimController`) venissero interpretate come immobilità, preservando l'heading tracking.
+  3. **Filtraggio Piano Terra Costmap Negativa (`semantic_costmap_injector.py`):**
+     - Applicata la discriminazione esplicita della quota z del pavimento: un gradino viene marcato come `negative_obstacle` solo se $\Delta z > 0.15\text{ m}$ E $z_{map} < -0.10\text{ m}$.
+     - Azzerati i falsi positivi da riflessioni superficiali o perdita di stereo su pavimenti continui.
+  4. **Allineamento Parametri Nav2 & Launch (`nav2_params_jazzy.yaml`, `custom_nav2_launch.py`, `restart_hailo.sh`):**
+     - Sincronizzati watchdog controller, parametri MPPI e lifecycle supervisor sia in simulazione che in produzione reale.
+* **File Modificati:**
+  - `robopy_controller/nodes/sensor_standby_manager.py`
+  - `robopy_controller/nodes/resource_governor_node.py`
+  - `robopy_controller/nodes/semantic_costmap_injector.py`
+  - `robopy_controller/nodes/frontier_explorer_node.py`
+  - `robopy_controller/nodes/foxglove_nav2_bridge.py`
+  - `robopy_controller/robot_ai/services/resource_governor.py`
+  - `robopy_controller/robot_ai/skills/builtin/navigation_skill.py`
+  - `robopy_controller/robot_ai/integrations/navigation.py`
+  - `robopy_controller/robot_ai/trinity/kinematic_sandbox.py`
+  - `robopy_controller/config/nav2_params_jazzy.yaml`
+  - `launch/custom_nav2_launch.py`
+  - `restart_hailo.sh`
+  - `scripts/deploy_and_restart.ps1`
+  - `fmea/dfmea.yaml`
+  - `fmea/IMPROVEMENT_INDEX.yaml`
+  - `docs/improvements/IMP-NAV-041_motion_deadlock_resolution.md`
+  - `docs/lessons/nav2_slam_tuning.md`
+  - `docs/ecos/nav2_slam_ecos.md`

@@ -504,11 +504,16 @@ class NavigationSkill(BaseSkill):
                     y=found_location["y"],
                     frame_id=found_location["frame_id"]
                 )
+                if not result:
+                    return SkillResult.failure_result(
+                        f"Non sono riuscito a raggiungere '{destination}' (percorso ostruito o goal abortito)",
+                        SkillErrorCode.EXECUTION_FAILED,
+                    )
                 
                 return SkillResult(
                     success=True,
-                    message=f"Sto andando in {destination}",
-                    speak=f"Ok, arrivo in {destination}",
+                    message=f"Sono arrivato in {destination}",
+                    speak=f"Sono arrivato in {destination}",
                     actions=[action]
                 )
             except Exception as e:

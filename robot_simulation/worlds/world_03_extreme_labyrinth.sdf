@@ -1,0 +1,291 @@
+<?xml version="1.0" ?>
+<sdf version="1.9">
+  <!-- =====================================================================
+       LIVELLO 3 (COMPLICATISSIMO): world_03_extreme_labyrinth.sdf
+       Labirinto Estremo 12m x 10m (X in [-6, +6], Y in [-5, +5]) con:
+         1. Chicane Slalom Est (varchi stretti ~0.82m tra setti sfalsati)
+         2. Trappola Cul-de-Sac a "U" (minimo locale concavo Nord-Ovest)
+         3. VERA VORAGINE / SCALA 3D NEGATIVA (X in [-2.8, -1.6], Y in [-2.6, -1.4],
+            Delta Z = -0.45m > 0.15m per FM-NAV-009):
+            Invisibile al LiDAR 2D (che spara a Z=+0.18m sopra il vuoto!),
+            visibile SOLO alla camera RGB-D OAK-D Lite + semantic_costmap_injector!
+         4. Colonne dense e ostacoli umani lungo i corridoi di rientro.
+       ===================================================================== -->
+  <world name="world_03_extreme_labyrinth">
+    <physics name="4ms" type="ode">
+      <max_step_size>0.004</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+      <real_time_update_rate>250.0</real_time_update_rate>
+    </physics>
+
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
+
+    <light type="directional" name="sun">
+      <cast_shadows>false</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.90 0.90 0.88 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <direction>-0.25 0.15 -0.95</direction>
+    </light>
+
+    <!-- =================================================================
+         PAVIMENTO A 4 PIASTRE 3D (Z_top = 0.00m) ATTORNO ALLA VORAGINE SCALA
+         Apertura voragine: X in [-2.8, -1.6], Y in [-2.6, -1.4] (1.2m x 1.2m)
+         ================================================================= -->
+    <model name="floor_slab_north">
+      <static>true</static>
+      <pose>0.0 1.8 -0.05 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>12.4 6.4 0.10</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>12.4 6.4 0.10</size></box></geometry>
+          <material><ambient>0.74 0.72 0.68 1</ambient><diffuse>0.74 0.72 0.68 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="floor_slab_south">
+      <static>true</static>
+      <pose>0.0 -3.8 -0.05 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>12.4 2.4 0.10</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>12.4 2.4 0.10</size></box></geometry>
+          <material><ambient>0.74 0.72 0.68 1</ambient><diffuse>0.74 0.72 0.68 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="floor_slab_west">
+      <static>true</static>
+      <pose>-4.4 -2.0 -0.05 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>3.2 1.2 0.10</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>3.2 1.2 0.10</size></box></geometry>
+          <material><ambient>0.74 0.72 0.68 1</ambient><diffuse>0.74 0.72 0.68 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="floor_slab_east">
+      <static>true</static>
+      <pose>2.2 -2.0 -0.05 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>7.6 1.2 0.10</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>7.6 1.2 0.10</size></box></geometry>
+          <material><ambient>0.74 0.72 0.68 1</ambient><diffuse>0.74 0.72 0.68 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Fondo Voragine / Scala Incassata a Z = -0.45m (45 cm sotto il pavimento!) -->
+    <model name="stairwell_sunken_pit">
+      <static>true</static>
+      <pose>-2.2 -2.0 -0.50 0 0 0</pose>
+      <link name="link">
+        <collision name="c_bottom"><geometry><box><size>1.5 1.5 0.10</size></box></geometry></collision>
+        <visual name="v_bottom"><geometry><box><size>1.5 1.5 0.10</size></box></geometry>
+          <material><ambient>0.85 0.15 0.10 1</ambient><diffuse>0.85 0.15 0.10 1</diffuse></material>
+        </visual>
+        <!-- Gradino intermedio a Z_top = -0.22m (dz = 22cm > 15cm!) sul lato Est per raycasting depth ultra-realistico -->
+        <collision name="c_step">
+          <pose>0.42 0.0 0.15 0 0 0</pose>
+          <geometry><box><size>0.36 1.20 0.26</size></box></geometry>
+        </collision>
+        <visual name="v_step">
+          <pose>0.42 0.0 0.15 0 0 0</pose>
+          <geometry><box><size>0.36 1.20 0.26</size></box></geometry>
+          <material><ambient>0.90 0.35 0.10 1</ambient><diffuse>0.90 0.35 0.10 1</diffuse></material>
+        </visual>
+        <!-- Pareti verticali sommerse della buca (Z_top = -0.01m, invisibili al LiDAR 2D!) -->
+        <collision name="c_wall_w">
+          <pose>-0.62 0.0 0.24 0 0 0</pose>
+          <geometry><box><size>0.08 1.30 0.48</size></box></geometry>
+        </collision>
+        <visual name="v_wall_w">
+          <pose>-0.62 0.0 0.24 0 0 0</pose>
+          <geometry><box><size>0.08 1.30 0.48</size></box></geometry>
+          <material><ambient>0.65 0.15 0.10 1</ambient><diffuse>0.65 0.15 0.10 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- =================================================================
+         MURI PERIMETRALI 12m x 10m (X in [-6, +6], Y in [-5, +5])
+         ================================================================= -->
+    <model name="wall_north">
+      <static>true</static>
+      <pose>0 5.0 0.9 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>12.15 0.15 1.8</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>12.15 0.15 1.8</size></box></geometry>
+          <material><ambient>0.82 0.84 0.88 1</ambient><diffuse>0.82 0.84 0.88 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="wall_south">
+      <static>true</static>
+      <pose>0 -5.0 0.9 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>12.15 0.15 1.8</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>12.15 0.15 1.8</size></box></geometry>
+          <material><ambient>0.82 0.84 0.88 1</ambient><diffuse>0.82 0.84 0.88 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="wall_east">
+      <static>true</static>
+      <pose>6.0 0 0.9 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>0.15 10.15 1.8</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.15 10.15 1.8</size></box></geometry>
+          <material><ambient>0.82 0.84 0.88 1</ambient><diffuse>0.82 0.84 0.88 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="wall_west">
+      <static>true</static>
+      <pose>-6.0 0 0.9 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>0.15 10.15 1.8</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.15 10.15 1.8</size></box></geometry>
+          <material><ambient>0.82 0.84 0.88 1</ambient><diffuse>0.82 0.84 0.88 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- =================================================================
+         SFIDA 1: CHICANE SLALOM EST (Corridoio confinato con varchi da 0.85m)
+         Corridoio delimitato tra Y = -1.10 e Y = +2.40 per X in [1.2, 4.2]
+         ================================================================= -->
+    <model name="chicane_top_wall">
+      <static>true</static>
+      <pose>2.7 2.40 0.9 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>3.2 0.14 1.8</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>3.2 0.14 1.8</size></box></geometry>
+          <material><ambient>0.70 0.74 0.80 1</ambient><diffuse>0.70 0.74 0.80 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="chicane_bottom_wall">
+      <static>true</static>
+      <pose>2.7 -1.10 0.9 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>3.2 0.14 1.8</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>3.2 0.14 1.8</size></box></geometry>
+          <material><ambient>0.70 0.74 0.80 1</ambient><diffuse>0.70 0.74 0.80 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <!-- Baffle 1: scende da Y=+2.40 fino a Y=-0.22 -> lascia varco Sud da 0.88m in Y in [-1.10, -0.22] -->
+    <model name="chicane_baffle_1">
+      <static>true</static>
+      <pose>1.85 1.09 0.9 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>0.14 2.62 1.8</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.14 2.62 1.8</size></box></geometry>
+          <material><ambient>0.85 0.55 0.20 1</ambient><diffuse>0.85 0.55 0.20 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <!-- Baffle 2: sale da Y=-1.10 fino a Y=+1.52 -> lascia varco Nord da 0.88m in Y in [+1.52, +2.40] -->
+    <model name="chicane_baffle_2">
+      <static>true</static>
+      <pose>3.45 0.21 0.9 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>0.14 2.62 1.8</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.14 2.62 1.8</size></box></geometry>
+          <material><ambient>0.85 0.55 0.20 1</ambient><diffuse>0.85 0.55 0.20 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- =================================================================
+         SFIDA 2: TRAPPOLA CUL-DE-SAC A "U" NORD-OVEST
+         ================================================================= -->
+    <model name="utrap_back">
+      <static>true</static>
+      <pose>-2.8 2.6 0.9 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>0.14 2.2 1.8</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.14 2.2 1.8</size></box></geometry>
+          <material><ambient>0.65 0.30 0.65 1</ambient><diffuse>0.65 0.30 0.65 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="utrap_north_arm">
+      <static>true</static>
+      <pose>-2.0 3.65 0.9 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>1.6 0.14 1.8</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>1.6 0.14 1.8</size></box></geometry>
+          <material><ambient>0.65 0.30 0.65 1</ambient><diffuse>0.65 0.30 0.65 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="utrap_south_arm">
+      <static>true</static>
+      <pose>-2.0 1.55 0.9 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>1.6 0.14 1.8</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>1.6 0.14 1.8</size></box></geometry>
+          <material><ambient>0.65 0.30 0.65 1</ambient><diffuse>0.65 0.30 0.65 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- =================================================================
+         SFIDA 4: COLONNE E ATTORI UMANI DI DISTURBO
+         ================================================================= -->
+    <model name="pillar_center_north">
+      <static>true</static>
+      <pose>-0.2 3.2 0.75 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><cylinder><radius>0.25</radius><length>1.5</length></cylinder></geometry></collision>
+        <visual name="v"><geometry><cylinder><radius>0.25</radius><length>1.5</length></cylinder></geometry>
+          <material><ambient>0.45 0.48 0.52 1</ambient><diffuse>0.45 0.48 0.52 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="pillar_south_east">
+      <static>true</static>
+      <pose>2.2 -3.1 0.75 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><cylinder><radius>0.28</radius><length>1.5</length></cylinder></geometry></collision>
+        <visual name="v"><geometry><cylinder><radius>0.28</radius><length>1.5</length></cylinder></geometry>
+          <material><ambient>0.45 0.48 0.52 1</ambient><diffuse>0.45 0.48 0.52 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="human_luca">
+      <static>true</static>
+      <pose>4.8 -2.2 0.85 0 0 3.14159</pose>
+      <link name="body">
+        <collision name="c"><geometry><cylinder><radius>0.22</radius><length>1.70</length></cylinder></geometry></collision>
+        <visual name="torso">
+          <geometry><cylinder><radius>0.22</radius><length>1.40</length></cylinder></geometry>
+          <material><ambient>0.15 0.55 0.85 1</ambient><diffuse>0.15 0.55 0.85 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Cuccia di Ricarica (0.0, 0.0) -->
+    <model name="charging_dock">
+      <static>true</static>
+      <pose>0.0 0.0 0.005 0 0 0</pose>
+      <link name="link">
+        <visual name="pad">
+          <geometry><cylinder><radius>0.30</radius><length>0.01</length></cylinder></geometry>
+          <material><ambient>0.1 0.85 0.3 1</ambient><diffuse>0.1 0.85 0.3 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+  </world>
+</sdf>

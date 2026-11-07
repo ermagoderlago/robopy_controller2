@@ -32,13 +32,61 @@ Esegue la cinematica differenziale a 50 Hz, il `robot_state_publisher`, il TF tr
 ros2 launch robot_simulation mock_sim_bringup.launch.py
 ```
 
-### Opzione B: Simulazione 3D Gazebo Sim (Harmonic)
-*(Richiede i pacchetti `ros-jazzy-ros-gz` installati su WSL)*
+### Opzione B: Simulazione 3D Gazebo Sim (Harmonic) — Palestra Cognitiva Completa & Mondi Progressivi
+*(Avvia Gazebo Harmonic con la casa multi-stanza `marcus_smart_home.sdf` o i mondi progressivi `world_01_simple_room.sdf`, `world_02_medium_apartment.sdf`, `world_03_extreme_labyrinth.sdf`, il bridge hardware ESP32 + 3S2P BMS, l'Emulatore NPU Hailo-10H, gli Attori Umani Virtuali Interattivi, il Valutatore Spaziale e la Shadow Memory Sandbox)*
+
+Mondi SDF inclusi:
+- `robot_simulation/worlds/world_01_simple_room.sdf`: Stanza quadrata 6x6m con ostacoli geometrici per test di allineamento e prima navigazione.
+- `robot_simulation/worlds/world_02_medium_apartment.sdf`: Appartamento multi-vano con corridoio e porte strette (0.85m) per collaudo navigazione metrica.
+- `robot_simulation/worlds/world_03_extreme_labyrinth.sdf`: Labirinto estremo ad alto grado di complessità con bivi, vicoli ciechi e trappole a U per stress test del planner e controller Nav2.
+- `robot_simulation/worlds/marcus_smart_home.sdf`: Casa completa arredata con dislivello scale, docking station e attori umani interattivi.
 
 ```bash
-export LIBGL_ALWAYS_SOFTWARE=1
-ros2 launch robot_simulation sim_bringup.launch.py
+cd /mnt/d/LUCA/robopy
+# Avvio mondo Smart Home predefinito:
+bash robot_simulation/scripts/start_gazebo_marcus.sh
+
+# Oppure con mondo specifico a scelta:
+bash robot_simulation/scripts/start_gazebo_marcus.sh --world robot_simulation/worlds/world_01_simple_room.sdf
 ```
+
+> **Prima installazione su PC Windows (WSL2 Ubuntu 24.04):**
+> 1. Da PowerShell (Amministratore): esegui `.\robot_simulation\scripts\configure_wsl2_host.bat`
+> 2. Dentro Ubuntu-24.04: esegui `sudo bash /mnt/d/LUCA/robopy/robot_simulation/scripts/install_deps.sh /mnt/d/LUCA/robopy`
+
+### Opzione C: Validazione Automatica Immediata (SIL / Pytest senza GUI)
+Puoi eseguire i **25 test automatici** (Mondi Progressivi 3D, Hardware ESP32/BMS, Emulatore NPU Hailo-10H, Protezione Scale $>15\text{ cm}$, Missioni Chiusura ad Anello Smart Home Nav2, Curiosità, Dopamina RPE, Teoria della Mente e Istinti) direttamente da PowerShell su Windows in $< 1.5\text{ s}$:
+
+```powershell
+# Esecuzione istantanea tramite script batch:
+.\run_sim_tests.bat
+
+# Oppure tramite invocazione uv diretta:
+& "$HOME\.local\bin\uv.exe" run --python 3.11 --with pytest --with numpy --with pyyaml --with httpx python -m pytest test/sim/ -v
+```
+
+---
+
+## 2.5 Interagire con gli Umani Virtuali e Stimolare la Curiosità di Marcus
+
+Quando la simulazione è attiva, puoi controllare gli attori umani virtuali (`human_luca`, `human_guest`) o far apparire oggetti insoliti per osservare la reazione autonoma di Marcus:
+
+- **Spostare Luca nello Studio in modalità Lavoro Concentrato (`DO_NOT_DISTURB_DESK` -> inibisce dell'85% Curiosità/Socialità):**
+  ```bash
+  ros2 topic pub /sim/human_actor/command std_msgs/msg/String "{data: '{\"actor_id\": \"human_luca\", \"room\": \"studio\", \"posture\": \"DO_NOT_DISTURB_DESK\"}'}" --once
+  ```
+- **Far parlare Luca a Marcus:**
+  ```bash
+  ros2 topic pub /sim/human_actor/command std_msgs/msg/String "{data: '{\"actor_id\": \"human_luca\", \"say\": \"Ciao Marcus, vieni in salotto!\"}'}" --once
+  ```
+- **Iniettare un oggetto insolito (Sorpresa Spaziale 3D -> innesca la Curiosità Epistemica di Marcus):**
+  ```bash
+  ros2 topic pub /sim/environment/spawn_anomaly std_msgs/msg/String "{data: '{\"id\": \"valigia_misteriosa\", \"label\": \"suitcase\", \"x\": -1.8, \"y\": 1.1, \"z\": 0.35, \"surprise_score\": 0.85}'}" --once
+  ```
+- **Monitorare le Metriche Evolutive e i Colli di Bottiglia di Navigazione:**
+  ```bash
+  ros2 topic echo /sim/gym/metrics
+  ```
 
 ---
 

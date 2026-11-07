@@ -332,7 +332,7 @@ fi
 RTAB_EXTRA_ARGS=""
 if [ "$USE_AMCL" = "true" ]; then
     echo "🗺️ [OPZIONE A] Modalità AMCL 2D attiva: disattivata pubblicazione TF map->odom e incremental memory in RTAB-Map (REP-105)."
-    RTAB_EXTRA_ARGS="-p publish_tf:=false -p Mem/IncrementalMemory:=\"false\""
+    RTAB_EXTRA_ARGS="-p publish_tf:=false -p Mem/IncrementalMemory:=false -r grid_map:=/rtabmap/map -r map:=/rtabmap/map"
 else
     echo "🗺️ [SLAM] Modalità standard SLAM attiva: RTAB-Map è autorità map->odom."
 fi

@@ -424,6 +424,7 @@ class FrontierExplorerNode(Node):
         self.is_active = False
         self.motors_allowed = True
         self.current_goal_handle = None
+        self.goal_pending = False
         self.goal_start_time = None
         self.latest_grid = None
         self.robot_pose = (0.0, 0.0)
@@ -479,6 +480,7 @@ class FrontierExplorerNode(Node):
         self.cmd_vel_pub = self.create_publisher(Twist, self.get_parameter("cmd_vel_topic").value, 10)
         self.status_pub = self.create_publisher(String, "/frontier_exploration/status", 10)
         self.target_event_pub = self.create_publisher(String, "/exploration/target_event", 10)
+        self.nav_intent_pub = self.create_publisher(Bool, "/robot/nav_intent", 10)
 
         # Nav2 Action Client
         self.nav_client = ActionClient(self, NavigateToPose, "/navigate_to_pose")
@@ -543,6 +545,7 @@ class FrontierExplorerNode(Node):
             self._execute_evaluation_step()
         else:
             self.is_active = False
+            self.goal_pending = False
             self._deactivate_subscriptions()
             if self.current_goal_handle is not None:
                 self.current_goal_handle.cancel_goal_async()
@@ -725,15 +728,17 @@ class FrontierExplorerNode(Node):
         if self.mode == "HUNT" and self.target_acquired:
             return
 
-        # Watchdog anti-stallo su goal attivo
-        if self.current_goal_handle is not None:
+        # Watchdog anti-stallo su goal attivo o in attesa di risposta
+        if self.current_goal_handle is not None or self.goal_pending:
             if self.goal_start_time and (time.time() - self.goal_start_time > self.max_goal_duration):
                 self.get_logger().warn(f"⚠️ Watchdog Nav2 Goal Timeout ({self.max_goal_duration}s superati)! Preempting goal e blacklist...")
-                self.current_goal_handle.cancel_goal_async()
+                if self.current_goal_handle is not None:
+                    self.current_goal_handle.cancel_goal_async()
                 if self.engine.dispatched_goals:
                     last_g = self.engine.dispatched_goals[-1]
                     self.engine.blacklist_frontier(last_g, reason="GOAL_TIMEOUT")
                 self.current_goal_handle = None
+                self.goal_pending = False
                 self.goal_start_time = None
                 self._execute_evaluation_step()
             return
@@ -799,13 +804,24 @@ class FrontierExplorerNode(Node):
         goal_msg.pose.pose.orientation.w = math.cos(yaw / 2.0)
 
         self.get_logger().info(f"🚀 Dispatching frontier goal to ({goal_xy[0]:.2f}, {goal_xy[1]:.2f}) [Mode: {self.mode}]")
+        intent_msg = Bool()
+        intent_msg.data = True
+        self.nav_intent_pub.publish(intent_msg)
+        self.goal_pending = True
         self.goal_start_time = time.time()
         send_future = self.nav_client.send_goal_async(goal_msg)
         send_future.add_done_callback(lambda f: self.goal_response_callback(f, goal_xy))
 
     def goal_response_callback(self, future, goal_xy: Tuple[float, float]):
         """Handles Nav2 goal acceptance or rejection."""
+        self.goal_pending = False
         goal_handle = future.result()
+        if not self.is_active:
+            if goal_handle is not None and goal_handle.accepted:
+                goal_handle.cancel_goal_async()
+            self.current_goal_handle = None
+            self.goal_start_time = None
+            return
         if not goal_handle.accepted:
             self.get_logger().warn(f"Goal to {goal_xy} rejected by Nav2. Blacklisting...")
             self.engine.blacklist_frontier(goal_xy)
@@ -837,6 +853,9 @@ class FrontierExplorerNode(Node):
 
     def stop_robot_motors(self):
         """Sends zero-velocity Twist command to halt motors immediately."""
+        intent_msg = Bool()
+        intent_msg.data = False
+        self.nav_intent_pub.publish(intent_msg)
         stop_cmd = Twist()
         for _ in range(3):
             self.cmd_vel_pub.publish(stop_cmd)
@@ -856,6 +875,7 @@ class FrontierExplorerNode(Node):
 
     def handle_stop(self, request, response):
         self.is_active = False
+        self.goal_pending = False
         self._deactivate_subscriptions()
         if self.current_goal_handle is not None:
             self.current_goal_handle.cancel_goal_async()

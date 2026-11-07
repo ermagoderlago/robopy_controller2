@@ -114,7 +114,7 @@ bt_navigator:
 controller_server:
   ros__parameters:
     use_sim_time: false
-    controller_frequency: 5.0  # 5Hz — motori open-loop lenti, 10Hz era eccessivo
+    controller_frequency: 10.0  # [FM-NAV-041 FIX] 10Hz (100ms) evita i trip del watchdog 500ms di waveshare_motor_driver
     min_x_velocity_threshold: 0.02  # [R1 FIX] Ridotto da 0.05 a 0.02 per sbloccare comandi a bassa velocità controllata
     min_y_velocity_threshold: 0.5
     min_theta_velocity_threshold: 0.02
@@ -139,8 +139,9 @@ controller_server:
     # Controller (MPPI) ottimizzato per traiettorie fluide e curve ad arco continuo
     FollowPath:
       plugin: "nav2_mppi_controller::MPPIController"
-      time_steps: 20    # [CPU-OPT Pi 5] Orizzonte ridotto (robot lento, non serve guardare lontano)
-      model_dt: 0.2     # Passo temporale doppio (coerente con robot lento)
+      motion_model: "DiffDrive"
+      time_steps: 25    # [CPU-OPT Pi 5] Orizzonte 2.5s con model_dt 0.10s (<= 1/controller_frequency per Jazzy)
+      model_dt: 0.10    # [FM-NAV-041 FIX] Jazzy richiede model_dt <= 1.0/controller_frequency (0.10s @ 10Hz)
       batch_size: 200   # [R1 FIX] Incrementato da 150 a 200 per generare traiettorie fluide e consistenti
       vx_std: 0.12      # [R1 FIX] Incrementato a 0.12 per esplorazione velocità operative
       vy_std: 0.0
@@ -164,8 +165,8 @@ controller_server:
         threshold_to_consider: 0.5
       ObstaclesCritic:
         cost_power: 1
-        cost_weight: 40.0       # [FM-NAV-033] Incrementato da 25.0 per forte penalità di avvicinamento
-        repulsion_weight: 5.0   # [FM-NAV-033] Incrementato da 1.5 per respingere attivamente dai muri/ostacoli
+        cost_weight: 22.0       # [FM-NAV-041] Bilanciato per attraversare varchi/porte 0.72-0.85m senza stallo
+        repulsion_weight: 2.5   # [FM-NAV-041] Repulsione progressiva senza freeze centrale nei corridoi
         critical_cost: 254.0    # [FM-NAV-033] Scarta traiettorie su celle letali
       PathAlignCritic:
         cost_power: 1
@@ -175,7 +176,11 @@ controller_server:
         cost_weight: 10.0 # Aumentato da 5.0 per privilegiare l'avanzamento continuo lungo la rotta
       PathAngleCritic:
         cost_power: 1
-        cost_weight: 1.5  # Ridotto da 2.0 per evitare stop improvvisi in curva
+        cost_weight: 3.2  # [FM-NAV-041] Allinea prua prima di avanzare su cambi rotta >37 deg evitando curve larghe contro i muri
+        offset_from_furthest: 4
+        threshold_to_consider: 0.5
+        max_angle_to_furthest: 0.65
+        mode: 0
       PreferForwardCritic:
         cost_power: 1
         cost_weight: 40.0 # Penalità per retromarce cieche
@@ -236,8 +241,8 @@ local_costmap:
         phi: 0.1
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 2.2  # [FM-NAV-033] Gradiente repulsivo allargato per anticipare ostacoli
-        inflation_radius: 0.65    # [FM-NAV-033] Raggio di sicurezza espanso a 65cm
+        cost_scaling_factor: 3.2  # [FM-NAV-041] Gradiente netto per corridoi/porte da 0.72m-0.85m
+        inflation_radius: 0.55    # [FM-NAV-041] Raggio sicurezza calibrato su robot_radius=0.18m
 
 # ============================================================
 # GLOBAL COSTMAP — Mappa statica + obstacle + inflation
@@ -300,8 +305,8 @@ global_costmap:
         phi: 0.1
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 2.2  # [FM-NAV-033] Gradiente repulsivo allargato
-        inflation_radius: 0.65    # [FM-NAV-033] Raggio di sicurezza espanso a 65cm
+        cost_scaling_factor: 3.2  # [FM-NAV-041] Gradiente netto per corridoi/porte da 0.72m-0.85m
+        inflation_radius: 0.55    # [FM-NAV-041] Raggio sicurezza calibrato su robot_radius=0.18m
 
 # ============================================================
 # PLANNER SERVER — NavfnPlanner (Dijkstra)
@@ -385,7 +390,7 @@ collision_monitor:
       type: "polygon"
       points: "[[0.45, 0.30], [0.45, -0.30], [-0.22, -0.30], [-0.22, 0.30]]"  # [FM-NAV-033] 60cm larghezza, 29cm anticipo frontale
       action_type: "slowdown"
-      max_points: 2
+      min_points: 2  # [FM-NAV-041 FIX] Sostituito max_points deprecato in ROS 2 Jazzy con min_points
       slowdown_ratio: 0.40  # Rallenta al 40% (circa 0.10 m/s) per permettere all'MPPI di aggirare l'ostacolo
       visualize: true
       polygon_sub_topic: "polygon_slowdown"

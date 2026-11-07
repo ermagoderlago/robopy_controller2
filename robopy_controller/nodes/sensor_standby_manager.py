@@ -24,8 +24,8 @@ import rclpy
 from rclpy.node import Node
 from rclpy.callback_groups import ReentrantCallbackGroup
 from sensor_msgs.msg import Imu, LaserScan, BatteryState
-from geometry_msgs.msg import Twist, TransformStamped
-from nav_msgs.msg import Odometry
+from geometry_msgs.msg import Twist, TransformStamped, PoseStamped
+from nav_msgs.msg import Odometry, Path
 from std_msgs.msg import Bool, String
 from std_srvs.srv import Empty, Trigger
 import tf2_ros
@@ -36,8 +36,8 @@ class SensorStandbyManager(Node):
         super().__init__('sensor_standby_manager')
         
         # --- Parameter Declarations ---
-        self.declare_parameter('idle_timeout_sec', 45.0)           # [v3.0 IMP-BIO-005] 45s a robot fermo
-        self.declare_parameter('min_awake_time_sec', 60.0)         # [v3.0] Isteresi anti-cycling
+        self.declare_parameter('idle_timeout_sec', 120.0)          # [SPEC-02 Green Zone: 60s..300s, default 120s]
+        self.declare_parameter('min_awake_time_sec', 60.0)         # [v3.0] Isteresi anti-cycling post-wakeup
         self.declare_parameter('imu_accel_threshold', 0.35)        # m/s^2 deviation from gravity (|norm(a) - g|)
         self.declare_parameter('imu_gyro_threshold', 0.15)         # rad/s angular velocity norm (~8.6 deg/s)
         self.declare_parameter('nominal_gravity', 9.81)            # Nominal gravity m/s^2
@@ -47,21 +47,25 @@ class SensorStandbyManager(Node):
         self.declare_parameter('ledger_path', '/mnt/ssd/telemetry/lidar_lifespan_ledger.json')
         
         self.idle_timeout_sec = float(self.get_parameter('idle_timeout_sec').value)
-        self.min_awake_time_sec = float(self.get_parameter('min_awake_time_sec').value)
+        p_min_awake = self.get_parameter('min_awake_time_sec').value
+        self.min_awake_time_sec = float(p_min_awake) if isinstance(p_min_awake, (int, float)) else 60.0
         self.imu_accel_threshold = float(self.get_parameter('imu_accel_threshold').value)
         self.imu_gyro_threshold = float(self.get_parameter('imu_gyro_threshold').value)
         self.nominal_gravity = float(self.get_parameter('nominal_gravity').value)
         self.min_scans_to_wake = int(self.get_parameter('min_scans_to_wake').value)
         self.scan_timeout_sec = float(self.get_parameter('scan_timeout_sec').value)
         self.check_frequency_hz = float(self.get_parameter('check_frequency_hz').value)
-        self.ledger_path = str(self.get_parameter('ledger_path').value)
+        p_ledger = self.get_parameter('ledger_path').value
+        self.ledger_path = str(p_ledger) if isinstance(p_ledger, str) else '/mnt/ssd/telemetry/lidar_lifespan_ledger.json'
         
         # --- Internal States ---
         # States: 'ACTIVE', 'STANDBY', 'WAKING_UP'
         self.state = 'ACTIVE'
         self.is_docked = False
+        self.nav_intent_active = False
         self.last_activity_time = time.time()
-        self.last_wake_time = time.time()
+        self.last_wake_time = 0.0
+        self.last_boot_or_wake_time = time.time()
         self.last_standby_start_time = 0.0
         self.wake_start_time = 0.0
         self.wake_scans_count = 0
@@ -91,10 +95,18 @@ class SensorStandbyManager(Node):
         # IMU subscription is dynamic: active only in STANDBY to detect external shocks (saving 37.3 Hz wakeups)
         self.imu_sub = None
         self.create_subscription(Twist, '/cmd_vel', self.cmd_vel_callback, 10, callback_group=self.callback_group)
+        # [FM-NAV-041 FIX] Ascolta anche /cmd_vel_nav, /plan, /goal_pose, /exploration/enable e /robot/nav_intent
+        # per spezzare il Catch-22 deadlock con collision_monitor (che blocca /cmd_vel finché /scan è fermo!).
+        self.create_subscription(Twist, '/cmd_vel_nav', self.cmd_vel_callback, 10, callback_group=self.callback_group)
+        self.create_subscription(Path, '/plan', self.plan_callback, 10, callback_group=self.callback_group)
+        self.create_subscription(PoseStamped, '/goal_pose', self.goal_pose_callback, 10, callback_group=self.callback_group)
+        self.create_subscription(PoseStamped, '/move_base_simple/goal', self.goal_pose_callback, 10, callback_group=self.callback_group)
+        self.create_subscription(Bool, '/exploration/enable', self.nav_intent_callback, 10, callback_group=self.callback_group)
+        self.create_subscription(Bool, '/robot/nav_intent', self.nav_intent_callback, 10, callback_group=self.callback_group)
         self.create_subscription(Odometry, '/odom', self.odom_callback, 10, callback_group=self.callback_group)
         self.create_subscription(LaserScan, '/scan', self.scan_callback, 10, callback_group=self.callback_group)
         self.create_subscription(BatteryState, '/battery_state', self.battery_callback, 10, callback_group=self.callback_group)
-        # [v2.0] Docking trigger: ferma lidar IMMEDIATAMENTE al rientro alla base di ricarica
+        # [v2.0] Docking trigger: mantiene i sensori attivi durante il rientro alla base
         self.create_subscription(Bool, '/robot/docking/trigger', self.docking_trigger_callback, 10, callback_group=self.callback_group)
         # [F7] Integrazione Resource Governor come Attuatore Hardware
         self.create_subscription(String, '/resource_governor/state', self.governor_state_callback, 10, callback_group=self.callback_group)
@@ -197,6 +209,37 @@ class SensorStandbyManager(Node):
                 self.get_logger().info(f"🚀 Motion command received: {reason} -> Triggering wake-up!")
                 self.trigger_wakeup(reason)
 
+    def plan_callback(self, msg: Path):
+        """[FM-NAV-041] Wakes sensors immediately when Nav2 planner_server computes a global path."""
+        if msg is not None and len(getattr(msg, 'poses', [])) > 0:
+            now = time.time()
+            if self.state == 'ACTIVE':
+                self.last_activity_time = now
+            elif self.state == 'STANDBY':
+                self.get_logger().info(f"🗺️ Nav2 global plan computed ({len(msg.poses)} poses) -> Triggering wake-up!")
+                self.trigger_wakeup("Nav2 global /plan computed")
+
+    def goal_pose_callback(self, msg: PoseStamped):
+        """[FM-NAV-041] Wakes sensors immediately when a 2D goal pose is received."""
+        now = time.time()
+        self.nav_intent_active = True
+        if self.state == 'ACTIVE':
+            self.last_activity_time = now
+        elif self.state == 'STANDBY':
+            self.get_logger().info("🎯 Goal pose received -> Triggering wake-up!")
+            self.trigger_wakeup("Goal pose received")
+
+    def nav_intent_callback(self, msg: Bool):
+        """[FM-NAV-041] Tracks explicit navigation / exploration intent."""
+        self.nav_intent_active = bool(msg.data)
+        if self.nav_intent_active:
+            now = time.time()
+            if self.state == 'ACTIVE':
+                self.last_activity_time = now
+            elif self.state == 'STANDBY':
+                self.get_logger().info("🧭 Navigation/Exploration intent active -> Triggering wake-up!")
+                self.trigger_wakeup("Navigation/Exploration intent")
+
     def odom_callback(self, msg: Odometry):
         """Detects physical robot chassis motion from wheel encoders."""
         v_lin = msg.twist.twist.linear.x
@@ -241,19 +284,19 @@ class SensorStandbyManager(Node):
         self.is_docked = is_charging
 
     def governor_state_callback(self, msg: String):
-        """[F7/IMP-BIO-005] Riceve direttive dal Resource Governor con supporto spegnimento a fermo."""
+        """[F7] Riceve direttive dal Resource Governor (spegnimento LiDAR ammesso SOLO in DOCKED_SLEEP - Invariante 6)."""
         try:
             data = json.loads(msg.data)
             k_state = data.get("kinematic_state", "")
             in_dock = data.get("in_dock", self.is_docked)
             self.is_docked = in_dock
             rec_profile = data.get("recommended_profile", {})
-            lidar_active = rec_profile.get("lidar_active", True)
+            lidar_active = rec_profile.get("lidar_active", k_state != "DOCKED_SLEEP")
             
-            if not lidar_active:
+            if (not lidar_active or k_state == "DOCKED_SLEEP") and not self.nav_intent_active:
                 if self.state == "ACTIVE":
                     now = time.time()
-                    if (now - self.last_wake_time) >= self.min_awake_time_sec:
+                    if self.last_wake_time == 0.0 or (now - self.last_wake_time) >= self.min_awake_time_sec:
                         self.get_logger().info(f"💤 [StandbyManager] Ricevuta direttiva Governor: spegnimento LiDAR (k_state={k_state}).")
                         self.trigger_standby()
             elif k_state in ("WAKING", "STATIONARY", "PREP_NAV", "MOVING"):
@@ -344,7 +387,7 @@ class SensorStandbyManager(Node):
         """Enters power-saving STANDBY state with TF keepalive and ledger update."""
         now = time.time()
         # Isteresi anti-cycling: non spegnere se svegliato da meno di min_awake_time_sec
-        if (now - self.last_wake_time) < self.min_awake_time_sec:
+        if self.last_wake_time > 0.0 and (now - self.last_wake_time) < self.min_awake_time_sec:
             self.get_logger().info(f"⏳ Anti-cycling attivo: svegliato da soli {(now - self.last_wake_time):.1f}s. Standby ritardato.")
             return
 
@@ -353,7 +396,7 @@ class SensorStandbyManager(Node):
         self.last_standby_start_time = now
         
         # Registra usura della sessione attiva appena conclusa
-        session_active_duration = max(0.0, now - self.last_wake_time)
+        session_active_duration = max(0.0, now - self.last_boot_or_wake_time)
         self._record_lidar_wear(session_active_duration)
 
         # 1. Avvia TF Keepalive (IMP-BIO-005)
@@ -379,17 +422,19 @@ class SensorStandbyManager(Node):
         """
         Initiates 5-Step Wake-Before-Move Handshake (IMP-BIO-003, IMP-BIO-005).
         Step 0: Arresta StandbyTFKeepalive.
-        Step 1: Accende motore RPLIDAR C1.
+        Step 1: Accende motore RPLIDAR C1 e riprende RTAB-Map.
         Step 2: Attende regime 10 Hz (min_scans_to_wake).
         Step 3: Invoca /request_nomotion_update per allineare particelle AMCL.
-        Step 4: Riprende RTAB-Map SLAM.
+        Step 4: Conferma ripresa RTAB-Map SLAM.
         Step 5: Verifica assenza dislocazione passiva e sblocca Motion Gate.
         """
         self.get_logger().info(f"⚡ [Handshake Step 0] Wake-up requested ({reason}). Stopping TF keepalive...")
         self.state = 'WAKING_UP'
-        self.wake_start_time = time.time()
+        now = time.time()
+        self.wake_start_time = now
         self.wake_scans_count = 0
-        self.last_wake_time = time.time()
+        self.last_wake_time = now
+        self.last_boot_or_wake_time = now
         
         # Step 0: Stop keepalive immediatamente
         self._stop_tf_keepalive()
@@ -403,9 +448,10 @@ class SensorStandbyManager(Node):
         self.publish_motion_gate(False, force=True)
         self.publish_power_state("WAKING_UP")
         
-        # Step 1: Start RPLIDAR C1 motor
-        self.get_logger().info("⚡ [Handshake Step 1] Avvio motore RPLIDAR C1...")
+        # Step 1: Start RPLIDAR C1 motor & resume RTAB-Map immediately
+        self.get_logger().info("⚡ [Handshake Step 1] Avvio motore RPLIDAR C1 e resume RTAB-Map...")
         self.call_async_service(self.start_motor_cli, '/start_motor')
+        self.call_async_service(self.resume_rtabmap_cli, '/rtabmap/resume')
 
     def _execute_wake_handshake_completion(self):
         """Compie i rimanenti Step 3, 4, 5 dell'Handshake dopo l'arrivo dei primi scan validi."""
@@ -413,8 +459,8 @@ class SensorStandbyManager(Node):
         self.get_logger().info("⚡ [Handshake Step 3] Richiesta nomotion update ad AMCL...")
         self.call_async_service(self.amcl_nomotion_cli, '/request_nomotion_update')
 
-        # Step 4: Resume RTAB-Map
-        self.get_logger().info("⚡ [Handshake Step 4] Ripresa mapping RTAB-Map...")
+        # Step 4: Resume RTAB-Map (idempotent confirmation)
+        self.get_logger().info("⚡ [Handshake Step 4] Conferma ripresa mapping RTAB-Map...")
         self.call_async_service(self.resume_rtabmap_cli, '/rtabmap/resume')
 
         # Step 5: Verifica cinematica e rilascio motion gate
@@ -447,10 +493,10 @@ class SensorStandbyManager(Node):
         
         if self.state == 'ACTIVE':
             idle_duration = now - self.last_activity_time
-            # [IMP-BIO-005] Entra in standby se idle oltre idle_timeout_sec (anche fuori dal dock se fermo)
-            # a condizione che sia rispettata la finestra anti-cycling
-            if idle_duration >= self.idle_timeout_sec:
-                if (now - self.last_wake_time) >= self.min_awake_time_sec:
+            # [Invariante 6 / FM-NAV-041] Lo spegnimento del LiDAR per inattività è ammesso
+            # ESCLUSIVAMENTE quando il robot è in carica nel dock (is_docked == True) e senza nav_intent!
+            if self.is_docked and not self.nav_intent_active and idle_duration >= self.idle_timeout_sec:
+                if self.last_wake_time == 0.0 or (now - self.last_wake_time) >= self.min_awake_time_sec:
                     self.trigger_standby()
             else:
                 self.publish_motion_gate(True)

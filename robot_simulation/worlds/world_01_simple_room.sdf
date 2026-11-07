@@ -1,0 +1,124 @@
+<?xml version="1.0" ?>
+<sdf version="1.9">
+  <!-- =====================================================================
+       LIVELLO 1 (SEMPLICE): world_01_simple_room.sdf
+       Stanza singola 6m x 6m (X in [-3, +3], Y in [-3, +3]) con 2 ostacoli
+       geometrici ben distanziati per validazione base:
+         1. Risveglio automatico da STANDBY su missione Nav2 (FM-NAV-041)
+         2. Mappatura stanza completa con slam_toolbox + FrontierExplorer
+         3. Navigazione multi-waypoint punto-a-punto senza stalli
+       ===================================================================== -->
+  <world name="world_01_simple_room">
+    <physics name="4ms" type="ode">
+      <max_step_size>0.004</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+      <real_time_update_rate>250.0</real_time_update_rate>
+    </physics>
+
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
+
+    <light type="directional" name="sun">
+      <cast_shadows>false</cast_shadows>
+      <pose>0 0 8 0 0 0</pose>
+      <diffuse>0.90 0.90 0.88 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <direction>-0.2 0.1 -0.95</direction>
+    </light>
+
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry><plane><normal>0 0 1</normal><size>10 10</size></plane></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><plane><normal>0 0 1</normal><size>10 10</size></plane></geometry>
+          <material><ambient>0.78 0.76 0.72 1</ambient><diffuse>0.78 0.76 0.72 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Muri Perimetrali 6m x 6m -->
+    <model name="wall_north">
+      <static>true</static>
+      <pose>0 3.0 0.75 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>6.15 0.15 1.5</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>6.15 0.15 1.5</size></box></geometry>
+          <material><ambient>0.85 0.88 0.92 1</ambient><diffuse>0.85 0.88 0.92 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="wall_south">
+      <static>true</static>
+      <pose>0 -3.0 0.75 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>6.15 0.15 1.5</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>6.15 0.15 1.5</size></box></geometry>
+          <material><ambient>0.85 0.88 0.92 1</ambient><diffuse>0.85 0.88 0.92 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="wall_east">
+      <static>true</static>
+      <pose>3.0 0 0.75 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>0.15 6.15 1.5</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.15 6.15 1.5</size></box></geometry>
+          <material><ambient>0.85 0.88 0.92 1</ambient><diffuse>0.85 0.88 0.92 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+    <model name="wall_west">
+      <static>true</static>
+      <pose>-3.0 0 0.75 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>0.15 6.15 1.5</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.15 6.15 1.5</size></box></geometry>
+          <material><ambient>0.85 0.88 0.92 1</ambient><diffuse>0.85 0.88 0.92 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Cuccia di Ricarica (0.0, 0.0) -->
+    <model name="charging_dock">
+      <static>true</static>
+      <pose>0.0 0.0 0.005 0 0 0</pose>
+      <link name="link">
+        <visual name="pad">
+          <geometry><cylinder><radius>0.30</radius><length>0.01</length></cylinder></geometry>
+          <material><ambient>0.1 0.85 0.3 1</ambient><diffuse>0.1 0.85 0.3 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 2 Ostacoli Semplici Ben Distanziati -->
+    <model name="crate_alpha">
+      <static>true</static>
+      <pose>1.20 0.90 0.35 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>0.55 0.55 0.70</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.55 0.55 0.70</size></box></geometry>
+          <material><ambient>0.75 0.45 0.20 1</ambient><diffuse>0.75 0.45 0.20 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="crate_beta">
+      <static>true</static>
+      <pose>-1.20 -1.00 0.35 0 0 0</pose>
+      <link name="link">
+        <collision name="c"><geometry><box><size>0.60 0.50 0.70</size></box></geometry></collision>
+        <visual name="v"><geometry><box><size>0.60 0.50 0.70</size></box></geometry>
+          <material><ambient>0.25 0.55 0.75 1</ambient><diffuse>0.25 0.55 0.75 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+  </world>
+</sdf>
