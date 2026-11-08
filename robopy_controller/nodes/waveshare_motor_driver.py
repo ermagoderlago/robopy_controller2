@@ -57,8 +57,8 @@ class WaveshareMotorDriver(Node):
         self.declare_parameter('esp32_pid_kd', 0.04)               # ESP32 velocity PID Kd
         self.declare_parameter('enable_chassis_yaw_fusion', True)  # Complementary fusion with ESP32 chassis gyro
         self.declare_parameter('yaw_fusion_alpha', 0.88)            # Gyro transient weight (0.88 gyro, 0.12 wheel baseline)
-        self.declare_parameter('max_duty_accel', 5.0)               # Max duty acceleration (duty/s) for S-Curve
-        self.declare_parameter('max_duty_jerk', 25.0)               # Max duty jerk (duty/s^2) for S-Curve
+        self.declare_parameter('max_duty_accel', 2.2)               # Soft-start duty acceleration (duty/s) to prevent battery brownout
+        self.declare_parameter('max_duty_jerk', 12.0)               # Gentle duty jerk (duty/s^2) for S-Curve
         self.declare_parameter('left_motor_trim', 1.0)              # Left motor forward duty multiplier (symmetric 1.0: eliminates left veering)
         self.declare_parameter('left_motor_trim_rev', 0.85)         # Left motor reverse duty multiplier (rebalanced 0.85)
         self.declare_parameter('right_motor_trim_rev', 1.05)        # Right motor reverse duty boost (rebalanced 1.05)

@@ -146,9 +146,9 @@ controller_server:
       vx_std: 0.12      # [R1 FIX] Incrementato a 0.12 per esplorazione velocità operative
       vy_std: 0.0
       wz_std: 0.25      # [R1 FIX] Incrementato a 0.25 per reattività proporzionale in sterzata e rotazione
-      vx_max: 0.26      # Velocità lineare di crociera fluida (+30% per spazi liberi; vincolo max SPEC-01: 0.40 m/s)
+      vx_max: 0.22      # Velocità lineare di crociera fluida e a basso consumo (previene cali di tensione)
       vx_min: 0.0       # Zero: NESSUNA RETROMARCIA AMMESSA cieca
-      wz_max: 0.8       # Velocità angolare max REALE del robot
+      wz_max: 0.65      # Velocità angolare massima controllata (evita picchi di corrente su rotazione)
       kinematics:
         base_min_turning_radius: 0.0  # [R1 FIX] 0.0 per sbloccare rotazione sul posto robot differenziale
       critics: ["ConstraintCritic", "GoalCritic", "GoalAngleCritic", "ObstaclesCritic", "PathAlignCritic", "PathFollowCritic", "PathAngleCritic", "PreferForwardCritic"]
