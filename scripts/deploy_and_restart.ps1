@@ -1,3 +1,7 @@
+param(
+    [string]$LaunchArgs = ""
+)
+
 # Deploy automatico e riavvio per Marcus (Bio-Cognitive Evolution)
 $target_host = "robopy@marcus"
 Write-Host "Verifica connettivita verso Marcus ($target_host)..."
@@ -24,13 +28,16 @@ Write-Host " Trasferimento file di configurazione, launch e avvio..."
 scp -o BatchMode=yes restart_hailo.sh "${target_host}:/mnt/ssd/robopy_controller_host/"
 scp -o BatchMode=yes launch/custom_nav2_launch.py "${target_host}:/mnt/ssd/robopy_controller_host/launch/"
 scp -o BatchMode=yes robopy_controller/config/nav2_params_jazzy.yaml "${target_host}:/mnt/ssd/robopy_controller_host/robopy_controller/config/"
+scp -o BatchMode=yes robopy_controller/config/nav2_survival_bt.xml "${target_host}:/mnt/ssd/robopy_controller_host/robopy_controller/config/"
 
 Write-Host " Trasferimento nodi di navigazione, costmap e supervisione..."
+scp -o BatchMode=yes robopy_controller/nodes/waveshare_motor_driver.py "${target_host}:/mnt/ssd/robopy_controller_host/robopy_controller/nodes/"
 scp -o BatchMode=yes robopy_controller/nodes/semantic_costmap_injector.py "${target_host}:/mnt/ssd/robopy_controller_host/robopy_controller/nodes/"
 scp -o BatchMode=yes robopy_controller/nodes/sensor_standby_manager.py "${target_host}:/mnt/ssd/robopy_controller_host/robopy_controller/nodes/"
 scp -o BatchMode=yes robopy_controller/nodes/resource_governor_node.py "${target_host}:/mnt/ssd/robopy_controller_host/robopy_controller/nodes/"
 scp -o BatchMode=yes robopy_controller/nodes/frontier_explorer_node.py "${target_host}:/mnt/ssd/robopy_controller_host/robopy_controller/nodes/"
 scp -o BatchMode=yes robopy_controller/nodes/foxglove_nav2_bridge.py "${target_host}:/mnt/ssd/robopy_controller_host/robopy_controller/nodes/"
+scp -o BatchMode=yes scripts/disengage_and_free_marcus.py "${target_host}:/mnt/ssd/robopy_controller_host/scripts/"
 
 Write-Host " Trasferimento servizi AI, cognitive, skills e sandbox..."
 scp -o BatchMode=yes robopy_controller/robot_ai/services/resource_governor.py "${target_host}:/mnt/ssd/robopy_controller_host/robopy_controller/robot_ai/services/"
@@ -45,6 +52,7 @@ scp -o BatchMode=yes fmea/dfmea.yaml "${target_host}:/mnt/ssd/robopy_controller_
 scp -o BatchMode=yes fmea/FMEA_EXECUTIVE_REPORT.md "${target_host}:/mnt/ssd/robopy_controller_host/fmea/"
 scp -o BatchMode=yes fmea/IMPROVEMENT_INDEX.yaml "${target_host}:/mnt/ssd/robopy_controller_host/fmea/"
 scp -o BatchMode=yes docs/improvements/IMP-NAV-041_motion_deadlock_resolution.md "${target_host}:/mnt/ssd/robopy_controller_host/docs/improvements/"
+scp -o BatchMode=yes docs/improvements/IMP-NAV-042_furniture_disengagement_and_frontier_recovery.md "${target_host}:/mnt/ssd/robopy_controller_host/docs/improvements/"
 scp -o BatchMode=yes docs/lessons/nav2_slam_tuning.md "${target_host}:/mnt/ssd/robopy_controller_host/docs/lessons/"
 scp -o BatchMode=yes docs/ecos/nav2_slam_ecos.md "${target_host}:/mnt/ssd/robopy_controller_host/docs/ecos/"
 scp -o BatchMode=yes marcus_robot_guide.md "${target_host}:/mnt/ssd/robopy_controller_host/"
@@ -87,8 +95,8 @@ echo "HOTSWAP_COMPLETED"
 
 echo "$remote_hotswap" | ssh -o BatchMode=yes $target_host "tr -d '\r' | bash"
 
-Write-Host " Riavvio dello stack di produzione di Marcus in background..."
-ssh -o BatchMode=yes $target_host "nohup /mnt/ssd/robopy_controller_host/restart_hailo.sh > /mnt/ssd/robopy_controller_host/restart_hailo.log 2>&1 &"
+Write-Host " Riavvio dello stack di produzione di Marcus in background (Args: '$LaunchArgs')..."
+ssh -o BatchMode=yes $target_host "nohup /mnt/ssd/robopy_controller_host/restart_hailo.sh $LaunchArgs > /mnt/ssd/robopy_controller_host/restart_hailo.log 2>&1 &"
 
 Write-Host " Sincronizzazione, Hot-Swap e Riavvio completati con successo!"
 
