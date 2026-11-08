@@ -381,16 +381,16 @@ collision_monitor:
     polygons: ["PolygonStop", "PolygonSlowdown"]
     PolygonStop:
       type: "polygon"
-      points: "[[0.28, 0.20], [0.28, -0.20], [-0.18, -0.20], [-0.18, 0.20]]"  # [FM-NAV-033] 40cm larghezza, 12cm buffer frontale oltre bumper
+      points: "[[0.25, 0.16], [0.25, -0.16], [0.05, -0.16], [0.05, 0.16]]"  # [FM-NAV-041 FIX] Poligono frontale anti-urto: da 5cm a 25cm in avanti (esclude lo chassis posteriore del robot a x < 0)
       action_type: "stop"
-      min_points: 1  # [FM-NAV-033] Arresto immediato non appena 1 raggio laser entra nella zona d'impatto
+      min_points: 3  # [FM-NAV-041 FIX] 3 punti consecutivi per filtrare rumore/singolo raggio spurio
       visualize: true
       polygon_sub_topic: "polygon_stop"
     PolygonSlowdown:
       type: "polygon"
-      points: "[[0.45, 0.30], [0.45, -0.30], [-0.22, -0.30], [-0.22, 0.30]]"  # [FM-NAV-033] 60cm larghezza, 29cm anticipo frontale
+      points: "[[0.40, 0.22], [0.40, -0.22], [0.05, -0.22], [0.05, 0.22]]"  # Anticipo frontale fino a 40cm oltre il bumper
       action_type: "slowdown"
-      min_points: 2  # [FM-NAV-041 FIX] Sostituito max_points deprecato in ROS 2 Jazzy con min_points
+      min_points: 3  # [FM-NAV-041 FIX] Sostituito max_points deprecato in ROS 2 Jazzy con min_points
       slowdown_ratio: 0.40  # Rallenta al 40% (circa 0.10 m/s) per permettere all'MPPI di aggirare l'ostacolo
       visualize: true
       polygon_sub_topic: "polygon_slowdown"
