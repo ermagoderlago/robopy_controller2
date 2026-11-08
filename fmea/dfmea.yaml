@@ -10541,3 +10541,41 @@
       e Pi 5 (RPN 288 -> 16).
     rpn_old: 288
     rpn_new: 16
+
+- id: FM-NAV-042
+  subsystem: Nav2/BT Navigator & Frontier Exploration
+  component: nav2_survival_bt.xml / nav2_params_jazzy.yaml / frontier_explorer_node.py
+  function: Disimpegno fisico da ostacoli sottili (gambe di tavoli e sedie), recovery a 45 gradi e prevenzione cascading blacklist in esplorazione frontiere
+  failure_mode: Robot bloccato contro gamba del tavolo con micro-backup insufficiente (8cm), abort a catena di tutte le frontiere e conclusione prematura dell'esplorazione (ALL_FRONTIERS_BELOW_THRESHOLD)
+  potential_cause: 1) Backup di recovery in nav2_survival_bt.xml limitato a soli 8cm (0.08m) senza rotazione di disimpegno, lasciando il robot dentro l'inflazione letale. 2) FrontierExplorerNode che blacklista permanentemente tutti i centroidi a seguito di fallimenti locali a catena. 3) Soglia min_frontier_size cablata a 0.40m che scarta varchi tra mobili e aperture parziali. 4) Repulsione ostacoli MPPI insufficiente sui bordi sottili.
+  potential_effect: Arresto permanente del robot davanti a gambe di tavoli con esplorazione interrotta dopo pochissimi metri di tragitto.
+  classification: MISSION_CRITICAL
+  estimation_basis: measured
+  related_ids:
+  - FM-NAV-019
+  - FM-NAV-041
+  initial_scoring:
+    severity: 8
+    occurrence: 7
+    detection: 6
+    rpn: 336
+  prevention_controls: 1) Aumento backup di recovery da 0.08m a 0.22m in nav2_survival_bt.xml con disengage spin controllato a 45 deg (0.785 rad). 2) Reset blacklist su stallo locale e disengage recovery autonomo in frontier_explorer_node.py. 3) Riduzione min_frontier_size da 0.40m a 0.25m. 4) Aumento repulsion_weight a 3.5 e cost_scaling_factor a 2.8 per anticipare l'evitamento delle gambe dei mobili.
+  detection_controls: Telemetria /odom, monitoraggio status /frontier_exploration/status e abort counter.
+  residual_scoring:
+    severity: 8
+    occurrence: 2
+    detection: 1
+    rpn: 16
+  risk_level: LOW
+  mitigation_status: CLOSED
+  recommended_action: Integrare recovery 0.22m + 45 deg spin in nav2_survival_bt.xml, calibrare costmap e implementare stuck recovery con reset blacklist in frontier_explorer_node.py.
+  verification_method: Disimpegno fisico eseguito con successo (+27.2cm, 41.4 deg), validazione statica e runtime su Marcus.
+  eco_ref: docs/ecos/nav2_slam_ecos.md
+  lesson_ref: docs/lessons/nav2_slam_tuning.md
+  date_identified: '2026-11-08'
+  last_updated: '2026-11-08'
+  history:
+  - date: '2026-11-08'
+    change: Implementato disimpegno reale 0.22m con spin 45 deg, abbassata soglia frontiere a 0.25m, introdotto stuck recovery anti-cascading blacklist e disimpegnato fisicamente Marcus dalla gamba del tavolo (RPN 336 -> 16).
+    rpn_old: 336
+    rpn_new: 16

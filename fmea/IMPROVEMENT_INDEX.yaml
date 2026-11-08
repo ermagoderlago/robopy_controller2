@@ -300,3 +300,9 @@ improvements:
     file: "docs/improvements/IMP-NAV-041_motion_deadlock_resolution.md"
     status: "COMPLETED"
     domain: "nav2_slam"
+
+  FM-NAV-042:
+    title: "Miglioramento Navigazione: Disimpegno Fisico da Gambe Tavolo (0.22m + 45 deg Spin), Recovery BT e Anti-Cascading Blacklist Frontiere"
+    file: "docs/improvements/IMP-NAV-042_furniture_disengagement_and_frontier_recovery.md"
+    status: "COMPLETED"
+    domain: "nav2_slam"

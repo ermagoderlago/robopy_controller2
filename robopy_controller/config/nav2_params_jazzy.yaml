@@ -165,8 +165,8 @@ controller_server:
         threshold_to_consider: 0.5
       ObstaclesCritic:
         cost_power: 1
-        cost_weight: 22.0       # [FM-NAV-041] Bilanciato per attraversare varchi/porte 0.72-0.85m senza stallo
-        repulsion_weight: 2.5   # [FM-NAV-041] Repulsione progressiva senza freeze centrale nei corridoi
+        cost_weight: 24.0       # [FM-NAV-041] Bilanciato con repulsione aumentata
+        repulsion_weight: 3.5   # [FM-NAV-041] Repulsione progressiva per evitare di sfiorare gambe di tavoli e sedie
         critical_cost: 254.0    # [FM-NAV-033] Scarta traiettorie su celle letali
       PathAlignCritic:
         cost_power: 1
@@ -241,7 +241,7 @@ local_costmap:
         phi: 0.1
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 3.2  # [FM-NAV-041] Gradiente netto per corridoi/porte da 0.72m-0.85m
+        cost_scaling_factor: 2.8  # [FM-NAV-041] Gradiente che incrementa il costo a 25-35cm dagli ostacoli (evita sfioramenti)
         inflation_radius: 0.55    # [FM-NAV-041] Raggio sicurezza calibrato su robot_radius=0.18m
 
 # ============================================================
@@ -305,7 +305,7 @@ global_costmap:
         phi: 0.1
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 3.2  # [FM-NAV-041] Gradiente netto per corridoi/porte da 0.72m-0.85m
+        cost_scaling_factor: 2.8  # [FM-NAV-041] Gradiente che incrementa il costo a 25-35cm dagli ostacoli (evita sfioramenti)
         inflation_radius: 0.55    # [FM-NAV-041] Raggio sicurezza calibrato su robot_radius=0.18m
 
 # ============================================================
@@ -345,8 +345,8 @@ behavior_server:
       plugin: "nav2_behaviors::Wait"
     # Parametri per cingolato ad alto attrito
     simulate_ahead_time: 2.0
-    max_rotational_vel: 2.0
-    min_rotational_vel: 0.8
+    max_rotational_vel: 1.5
+    min_rotational_vel: 0.4
     rotational_acc_lim: 3.2
 
 # ============================================================

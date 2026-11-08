@@ -618,3 +618,32 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
   - `docs/improvements/IMP-NAV-041_motion_deadlock_resolution.md`
   - `docs/lessons/nav2_slam_tuning.md`
   - `docs/ecos/nav2_slam_ecos.md`
+
+
+---
+
+## 📈 ECO-2026-11-08-001: Disimpegno Fisico da Gambe Tavoli (0.22m + 45° Spin), Calibrazione Costmap ed Evitamento Cascading Blacklist Frontiere
+* **Stato:** ✅ **Completato, Sincronizzato con Hot-Swap su Marcus Pi 5 e Testato con Successo**
+* **Autore:** 🤖 **Generata autonomamente da Marcus** (Antigravity Engine)
+* **DFMEA Correlati:** `FM-NAV-042`, `FM-NAV-019`, `FM-NAV-041`
+* **Descrizione dell'intervento:**
+  1. **Potenziamento Behavior Tree di Recupero (`nav2_survival_bt.xml`):**
+     - Incrementato l'arretramento di sblocco da 0.08m a 0.22m (`backup_speed: 0.10 m/s`), permettendo a Marcus di uscire completamente dall'ingombro e dall'inflazione di ostacoli sottili (gambe di tavoli e sedie).
+     - Inserita una rotazione angolare di sicurezza di 45° (0.785 rad, `DisengageSpin`) per deviare la prua del robot dall'ostacolo prima della ripianificazione, prevenendo aborti MPPI consecutivi.
+  2. **Calibrazione Costmap ed Evitamento Tavoli (`nav2_params_jazzy.yaml`):**
+     - Elevato `repulsion_weight: 3.5` (da 2.5) in MPPI `ObstaclesCritic` per deviare preventivamente le traiettorie prima del contatto ravvicinato con gambe di mobili.
+     - Ridotto `cost_scaling_factor: 2.8` (da 3.2) in `local_costmap` e `global_costmap` per generare un gradiente di costo più esteso (25-35 cm).
+     - Calibrata velocità minima di rotazione di `behavior_server` a `0.4 rad/s` per rotazioni di disimpegno dolci.
+  3. **Risoluzione Cascading Blacklist e Stuck Recovery (`frontier_explorer_node.py`):**
+     - Corretto l'uso del parametro d'istanza `self.min_frontier_size` anziché la costante di classe.
+     - Abbassata la soglia frontiere da 0.40m a 0.25m per consentire l'esplorazione attorno all'arredamento domestico.
+     - Introdotta la manovra `_execute_disengage_recovery()` e il reset della blacklist transitoria a seguito di 2 abort consecutivi per evitare che il robot esaurisca e abbandoni l'esplorazione prematuramente.
+* **File Modificati:**
+  - `robopy_controller/config/nav2_survival_bt.xml`
+  - `robopy_controller/config/nav2_params_jazzy.yaml`
+  - `robopy_controller/nodes/frontier_explorer_node.py`
+  - `scripts/disengage_and_free_marcus.py`
+  - `fmea/dfmea.yaml`
+  - `fmea/IMPROVEMENT_INDEX.yaml`
+  - `docs/improvements/IMP-NAV-042_furniture_disengagement_and_frontier_recovery.md`
+  - `docs/ecos/nav2_slam_ecos.md`

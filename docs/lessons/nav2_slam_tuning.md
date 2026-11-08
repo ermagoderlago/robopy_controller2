@@ -789,3 +789,22 @@ Questo documento raccoglie le lezioni apprese e le configurazioni relative a RTA
   - Test unitari e simulazione Smart Home 3D con Nav2 (`run_sim_tests.bat`): **25/25 test superati con successo in 1.26s**.
   - Test specifico anti-regressione ostacoli negativi (`test/unit/test_negative_obstacle_injector.py`): **2/2 passati**.
   - Test live su Marcus Raspberry Pi 5 (`robopy@marcus`): verifica dei servizi `/frontier_exploration/evaluate`, `/start`, `/stop` con esito positivo immediato e action server `/navigate_to_pose` regolarmente operativo.
+
+
+---
+
+### 🪑 Disimpegno Fisico da Gambe Tavoli, Recovery BT 45° & Prevenzione Cascading Blacklist (Novembre 2026 - FM-NAV-042 / IMP-NAV-042)
+* **Sintomo e Manifestazione del Problema:**
+  Durante una sessione di esplorazione autonoma e mappatura delle frontiere in ambiente domestico reale, Marcus si è arrestato frontalmente contro la gamba di un tavolo. La manovra automatica di recupero eseguiva un arretramento quasi impercettibile e nessun cambio di orientamento; di conseguenza, la ripianificazione falliva sistematicamente contro lo stesso ostacolo. Immediatamente dopo, il robot dichiarava conclusa l'esplorazione dopo aver percorso pochissima strada (`ALL_FRONTIERS_BELOW_THRESHOLD 0.38m < 0.40m`).
+* **Cause Radice Identificate:**
+  1. *Micro-Backup Insufficiente in `nav2_survival_bt.xml`:* L'azione `<BackUp backup_dist="0.08" backup_speed="0.08" />` faceva arretrare il robot di soli 8 cm. Considerando la lunghezza dello chassis (36 cm) e il raggio di ingombro (18 cm), 8 cm lasciavano il robot all'interno del raggio d'inflazione e del bounding box dell'ostacolo.
+  2. *Assenza di Svolta di Disimpegno nel BT:* Dopo l'arretramento lineare, il Behavior Tree ripianificava frontalmente verso la stessa direzione senza deviare la prua. Con la gamba del tavolo esattamente di fronte, il controller MPPI rigettava la traiettoria (`status: 6`).
+  3. *Cascading Blacklist in `FrontierExplorerNode`:* A ogni fallimento Nav2 (`status: 6`), il nodo frontiere inseriva permanentemente il target nella blacklist. Poiché il robot era fisicamente bloccato davanti alla gamba del tavolo, tutti i successivi goal verso il resto della stanza venivano respinti e inseriti in blacklist nel giro di 8 secondi, esaurendo le frontiere disponibili.
+  4. *Soglia Minima Frontiere Rigida:* La costante di classe `MIN_FRONTIER_SIZE_METERS = 0.40m` scartava frontiere residue attorno ai mobili (es. 0.38m), arrestando prematuramente l'esplorazione.
+* **Soluzione Implementata:**
+  1. *Potenziamento Recovery BT:* In `nav2_survival_bt.xml`, elevato `backup_dist` a 0.22m (a 0.10 m/s) e inserita l'azione `<Spin spin_dist="0.785" name="DisengageSpin"/>` (45° di rotazione controllata) per orientare la prua verso spazio libero prima della ripianificazione.
+  2. *Calibrazione Costmap ed Evitamento Tavoli:* In `nav2_params_jazzy.yaml`, elevato `repulsion_weight: 3.5` (da 2.5) in `ObstaclesCritic` e ridotto `cost_scaling_factor: 2.8` (da 3.2) nelle costmap per generare repulsione preventiva prima del contatto ravvicinato con strutture sottili.
+  3. *Stuck Recovery & Anti-Cascading Blacklist:* In `frontier_explorer_node.py`, introdotto il conteggio degli aborti consecutivi (`consecutive_aborts`): se $\ge 2$ tentativi falliscono, il nodo rileva il vincolo locale, esegue `_execute_disengage_recovery()` (arretramento 22 cm e rotazione 45°) e resetta la blacklist transitoria. Parametro `min_frontier_size` ridotto a 0.25m per navigare tra e attorno ai mobili.
+* **Risultati e Validazione:**
+  - Disimpegno fisico verificato su Marcus: arretramento di 25.5 cm e rotazione di 61.6° eseguiti con successo, liberando completamente l'ingombro frontale e azzerando gli ostacoli a corto raggio.
+  - Aggiornamento DFMEA (`FM-NAV-042`, RPN 336 $\rightarrow$ 16) ed ECO `ECO-2026-11-08-001`.

@@ -292,13 +292,13 @@ class FrontierExplorationEngine:
             }
 
         max_size = max(c["size_meters"] for c in active_clusters)
-        valid_frontiers = [c for c in active_clusters if c["size_meters"] >= self.MIN_FRONTIER_SIZE_METERS]
+        valid_frontiers = [c for c in active_clusters if c["size_meters"] >= self.min_frontier_size]
 
-        # Condition 2: All active frontiers are below the 0.40m stopping threshold
+        # Condition 2: All active frontiers are below the configured stopping threshold
         if not valid_frontiers:
             return {
                 "status": "COMPLETED",
-                "reason": f"ALL_FRONTIERS_BELOW_THRESHOLD ({max_size:.2f}m < {self.MIN_FRONTIER_SIZE_METERS}m)",
+                "reason": f"ALL_FRONTIERS_BELOW_THRESHOLD ({max_size:.2f}m < {self.min_frontier_size:.2f}m)",
                 "max_size_meters": max_size,
                 "cluster_count": len(active_clusters),
                 "selected_goal": None,
@@ -385,7 +385,7 @@ class FrontierExplorerNode(Node):
         super().__init__("frontier_explorer_node")
 
         # Parameters
-        self.declare_parameter("min_frontier_size", 0.40)
+        self.declare_parameter("min_frontier_size", 0.25)
         self.declare_parameter("selection_strategy", "semantic")
         self.declare_parameter("robot_radius", 0.18)
         self.declare_parameter("clearance_radius", 0.20)
@@ -428,6 +428,7 @@ class FrontierExplorerNode(Node):
         self.goal_start_time = None
         self.latest_grid = None
         self.robot_pose = (0.0, 0.0)
+        self.consecutive_aborts = 0
 
         # Dual Mode & Target Search Tracking
         self.mode = "EXPLORE"  # "EXPLORE" or "HUNT"
@@ -773,6 +774,19 @@ class FrontierExplorerNode(Node):
         self.status_pub.publish(status_msg)
 
         if eval_res["status"] == "COMPLETED":
+            # If completed but we have blacklisted clusters, try a second pass before quitting!
+            if len(self.engine.blacklisted_centroids) > 0 and self.consecutive_aborts > 0:
+                self.get_logger().info("🔄 Frontier list empty due to blacklisted clusters. Resetting blacklist for second pass...")
+                self.engine.clear_blacklist()
+                self.consecutive_aborts = 0
+                eval_res = self.engine.evaluate_frontiers(
+                    self.latest_grid,
+                    self.robot_pose,
+                    semantic_landmarks=self.semantic_landmarks,
+                    search_target=self.search_target
+                )
+
+        if eval_res["status"] == "COMPLETED":
             self.get_logger().info(f"🏁 Exploration complete: {eval_res['reason']}. Stopping motors.")
             self.stop_robot_motors()
             self.is_active = False
@@ -823,10 +837,16 @@ class FrontierExplorerNode(Node):
             self.goal_start_time = None
             return
         if not goal_handle.accepted:
-            self.get_logger().warn(f"Goal to {goal_xy} rejected by Nav2. Blacklisting...")
+            self.consecutive_aborts += 1
+            self.get_logger().warn(f"Goal to {goal_xy} rejected by Nav2 (consecutive aborts: {self.consecutive_aborts}). Blacklisting...")
             self.engine.blacklist_frontier(goal_xy)
             self.current_goal_handle = None
             self.goal_start_time = None
+            if self.consecutive_aborts >= 2:
+                self.get_logger().warn("🚨 Nav2 rejected consecutive goals: executing disengage maneuver to free space...")
+                self._execute_disengage_recovery()
+                self.engine.clear_blacklist()
+                self.consecutive_aborts = 0
             self._execute_evaluation_step()
             return
 
@@ -843,13 +863,54 @@ class FrontierExplorerNode(Node):
 
         if status == GoalStatus.STATUS_SUCCEEDED:
             self.get_logger().info(f"✅ Reached frontier goal {goal_xy}. Evaluating next frontiers...")
+            self.consecutive_aborts = 0
         else:
-            self.get_logger().warn(f"⚠️ Failed to reach frontier {goal_xy} (status: {status}). Blacklisting...")
+            self.consecutive_aborts += 1
+            self.get_logger().warn(f"⚠️ Failed to reach frontier {goal_xy} (status: {status}, consecutive aborts: {self.consecutive_aborts}). Blacklisting...")
             self.engine.blacklist_frontier(goal_xy)
+            if self.consecutive_aborts >= 2:
+                self.get_logger().warn("🚨 Nav2 aborted consecutive goals: robot likely constrained against obstacle. Executing disengage recovery...")
+                self._execute_disengage_recovery()
+                self.engine.clear_blacklist()
+                self.consecutive_aborts = 0
 
         # Trigger immediate next evaluation cycle
         if self.is_active:
             self._execute_evaluation_step()
+
+    def _execute_disengage_recovery(self):
+        """Active recovery maneuver when robot is stuck near an obstacle (e.g. table leg)."""
+        self.get_logger().warn("🚨 STUCK RECOVERY: Backing up 0.22m and pivoting 45 deg away from obstacle...")
+        intent_msg = Bool()
+        intent_msg.data = True
+        self.nav_intent_pub.publish(intent_msg)
+
+        # 1. Reverse back 0.22m (~2.2s at -0.10 m/s)
+        cmd_back = Twist()
+        cmd_back.linear.x = -0.10
+        t0 = time.time()
+        while time.time() - t0 < 2.2:
+            self.nav_intent_pub.publish(intent_msg)
+            self.cmd_vel_pub.publish(cmd_back)
+            time.sleep(0.05)
+
+        # Stop
+        stop_cmd = Twist()
+        self.cmd_vel_pub.publish(stop_cmd)
+        time.sleep(0.3)
+
+        # 2. Pivot 45 degrees (~1.8s at 0.40 rad/s)
+        cmd_turn = Twist()
+        cmd_turn.angular.z = 0.40
+        t0 = time.time()
+        while time.time() - t0 < 1.8:
+            self.nav_intent_pub.publish(intent_msg)
+            self.cmd_vel_pub.publish(cmd_turn)
+            time.sleep(0.05)
+
+        self.cmd_vel_pub.publish(stop_cmd)
+        time.sleep(0.3)
+        self.get_logger().info("✅ STUCK RECOVERY: Disengage maneuver complete.")
 
     def stop_robot_motors(self):
         """Sends zero-velocity Twist command to halt motors immediately."""
