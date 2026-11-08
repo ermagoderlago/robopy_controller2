@@ -17,8 +17,8 @@ if (-not $online) {
     exit 2
 }
 
-Write-Host " Marcus ONLINE! Arresto preventivo nodi e watchdog (marcus_core_rules.md)..."
-ssh -o BatchMode=yes $target_host "sudo systemctl stop marcus-watchdog 2>/dev/null; pkill -9 -f watchdog.sh 2>/dev/null; pkill -9 -f restart_hailo.sh 2>/dev/null; pkill -9 -f ros2 2>/dev/null; echo 'NODES_STOPPED'"
+Write-Host " Marcus ONLINE! Preparazione directory remote e arresto preventivo nodi..."
+ssh -o BatchMode=yes $target_host "mkdir -p /mnt/ssd/robopy_controller_host/robopy_controller/robot_ai/cognitive /mnt/ssd/robopy_controller_host/robopy_controller/robot_ai/trinity /mnt/ssd/robopy_controller_host/docs/improvements /mnt/ssd/robopy_controller_host/docs/lessons /mnt/ssd/robopy_controller_host/docs/ecos /mnt/ssd/robopy_controller_host/fmea /mnt/ssd/robopy_controller_host/launch /mnt/ssd/robopy_controller_host/test/sim 2>/dev/null; sudo systemctl stop marcus-watchdog 2>/dev/null; pkill -9 -f watchdog.sh 2>/dev/null; pkill -9 -f restart_hailo.sh 2>/dev/null; pkill -9 -f ros2 2>/dev/null; echo 'NODES_STOPPED'"
 
 Write-Host " Trasferimento file di configurazione, launch e avvio..."
 scp -o BatchMode=yes restart_hailo.sh "${target_host}:/mnt/ssd/robopy_controller_host/"
@@ -37,6 +37,8 @@ scp -o BatchMode=yes robopy_controller/robot_ai/services/resource_governor.py "$
 scp -o BatchMode=yes robopy_controller/robot_ai/skills/builtin/navigation_skill.py "${target_host}:/mnt/ssd/robopy_controller_host/robopy_controller/robot_ai/skills/builtin/"
 scp -o BatchMode=yes robopy_controller/robot_ai/integrations/navigation.py "${target_host}:/mnt/ssd/robopy_controller_host/robopy_controller/robot_ai/integrations/"
 scp -o BatchMode=yes robopy_controller/robot_ai/trinity/kinematic_sandbox.py "${target_host}:/mnt/ssd/robopy_controller_host/robopy_controller/robot_ai/trinity/"
+scp -o BatchMode=yes robopy_controller/robot_ai/trinity/shadow_memory_sandbox.py "${target_host}:/mnt/ssd/robopy_controller_host/robopy_controller/robot_ai/trinity/"
+scp -o BatchMode=yes robopy_controller/robot_ai/cognitive/intrinsic_motivation_and_reward_engine.py "${target_host}:/mnt/ssd/robopy_controller_host/robopy_controller/robot_ai/cognitive/"
 
 Write-Host " Trasferimento documentazione FMEA, ECO, lezioni e guide aggiornate..."
 scp -o BatchMode=yes fmea/dfmea.yaml "${target_host}:/mnt/ssd/robopy_controller_host/fmea/"
@@ -85,5 +87,8 @@ echo "HOTSWAP_COMPLETED"
 
 echo "$remote_hotswap" | ssh -o BatchMode=yes $target_host "tr -d '\r' | bash"
 
-Write-Host " Sincronizzazione ed Hot-Swap completati con successo!"
+Write-Host " Riavvio dello stack di produzione di Marcus in background..."
+ssh -o BatchMode=yes $target_host "nohup /mnt/ssd/robopy_controller_host/restart_hailo.sh > /mnt/ssd/robopy_controller_host/restart_hailo.log 2>&1 &"
+
+Write-Host " Sincronizzazione, Hot-Swap e Riavvio completati con successo!"
 
