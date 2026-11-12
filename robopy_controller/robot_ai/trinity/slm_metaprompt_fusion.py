@@ -76,15 +76,8 @@ def load_email_delivery_context(persist_path: Optional[str] = None) -> str:
         lines.append(f"- Email importanti: {important} importanti su {received} ricevute. Nessun avviso critico non letto oggi.")
         return "\n".join(lines)
 
-    # Empirical fallback from live robot EmailMemory cache (16 tracked packages)
-    return (
-        "- Pacchi tracciati attivi: 16 pacchi (Amazon, Cainiao, Sunlu).\n"
-        "- Pacco Amazon (406-1891831-7190755): Articolo consegnato in giardino a Oggiono — Consegnato\n"
-        "- Pacco Amazon (404-1692132-3833942): Bichingda Costume da adulto — In transito\n"
-        "- Pacco Amazon (404-4254603-2699513): Gravitrax Espansione Balls & Spinner — In transito\n"
-        "- Pacco Amazon (404-3623117-4473963): Clinique High Impact Mascara — In transito\n"
-        "- Email importanti: 25 importanti su 154 ricevute (mittenti VIP: Luisella Bonfanti, Vicky Bejar). Nessun avviso critico non letto oggi."
-    )
+    # [P1.5] Never inject invented/hardcoded Amazon packages or VIP email counts when cache is missing.
+    return ""
 
 
 @dataclass
@@ -434,7 +427,8 @@ class SLMMetapromptFusion:
         ))
 
         facts_list = []
-        if family_query or (not ctx.mag_facts) or ("Luisella" not in (ctx.mag_facts or "")):
+        # [P1.5] Inject family grounding ONLY when explicitly relevant to the query.
+        if family_query:
             facts_list.append(GROUNDED_FAMILY_FACTS)
 
         if ctx.mag_facts:

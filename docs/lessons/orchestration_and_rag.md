@@ -632,3 +632,22 @@ L'architettura TRINITY integra i tre paradigmi di memoria e contesto operando a 
 ### 3. Validazione
 - Test unitari superati (100% verde) su `tests/test_metaprompt_fusion.py` e `tests/test_hailo_client.py`.
 - Collaudo su Marcus con storico multi-riga contaminato da *"automa"*: query geografica risponde *"La capitale della Francia è Parigi."* in <1.2s senza scuse né loop.
+
+---
+
+## 🧠 Lezione 53 — Igiene Prompt TRINITY (`BUDGET_SYSTEM=450`), Skill Reali 10/10, Regex Intere ed Evoluzione Sociale (`FM-COG-008`, `FM-LLM-021`, `FM-LLM-022`, `FM-VIS-014` — 2026-11-12)
+
+### 1. Eliminazione Allucinazioni Prompt & Timeout TRINITY Deterministico
+* **Rimozione Testi Sintetici:** Rimosso il blocco mattutino sul *"sogno"* da `llm_service.py` e il fallback con finte email Amazon/VIP da `slm_metaprompt_fusion.py`. `GROUNDED_FAMILY_FACTS` viene ora iniettato solo quando la richiesta verte effettivamente sulla famiglia.
+* **Budget & Fallback Compatto (`metaprompt_fusion.py`, `conversation.py`):** Impostato `MetapromptFusion.BUDGET_SYSTEM = 450` (somma budget 2400 <= 2500 token `SPEC-05`). In caso di timeout TRINITY, `ConversationManager` emette evento diagnostico `trinity_timeout` e applica un system prompt compatto ancorato a `world_model` (stanza/batteria reale) anziché sbloccare inferenze prive di identità.
+* **Regex a Parola Intera (`intent_classifier.py`):** Introdotta `RE_SITUATIONAL_OPERATIONAL` con `\b(?:dove|dov['’]?[eè]|livello|gradi|metri|cm)\b` eliminando falsi positivi su sottostringhe come `"perché"`, `"dovrei"`, `"che bello"`; pareggi/ambiguità vanno a `GEMINI_LIVE`.
+
+### 2. Copertura Completa delle 10 Skill Dichiarate & Parlato sul Risultato Reale (`skill_executor.py`, `conversation.py`)
+* **Gap Precedente:** `ALLOWED_FUNCTION_NAMES` esponeva 10 skill, ma `SkillExecutor` ne mappava solo una frazione e `_handle_local_qwen` scartava il ritorno `res` delle skill non-navigazionali.
+* **Risoluzione:** Mappate tutte e 10 le funzioni (`query_knowledge`, `set_smart_device`, `pause_or_resume_exploration`, `get_battery_status`, `get_system_health`, più navigazione/esplorazione); `ConversationManager` usa il risultato reale restituito da `SkillExecutor` / `world_model` per generare la conferma parlata veritiera.
+
+### 3. Proattività Coda Sociale & Affettività Unificata (`cognitive_core_node.py`, `orchestrator.py`)
+* **Stop Bypass Cieco:** Rimosso il meccanismo con cui `cognitive_core_node` pubblicava `proactive_listen_pub = True` ignorando conversazioni o stato dell'utente. Ogni messaggio proattivo transita ora verso `DialogueArbiter` via `/ai/conversation/proactive_speech`, rispettando pavimento libero, engagement e `DO_NOT_DISTURB` / `REST` (anche per greeting mattutino, email e prompt enrollment).
+* **Affettività Unificata:** Stati emotivi/umorali instradati in modo coerente su `/ai/affective_state`.
+* **Allineamento VLM (`conversation.py`, `orchestrator.py`):** Client ROS 2 puntato a `/hailo/vlm/ask_question` con guardia termica `< 80.0°C` (`SPEC-03`), rimossa la collisione del publisher `String` sullo stesso nome.
+

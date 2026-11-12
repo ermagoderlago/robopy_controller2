@@ -230,7 +230,7 @@ if [ -d "$SRC_DIR/nodes" ]; then
     fi
 fi
 
-for node_file in waveshare_motor_driver.py semantic_costmap_injector.py frontier_explorer_node.py sensor_standby_manager.py robot_health_supervisor.py battery_manager_node.py respeaker_vui_node.py multimodal_identity_node.py resource_governor_node.py; do
+for node_file in waveshare_motor_driver.py semantic_costmap_injector.py frontier_explorer_node.py sensor_standby_manager.py robot_health_supervisor.py battery_manager_node.py respeaker_vui_node.py multimodal_identity_node.py resource_governor_node.py attention_supervisor_node.py system_lifecycle_coordinator_node.py; do
     src_file="$SRC_DIR/nodes/$node_file"
     if [ -f "$src_file" ]; then
         node_base="${node_file%.py}"

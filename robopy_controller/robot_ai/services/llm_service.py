@@ -148,6 +148,10 @@ class LLMServiceNode(Node):
         self._tool_executor_callback = None
         self._last_interaction_time = time.time()
         self._morning_greeting_done = False
+        self._dialogue_arbiter = None
+        self._trinity_turn_callback = None
+        self._context_digest_getter = None
+        self._external_affective_mood = "NORMAL"
 
         # ------------------------------------------------------------------
         # 7. ThreadPool per le chiamate bloccanti all'API standard
@@ -495,20 +499,20 @@ class LLMServiceNode(Node):
                 "rivederlo e interagire di nuovo con lui. Accenna al fatto che ti mancava un po' chiacchierare."
             )
 
-        # --- 3. Saluto Mattutino dei Sogni ---
+        # --- 3. Saluto Mattutino (P1.5: nessuna invenzione poetica/sogni notturni) ---
         dream_greeting = ""
         if 6 <= hour <= 11 and not self._morning_greeting_done:
             self._morning_greeting_done = True
-            dream_greeting = (
-                "\n[EVENTO: SALUTO MATTUTINO (DREAM-DRIVEN MORNING GREETING)]\n"
-                "È mattina e vi state vedendo per la prima volta oggi. Includi assolutamente all'inizio "
-                "della tua risposta un caloroso e poetico buongiorno personalizzato. Fai un accenno creativo "
-                "ed empatico ai 'sogni' o alle elaborazioni di background notturne descritte nelle tue lezioni "
-                "del Master Prompt (ad esempio, hai sognato costellazioni di dati, formiche robotiche o calcoli cosmici)."
-            )
-        # Resetta il flag del buongiorno se passata la mattina (es. pomeriggio o sera) per il giorno dopo
         elif not (6 <= hour <= 11):
             self._morning_greeting_done = False
+
+        # --- 3b. Umore affettivo unificato (/ai/affective_state - P4.5) ---
+        ext_mood = getattr(self, "_external_affective_mood", "NORMAL")
+        if ext_mood and ext_mood != "NORMAL" and mood == "NORMAL":
+            mood_guidelines = (
+                f"\n[STATO AFFETTIVO CORRENTE: {ext_mood}]\n"
+                "Adatta il tono vocale in modo naturale e coerente con lo stato del robot senza inventare storie fittizie."
+            )
 
         # --- 4. Fillers Conversazionali ---
         fillers_instruction = (
@@ -525,9 +529,7 @@ class LLMServiceNode(Node):
         # Assembla il prompt finale
         final_prompt = f"{base_prompt}\n{mood_guidelines}\n{fillers_instruction}"
         if master_prompt:
-            final_prompt += f"\n\n[INFORMAZIONI ED ISTRUZIONI OPERATIVE DAL TUO SOGNO NOTTURNO (LEZIONI APPRESE)]\n{master_prompt}"
-        if dream_greeting:
-            final_prompt += f"\n{dream_greeting}"
+            final_prompt += f"\n\n[MEMORIA E LEZIONI OPERATIVE APPRESE]\n{master_prompt}"
 
         # [v14.3] Aggiunta best practice di Google per garantire la risposta in italiano senza derive o allucinazioni di lingua
         final_prompt += "\n\nRESPOND IN ITALIAN. YOU MUST RESPOND UNMISTAKABLY IN ITALIAN."
@@ -885,6 +887,11 @@ class LLMServiceNode(Node):
     def _on_live_turn_complete(self, user_text: str, model_text: str):
         if hasattr(self, 'audio_buffer'):
             self.audio_buffer.set_speaker_playing(False)
+        if getattr(self, "_dialogue_arbiter", None) is not None:
+            try:
+                self._dialogue_arbiter.release_floor(source="GEMINI_LIVE", force=True)
+            except Exception:
+                pass
         if model_text:
             self.get_logger().info(f"💾 [CRONOLOGIA] Salvato turno in memoria -> Utente: '{user_text}' | Marcus: '{model_text}'")
             self._live_conversation_history.append((user_text, model_text))
@@ -892,9 +899,36 @@ class LLMServiceNode(Node):
                 self._live_conversation_history.pop(0)
             self._last_interaction_time = time.time()
             if self._live_mgr:
-                self._live_mgr.last_successful_turn_time = time.time()
+                # [P1.2] Use monotonic clock consistently with LiveConnectionManager window math
+                self._live_mgr.last_successful_turn_time = time.monotonic()
             # [v15.5] Registrazione persistente su disco di tutte le conversazioni
             self._save_conversation_turn(user_text, model_text)
+            if self._trinity_turn_callback:
+                try:
+                    self._trinity_turn_callback(user_text, model_text, "gemini_live")
+                except Exception as exc:
+                    self.get_logger().debug(f"TRINITY turn persistence callback error: {exc}")
+
+    def attach_dialogue_arbiter(self, arbiter: Any) -> None:
+        """Links DialogueArbiter to LiveConnectionManager for single-floor governance (P2.1)."""
+        self._dialogue_arbiter = arbiter
+        if self._live_mgr is not None:
+            self._live_mgr.dialogue_arbiter = arbiter
+            self._live_mgr.trace_logger = arbiter.trace
+
+    def set_trinity_turn_callback(self, callback) -> None:
+        """Registers callback ``(user_text, model_text, engine) -> None`` for Live -> MAG sync (P2.3)."""
+        self._trinity_turn_callback = callback
+
+    def set_context_digest_getter(self, getter) -> None:
+        """Registers callable returning compact TRINITY digest on Live connect (P2.3)."""
+        self._context_digest_getter = getter
+        if self._live_mgr is not None:
+            self._live_mgr.context_digest_getter = getter
+
+    def set_affective_state(self, mood: str) -> None:
+        """Updates unified affective state from Homeostasis/Amygdala bus (P4.5)."""
+        self._external_affective_mood = (mood or "NORMAL").strip().upper()
 
     async def _execute_tool_live(self, name: str, args: dict) -> dict:
         if self._tool_executor_callback:

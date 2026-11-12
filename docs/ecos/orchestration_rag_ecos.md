@@ -507,3 +507,20 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
      - 17 test automatici in `test_virtual_world_validation.py`, `test_hailo_digital_twin.py`, `test_navigation_and_stairs_safety.py` e `test_curiosity_rewards_and_instincts.py` (17/17 PASS).
      - Chiusi `FM-COG-001` (RPN 294 -> 7) e `FM-SIM-001` (RPN 336 -> 8 e 168 -> 6) in `fmea/dfmea.yaml`.
 
+---
+
+## 📈 ECO-2026-11-12-001: Evoluzione AI Unificata — `DialogueArbiter` (Opzione A), Memoria Condivisa Live-Qwen, Percezione Sociale & Comportamento Vocale Umano (`IMP-AI-001`, `IMP-AI-002`, `FM-LLM-021..022`, `FM-VUI-054`, `FM-COG-008`, `FM-VIS-014`)
+* **Autore:** 🤖 **Antigravity Lead Orchestrator**
+* **Data Creazione:** 2026-11-12 22:55:00
+* **Sottosistema:** `AI/Orchestration, Audio/VUI, Cognitive/TRINITY & Vision/VLM`
+* **Stato:** ✅ **Implementato su branch `agent/IMP-AI-TURN-ARBITER` e validato su PC** (Verifica finale hardware TV/ReSpeaker/NPU su Raspberry Pi 5 pendente)
+* **Descrizione:**
+  Risoluzione olistica dei problemi segnalati su risposta simultanea Gemini Live + Qwen, risposte senza senso/allucinazioni, riapertura continua del microfono su rumori ambientali, e allineamento verso interazione vocale naturale umana (rispettando `SPEC-00`, `SPEC-03`, `SPEC-04`, `SPEC-05`, `SPEC-07`).
+* **Modifiche Principali:**
+  1. **Osservabilità E2E (`dialogue_trace.py`):** Introdotto `turn_id` correlato e trace rotante `logs/dialogue_trace.jsonl` con contatori diagnostici dedicati.
+  2. **Arbitraggio In-Process (`dialogue_arbiter.py`, `orchestrator.py`, `respeaker_vui_node.py`):** Gerarchia Opzione A (Live primario `ONLINE`; Qwen locale su `OFFLINE`/`DEGRADED` o Fast-Path Stop `<10ms`), lease esclusivo pavimento TTS, soppressione `voice_cmd_pub` durante sessioni Live, ed unificazione di tutti i lock su `/ai/input/mic_mute_request` ➔ singolo publisher `/ai/input/mic_mute` (`orchestrator.py`, `attention_supervisor_node.py`, `respeaker_interface_node.py`).
+  3. **Hotfix Criticità Live/Qwen/TRINITY:** Correzione clock skew `time.time()` vs `time.monotonic()`, finestra follow-up non auto-rinnovante `8.0s`, disattivazione mock Qwen di default (`MARCUS_QWEN_ALLOW_MOCK`) e rimozione `<action>` motorie sintetiche dal mock, standby wakeword FINAL-only & gate enrollment, rimozione dream poem/finte email/family forzate, regex `\b` in `intent_classifier.py`, `BUDGET_SYSTEM=450`, mappatura completa delle 10 `ALLOWED_FUNCTION_NAMES` con parlato sul risultato reale (`skill_executor.py`, `conversation.py`).
+  4. **Comportamento Umano & Percezione Sociale (`trinity_engine.py`, `tts_service.py`, `cognitive_core_node.py`, `dsp_pipeline.py`):** Memoria condivisa Live <-> Qwen (`build_live_context_digest` <= 2500 token + `record_live_turn_sync`), coda proattiva filtrata da ToM/engagement (`DO_NOT_DISTURB` ➔ volume `0.65x`, `DISENGAGED` ➔ stop proattività/follow-up), `PiperTTSClient` (`16kHz -> 24kHz`) offline prima di `gTTS`, barge-in sostenuto `>= 0.25s`, backchannel `<300ms` per tool lunghi Live, DSP noise floor `120.0` RMS, `/hailo/vlm/ask_question` con guardia termica `<80C`, e affettività unificata `/ai/affective_state`.
+  5. **Governance DFMEA (`fmea/dfmea.yaml`, `fmea/IMPROVEMENT_INDEX.yaml`):** Deduplicati 25 record storici con ID collisionati e aggiunti 5 nuovi Failure Mode (`FM-LLM-021`, `FM-LLM-022`, `FM-VUI-054`, `FM-COG-008`, `FM-VIS-014`) per un totale di **225 voci univoche**.
+
+

@@ -210,7 +210,10 @@ class LiveConnectionManager:
         on_mic_mute: Optional[Callable[[bool], None]] = None,
         on_interrupt: Optional[Callable[[bool], None]] = None,
         history_getter: Optional[Callable[[], List[tuple]]] = None,
-        on_fallback_needed: Optional[Callable[[str], None]] = None
+        on_fallback_needed: Optional[Callable[[str], None]] = None,
+        context_digest_getter: Optional[Callable[[], str]] = None,
+        dialogue_arbiter: Optional[Any] = None,
+        trace_logger: Optional[Any] = None,
     ):
         self.client = client
         self._loop = loop
@@ -226,6 +229,9 @@ class LiveConnectionManager:
         self.on_interrupt = on_interrupt
         self.history_getter = history_getter or (lambda: [])
         self.on_fallback_needed = on_fallback_needed
+        self.context_digest_getter = context_digest_getter
+        self.dialogue_arbiter = dialogue_arbiter
+        self.trace_logger = trace_logger
 
         # 5-State FSM
         self._state: LiveState = LiveState.DISCONNECTED
@@ -251,7 +257,11 @@ class LiveConnectionManager:
 
         # Inactivity & Connection Timers
         self.active_session_timeout: float = self.INACTIVITY_TIMEOUT_SEC
+        self.followup_window_sec: float = 8.0
         self.last_successful_turn_time: float = 0.0
+        self._last_ai_speech_end_time: float = 0.0
+        self._active_turn_id: Optional[str] = None
+        self._last_oow_log_time: float = 0.0
         self.last_wakeword_time: float = 0.0
         self.turns_since_wakeword: int = 0
         self.recent_user_transcripts: List[tuple] = []
@@ -321,6 +331,14 @@ class LiveConnectionManager:
             f"🔄 [Live FSM] Transition: {old_state.value} -> {new_state.value} "
             f"(reason: {reason or 'none'})"
         )
+        if self.dialogue_arbiter is not None:
+            try:
+                self.dialogue_arbiter.set_live_transport_ready(
+                    new_state == LiveState.ACTIVE,
+                    session_open=(new_state == LiveState.ACTIVE),
+                )
+            except Exception:
+                pass
         if cb:
             try:
                 cb(old_state, new_state)
@@ -545,6 +563,14 @@ class LiveConnectionManager:
                 voice_name = self.voice_name_getter()
 
                 full_sys_prompt = sys_prompt
+                if self.context_digest_getter:
+                    try:
+                        digest = (self.context_digest_getter() or "").strip()
+                        if digest:
+                            # Cap digest contribution to ~8000 chars (~2000 tokens, staying within 2500 budget)
+                            full_sys_prompt += f"\n\n[CONTESTO TRINITY CONDIVISO]\n{digest[:8000]}"
+                    except Exception as dig_err:
+                        self.logger.debug(f"Live context digest getter failed: {dig_err}")
                 history = self.history_getter()
                 if history:
                     history_str = "\n\n[CRONOLOGIA RECENTE DELLA CONVERSAZIONE]\n"
@@ -735,12 +761,22 @@ class LiveConnectionManager:
 
                     if not self._turn_started_within_window:
                         self.logger.info(f"🔇 [Live] Turno ignorato: activity_start era fuori dalla finestra ({self.active_session_timeout:.0f}s).")
+                        tlog = self.trace_logger or (self.dialogue_arbiter.trace if self.dialogue_arbiter else None)
+                        if tlog is not None:
+                            tlog.log_event(
+                                "out_of_window_drop",
+                                turn_id=self._active_turn_id,
+                                source="gemini_live",
+                                connectivity="ONLINE",
+                                detail={"reason": "activity_end_outside_window"},
+                            )
                         if self.on_mic_mute:
                             self.on_mic_mute(True)
                         self._current_user_text = ""
                         self._current_live_response = {"text": "", "actions": []}
                         self._activity_started = False
                         self._turn_started_within_window = False
+                        self._active_turn_id = None
                         continue
 
                     try:
@@ -769,18 +805,47 @@ class LiveConnectionManager:
                             else:
                                 continue
 
-                        last_turn_ago = time.monotonic() - self.last_successful_turn_time if self.last_successful_turn_time > 0 else 9999.0
-                        last_wakeword_ago = time.monotonic() - self.last_wakeword_time if self.last_wakeword_time > 0 else 9999.0
-                        is_active = (
-                            self.last_wakeword_time > 0.0 and (
-                                last_wakeword_ago < self.active_session_timeout or
-                                last_turn_ago < self.active_session_timeout
-                            )
+                        now_mono = time.monotonic()
+                        # Guard against clock-domain mixups (e.g. monotonic vs epoch timestamps)
+                        wake_delta = (now_mono - self.last_wakeword_time) if (0.0 < self.last_wakeword_time <= now_mono) else 9999.0
+                        ai_end_ref = self._last_ai_speech_end_time or (
+                            self.last_successful_turn_time if self.last_successful_turn_time <= now_mono else 0.0
                         )
+                        followup_delta = (now_mono - ai_end_ref) if (0.0 < ai_end_ref <= now_mono) else 9999.0
+
+                        within_wake_window = (
+                            self.last_wakeword_time > 0.0 and wake_delta < self.active_session_timeout
+                        )
+                        within_followup_window = (
+                            self.last_wakeword_time > 0.0 and followup_delta < self.followup_window_sec
+                        )
+                        is_active = within_wake_window or within_followup_window
+                        if is_active and not within_wake_window and self.dialogue_arbiter is not None:
+                            ok_social, _ = self.dialogue_arbiter.can_continue_without_wakeword(within_timer=True)
+                            if not ok_social:
+                                is_active = False
+
                         self._turn_started_within_window = is_active
                         if not is_active:
+                            if now_mono - self._last_oow_log_time >= 2.0:
+                                self._last_oow_log_time = now_mono
+                                tlog = self.trace_logger or (self.dialogue_arbiter.trace if self.dialogue_arbiter else None)
+                                if tlog is not None:
+                                    tlog.log_event(
+                                        "out_of_window_drop",
+                                        source="gemini_live",
+                                        connectivity="ONLINE",
+                                        detail={
+                                            "wake_delta_s": round(wake_delta, 2),
+                                            "followup_delta_s": round(followup_delta, 2),
+                                        },
+                                    )
                             continue
 
+                        if self.dialogue_arbiter is not None:
+                            self._active_turn_id = self.dialogue_arbiter.begin_turn(
+                                "gemini_live", text_preview="[audio_stream]"
+                            )
                         self._turn_audio_emitted = False
                         await session.send_realtime_input(activity_start=types.ActivityStart())
                         self._activity_started = True
@@ -876,14 +941,24 @@ class LiveConnectionManager:
                         self.on_interrupt(True)
                     except Exception:
                         pass
+                if self.dialogue_arbiter is not None:
+                    self.dialogue_arbiter.release_floor(
+                        turn_id=self._active_turn_id, source="GEMINI_LIVE", force=True
+                    )
                 self._turn_in_progress = False
                 self._turn_in_progress_time = 0.0
+                self._turn_audio_emitted = False
                 self._current_user_text = ""
                 self._current_live_response = {"text": "", "actions": []}
+                self._active_turn_id = None
                 return
 
             for part in sc.model_turn.parts:
                 if hasattr(part, 'inline_data') and part.inline_data:
+                    if not self._turn_audio_emitted and self.dialogue_arbiter is not None:
+                        self.dialogue_arbiter.acquire_floor(
+                            "GEMINI_LIVE", turn_id=self._active_turn_id
+                        )
                     self._turn_audio_emitted = True
                     if self.on_audio_received:
                         self.on_audio_received(part.inline_data.data)
@@ -906,8 +981,13 @@ class LiveConnectionManager:
             is_active_spoken_turn = is_valid_speech and self._turn_audio_emitted
 
             if is_active_spoken_turn:
+                now_mono = time.monotonic()
                 self.turns_since_wakeword += 1
-                self.last_successful_turn_time = time.monotonic()
+                self.last_successful_turn_time = now_mono
+                self._last_ai_speech_end_time = now_mono
+                self.recent_user_transcripts.append((now_mono, user_msg))
+                if len(self.recent_user_transcripts) > 20:
+                    self.recent_user_transcripts = self.recent_user_transcripts[-20:]
                 self._reset_inactivity_timer()
             else:
                 self._current_live_response["actions"] = []
@@ -919,11 +999,31 @@ class LiveConnectionManager:
                 fut.set_result(self._current_live_response.copy())
 
             model_msg = self._current_live_response["text"].strip()
+            tlog = self.trace_logger or (self.dialogue_arbiter.trace if self.dialogue_arbiter else None)
+            if tlog is not None:
+                tlog.log_event(
+                    "live_turn_complete",
+                    turn_id=self._active_turn_id,
+                    source="gemini_live",
+                    connectivity="ONLINE",
+                    detail={
+                        "active_spoken": is_active_spoken_turn,
+                        "user": user_msg,
+                        "model": model_msg,
+                    },
+                )
+
+            if self.dialogue_arbiter is not None:
+                self.dialogue_arbiter.release_floor(
+                    turn_id=self._active_turn_id, source="GEMINI_LIVE", force=True
+                )
+
             if self.on_turn_complete:
                 self.on_turn_complete(user_msg or "[Silenzio/Rumore]", model_msg or "[SILENZIO]")
 
             self._current_live_response = {"text": "", "actions": []}
             self._current_user_text = ""
+            self._active_turn_id = None
 
     async def _execute_and_respond_tool_call(self, tool_call: Any):
         """Asynchronously executes requested function call and forwards tool response."""

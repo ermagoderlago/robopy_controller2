@@ -78,6 +78,19 @@ class ConversationManager:
             self.hailo_client = None
             self.hybrid_router = None
 
+        self.dialogue_arbiter = None
+        self.trace_logger = None
+        if self.skill_executor and getattr(self.skill_executor, "world_model", None) is None:
+            try:
+                self.skill_executor.world_model = self.world_model
+            except Exception:
+                pass
+
+    def attach_dialogue_arbiter(self, arbiter) -> None:
+        """Links the in-process DialogueArbiter and correlated trace logger (P2.1)."""
+        self.dialogue_arbiter = arbiter
+        self.trace_logger = getattr(arbiter, "trace", None)
+
     def set_latest_frame(self, frame):
         try:
             self._frame_queue.put_nowait(frame)
@@ -183,10 +196,22 @@ class ConversationManager:
             "alimentazione", "health", "battery"
         ]):
             v = getattr(self.world_model, "battery_voltage", None) if self.world_model else None
-            if isinstance(v, (int, float)) and v > 0:
-                fallback = f"Ho verificato rapidamente i miei circuiti: la batteria è a {v:.2f} volt e tutti i sistemi sono stabili e operativi!"
+            pct = getattr(self.world_model, "battery_percentage", None) if self.world_model else None
+            if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0:
+                if isinstance(pct, (int, float)) and not isinstance(pct, bool) and pct >= 0:
+                    fallback = (
+                        f"Ho verificato rapidamente: la batteria è al {pct:.0f}% ({v:.2f} volt) "
+                        "e tutti i sistemi sono stabili e operativi!"
+                    )
+                else:
+                    fallback = f"Ho verificato rapidamente i miei circuiti: la batteria è a {v:.2f} volt e tutti i sistemi sono stabili e operativi!"
+            elif isinstance(pct, (int, float)) and not isinstance(pct, bool) and pct >= 0:
+                fallback = f"Ho verificato rapidamente: la batteria è al {pct:.0f}% e tutti i sistemi sono stabili e operativi!"
             else:
-                fallback = "Ho verificato rapidamente: tutti i miei circuiti di alimentazione sono stabili, procediamo pure!"
+                fallback = (
+                    "Ho verificato rapidamente la batteria: non ho la lettura esatta al momento, "
+                    "ma i circuiti di alimentazione risultano stabili."
+                )
 
         # 2. Location / Room / Spatial Awareness
         elif any(w in lower for w in [
@@ -207,18 +232,22 @@ class ConversationManager:
             if any(w in lower for w in ["fermati", "stop", "alt", "blocca", "arrestati"]):
                 fallback = "Mi sono fermato immediatamente, tutti i motori sono a riposo."
             else:
-                fallback = "Ho compreso il tuo comando, ma il mio modulo motori ha avuto un piccolo attimo di esitazione. Riprova tra un istante!"
+                fallback = "Non posso muovermi in questo momento: il modulo di inferenza locale sui motori non è disponibile."
 
-        # 4. Greetings / Presence / Small Talk
+        # 4. Identity / Self-intro (matched before general greetings so "ciao marcus, chi sei?" answers accurately)
+        elif any(w in lower for w in ["chi sei", "come ti chiami", "presentati"]):
+            fallback = "Ciao! Sono Marcus, il tuo assistente robotico personale."
+
+        # 5. Greetings / Presence / Small Talk
         elif any(w in lower for w in [
             "ciao", "buongiorno", "buonasera", "salve", "ehi", "hey", "buondì",
             "ci sei", "mi senti", "mi ascolti", "puoi parlare"
         ]):
             fallback = "Ciao! Ti sento forte e chiaro, sono qui e pronto ad aiutarti."
 
-        # 5. Generic / Unmatched
+        # 6. Generic / Unmatched
         else:
-            fallback = "Scusami, ho avuto un piccolo attimo di esitazione nei miei circuiti neurali! Dimmi pure, ti ascolto."
+            fallback = "Scusami, non ho ricevuto risposta dal modello in tempo utile. Puoi ripetere la richiesta?"
 
         self._logger.info(
             f"🛡️ [ALWAYS-RESPOND FALLBACK] Emitted empathetic fallback for '{clean_text}' (reason: {reason}) -> '{fallback}'"
@@ -231,12 +260,26 @@ class ConversationManager:
             except Exception as cb_err:
                 self._logger.error(f"Error invoking response_callback in fallback: {cb_err}")
 
-        # 2. Speak via TTS if voice output requested
-        if should_speak and self.tts:
-            try:
-                await self.tts.speak(fallback)
-            except Exception as tts_err:
-                self._logger.debug(f"TTS speak skipped in fallback: {tts_err}")
+        # 2. Speak via TTS only if Option A + Floor Arbiter allow local speech
+        live_active = bool(getattr(self, "_is_live", False)) or bool(
+            self.dialogue_arbiter and self.dialogue_arbiter.is_live_voice_active()
+        )
+        if should_speak and self.tts and not live_active:
+            floor_held = False
+            if self.dialogue_arbiter is not None:
+                dec = self.dialogue_arbiter.acquire_floor("LOCAL_QWEN")
+                if not dec.allowed:
+                    self._logger.info(f"🔇 [Option A Fallback] TTS locale soppresso: {dec.reason}")
+                else:
+                    floor_held = True
+            if self.dialogue_arbiter is None or floor_held:
+                try:
+                    await self.tts.speak(fallback)
+                except Exception as tts_err:
+                    self._logger.debug(f"TTS speak skipped in fallback: {tts_err}")
+                finally:
+                    if floor_held and self.dialogue_arbiter is not None:
+                        self.dialogue_arbiter.release_floor(source="LOCAL_QWEN", force=True)
 
         # 3. Update short-term working memory
         self.conversation_history.append({"role": "user", "content": clean_text, "user": clean_text})
@@ -435,6 +478,11 @@ class ConversationManager:
             return await self._emit_conversational_fallback(clean_text, should_speak, reason="client_uninitialized")
 
         t0 = time.perf_counter()
+        turn_id = (
+            self.dialogue_arbiter.begin_turn("local_qwen", text_preview=clean_text)
+            if self.dialogue_arbiter is not None
+            else None
+        )
         if user_identity is None and self.world_model and hasattr(self.world_model, "current_user") and self.world_model.current_user:
             user_identity = self.world_model.current_user.get("name")
 
@@ -486,7 +534,19 @@ class ConversationManager:
             except (asyncio.TimeoutError, Exception) as e:
                 err_type = "TimeoutError" if isinstance(e, asyncio.TimeoutError) else f"{type(e).__name__}: {e}"
                 self._logger.warning(f"TRINITY prompt augmentation timed out or failed for local Qwen: {err_type}")
-                augmented_prompt = clean_text
+                if self.trace_logger is not None:
+                    self.trace_logger.log_event(
+                        "trinity_timeout",
+                        turn_id=turn_id,
+                        source="trinity",
+                        detail={"error": err_type, "query": clean_text},
+                    )
+                # [P1.5] Compact grounded system prompt instead of unconstrained empty prompt
+                augmented_prompt = (
+                    "<|im_start|>system\nSei Marcus, assistente robotico su Raspberry Pi 5. "
+                    "Rispondi in italiano conciso senza inventare email, dati o azioni.<|im_end|>\n"
+                    f"<|im_start|>user\n{clean_text}<|im_end|>\n<|im_start|>assistant\n"
+                )
 
         # Step 2: Enforce Hardware Timeout Deadline per inferenza locale NPU
         client_cfg = getattr(self.hailo_client, 'config', None)
@@ -606,13 +666,26 @@ class ConversationManager:
                 else:
                     self._logger.info(f"✅ [KinematicSandbox AUTHORIZED] {raw_call.function_name}")
                     executed_action_names.append(raw_call.function_name)
-                    # Dispatch to SkillExecutor using clamped/sanitized parameters if populated
+                    # Dispatch to SkillExecutor using clamped/sanitized parameters and capture real outcome (P1.8)
                     dispatch_args = validation.clamped_arguments if validation.clamped_arguments is not None else raw_call.arguments
                     if self.skill_executor and hasattr(self.skill_executor, "execute_skill"):
                         try:
                             res = self.skill_executor.execute_skill(raw_call.function_name, dispatch_args)
                             if asyncio.iscoroutine(res):
-                                await res
+                                res = await res
+                            spoken_texts: List[str] = []
+                            if isinstance(res, str) and res.strip():
+                                spoken_texts.append(res.strip())
+                            elif isinstance(res, (list, tuple)):
+                                spoken_texts.extend(
+                                    s.strip() for s in res if isinstance(s, str) and s.strip()
+                                )
+                            elif res is not None and not hasattr(res, "_mock_name"):
+                                sp = getattr(res, "speak", None) or getattr(res, "message", None)
+                                if isinstance(sp, str) and sp.strip():
+                                    spoken_texts.append(sp.strip())
+                            if spoken_texts:
+                                natural_reply = " ".join(spoken_texts)
                         except Exception as exec_err:
                             self._logger.error(f"Error executing skill {raw_call.function_name}: {exec_err}")
             except Exception as sb_err:
@@ -631,15 +704,56 @@ class ConversationManager:
         # Anti-hallucination factual grounding & telemetric verification gate
         natural_reply = self._verify_and_ground_facts(clean_text, natural_reply)
 
-        # Step 4: Publish on Response Callback and Output Voice
+        # Step 4: Publish on Response Callback and Output Voice (Option A + Floor Arbiter P1.3 / P2.1)
         if self.response_callback:
             self.response_callback(natural_reply)
 
-        if should_speak and self.tts:
+        live_active = bool(getattr(self, "_is_live", False)) or bool(
+            self.dialogue_arbiter and self.dialogue_arbiter.is_live_voice_active()
+        )
+        can_speak_local = should_speak and bool(self.tts) and not live_active
+        if should_speak and live_active:
+            self._logger.info("🔇 [Option A] Risposta vocale Qwen soppressa perché Gemini Live detiene il canale vocale.")
+            if self.trace_logger is not None:
+                self.trace_logger.log_event(
+                    "floor_denied",
+                    turn_id=turn_id,
+                    source="LOCAL_QWEN",
+                    connectivity="ONLINE",
+                    detail={"reason": "option_a_live_active_is_live_gate"},
+                )
+
+        if can_speak_local:
+            floor_held = False
+            if self.dialogue_arbiter is not None:
+                dec = self.dialogue_arbiter.acquire_floor("LOCAL_QWEN", turn_id=turn_id)
+                floor_held = dec.allowed
+                if not floor_held:
+                    can_speak_local = False
+
+        if can_speak_local:
+            async def _speak_local_guarded():
+                try:
+                    await self.tts.speak(natural_reply)
+                finally:
+                    if self.dialogue_arbiter is not None:
+                        self.dialogue_arbiter.release_floor(
+                            turn_id=turn_id, source="LOCAL_QWEN", force=True
+                        )
+
             if hasattr(self.tts, "_mock_name") or hasattr(getattr(self.tts, "speak", None), "_mock_name"):
-                await self.tts.speak(natural_reply)
+                await _speak_local_guarded()
             else:
-                asyncio.create_task(self.tts.speak(natural_reply))
+                asyncio.create_task(_speak_local_guarded())
+
+        if self.trace_logger is not None:
+            self.trace_logger.log_event(
+                "local_qwen_complete",
+                turn_id=turn_id,
+                source="local_qwen",
+                latency_ms=(time.perf_counter() - t0) * 1000.0,
+                detail={"spoke": can_speak_local, "actions": executed_action_names, "reply": natural_reply},
+            )
 
         # Step 5: Update Short-Term Dialogue History (Working Memory)
         self.conversation_history.append({
@@ -1430,7 +1544,17 @@ class ConversationManager:
         if not hasattr(self, 'node'):
              return "Errore: Modulo VQA non collegato."
 
-        client = self.node.create_client(AskVisualQuestion, 'ask_visual_question')
+        # [SPEC-03 Yellow Zone] Verifica guardia termica Hailo/CPU (<80C) prima di invocare VLM
+        try:
+            with open("/sys/class/thermal/thermal_zone0/temp", "r", encoding="utf-8") as tf:
+                cpu_temp_c = float(tf.read().strip()) / 1000.0
+            if cpu_temp_c >= 80.0:
+                self._logger.warning(f"🌡️ [VQA Thermal Guard] Temperatura {cpu_temp_c:.1f}C >= 80C: richiesta VLM sospesa.")
+                return "La temperatura del sistema è troppo alta al momento, preferisco non attivare la visione VLM."
+        except Exception:
+            pass
+
+        client = self.node.create_client(AskVisualQuestion, '/hailo/vlm/ask_question')
         if not client.wait_for_service(timeout_sec=2.0):
             return "Errore: Servizio VQA non disponibile al momento."
 

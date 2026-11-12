@@ -64,6 +64,17 @@ class TTSService:
         self.event_bus = EventBus()
         self.ros_node = ros_node
         self.speaker_pub = None
+        self.speaking_pub = None
+        self._piper_client = None
+        self._volume_scale: float = 1.0
+        self._raw_pcm_speaking_active: bool = False
+        self._raw_pcm_timer: Optional[threading.Timer] = None
+        self._raw_pcm_lock = threading.Lock()
+        try:
+            from .piper_tts_service import PiperTTSClient
+            self._piper_client = PiperTTSClient()
+        except Exception:
+            self._piper_client = None
         
         if self.ros_node:
             from robopy_controller.msg import AudioData
@@ -304,7 +315,32 @@ class TTSService:
                 self.logger.warning(f"Google TTS synthesis error ({e}); disabling GCP client and falling back to gTTS.")
                 self._client = None
 
-        # gTTS and ffmpeg fallback (credentials-free high-quality synthesis)
+        # [P4.2] Piper local TTS as primary offline/credentials-free backend BEFORE online gTTS
+        if self._piper_client is not None:
+            is_avail_fn = getattr(self._piper_client, "is_available", None)
+            piper_ready = (
+                bool(is_avail_fn())
+                if callable(is_avail_fn)
+                else bool(getattr(self._piper_client, "available", False))
+            )
+            if piper_ready:
+                try:
+                    synth_fn = self._piper_client.synthesize
+                    if asyncio.iscoroutinefunction(synth_fn):
+                        piper_pcm_16k = await synth_fn(text)
+                    else:
+                        piper_pcm_16k = await asyncio.to_thread(synth_fn, text)
+                    if piper_pcm_16k:
+                        pcm_24k = self._resample_pcm16(piper_pcm_16k, src_rate=16000, dst_rate=24000)
+                        if self._volume_scale != 1.0:
+                            pcm_24k = self._scale_pcm16(pcm_24k, self._volume_scale)
+                        with open(filename, "wb") as out:
+                            out.write(pcm_24k)
+                        return pcm_24k
+                except Exception as piper_err:
+                    self.logger.warning(f"Piper offline TTS failed ({piper_err}); falling back to gTTS.")
+
+        # gTTS and ffmpeg fallback (credentials-free online synthesis)
         if True:
             try:
                 self.logger.info(f"🎙️ Using gTTS fallback synthesis for: '{text[:40]}...'")
@@ -380,24 +416,94 @@ class TTSService:
             self.logger.error(f"Audio playback error: {e}")
             raise TTSError(f"Playback failed: {e}")
 
+    def set_volume_scale(self, scale: float) -> None:
+        """Sets software amplitude scaling (e.g. 0.65 during DO_NOT_DISTURB) (P3.1)."""
+        self._volume_scale = max(0.1, min(1.5, float(scale)))
+
+    @staticmethod
+    def _scale_pcm16(pcm_bytes: bytes, scale: float) -> bytes:
+        if not pcm_bytes or abs(scale - 1.0) < 0.02:
+            return pcm_bytes
+        try:
+            import numpy as _np
+            arr = _np.frombuffer(pcm_bytes, dtype=_np.int16).astype(_np.float32) * float(scale)
+            return _np.clip(arr, -32768, 32767).astype(_np.int16).tobytes()
+        except Exception:
+            return pcm_bytes
+
+    @staticmethod
+    def _resample_pcm16(pcm_bytes: bytes, src_rate: int = 16000, dst_rate: int = 24000) -> bytes:
+        """Resamples mono s16le PCM to match ReSpeaker 24kHz playback rate."""
+        if not pcm_bytes or src_rate == dst_rate:
+            return pcm_bytes
+        try:
+            import numpy as _np
+            src = _np.frombuffer(pcm_bytes, dtype=_np.int16)
+            if src.size == 0:
+                return pcm_bytes
+            dst_len = max(1, int(round(src.size * (float(dst_rate) / float(src_rate)))))
+            x_old = _np.linspace(0.0, 1.0, num=src.size, endpoint=False)
+            x_new = _np.linspace(0.0, 1.0, num=dst_len, endpoint=False)
+            dst = _np.interp(x_new, x_old, src.astype(_np.float32))
+            return _np.clip(dst, -32768, 32767).astype(_np.int16).tobytes()
+        except Exception:
+            return pcm_bytes
+
+    def _publish_speaking_state(self, active: bool) -> None:
+        if self.speaking_pub:
+            try:
+                from std_msgs.msg import Bool
+                msg = Bool()
+                msg.data = bool(active)
+                self.speaking_pub.publish(msg)
+            except Exception:
+                pass
+
+    def _on_raw_pcm_idle_timeout(self) -> None:
+        with self._raw_pcm_lock:
+            self._raw_pcm_timer = None
+            if not self._raw_pcm_speaking_active:
+                return
+            self._raw_pcm_speaking_active = False
+        if not getattr(self, "_is_speaking", False):
+            self._publish_speaking_state(False)
+
     def play_raw_pcm(self, data: bytes) -> None:
         """
-        Play raw PCM chunks (16kHz, mono, s16le).
+        Play raw PCM chunks (24kHz/16kHz, mono, s16le).
         Used for Gemini Live ultra-low latency audio.
         Routes through the ROS speaker topic when running on the robot,
         or through the local PyAudio stream for desktop testing.
+        Ensures /ai/tts/speaking state reflects raw streaming playback (P1.7).
         """
         if not data:
             return
+
+        payload = self._scale_pcm16(data, self._volume_scale) if self._volume_scale != 1.0 else data
+
+        with self._raw_pcm_lock:
+            if self._raw_pcm_timer is not None:
+                try:
+                    self._raw_pcm_timer.cancel()
+                except Exception:
+                    pass
+            became_active = not self._raw_pcm_speaking_active
+            self._raw_pcm_speaking_active = True
+            self._raw_pcm_timer = threading.Timer(0.35, self._on_raw_pcm_idle_timeout)
+            self._raw_pcm_timer.daemon = True
+            self._raw_pcm_timer.start()
+
+        if became_active and not getattr(self, "_is_speaking", False):
+            self._publish_speaking_state(True)
 
         # Priority 1: ROS publisher (robot deployment)
         if self.speaker_pub:
             try:
                 from robopy_controller.msg import AudioData
                 audio_msg = AudioData()
-                audio_msg.data = data  # raw bytes
+                audio_msg.data = payload  # raw bytes
                 self.speaker_pub.publish(audio_msg)
-                self.logger.debug(f"🔊 Raw PCM chunk published via ROS ({len(data)} bytes)")
+                self.logger.debug(f"🔊 Raw PCM chunk published via ROS ({len(payload)} bytes)")
             except Exception as e:
                 self.logger.error(f"Failed to publish raw PCM chunk via ROS: {e}")
             return
@@ -405,7 +511,7 @@ class TTSService:
         # Priority 2: Local PyAudio stream (desktop/testing)
         if self._output_stream:
             try:
-                self._output_stream.write(data)
+                self._output_stream.write(payload)
             except Exception as e:
                 self.logger.error(f"Failed to play raw PCM chunk: {e}")
             return

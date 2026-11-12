@@ -963,3 +963,24 @@ A seguito dell'analisi incrociata tra le linee guida generiche per array ReSpeak
 3. **Correzione Regex Word Boundary e Blacklist (`hailo_qwen_client.py`):**
    - Inserito `\b` esplicito per non matchare mai `cognome:` ed esclusi i token di sistema (`"marcus"`, `"oeb"`, `"robot"`), garantendo l'estrazione stabile di `"Luca"`.
 
+---
+
+## 🎙️ Lezione 28 — Arbitraggio `/ai/input/mic_mute`, Gate Vosk Standby/Enrollment, Piper Offline TTS, Barge-In Sostenuto e Verifica P3.2/P3.3 (2026-11-12 — `FM-VUI-054`)
+
+### 1. Eliminazione Collisioni VUI, Falsi Risvegli & Troncatura TTS
+1. **Wakeword Standby FINAL-Only & Gate Enrollment (`respeaker_vui_node.py`):** In standby, Vosk scarta le ipotesi parziali (`is_partial == True`) e i blocchi di enrollment (`"io sono ..."`) non partono senza ascolto già aperto o wakeword esplicita. Rimosso anche il re-arm del timer via `voice_cmd_pub`.
+2. **Soppressione Doppia Voce via Opzione A:** Quando `DialogueArbiter` / `_live_voice_owner` segnala Gemini Live attivo, `ReSpeakerVUINode` non duplica il parlato verso `/ai/input/voice_command` (salvo Fast-Path Stop `<10ms`).
+3. **Arbitraggio Singolo `/ai/input/mic_mute`:** `respeaker_vui_node`, `attention_supervisor_node` e `respeaker_interface_node` pubblicano lock request JSON su `/ai/input/mic_mute_request` (`owner`: `EMERGENCY`, `TTS_ECHO`, `MOVEMENT`, `SYSTEM`); solo `AIOrchestrator` pubblica autorevolmente su `/ai/input/mic_mute`.
+4. **Disaccoppiamento `_mic_mute_cb` vs Flush Audio:** `_mic_mute_cb(True)` muta l'acquisizione mic senza svuotare `_audio_out_queue`, evitando che Gemini Live o Qwen tronchino il proprio parlato; il flush resta confinato a barge-in / `/ai/conversation/interrupt`.
+
+### 2. Voce Offline Naturale (`PiperTTSClient`), Barge-In Umano & Contesto Sociale
+1. **Piper Offline Primario (`tts_service.py`):** `TTSService` utilizza `PiperTTSClient` (`16kHz -> 24kHz` resampling lineare + `_scale_pcm16`) prima del fallback online `gTTS`, pubblicando `/ai/tts/speaking` (`True`/`False`) anche per streaming `play_raw_pcm`.
+2. **Barge-In Sostenuto (`>= 250ms`):** Durante il TTS, `TurnManager.process_chunk` resta valutato continuamente ma emette il segnale di interruzione solo su energia vocale sostenuta `>= 0.25s`, filtrando colpi di tosse o eco breve; in modalità `DO_NOT_DISTURB` il volume è attenuato a `0.65x`.
+3. **Soglia Rumore DSP (`dsp_pipeline.py`):** Soglia minima del noise gate/floor portata da `60.0` a `120.0` RMS per impedire all'AGC di amplificare ronzio di ventola Pi 5 o TV distante fino alla soglia VAD.
+4. **Gating Follow-Up Sociale:** `ReSpeakerVUINode` sottoscrive `/engagement/status`, `/marcus/social_context/tom_state`, `/identity/active_person` e `/ai/live/session_active`, chiudendo la finestra di follow-up su utenti disimpegnati o stati `DO_NOT_DISTURB`/`REST`, con timeout VAD limitato a `<35s`.
+
+### 3. Verifica Pipeline P3.2 & Fattibilità Hardware P3.3 (ARM64 Pi 5)
+* **Ordine Causale P3.2 Verificato (`respeaker_vui_node.py`):** Il blocco `DSPPipeline` (HPF 140Hz + noise floor 120 RMS + AGC) precede `TurnManager.process_chunk` e la coda ASR/Live senza inversioni. Su ARM64, `TurnManager` opera con `HAS_ONNX` disabilitato se `onnxruntime` o `silero_vad.onnx` mancano nel virtualenv ROS, mantenendo attivo il gating energetico+hangover validato in `tests/test_vui_vad_kws_gating.py`.
+* **Fattibilità DoA P3.3 (ReSpeaker Lite XMOS XU316, 2 mic):** L'array hardware su Marcus è a 2 microfoni (XMOS XU316 via USB), diverso dal vecchio ReSpeaker Mic Array v2.0 a 4 microfoni (XVF3000) su cui si basavano gli script `usb_4_mic_array` (`tuning.py`). Prima di abilitare qualsiasi gating angolare DoA in produzione è obbligatoria una verifica su Pi 5 dei descrittori USB HID/control transfer (`pyusb` / firmware XMOS XU316).
+
+

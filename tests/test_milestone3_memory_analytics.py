@@ -141,8 +141,26 @@ class TestMilestone3SLMMetapromptFusion:
         assert output.section_token_counts["email"] > 0
         assert output.is_within_budget is True
 
-    def test_package_tracking_automatic_incorporation(self):
-        """Validates that queries about packages, Amazon, or orders automatically pull email memory."""
+    def test_package_tracking_automatic_incorporation(self, tmp_path, monkeypatch):
+        """Validates that queries about packages pull real disk EmailMemory JSON without invented fallback."""
+        import json as _json
+        email_file = tmp_path / "email_memory.json"
+        email_file.write_text(
+            _json.dumps({
+                "packages": [
+                    {
+                        "carrier": "Amazon",
+                        "tracking_number": "TEST-123",
+                        "order_info": "Sensore LiDAR di ricambio",
+                        "status": "in_transit",
+                    }
+                ],
+                "stats": {"important_emails": 2, "emails_received": 10},
+            }),
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("EMAIL_MEMORY_PATH", str(email_file))
+
         fusion = SLMMetapromptFusion()
         ctx = SLMPromptContext(
             user_text="ho comprato alcune cose in internet, controlla dalle mail se sono arrivate",
@@ -152,6 +170,11 @@ class TestMilestone3SLMMetapromptFusion:
         assert "Pacchi tracciati" in output.chatml_prompt
         assert "Amazon" in output.chatml_prompt
         assert output.token_estimate < 1100
+
+        # Without cache file, no fabricated Amazon package details must be injected
+        monkeypatch.setenv("EMAIL_MEMORY_PATH", str(tmp_path / "missing_email_memory.json"))
+        from robopy_controller.robot_ai.trinity.slm_metaprompt_fusion import load_email_delivery_context
+        assert load_email_delivery_context(persist_path=str(tmp_path / "missing_email_memory.json")) == ""
 
     def test_family_facts_grounding(self):
         """Validates that family questions reliably ground wife and 3 kids."""

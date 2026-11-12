@@ -306,3 +306,33 @@ improvements:
     file: "docs/improvements/IMP-NAV-042_furniture_disengagement_and_frontier_recovery.md"
     status: "COMPLETED"
     domain: "nav2_slam"
+
+  FM-LLM-021:
+    title: "Miglioramento AI: Disattivazione Mock Qwen in Produzione, Rimozione Azioni Sintetiche e Trace Turn_ID (IMP-AI-001)"
+    file: "docs/improvements/IMP-AI-001_turn_arbiter_and_safety_hotfixes.md"
+    status: "MITIGATED"
+    domain: "cognitive_ai"
+
+  FM-LLM-022:
+    title: "Miglioramento AI: Orologio Monotonic Unificato Live, Finestra Non Auto-Rinnovante 8s e Rimozione Allucinazioni Prompt (IMP-AI-001)"
+    file: "docs/improvements/IMP-AI-001_turn_arbiter_and_safety_hotfixes.md"
+    status: "MITIGATED"
+    domain: "cognitive_ai"
+
+  FM-VUI-054:
+    title: "Miglioramento VUI/AI: Arbitro Unico DialogueArbiter (Opzione A), Floor Exclusive Lock e /ai/input/mic_mute Arbitrato (IMP-AI-001)"
+    file: "docs/improvements/IMP-AI-001_turn_arbiter_and_safety_hotfixes.md"
+    status: "MITIGATED"
+    domain: "audio_vui"
+
+  FM-COG-008:
+    title: "Miglioramento Cognitivo: Percezione Sociale ToM/Engagement, Memoria Unificata Live-Qwen e 10 Skill Connesse (IMP-AI-002)"
+    file: "docs/improvements/IMP-AI-002_social_gating_and_human_vui.md"
+    status: "MITIGATED"
+    domain: "cognitive_ai"
+
+  FM-VIS-014:
+    title: "Miglioramento Visione: Allineamento Servizio /hailo/vlm/ask_question e Guardia Termica <80C SPEC-03 (IMP-AI-002)"
+    file: "docs/improvements/IMP-AI-002_social_gating_and_human_vui.md"
+    status: "MITIGATED"
+    domain: "vision_hailo"

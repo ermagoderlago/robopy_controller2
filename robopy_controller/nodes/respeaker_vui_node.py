@@ -156,7 +156,7 @@ class ReSpeakerVUINode(Node):
         self.declare_parameter('enable_vad_gate',        True)
         self.declare_parameter('enable_barge_in',        True)   # barge-in AEC-aware
         self.declare_parameter('barge_in_min_tts_ms',    1500.0) # ms di grace period prima che il barge-in si attivi
-        self.declare_parameter('barge_in_min_frames',    10)     # [v19.0] ~200ms di voce sostenuta per trigger barge-in (armonizzato)
+        self.declare_parameter('barge_in_min_frames',    5)      # [P4.1] ~300ms (5 x 60ms chunk, >250ms sustained voice) per trigger barge-in
         self.declare_parameter('diag_mode',              False)  # Diagnostica estesa VUI
         self.declare_parameter('enable_adaptive_threshold', True) # Auto-calibration threshold
         self.declare_parameter('enable_adaptive_silence',   True) # Adaptive speech duration
@@ -258,6 +258,15 @@ class ReSpeakerVUINode(Node):
         # [v5.6] Stato barge-in (reset ad ogni fine TTS)
         self._barge_in_triggered  = False
         self._barge_in_frame_count = 0
+        self._barge_in_speech_start_mono = 0.0
+        # [P1.3 / P3.1] Stato sociale e proprieta' canale vocale Live
+        self._live_voice_owner = False
+        self._engagement_state = "UNKNOWN"
+        self._is_person_present = False
+        self._active_person_name = ""
+        self._dnd_active = False
+        self._social_telemetry_active = False
+        self._engagement_updated_mono = 0.0
         # [v5.7] Debug VAD
         self._voice_frame_count    = 0
         self._is_tts_speaking      = False # [v10.1]
@@ -336,8 +345,8 @@ class ReSpeakerVUINode(Node):
             history=HistoryPolicy.KEEP_LAST,
             depth=10
         )
-        self.ww_pub        = self.create_publisher(String,    '/wake_word',              10)
-        self.mic_mute_pub  = self.create_publisher(Bool,      '/ai/input/mic_mute',      10)
+        self.ww_pub           = self.create_publisher(String,    '/wake_word',                 10)
+        self.mic_mute_req_pub = self.create_publisher(String,    '/ai/input/mic_mute_request', 10)  # [P2.5] Single-arbiter lock requests
         self.audio_pub     = self.create_publisher(AudioData, '/ai/input/audio_chunk',  qos_profile_audio)
         self.led_pub       = self.create_publisher(String,    '/respeaker/led_command',  10)
         self.barge_in_pub  = self.create_publisher(Bool,      '/ai/barge_in',            10)  # [v5.6]
@@ -367,9 +376,19 @@ class ReSpeakerVUINode(Node):
         self.sub_operating_state = self.create_subscription(
             String, '/system/operating_state', self._operating_state_callback, 10)
 
-        # Proactive Gating Bypass from System 2 (IMP-BIO-004)
+        # Proactive Gating Bypass from System 2 (IMP-BIO-004 / P4.3)
         self.sub_proactive_listen = self.create_subscription(
             Bool, '/ai/proactive/listen_window', self._proactive_listen_window_cb, 10)
+
+        # Social Perception & Option A Live Floor Ownership Subscriptions (P1.3 / P3.1)
+        self.sub_engagement = self.create_subscription(
+            String, '/engagement/status', self._engagement_status_cb, 10)
+        self.sub_tom_state = self.create_subscription(
+            String, '/marcus/social_context/tom_state', self._tom_state_cb, 10)
+        self.sub_active_person = self.create_subscription(
+            String, '/identity/active_person', self._active_person_cb, 10)
+        self.sub_live_session_active = self.create_subscription(
+            Bool, '/ai/live/session_active', self._live_session_active_cb, 10)
 
         # ------------------------------------------------------------------ #
         # Timer e loop asincroni
@@ -777,14 +796,69 @@ class ReSpeakerVUINode(Node):
             self.set_led('SUCCESS')
         else:
             if self._ev_listening.is_set():
-                # [v21.0 / FM-VUI-021 / FM-VUI-044] Riavvia il timer di ascolto esteso a fine risposta AI per consentire follow-up diretti
-                self._session_start_time = time.monotonic()
-                self._listen_timer_start = time.monotonic()
-                self._start_listen_timer()
-                self.set_led('LISTENING')
+                # [P1.2 / P3.1] Follow-up senza wakeword consentito solo se engagement/presenza attivi e non in DND
+                social_ok = not getattr(self, '_dnd_active', False) and (
+                    not getattr(self, '_social_telemetry_active', False)
+                    or getattr(self, '_is_person_present', False)
+                    or getattr(self, '_engagement_state', 'UNKNOWN') in ('ENGAGED', 'ATTENTIVE')
+                )
+                if social_ok:
+                    now_m = time.monotonic()
+                    self._listen_timer_start = now_m
+                    self._start_listen_timer()
+                    self.set_led('LISTENING')
+                else:
+                    self._stop_listen_timer()
+                    if getattr(self, 'vosk_mgr', None):
+                        self.vosk_mgr.set_listening_mode(False)
+                    self._ev_listening.clear()
+                    self.set_led(self._current_mood)
             else:
                 # Torna allo stato dell'umore corrente quando finisce di parlare
                 self.set_led(self._current_mood)
+
+    def _engagement_status_cb(self, msg: String):
+        """Aggiorna lo stato di attenzione visiva / presenza persona (P3.1)."""
+        raw = (msg.data or '').strip()
+        state_val = raw.upper()
+        person_present = None
+        if raw.startswith('{'):
+            try:
+                import json as _json
+                payload = _json.loads(raw)
+                state_val = str(payload.get('state') or payload.get('status') or 'UNKNOWN').upper()
+                if 'person_present' in payload or 'is_person_present' in payload:
+                    person_present = bool(payload.get('person_present', payload.get('is_person_present')))
+            except Exception:
+                pass
+        self._engagement_state = state_val
+        if person_present is not None:
+            self._is_person_present = person_present
+        elif state_val in ('ENGAGED', 'ATTENTIVE', 'PASSIVE', 'PRESENT'):
+            self._is_person_present = True
+        elif state_val in ('DISENGAGED', 'NONE', 'ABSENT', 'IDLE'):
+            self._is_person_present = False
+        self._social_telemetry_active = True
+        self._engagement_updated_mono = time.monotonic()
+
+    def _tom_state_cb(self, msg: String):
+        """Aggiorna stato Theory-of-Mind (DO_NOT_DISTURB / RESTING) e attenua volume (P3.1)."""
+        norm = (msg.data or 'NORMAL').strip().upper()
+        dnd = any(k in norm for k in ('DO_NOT_DISTURB', 'DND', 'BUSY_DO_NOT_INTERRUPT', 'SLEEP'))
+        self._dnd_active = dnd
+        base_vol = getattr(self, '_base_playback_volume', self.playback_volume)
+        self.playback_volume = round(base_vol * 0.65, 3) if (dnd or 'REST' in norm) else base_vol
+
+    def _active_person_cb(self, msg: String):
+        name = (msg.data or '').strip()
+        self._active_person_name = name
+        if name and name.lower() not in ('unknown', 'sconosciuto', 'none'):
+            self._is_person_present = True
+            self._social_telemetry_active = True
+
+    def _live_session_active_cb(self, msg: Bool):
+        """Traccia se Gemini Live gestisce il canale vocale ONLINE (P1.3 Option A)."""
+        self._live_voice_owner = bool(msg.data)
 
     def _mood_cb(self, msg: String):
         self._current_mood = msg.data
@@ -808,12 +882,7 @@ class ReSpeakerVUINode(Node):
                 self.vosk_mgr.set_listening_mode(False)
             self._ev_listening.clear()
             self.set_led(self._current_mood)
-            # Svuota la coda audio per interrompere immediatamente il parlato
-            while not self._audio_out_queue.empty():
-                try:
-                    self._audio_out_queue.get_nowait()
-                except queue.Empty:
-                    break
+            # [P1.7] Separato dal drain di _audio_out_queue: il mute microfono NON deve troncare l'audio TTS in uscita!
         else:
             # Unmute: abilita l'ascolto hardware passivo della wake word senza aprire
             # forzatamente una finestra di conversazione attiva, MA se _ev_listening è già
@@ -979,9 +1048,10 @@ class ReSpeakerVUINode(Node):
             except Exception:
                 pass
 
-        mute_msg = Bool()
-        mute_msg.data = True
-        self.mic_mute_pub.publish(mute_msg)
+        import json as _json
+        mute_req = String()
+        mute_req.data = _json.dumps({"owner": "SYSTEM", "muted": True, "reason": "listen_timeout"})
+        self.mic_mute_req_pub.publish(mute_req)
         self.set_led(self._current_mood)
 
     # ------------------------------------------------------------------ #
@@ -1115,44 +1185,47 @@ class ReSpeakerVUINode(Node):
         time_since_speaker = time.monotonic() - getattr(self, '_last_ai_speaking_time', 0.0)
         is_speaker_active = self._ev_tts.is_set() or getattr(self, '_is_playing_tts', False) or (time_since_speaker < 0.25)
 
+        # [P1.4] Enrollment vocale permesso SOLO in finestra di ascolto o con wakeword esplicita (no TV standby)
         if not is_partial:
             self.get_logger().info(f"🗣️ [VOSK ASR] Sentito ({speaker_name}): '{text}'")
             self._pending_transcriptions.append((text, time.time()))
 
-            if ("io sono" in text_lower or "la mia voce" in text_lower or "mi chiamo" in text_lower):
-                import re
-                m = re.search(r'(?:io sono|mi chiamo)\s+([a-zA-Zàèéìòù]+)', text_lower)
-                target_name = m.group(1).lower() if m else "luca"
-                self.get_logger().info(f"🎙️ [VUI Speaker Enrollment] Rilevata intenzione registrazione voce per: '{target_name}'")
-                if not hasattr(self, '_speaker_enroll_pub'):
-                    self._speaker_enroll_pub = self.create_publisher(String, '/speaker/trigger_enrollment', 10)
-                msg_enroll = String()
-                msg_enroll.data = target_name
-                self._speaker_enroll_pub.publish(msg_enroll)
-
-        # Rilevamento Wake Word con varianti fonetiche italiane ("marcus", "markus", "marcos")
-        # Esclude rigorosamente il nome proprio italiano "marco" per azzerare i falsi positivi (FIX-12a / FM-VUI-037)
         import re
         ww_detected = bool(re.search(r'\b(marcus|markus|marcos)\b', text_lower))
         already_listening = self._ev_listening.is_set()
 
-        if ww_detected:
-            if not is_speaker_active:
-                if already_listening:
-                    now = time.monotonic()
-                    if not is_partial or (now - getattr(self, '_last_ww_reset_time', 0.0) > 2.0):
-                        self._last_ww_reset_time = now
-                        self._listen_timer_start = now
-                        self._session_start_time = now
-                        self._start_listen_timer()
-                        if not is_partial:
-                            self.get_logger().info("🔄 [FIX-04] Wake word ripetuta durante ascolto attivo: timer finestra resettato.")
-                            if self.enable_audio_beeps:
-                                self._play_beep(self._generate_beep(freq=1000.0, duration=0.08))
-                else:
-                    self._on_wakeword_detected()
+        if (
+            not is_partial
+            and not is_speaker_active
+            and (already_listening or ww_detected)
+            and ("io sono" in text_lower or "la mia voce" in text_lower or "mi chiamo" in text_lower)
+        ):
+            m = re.search(r'(?:io sono|mi chiamo)\s+([a-zA-Zàèéìòù]+)', text_lower)
+            target_name = m.group(1).lower() if m else "luca"
+            self.get_logger().info(f"🎙️ [VUI Speaker Enrollment] Rilevata intenzione registrazione voce per: '{target_name}'")
+            if not hasattr(self, '_speaker_enroll_pub'):
+                self._speaker_enroll_pub = self.create_publisher(String, '/speaker/trigger_enrollment', 10)
+            msg_enroll = String()
+            msg_enroll.data = target_name
+            self._speaker_enroll_pub.publish(msg_enroll)
 
-        # [v23.1] Inoltro trascrizione vocale completa ad AIOrchestrator (per fallback Qwen NPU o sessione vocale attiva)
+        # [P1.4] In standby accetta wakeword SOLO su trascrizione FINAL (not is_partial) per azzerare falsi risvegli TV
+        if ww_detected and not is_speaker_active:
+            if already_listening:
+                now = time.monotonic()
+                if not is_partial:
+                    self._last_ww_reset_time = now
+                    self._listen_timer_start = now
+                    self._session_start_time = now
+                    self._start_listen_timer()
+                    self.get_logger().info("🔄 [FIX-04] Wake word ripetuta durante ascolto attivo: timer finestra resettato.")
+                    if self.enable_audio_beeps:
+                        self._play_beep(self._generate_beep(freq=1000.0, duration=0.08))
+            elif not is_partial:
+                self._on_wakeword_detected()
+
+        # [P1.3] Se Gemini Live gestisce il canale ONLINE, sopprimi inoltro duplicato verso Qwen
+        # eccetto comandi Fast-Path di arresto immediato.
         if not is_partial and not is_speaker_active and (already_listening or ww_detected):
             query_text = re.sub(
                 r'^\s*(?:ehi\s+|hey\s+|ciao\s+|salve\s+|ok\s+)?(?:marcus|markus|marcos)\b[\s,\.:;!\?-]*',
@@ -1162,26 +1235,40 @@ class ReSpeakerVUINode(Node):
             ).strip()
             query_text = re.sub(r'\[unk\]', '', query_text, flags=re.IGNORECASE).strip()
             if query_text and len(query_text) >= 2 and not re.fullmatch(r'(?:marcus|markus|marcos)', query_text, flags=re.IGNORECASE):
-                now_mono = time.monotonic()
-                last_voice_q = getattr(self, '_last_voice_query_text', '')
-                last_voice_ts = getattr(self, '_last_voice_query_ts', 0.0)
-                if query_text.lower() != last_voice_q or (now_mono - last_voice_ts) > 1.5:
-                    self._last_voice_query_text = query_text.lower()
-                    self._last_voice_query_ts = now_mono
-                    self._listen_timer_start = now_mono
-                    self._start_listen_timer()
-                    self.set_led('THINKING')
-                    self.get_logger().info(f"🧠 [VUI -> Orchestrator] Inoltro richiesta vocale post-wakeword: '{query_text}'")
-                    if hasattr(self, 'voice_cmd_pub') and self.voice_cmd_pub:
-                        v_msg = String()
-                        v_msg.data = query_text
-                        self.voice_cmd_pub.publish(v_msg)
+                is_fast_stop = bool(re.search(r'\b(fermati|stop|alt|blocca|arresto)\b', query_text, re.IGNORECASE))
+                if getattr(self, '_live_voice_owner', False) and not is_fast_stop:
+                    self.get_logger().debug(f"🔒 [Option A] Soppresso voice_cmd_pub duplicato verso Qwen (Live attivo): '{query_text}'")
+                else:
+                    now_mono = time.monotonic()
+                    last_voice_q = getattr(self, '_last_voice_query_text', '')
+                    last_voice_ts = getattr(self, '_last_voice_query_ts', 0.0)
+                    if query_text.lower() != last_voice_q or (now_mono - last_voice_ts) > 1.5:
+                        self._last_voice_query_text = query_text.lower()
+                        self._last_voice_query_ts = now_mono
+                        # [P1.2] Non riarmare il timer sul semplice inoltro; lo riaprirà _tts_speaking_cb(False) seengaged
+                        self.set_led('THINKING')
+                        self.get_logger().info(f"🧠 [VUI -> Orchestrator] Inoltro richiesta vocale post-wakeword: '{query_text}'")
+                        if hasattr(self, 'voice_cmd_pub') and self.voice_cmd_pub:
+                            v_msg = String()
+                            v_msg.data = query_text
+                            self.voice_cmd_pub.publish(v_msg)
 
     def _proactive_listen_window_cb(self, msg: Bool):
-        """[IMP-BIO-004] Gestisce l'apertura proattiva della finestra conversazionale senza wakeword vocale."""
-        if msg.data:
-            self.get_logger().info("✨ [PROACTIVE-VUI] Ricevuto trigger proattivo da Sistema 2 -> Apertura finestra ascolto.")
-            self._on_wakeword_detected()
+        """[IMP-BIO-004 / P4.3] Apre finestra proattiva SOLO se consenso sociale (non DND, persona presente)."""
+        if not msg.data:
+            return
+        if getattr(self, '_dnd_active', False) or getattr(self, '_is_tts_speaking', False):
+            self.get_logger().info("🔕 [PROACTIVE-VUI] Apertura finestra proattiva soppressa (DND/TTS attivo).")
+            return
+        if (
+            getattr(self, '_social_telemetry_active', False)
+            and not getattr(self, '_is_person_present', False)
+            and getattr(self, '_engagement_state', 'UNKNOWN') not in ('ENGAGED', 'ATTENTIVE')
+        ):
+            self.get_logger().info("🔕 [PROACTIVE-VUI] Apertura finestra proattiva soppressa (nessuna persona ingaggiata).")
+            return
+        self.get_logger().info("✨ [PROACTIVE-VUI] Trigger proattivo validato dal gate sociale -> Apertura finestra ascolto.")
+        self._on_wakeword_detected()
 
     def _on_wakeword_detected(self):
         """Gestisce le azioni da compiere quando viene rilevata la wake word."""
@@ -1218,10 +1305,11 @@ class ReSpeakerVUINode(Node):
             self._play_beep(self._generate_beep(freq=1000.0, duration=0.08))
         self._start_listen_timer()
 
-        # Comunica il cambio di stato ai nodi AI
-        unmute_msg = Bool()
-        unmute_msg.data = False
-        self.mic_mute_pub.publish(unmute_msg)
+        # Comunica la richiesta di apertura ascolto all'arbiter centrale (/ai/input/mic_mute_request)
+        import json as _json
+        unmute_req = String()
+        unmute_req.data = _json.dumps({"owner": "SYSTEM", "muted": False, "reason": "wakeword_detected"})
+        self.mic_mute_req_pub.publish(unmute_req)
 
         ww_msg = String()
         ww_msg.data = "detected"
@@ -1375,17 +1463,29 @@ class ReSpeakerVUINode(Node):
                     self.vosk_mgr.process_audio(processed_chunk.tobytes())
                     is_listening = self._ev_listening.is_set()
 
-                # Barge-In Detection
+                # Barge-In Detection [P4.1]: valuta VAD reale su audio attenuato e richiede voce sostenuta >= 250ms
                 if (ai_speaking_now and self._cfg_enable_barge_in and not self._barge_in_triggered 
                     and (time.monotonic() - self._tts_start_time) > self._barge_in_min_tts_s):
-                    if self.turn_manager.is_speech_active:
+                    barge_voice_now = False
+                    try:
+                        barge_voice_now = bool(self.turn_manager.process_chunk(processed_chunk))
+                    except Exception:
+                        barge_voice_now = bool(self.turn_manager.is_speech_active)
+
+                    now_bi = time.monotonic()
+                    if barge_voice_now:
                         self._barge_in_frame_count += 1
+                        if self._barge_in_speech_start_mono <= 0.0:
+                            self._barge_in_speech_start_mono = now_bi
                     else:
                         self._barge_in_frame_count = 0
+                        self._barge_in_speech_start_mono = 0.0
                     
-                    if self._barge_in_frame_count >= self._barge_in_min_frames:
+                    sustained_sec = (now_bi - self._barge_in_speech_start_mono) if self._barge_in_speech_start_mono > 0 else 0.0
+                    if self._barge_in_frame_count >= self._barge_in_min_frames and sustained_sec >= 0.25:
                         self._barge_in_triggered = True
-                        self.get_logger().warning("🎤 [BARGE-IN] Interruzione rilevata! Interrompo Marcus...")
+                        self._barge_in_speech_start_mono = 0.0
+                        self.get_logger().warning("🎤 [BARGE-IN] Interruzione sostenuta (>250ms) rilevata! Interrompo Marcus...")
                         pr_bytes = self.turn_manager.get_preroll().tobytes()
                         msg = AudioData()
                         msg.data = pr_bytes
@@ -1415,7 +1515,10 @@ class ReSpeakerVUINode(Node):
                         
                         if is_speech and not was_speech:
                             self.get_logger().info("[VAD] >>> VOICE START (Neural/WebRTC)")
-                            self._listen_timer_start = time.monotonic()
+                            now_vs = time.monotonic()
+                            # [P1.2] Rinnova il timer solo entro il budget massimo di sessione (35s) ed escludendo idle disimpegnato
+                            if (now_vs - getattr(self, '_session_start_time', now_vs)) < 35.0:
+                                self._listen_timer_start = now_vs
                             if not self._is_tts_speaking:
                                 pr_bytes = self.turn_manager.get_preroll().tobytes()
                                 msg = AudioData()

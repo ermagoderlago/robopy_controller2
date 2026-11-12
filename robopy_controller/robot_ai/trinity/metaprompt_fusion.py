@@ -18,8 +18,8 @@ class PromptSection:
 class MetapromptFusion:
     """Assembles the final structured prompt from all TRINITY sources."""
     
-    # Token budget per section (Target: 2150 tokens, max ceiling 2500 tokens per SPEC-05 ZONA ROSSA)
-    BUDGET_SYSTEM = 200
+    # Token budget per section (Target: 2400 tokens, max ceiling 2500 tokens per SPEC-05 ZONA ROSSA)
+    BUDGET_SYSTEM = 450
     BUDGET_CAG = 350  
     BUDGET_MAG = 450
     BUDGET_RAG = 600

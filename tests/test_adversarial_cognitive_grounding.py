@@ -59,7 +59,7 @@ class TestCapitalHallucinationAdversarial:
 
     @pytest.fixture
     def client(self):
-        cfg = HailoQwenConfig(endpoint="http://127.0.0.1:11434", timeout_sec=10.0)
+        cfg = HailoQwenConfig(endpoint="http://127.0.0.1:11434", timeout_sec=10.0, enable_mock_fallback=True)
         return HailoQwenClient(config=cfg)
 
     @pytest.mark.asyncio
@@ -153,7 +153,7 @@ class TestArithmeticReasoningAdversarial:
 
     @pytest.fixture
     def client(self):
-        cfg = HailoQwenConfig(endpoint="http://127.0.0.1:11434", timeout_sec=10.0)
+        cfg = HailoQwenConfig(endpoint="http://127.0.0.1:11434", timeout_sec=10.0, enable_mock_fallback=True)
         return HailoQwenClient(config=cfg)
 
     @pytest.mark.asyncio
@@ -208,7 +208,7 @@ class TestFamilyFactsGroundingAdversarial:
 
     @pytest.fixture
     def client(self):
-        cfg = HailoQwenConfig(endpoint="http://127.0.0.1:11434", timeout_sec=10.0)
+        cfg = HailoQwenConfig(endpoint="http://127.0.0.1:11434", timeout_sec=10.0, enable_mock_fallback=True)
         return HailoQwenClient(config=cfg)
 
     @pytest.mark.asyncio
@@ -270,7 +270,7 @@ class TestZeroToleranceCannedAutomaBoilerplate:
 
     @pytest.fixture
     def client(self):
-        cfg = HailoQwenConfig(endpoint="http://127.0.0.1:11434", timeout_sec=10.0)
+        cfg = HailoQwenConfig(endpoint="http://127.0.0.1:11434", timeout_sec=10.0, enable_mock_fallback=True)
         return HailoQwenClient(config=cfg)
 
     @pytest.mark.asyncio

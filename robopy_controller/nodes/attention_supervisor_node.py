@@ -42,8 +42,10 @@ class AttentionSupervisorNode(Node):
             depth=10
         )
 
-        # Publisher per mutare il microfono (True = Muto, False = Ascolto)
-        self.pub_mic_mute = self.create_publisher(Bool, '/ai/input/mic_mute', reliable_qos)
+        # [P2.5] Invia richieste di lock mic_mute verso l'arbiter unico (AIOrchestrator)
+        import json as _json
+        self._json = _json
+        self.pub_mic_mute_req = self.create_publisher(String, '/ai/input/mic_mute_request', reliable_qos)
 
         # Subscriber a cmd_vel (legge le intenzioni di movimento del Nav2 o teleop)
         self.create_subscription(Twist, '/cmd_vel', self.cmd_vel_cb, 10)
@@ -86,9 +88,13 @@ class AttentionSupervisorNode(Node):
             self.call_rtabmap_service(self.srv_resume, "RESUME")
 
     def set_mic_mute(self, mute: bool):
-        msg = Bool()
-        msg.data = mute
-        self.pub_mic_mute.publish(msg)
+        msg = String()
+        msg.data = self._json.dumps({
+            "owner": "MOVEMENT",
+            "muted": bool(mute),
+            "reason": "cmd_vel_motion",
+        })
+        self.pub_mic_mute_req.publish(msg)
 
     def call_rtabmap_service(self, client, action_name):
         if not client.wait_for_service(timeout_sec=0.5):

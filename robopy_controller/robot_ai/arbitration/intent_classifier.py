@@ -111,6 +111,10 @@ class CognitiveIntentClassifier:
         r'\b(schr[öo]dinger|asimov|darwin|leonardo|dedalo|icaro)\b',
     ]
     RE_CONVERSATIONAL = re.compile('|'.join(CONVERSATIONAL_PATTERNS), re.IGNORECASE)
+    RE_SITUATIONAL_OPERATIONAL = re.compile(
+        r"\b(?:dove|dov['’]?[eè]|livello|gradi|metri|cm)\b",
+        re.IGNORECASE,
+    )
 
     def __init__(self, enable_logging: bool = False) -> None:
         self.enable_logging = enable_logging
@@ -182,13 +186,9 @@ class CognitiveIntentClassifier:
             reason = "conversational_dominant_score"
             confidence = round(conv_matches / (op_matches + conv_matches), 3)
         else:
-            # Ambiguity or zero pattern matches: check situational interrogative markers
-            lower = clean.lower()
-            operational_markers = (
-                "dove", "dov'è", "dov'e", "dov", "stato", "quanto", "quanta",
-                "quale", "che", "livello", "gradi", "metri", "cm"
-            )
-            if any(k in lower for k in operational_markers):
+            # Ambiguity or zero pattern matches: use whole-word situational markers only (no substring 'che'/'dov');
+            # genuine ambiguity defaults to GEMINI_LIVE when online (HybridRouter handles offline failover).
+            if op_matches == 0 and conv_matches == 0 and self.RE_SITUATIONAL_OPERATIONAL.search(clean):
                 destination = RouteTarget.LOCAL_QWEN
                 matched_category = "operational_query"
                 reason = "interrogative_operational_heuristic"
@@ -196,7 +196,7 @@ class CognitiveIntentClassifier:
             else:
                 destination = RouteTarget.GEMINI_LIVE
                 matched_category = "conversational_default"
-                reason = "open_conversational_heuristic"
+                reason = "ambiguous_to_conversational_live" if op_matches > 0 else "open_conversational_heuristic"
                 confidence = 0.80
 
         elapsed_us = (time.perf_counter_ns() - t0) / 1000.0

@@ -1695,7 +1695,7 @@
       -> 7).
     rpn_old: 294
     rpn_new: 7
-- id: FM-COG-002
+- id: FM-COG-005
   subsystem: AI/Cognitive
   component: PredictiveRouterNode / Amigdala Digitale
   function: Inibizione sinaptica selettiva per evitare l'esecuzione di azioni ad alto
@@ -1742,6 +1742,11 @@
     change: Analisi rischio paralisi decisionale da avversione dopaminergica
     rpn_old: 240
     rpn_new: 240
+  - date: '2026-11-12'
+    change: 'Deduplicazione registro DFMEA: rinumerato da ID duplicato FM-COG-002
+      a ID univoco FM-COG-005.'
+    rpn_old: 48
+    rpn_new: 48
 - id: FM-COG-003
   subsystem: AI/Cognitive
   component: chroma_synaptic_manager / RAG
@@ -1980,7 +1985,7 @@
       in conversation.py
     rpn_old: 336
     rpn_new: 7
-- id: FM-VUI-004
+- id: FM-VUI-047
   subsystem: VUI Audio
   component: wake_word_node / respeaker_vui_node
   function: Inizializzazione ed ascolto continuo della parola chiave 'Marcus' tramite
@@ -2029,7 +2034,12 @@
       entry point e filesystem (ECO-2026-09-04-002)
     rpn_old: 162
     rpn_new: 9
-- id: FM-VUI-005
+  - date: '2026-11-12'
+    change: 'Deduplicazione registro DFMEA: rinumerato da ID duplicato FM-VUI-004
+      a ID univoco FM-VUI-047.'
+    rpn_old: 9
+    rpn_new: 9
+- id: FM-VUI-048
   subsystem: VUI Audio
   component: hailo_voiceprint_node / hailo_bridge_node
   function: Estrarre continuous speaker embeddings (impronta vocale) sul flusso mic
@@ -2073,7 +2083,12 @@
       di Voice Prints
     rpn_old: 196
     rpn_new: 28
-- id: FM-VUI-006
+  - date: '2026-11-12'
+    change: 'Deduplicazione registro DFMEA: rinumerato da ID duplicato FM-VUI-005
+      a ID univoco FM-VUI-048.'
+    rpn_old: 28
+    rpn_new: 28
+- id: FM-VUI-049
   subsystem: VUI Audio
   component: voiceprint_manager
   function: Associare le persone all'impronta vocale estratta ed identificare chi
@@ -2115,6 +2130,11 @@
   - date: '2026-07-30'
     change: Inserimento Failure Mode per identificazione vocale ed errato matching
     rpn_old: 144
+    rpn_new: 24
+  - date: '2026-11-12'
+    change: 'Deduplicazione registro DFMEA: rinumerato da ID duplicato FM-VUI-006
+      a ID univoco FM-VUI-049.'
+    rpn_old: 24
     rpn_new: 24
 - id: FM-VUI-007
   subsystem: AI/Cognitive
@@ -2923,7 +2943,7 @@
       lo standard per i publisher visivi
     rpn_old: 210
     rpn_new: 24
-- id: FM-SIM-001
+- id: FM-SIM-003
   subsystem: System/DDS
   component: wsl2_network
   function: Comunicazione ROS 2 e discovery DDS affidabile tra nodi in ambiente simulato
@@ -2971,6 +2991,11 @@
       Unicast (AllowMulticast=spdp, MaxAutoParticipantIndex=200) in start_gazebo_marcus.sh
       (RPN 168 -> 6).
     rpn_old: 168
+    rpn_new: 6
+  - date: '2026-11-12'
+    change: 'Deduplicazione registro DFMEA: rinumerato da ID duplicato FM-SIM-001
+      a ID univoco FM-SIM-003.'
+    rpn_old: 6
     rpn_new: 6
 - id: FM-VUI-021
   subsystem: VUI Audio
@@ -4846,7 +4871,7 @@
       crash
     rpn_old: 294
     rpn_new: 7
-- id: FM-VUI-024
+- id: FM-VUI-050
   subsystem: Audio & VUI
   component: respeaker_vui_node
   function: Rilevamento continuo e affidabile della wake word 'Marcus' ed emissione
@@ -4893,6 +4918,11 @@
       e chat unmute
     rpn_old: 504
     rpn_new: 9
+  - date: '2026-11-12'
+    change: 'Deduplicazione registro DFMEA: rinumerato da ID duplicato FM-VUI-024
+      a ID univoco FM-VUI-050.'
+    rpn_old: 9
+    rpn_new: 9
 - id: FM-SYS-009
   subsystem: System & Infra
   component: restart_hailo.sh
@@ -4931,7 +4961,7 @@
     change: Aggiunto flag sudo -n e validata esecuzione headless senza blocco TTY
     rpn_old: 336
     rpn_new: 8
-- id: FM-COG-003
+- id: FM-COG-006
   subsystem: Orchestration & RAG
   component: orchestrator & conversation
   function: Ricezione ed esecuzione univoca dei comandi testuali da Foxglove Studio
@@ -4981,7 +5011,12 @@
       cache anti-echo 10s
     rpn_old: 378
     rpn_new: 12
-- id: FM-COG-004
+  - date: '2026-11-12'
+    change: 'Deduplicazione registro DFMEA: rinumerato da ID duplicato FM-COG-003
+      a ID univoco FM-COG-006.'
+    rpn_old: 12
+    rpn_new: 12
+- id: FM-COG-007
   subsystem: Orchestration & RAG
   component: conversation, metaprompt_fusion, memory_manager & memory_info_skill
   function: Recupero semantico delle memorie RAG/MAG, identità acronimo MARCUS ed
@@ -5038,7 +5073,12 @@
       anti-silenzio in ConversationManager
     rpn_old: 12
     rpn_new: 6
-- id: FM-MOT-004
+  - date: '2026-11-12'
+    change: 'Deduplicazione registro DFMEA: rinumerato da ID duplicato FM-COG-004
+      a ID univoco FM-COG-007.'
+    rpn_old: 6
+    rpn_new: 6
+- id: FM-MOT-012
   subsystem: Chassis & Motion
   component: waveshare_motor_driver & sllidar_node
   function: Connessione seriale deterministica e indipendente per scheda motori ESP32
@@ -5086,6 +5126,11 @@
       aggiornati script di avvio
     rpn_old: 378
     rpn_new: 8
+  - date: '2026-11-12'
+    change: 'Deduplicazione registro DFMEA: rinumerato da ID duplicato FM-MOT-004
+      a ID univoco FM-MOT-012.'
+    rpn_old: 8
+    rpn_new: 8
 - id: FM-LLM-006
   subsystem: AI/LangGraph
   component: dynamic_skill_creator / curiosity_evolution_engine
@@ -5130,7 +5175,7 @@
     change: Identificato rischio loop ricorsivo di generazione autonoma con Antigravity
     rpn_old: 105
     rpn_new: 28
-- id: FM-SYS-009
+- id: FM-SYS-013
   subsystem: System/DDS
   component: antigravity_localharness & memory_sentinel
   function: Allocazione memoria e coesistenza sicura del processo Antigravity Agent
@@ -5175,6 +5220,11 @@
     change: Definito Memory Sentinel Gate per isolare il reasoning Antigravity su
       Pi 5
     rpn_old: 108
+    rpn_new: 18
+  - date: '2026-11-12'
+    change: 'Deduplicazione registro DFMEA: rinumerato da ID duplicato FM-SYS-009
+      a ID univoco FM-SYS-013.'
+    rpn_old: 18
     rpn_new: 18
 - id: FM-LLM-007
   subsystem: AI/Trinity
@@ -5511,7 +5561,7 @@
       data miner.
     rpn_old: 147
     rpn_new: 28
-- id: FM-MOT-005
+- id: FM-MOT-013
   subsystem: Hardware/Power
   component: imu_bridge_node
   function: Rilevamento in tempo reale di accelerazioni anomale (urti) durante il
@@ -5552,6 +5602,11 @@
   - date: '2026-09-07'
     change: Implementato tracking delle collisioni basato su IMU nel data miner
     rpn_old: 240
+    rpn_new: 32
+  - date: '2026-11-12'
+    change: 'Deduplicazione registro DFMEA: rinumerato da ID duplicato FM-MOT-005
+      a ID univoco FM-MOT-013.'
+    rpn_old: 32
     rpn_new: 32
 - id: FM-MOT-006
   subsystem: Actuation & Motion
@@ -6063,7 +6118,7 @@
       RTAB-Map
     rpn_old: 256
     rpn_new: 8
-- id: FM-MOT-008
+- id: FM-MOT-014
   subsystem: Actuation/Motion
   component: waveshare_motor_driver
   function: Traiettoria rettilinea stabile e rotazioni sul posto simmetriche a comando
@@ -6128,6 +6183,11 @@
       Implementato floor operativo minimo lineare post-trim (linear_min_duty_left=0.12,
       linear_min_duty_right=0.14), Stiction Breakout Kick (120ms @ 0.18 duty) e vincolo
       di curvatura continua in Nav2 MPPI (base_min_turning_radius=0.18m).
+    rpn_old: 7
+    rpn_new: 7
+  - date: '2026-11-12'
+    change: 'Deduplicazione registro DFMEA: rinumerato da ID duplicato FM-MOT-008
+      a ID univoco FM-MOT-014.'
     rpn_old: 7
     rpn_new: 7
   verification_test_file: scripts/test_rotation_symmetry.py
@@ -6520,7 +6580,7 @@
       /odom
     rpn_old: 126
     rpn_new: 7
-- id: FM-NAV-031
+- id: FM-NAV-043
   subsystem: Nav2
   component: semantic_costmap_injector
   function: Rilevamento differenziale gradini e scale (FM-NAV-009) senza falsi allarmi
@@ -6562,6 +6622,11 @@
     change: Introdotto raycasting differenziale dz > 15cm eliminando falsi ostacoli
       negativi su pavimento
     rpn_old: 144
+    rpn_new: 8
+  - date: '2026-11-12'
+    change: 'Deduplicazione registro DFMEA: rinumerato da ID duplicato FM-NAV-031
+      a ID univoco FM-NAV-043.'
+    rpn_old: 8
     rpn_new: 8
 - id: FM-VUI-029
   subsystem: VUI
@@ -7742,7 +7807,7 @@
     rpn_old: 168
     rpn_new: 7
   verification_test_file: tests/test_trinity_full.py
-- id: FM-VUI-037
+- id: FM-VUI-052
   subsystem: VUI Audio
   component: respeaker_hardware
   function: Riconoscimento vocale affidabile a distanza (far-field) e in ambienti
@@ -7786,6 +7851,11 @@
     change: Identificati i limiti hardware dell'array 2-mic e proposto upgrade a XVF3800
       come mitigazione hardware definitiva
     rpn_old: 224
+    rpn_new: 140
+  - date: '2026-11-12'
+    change: 'Deduplicazione registro DFMEA: rinumerato da ID duplicato FM-VUI-037
+      a ID univoco FM-VUI-052.'
+    rpn_old: 140
     rpn_new: 140
 - id: FM-VUI-040
   subsystem: VUI Audio
@@ -9226,7 +9296,7 @@
       imu_callback (RPN 112 -> 7).
     rpn_old: 112
     rpn_new: 7
-- id: FM-NAV-034
+- id: FM-NAV-044
   subsystem: Navigation/Safety
   component: fast_path_stop
   function: Intercettazione immediata (<10ms) di comandi di arresto d'emergenza ("fermati",
@@ -9269,8 +9339,13 @@
       e mock publisher support (RPN 315 -> 9).
     rpn_old: 315
     rpn_new: 9
+  - date: '2026-11-12'
+    change: 'Deduplicazione registro DFMEA: rinumerato da ID duplicato FM-NAV-034
+      a ID univoco FM-NAV-044.'
+    rpn_old: 9
+    rpn_new: 9
   verification_test_file: tests/test_intent_arbiter.py
-- id: FM-NAV-035
+- id: FM-NAV-045
   subsystem: AI/Arbitration
   component: hybrid_router
   function: Instradamento cognitivo ultra-rapido (<1.5 ms) delle intenzioni dell'utente
@@ -9315,8 +9390,13 @@
       con failover locale (RPN 224 -> 7).
     rpn_old: 224
     rpn_new: 7
+  - date: '2026-11-12'
+    change: 'Deduplicazione registro DFMEA: rinumerato da ID duplicato FM-NAV-035
+      a ID univoco FM-NAV-045.'
+    rpn_old: 7
+    rpn_new: 7
   verification_test_file: tests/test_intent_arbiter.py
-- id: FM-LLM-005
+- id: FM-LLM-015
   subsystem: AI/Arbitration
   component: conversation / respeaker_vui_node
   function: Failover trasparente immediato verso Qwen2 locale su NPU Hailo-10H in
@@ -9364,8 +9444,13 @@
       cloud e calibrate soglie VUI anti-rumore (RPN 144 -> 4).
     rpn_old: 144
     rpn_new: 4
+  - date: '2026-11-12'
+    change: 'Deduplicazione registro DFMEA: rinumerato da ID duplicato FM-LLM-005
+      a ID univoco FM-LLM-015.'
+    rpn_old: 4
+    rpn_new: 4
   verification_test_file: tests/test_conversation_hybrid_failover.py
-- id: FM-SYS-010
+- id: FM-SYS-014
   subsystem: System/Build
   component: site-packages_symlink_install
   function: Propagazione deterministica e immediata delle modifiche a caldo Python
@@ -9414,6 +9499,11 @@
     change: Architettura a symlink canonici su site-packages implementata; eliminato
       disallineamento statico (RPN 192 -> 4).
     rpn_old: 192
+    rpn_new: 4
+  - date: '2026-11-12'
+    change: 'Deduplicazione registro DFMEA: rinumerato da ID duplicato FM-SYS-010
+      a ID univoco FM-SYS-014.'
+    rpn_old: 4
     rpn_new: 4
 - id: FM-LLM-009
   subsystem: AI/Orchestration
@@ -9694,7 +9784,7 @@
       con soppressione falsi positivi su Marco (RPN 112 -> 7).
     rpn_old: 112
     rpn_new: 7
-- id: FM-LLM-005
+- id: FM-LLM-016
   subsystem: Cognitive/Cloud
   component: llm_circuit_breaker / conversation_manager
   function: Failover istantaneo e trasparente su Hailo-10H NPU in caso di esaurimento
@@ -9740,8 +9830,13 @@
       (RPN 128 -> 8).
     rpn_old: 128
     rpn_new: 8
+  - date: '2026-11-12'
+    change: 'Deduplicazione registro DFMEA: rinumerato da ID duplicato FM-LLM-005
+      a ID univoco FM-LLM-016.'
+    rpn_old: 8
+    rpn_new: 8
   verification_test_file: tests/test_conversation_hybrid_failover.py
-- id: FM-LLM-006
+- id: FM-LLM-017
   subsystem: Cognitive/TRINITY
   component: hailo_qwen_client / llm_service / conversation_manager
   function: Generazione risposte contestuali TRINITY su Qwen2 locale e continuità
@@ -9787,8 +9882,13 @@
       blocco _mic_muted (RPN 128 -> 7).
     rpn_old: 128
     rpn_new: 7
+  - date: '2026-11-12'
+    change: 'Deduplicazione registro DFMEA: rinumerato da ID duplicato FM-LLM-006
+      a ID univoco FM-LLM-017.'
+    rpn_old: 7
+    rpn_new: 7
   verification_test_file: scripts/test_voice_cognitive_benchmark.py
-- id: FM-LLM-007
+- id: FM-LLM-018
   subsystem: Cognitive/TRINITY
   component: conversation_manager / hailo_qwen_client
   function: Rispetto vincolo SLA < 1.45s per inferenza NPU locale ed interruzione
@@ -9832,8 +9932,13 @@
       SLA < 1.45s (RPN 84 -> 7).
     rpn_old: 84
     rpn_new: 7
+  - date: '2026-11-12'
+    change: 'Deduplicazione registro DFMEA: rinumerato da ID duplicato FM-LLM-007
+      a ID univoco FM-LLM-018.'
+    rpn_old: 7
+    rpn_new: 7
   verification_test_file: tests/test_qwen_chat_stress.py
-- id: FM-LLM-008
+- id: FM-LLM-019
   subsystem: Cognitive/TRINITY
   component: hailo_qwen_client
   function: Parsing accurato dei prompt ChatML multi-turno e isolamento del turno
@@ -9879,8 +9984,13 @@
       (RPN 70 -> 7).
     rpn_old: 70
     rpn_new: 7
+  - date: '2026-11-12'
+    change: 'Deduplicazione registro DFMEA: rinumerato da ID duplicato FM-LLM-008
+      a ID univoco FM-LLM-019.'
+    rpn_old: 7
+    rpn_new: 7
   verification_test_file: tests/test_hailo_qwen_adversarial_iter2.py
-- id: FM-VUI-027
+- id: FM-VUI-051
   subsystem: Audio/VUI
   component: respeaker_vui_node / local_asr_vosk
   function: Apertura della finestra di ascolto vocale post-wakeword ("Marcus") e trascrizione
@@ -9931,7 +10041,12 @@
       Sentinel switch e ripristinato gTTS locale (RPN 216 -> 8).
     rpn_old: 216
     rpn_new: 8
-- id: FM-LLM-009
+  - date: '2026-11-12'
+    change: 'Deduplicazione registro DFMEA: rinumerato da ID duplicato FM-VUI-027
+      a ID univoco FM-VUI-051.'
+    rpn_old: 8
+    rpn_new: 8
+- id: FM-LLM-020
   subsystem: Cognitive/TRINITY
   component: conversation / mag_database / hailo_qwen_client
   function: Risposta contestuale locale basata su memoria autobiografica TRINITY (MAG),
@@ -9983,6 +10098,11 @@
       23 fallback spuri e implementata sintesi dinamica TRINITY MAG/CAG/RAG (RPN 128
       -> 8).
     rpn_old: 128
+    rpn_new: 8
+  - date: '2026-11-12'
+    change: 'Deduplicazione registro DFMEA: rinumerato da ID duplicato FM-LLM-009
+      a ID univoco FM-LLM-020.'
+    rpn_old: 8
     rpn_new: 8
 - id: FM-VIS-012
   subsystem: Vision
@@ -10079,7 +10199,7 @@
       7).
     rpn_old: 112
     rpn_new: 7
-- id: FM-VUI-039
+- id: FM-VUI-053
   subsystem: Audio/VUI
   component: hailo_qwen_client / conversation
   function: Emissione di conferme vocali concise, empatiche e naturali a chiamate
@@ -10129,6 +10249,11 @@
       ed empatici, corretto il regex del nome e validato live su hardware (RPN 108
       -> 6).
     rpn_old: 108
+    rpn_new: 6
+  - date: '2026-11-12'
+    change: 'Deduplicazione registro DFMEA: rinumerato da ID duplicato FM-VUI-039
+      a ID univoco FM-VUI-053.'
+    rpn_old: 6
     rpn_new: 6
 - id: FM-LLM-014
   subsystem: Cognitive LLM
@@ -10541,14 +10666,22 @@
       e Pi 5 (RPN 288 -> 16).
     rpn_old: 288
     rpn_new: 16
-
 - id: FM-NAV-042
   subsystem: Nav2/BT Navigator & Frontier Exploration
   component: nav2_survival_bt.xml / nav2_params_jazzy.yaml / frontier_explorer_node.py
-  function: Disimpegno fisico da ostacoli sottili (gambe di tavoli e sedie), recovery a 45 gradi e prevenzione cascading blacklist in esplorazione frontiere
-  failure_mode: Robot bloccato contro gamba del tavolo con micro-backup insufficiente (8cm), abort a catena di tutte le frontiere e conclusione prematura dell'esplorazione (ALL_FRONTIERS_BELOW_THRESHOLD)
-  potential_cause: 1) Backup di recovery in nav2_survival_bt.xml limitato a soli 8cm (0.08m) senza rotazione di disimpegno, lasciando il robot dentro l'inflazione letale. 2) FrontierExplorerNode che blacklista permanentemente tutti i centroidi a seguito di fallimenti locali a catena. 3) Soglia min_frontier_size cablata a 0.40m che scarta varchi tra mobili e aperture parziali. 4) Repulsione ostacoli MPPI insufficiente sui bordi sottili.
-  potential_effect: Arresto permanente del robot davanti a gambe di tavoli con esplorazione interrotta dopo pochissimi metri di tragitto.
+  function: Disimpegno fisico da ostacoli sottili (gambe di tavoli e sedie), recovery
+    a 45 gradi e prevenzione cascading blacklist in esplorazione frontiere
+  failure_mode: Robot bloccato contro gamba del tavolo con micro-backup insufficiente
+    (8cm), abort a catena di tutte le frontiere e conclusione prematura dell'esplorazione
+    (ALL_FRONTIERS_BELOW_THRESHOLD)
+  potential_cause: 1) Backup di recovery in nav2_survival_bt.xml limitato a soli 8cm
+    (0.08m) senza rotazione di disimpegno, lasciando il robot dentro l'inflazione
+    letale. 2) FrontierExplorerNode che blacklista permanentemente tutti i centroidi
+    a seguito di fallimenti locali a catena. 3) Soglia min_frontier_size cablata a
+    0.40m che scarta varchi tra mobili e aperture parziali. 4) Repulsione ostacoli
+    MPPI insufficiente sui bordi sottili.
+  potential_effect: Arresto permanente del robot davanti a gambe di tavoli con esplorazione
+    interrotta dopo pochissimi metri di tragitto.
   classification: MISSION_CRITICAL
   estimation_basis: measured
   related_ids:
@@ -10559,8 +10692,13 @@
     occurrence: 7
     detection: 6
     rpn: 336
-  prevention_controls: 1) Aumento backup di recovery da 0.08m a 0.22m in nav2_survival_bt.xml con disengage spin controllato a 45 deg (0.785 rad). 2) Reset blacklist su stallo locale e disengage recovery autonomo in frontier_explorer_node.py. 3) Riduzione min_frontier_size da 0.40m a 0.25m. 4) Aumento repulsion_weight a 3.5 e cost_scaling_factor a 2.8 per anticipare l'evitamento delle gambe dei mobili.
-  detection_controls: Telemetria /odom, monitoraggio status /frontier_exploration/status e abort counter.
+  prevention_controls: 1) Aumento backup di recovery da 0.08m a 0.22m in nav2_survival_bt.xml
+    con disengage spin controllato a 45 deg (0.785 rad). 2) Reset blacklist su stallo
+    locale e disengage recovery autonomo in frontier_explorer_node.py. 3) Riduzione
+    min_frontier_size da 0.40m a 0.25m. 4) Aumento repulsion_weight a 3.5 e cost_scaling_factor
+    a 2.8 per anticipare l'evitamento delle gambe dei mobili.
+  detection_controls: Telemetria /odom, monitoraggio status /frontier_exploration/status
+    e abort counter.
   residual_scoring:
     severity: 8
     occurrence: 2
@@ -10568,14 +10706,280 @@
     rpn: 16
   risk_level: LOW
   mitigation_status: CLOSED
-  recommended_action: Integrare recovery 0.22m + 45 deg spin in nav2_survival_bt.xml, calibrare costmap e implementare stuck recovery con reset blacklist in frontier_explorer_node.py.
-  verification_method: Disimpegno fisico eseguito con successo (+27.2cm, 41.4 deg), validazione statica e runtime su Marcus.
+  recommended_action: Integrare recovery 0.22m + 45 deg spin in nav2_survival_bt.xml,
+    calibrare costmap e implementare stuck recovery con reset blacklist in frontier_explorer_node.py.
+  verification_method: Disimpegno fisico eseguito con successo (+27.2cm, 41.4 deg),
+    validazione statica e runtime su Marcus.
   eco_ref: docs/ecos/nav2_slam_ecos.md
   lesson_ref: docs/lessons/nav2_slam_tuning.md
   date_identified: '2026-11-08'
   last_updated: '2026-11-08'
   history:
   - date: '2026-11-08'
-    change: Implementato disimpegno reale 0.22m con spin 45 deg, abbassata soglia frontiere a 0.25m, introdotto stuck recovery anti-cascading blacklist e disimpegnato fisicamente Marcus dalla gamba del tavolo (RPN 336 -> 16).
+    change: Implementato disimpegno reale 0.22m con spin 45 deg, abbassata soglia
+      frontiere a 0.25m, introdotto stuck recovery anti-cascading blacklist e disimpegnato
+      fisicamente Marcus dalla gamba del tavolo (RPN 336 -> 16).
     rpn_old: 336
     rpn_new: 16
+- id: FM-LLM-021
+  subsystem: AI/Hailo-Qwen
+  component: hailo_qwen_client.py / conversation.py
+  function: Esecuzione sicura e verificabile di Qwen2 locale su Hailo-10H NPU senza
+    sintesi fittizia in produzione
+  failure_mode: Mock Qwen attivo di default in produzione (enable_mock_fallback=True)
+    con sintesi arbitraria di tag <action> fisici (move_distance, rotate_angle, navigate_to)
+    da semplici keyword
+  potential_cause: HailoQwenConfig impostava enable_mock_fallback=True di default
+    e _synthesize_mock_tokens generava JSON cinematici sintetici senza NPU reale.
+  potential_effect: Movimenti fisici indesiderati o risposte simulate non distinte
+    dall'inferenza reale su NPU quando hailo-ollama è irraggiungibile.
+  classification: SAFETY
+  estimation_basis: empirical
+  related_ids:
+  - FM-LLM-005
+  - FM-NAV-034
+  initial_scoring:
+    severity: 9
+    occurrence: 6
+    detection: 7
+    rpn: 378
+  prevention_controls: enable_mock_fallback=False di default (abilitabile solo esplicitamente
+    via MARCUS_QWEN_ALLOW_MOCK=1 o in test); rimozione completa di ogni tag <action>
+    motorio/navigazionale da _synthesize_mock_tokens; emissione evento diagnostico
+    mock_activation in dialogue_trace.jsonl.
+  detection_controls: Unit/safety test in tests/test_dialogue_arbiter_and_evolution.py
+    e tests/test_tier5_adversarial_m5_safety.py + contatore telemetrico mock_activations.
+  residual_scoring:
+    severity: 9
+    occurrence: 1
+    detection: 2
+    rpn: 18
+  risk_level: REVISION_MANDATORY
+  mitigation_status: MITIGATED
+  recommended_action: Mantenere MARCUS_QWEN_ALLOW_MOCK disabilitato in produzione
+    e verificare hailo-ollama NPU reale su Pi 5.
+  verification_method: Pytest PC safety suite + verifica live systemd hailo-ollama
+    su Raspberry Pi 5.
+  verification_test_file: tests/test_dialogue_arbiter_and_evolution.py
+  eco_ref: docs/ecos/orchestration_rag_ecos.md
+  lesson_ref: docs/lessons/llm_live_api.md
+  date_identified: '2026-11-12'
+  last_updated: '2026-11-12'
+  history:
+  - date: '2026-11-12'
+    change: Disabilitato mock Qwen in produzione (opt-in MARCUS_QWEN_ALLOW_MOCK=1)
+      e azzerata sintesi <action> motoria nel mock (RPN 378 -> 18).
+    rpn_old: 378
+    rpn_new: 18
+- id: FM-LLM-022
+  subsystem: AI/Gemini-Live
+  component: live_connection_manager.py / llm_service.py / slm_metaprompt_fusion.py
+  function: Gestione finestra conversazionale Live API, coerenza orologio e grounding
+    fattuale
+  failure_mode: Finestra conversazionale Live auto-rinnovante all'infinito su rumore
+    TV (time.time() vs time.monotonic() con delta negativo) e allucinazioni da prompt
+    ('sogno' poetico mattutino, finte email Amazon e fatti familiari forzati)
+  potential_cause: 1) llm_service.py assegnava time.time() (~1.79e9) a last_successful_turn_time
+    confrontato con time.monotonic() in LiveConnectionManager, producendo delta negativi
+    sempre inferiori a 25s. 2) on_audio_chunk e turn_complete riarmavano la finestra
+    in loop. 3) dream_greeting e load_email_delivery_context iniettavano testo sintetico.
+  potential_effect: Marcus resta bloccato in ascolto continuo rispondendo a TV/terzi
+    e inventa sogni, email Amazon o dettagli non richiesti.
+  classification: MISSION_CRITICAL
+  estimation_basis: empirical
+  related_ids:
+  - FM-VUI-039
+  - FM-COG-002
+  initial_scoring:
+    severity: 7
+    occurrence: 8
+    detection: 6
+    rpn: 336
+  prevention_controls: Uso esclusivo di clock time.monotonic() con guardia delta negativo;
+    finestra follow-up limitata a 8.0s ancorata a _last_ai_speech_end_time (non auto-rinnovante);
+    soppressione <IGNORE_TURN> senza estendere la finestra; rimozione dream_greeting
+    e finte email fallback; grounding condizionale su query familiari e BUDGET_SYSTEM=450.
+  detection_controls: Replay test finestra Live/TV in tests/test_dialogue_arbiter_and_evolution.py
+    e contatore out_of_window_turns in logs/dialogue_trace.jsonl.
+  residual_scoring:
+    severity: 7
+    occurrence: 2
+    detection: 2
+    rpn: 28
+  risk_level: LOW
+  mitigation_status: MITIGATED
+  recommended_action: Eseguire soak test live 30 minuti su Pi 5 con TV accesa in sottofondo
+    (P0.3).
+  verification_method: Pytest replay PC + test live 30 min hardware Pi 5.
+  verification_test_file: tests/test_dialogue_arbiter_and_evolution.py
+  eco_ref: docs/ecos/orchestration_rag_ecos.md
+  lesson_ref: docs/lessons/llm_live_api.md
+  date_identified: '2026-11-12'
+  last_updated: '2026-11-12'
+  history:
+  - date: '2026-11-12'
+    change: Corretto clock skew time.time() vs time.monotonic(), finestra non auto-rinnovante
+      8s, rimozione dream poem/finte email e regex intere in intent_classifier (RPN
+      336 -> 28).
+    rpn_old: 336
+    rpn_new: 28
+- id: FM-VUI-054
+  subsystem: VUI & Orchestration
+  component: dialogue_arbiter.py / orchestrator.py / respeaker_vui_node.py / tts_service.py
+  function: Arbitraggio unico turno vocale (Option A), lock esclusivo pavimento TTS
+    e arbitraggio centrale /ai/input/mic_mute
+  failure_mode: Risposta simultanea doppia Gemini Live + Qwen sul parlato utente,
+    attivazioni da standby su ipotesi Vosk parziali ed enrollment non autorizzato,
+    più collisione multi-publisher su /ai/input/mic_mute e svuotamento coda TTS durante
+    mute
+  potential_cause: 'Mancava un arbitro di turno unico in-process: respeaker_vui_node
+    pubblicava su /ai/input/voice_command mentre Live streamed in parallelo; 4 nodi
+    pubblicavano direttamente su /ai/input/mic_mute; _mic_mute_cb svuotava _audio_out_queue
+    e Vosk parziale/standby apriva microfono ed enrollment.'
+  potential_effect: Due voci sovrapposte in disaccordo, auto-sordità post-risposta,
+    attivazioni fantasma su parlato ambientale e troncatura risposte Live/Qwen.
+  classification: MISSION_CRITICAL
+  estimation_basis: empirical
+  related_ids:
+  - FM-VUI-024
+  - FM-VUI-027
+  - FM-COG-003
+  initial_scoring:
+    severity: 8
+    occurrence: 8
+    detection: 6
+    rpn: 384
+  prevention_controls: Introdotto DialogueArbiter in-process in AIOrchestrator con
+    gerarchia Opzione A (Gemini Live primario online, Qwen esclusivo solo offline/fallback/fast-path
+    <10ms), lease floor esclusivo, topic arbitrato /ai/input/mic_mute_request -> singolo
+    publisher /ai/input/mic_mute, FINAL-only wakeword standby, gating enrollment,
+    separazione mute microfono vs flush coda audio, PiperTTSClient offline e barge-in
+    sostenuto >=250ms.
+  detection_controls: Telemetria turn_id in logs/dialogue_trace.jsonl (double_response_blocked,
+    double_response_count) e suite tests/test_dialogue_arbiter_and_evolution.py.
+  residual_scoring:
+    severity: 8
+    occurrence: 1
+    detection: 2
+    rpn: 16
+  risk_level: LOW
+  mitigation_status: MITIGATED
+  recommended_action: Validare interazione umana end-to-end su ReSpeaker USB hardware
+    Pi 5.
+  verification_method: Pytest PC race/barge-in/mic_mute arbitration + test hardware
+    ReSpeaker Pi 5.
+  verification_test_file: tests/test_dialogue_arbiter_and_evolution.py
+  eco_ref: docs/ecos/orchestration_rag_ecos.md
+  lesson_ref: docs/lessons/audio_vui_pipeline.md
+  date_identified: '2026-11-12'
+  last_updated: '2026-11-12'
+  history:
+  - date: '2026-11-12'
+    change: Integrato DialogueArbiter in-process (Opzione A, floor lock, /ai/input/mic_mute_request
+      singolo publisher), Piper offline TTS e barge-in sostenuto (RPN 384 -> 16).
+    rpn_old: 384
+    rpn_new: 16
+- id: FM-COG-008
+  subsystem: Cognitive/Orchestration
+  component: cognitive_core_node.py / orchestrator.py / conversation.py / skill_executor.py
+    / trinity_engine.py
+  function: Proattività sociale contestuale, memoria condivisa Live<->Qwen ed esecuzione
+    completa delle 10 skill dichiarate
+  failure_mode: Marcus parla da solo ignorando Do-Not-Disturb/disimpegno (bypass wakeword
+    forzato), Live e Qwen restano amnesici reciprocamente e SkillExecutor ignora 8
+    tool dichiarati lasciando risposte scartate
+  potential_cause: cognitive_core_node pubblicava proactive_listen_pub=True senza
+    verificare pavimento o ToM; Live on_turn_complete non sincronizzava su MAG e Live
+    non riceveva digest TRINITY; _handle_local_qwen scartava il ritorno di skill_executor.execute_skill;
+    mancavano mapping per query_knowledge/set_smart_device/get_battery_status/get_system_health/pause_or_resume_exploration.
+  potential_effect: Monologhi inopportuni quando nessuno parla al robot, amnesia tra
+    turni Live e Qwen, ed esecuzione muta o incompleta dei tool locali.
+  classification: PERFORMANCE
+  estimation_basis: empirical
+  related_ids:
+  - FM-TRI-001
+  - FM-BIO-004
+  initial_scoring:
+    severity: 6
+    occurrence: 7
+    detection: 5
+    rpn: 210
+  prevention_controls: Coda proattiva su /ai/conversation/proactive_speech filtrata
+    da DialogueArbiter (/engagement/status, /marcus/social_context/tom_state, /identity/active_person,
+    attenuazione volume DND 0.65x); rimozione bypass wakeword cieco; build_live_context_digest
+    (<=2500 token) + record_live_turn_sync; mapping completo 10 ALLOWED_FUNCTION_NAMES
+    in SkillExecutor con sintesi reale del risultato.
+  detection_controls: Contatore proactive_suppressed e suite tests/test_dialogue_arbiter_and_evolution.py.
+  residual_scoring:
+    severity: 6
+    occurrence: 1
+    detection: 2
+    rpn: 12
+  risk_level: LOW
+  mitigation_status: MITIGATED
+  recommended_action: Verificare integrazione live con /marcus/social_context/tom_state
+    e /identity/active_person su robot reale.
+  verification_method: Pytest PC su SkillExecutor/TRINITY/CognitiveCore + verifica
+    topic ROS 2 su Pi 5.
+  verification_test_file: tests/test_dialogue_arbiter_and_evolution.py
+  eco_ref: docs/ecos/orchestration_rag_ecos.md
+  lesson_ref: docs/lessons/orchestration_and_rag.md
+  date_identified: '2026-11-12'
+  last_updated: '2026-11-12'
+  history:
+  - date: '2026-11-12'
+    change: Allineati proattività sociale, memoria condivisa TRINITY Live<->Qwen e
+      tutte le 10 skill ALLOWED_FUNCTION_NAMES con parlato reale (RPN 210 -> 12).
+    rpn_old: 210
+    rpn_new: 12
+- id: FM-VIS-014
+  subsystem: Vision/Hailo-VLM
+  component: conversation.py / orchestrator.py / hailo_vlm_node.py
+  function: Interrogazione visiva su NPU Hailo-10H rispettando il servizio reale e
+    i vincoli termici SPEC-03
+  failure_mode: Disallineamento nome servizio VLM ('ask_visual_question' vs '/hailo/vlm/ask_question'),
+    collisione publisher String sullo stesso nome e assenza guardia termica (<80C)
+    prima dell'inferenza VLM
+  potential_cause: conversation.py creava client 'ask_visual_question' invece del
+    servizio esposto /hailo/vlm/ask_question, orchestrator.py dichiarava pub_hailo_vlm
+    sullo stesso topic name causando collisione DDS, e mancava il controllo temperatura
+    NPU/SoC prima di invocare Qwen2-VL.
+  potential_effect: Fallimento silenzioso delle domande visive e rischio throttling
+    termico oltre 80C su Hailo-10H/Pi 5.
+  classification: PERFORMANCE
+  estimation_basis: empirical
+  related_ids:
+  - FM-BIO-001
+  - FM-VIS-009
+  initial_scoring:
+    severity: 6
+    occurrence: 5
+    detection: 5
+    rpn: 150
+  prevention_controls: Allineamento client ROS 2 a '/hailo/vlm/ask_question', rimozione
+    pub_hailo_vlm collidente in orchestrator.py, e guardia termica esplicita < 80.0C
+    (SPEC-03 Zona Gialla) in ConversationManager._handle_visual_query con fallback
+    umano.
+  detection_controls: Test unitario guardia termica e nome servizio in tests/test_dialogue_arbiter_and_evolution.py.
+  residual_scoring:
+    severity: 6
+    occurrence: 1
+    detection: 2
+    rpn: 12
+  risk_level: LOW
+  mitigation_status: MITIGATED
+  recommended_action: Verificare chiamata live a /hailo/vlm/ask_question su Pi 5 con
+    Hailo-10H.
+  verification_method: Pytest PC su guardia termica/servizio + verifica ROS 2 service
+    call su Pi 5.
+  verification_test_file: tests/test_dialogue_arbiter_and_evolution.py
+  eco_ref: docs/ecos/orchestration_rag_ecos.md
+  lesson_ref: docs/lessons/orchestration_and_rag.md
+  date_identified: '2026-11-12'
+  last_updated: '2026-11-12'
+  history:
+  - date: '2026-11-12'
+    change: Allineato servizio /hailo/vlm/ask_question, rimossa collisione publisher
+      e aggiunta guardia termica <80C (RPN 150 -> 12).
+    rpn_old: 150
+    rpn_new: 12

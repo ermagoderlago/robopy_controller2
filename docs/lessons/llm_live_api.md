@@ -154,3 +154,20 @@ Questo documento documenta la gestione del bidi-streaming vocale, la latenza dei
 ### 4. Master Hybrid Router
 * **Architettura:** `HybridRouter` in `robopy_controller/robot_ai/arbitration/hybrid_router.py` coordina i tre componenti offrendo un'interfaccia unificata `route(text: str, context: Optional[dict] = None) -> RoutingDecision`.
 * **Verifica:** Test unitari completi e benchmark in `tests/test_intent_arbiter.py` (20/20 test superati).
+
+---
+
+## 🧠 Arbitraggio Unico `DialogueArbiter`, Clock Monotonico Live & Igiene Qwen (2026-11-12 — `FM-LLM-021`, `FM-LLM-022`, `FM-VUI-054`, `FM-VIS-014`)
+
+### 1. Bug Critico Orologio `time.time()` vs `time.monotonic()` (`llm_service.py` ↔ `live_connection_manager.py`)
+* **Sintomo:** Dopo il primo turno vocale, la finestra di conversazione Gemini Live restava bloccata permanentemente aperta rispondendo anche a conversazioni terze e audio TV.
+* **Causa Radice:** `llm_service.py` scriveva `time.time()` (~`1.79e9`) in `_live_mgr.last_successful_turn_time`, che `LiveConnectionManager` confrontava con `time.monotonic()`. La sottrazione generava un delta fortemente negativo (`< active_session_timeout`), mantendo la finestra sempre aperta; inoltre `on_audio_chunk` e `turn_complete` auto-rinnovavano il timer.
+* **Soluzione:** Uniformato `last_successful_turn_time` e `followup_window_sec = 8.0` esclusivamente su `time.monotonic()` con guardia contro delta negativi, finestra ancorata a `_last_ai_speech_end_time` senza auto-rinnovo infinito e soppressione pulita di `<IGNORE_TURN>` senza estendere il ascolto né contaminare `recent_user_transcripts`.
+
+### 2. Gerarchia Opzione A, Trace `turn_id` e Memoria Condivisa Live ↔ Qwen
+* **Arbitro Unico (`DialogueArbiter`):** Con connessione `ONLINE`, Gemini Live detiene in via esclusiva la voce; Qwen locale è soppresso sulla voce ma resta disponibile solo `OFFLINE_LOCAL`/`DEGRADED` oppure per Fast-Path Stop `<10ms`.
+* **Osservabilità:** `DialogueTraceLogger` (`logs/dialogue_trace.jsonl`) emette eventi correlati con `turn_id` e contatori (`double_response_blocked`, `out_of_window_turns`, `mock_activations`, `trinity_timeouts`, `backchannels_emitted`).
+* **Memoria Condivisa:** `TrinityEngine.build_live_context_digest(max_tokens=2500)` alimenta Gemini Live al connect, e `LiveConnectionManager` su `turn_complete` persiste su MAG via `record_live_turn_sync(...)`.
+* **Sicurezza Mock Qwen:** `HailoQwenConfig.enable_mock_fallback` disabilitato di default in produzione (abilitabile solo con `MARCUS_QWEN_ALLOW_MOCK=1`); zero sintesi di `<action>` motorie/navigazionali in `_synthesize_mock_tokens`.
+* **Servizio VLM & Backchannel:** Chiamata VLM riallineata a `/hailo/vlm/ask_question` con guardia termica `< 80.0°C` (`SPEC-03`), rimossa collisione publisher `String`, ed emessi brevi backchannel (`<300ms`) prima dei tool lunghi su Live.
+

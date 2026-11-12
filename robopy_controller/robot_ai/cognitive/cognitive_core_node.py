@@ -87,10 +87,11 @@ class CognitiveCoreNode(Node):
         self.offline_mode_pub = self.create_publisher(Bool, "/hailo/trigger/offline_mode", 10)
         self.dream_report_pub = self.create_publisher(String, "/marcus/dream/report", 10)
 
-        # Homeostatic MAL Publishers (IMP-BIO-004)
+        # Homeostatic MAL Publishers (IMP-BIO-004 / P4.5)
         self.drives_pub = self.create_publisher(String, "/ai/cognitive/drives", 10)
         self.proactive_listen_pub = self.create_publisher(Bool, "/ai/proactive/listen_window", 10)
         self.proactive_speech_pub = self.create_publisher(String, "/ai/conversation/proactive_speech", 10)
+        self.affective_state_pub = self.create_publisher(String, "/ai/affective_state", 10)
 
         # Homeostatic MAL Engine instance
         self.drive_engine = HomeostaticDriveEngine()
@@ -225,23 +226,38 @@ class CognitiveCoreNode(Node):
         msg_drives.data = json.dumps(drives)
         self.drives_pub.publish(msg_drives)
 
+        # [P4.5] Pubblica stato affettivo unificato sul bus /ai/affective_state
+        mood = "HAPPY" if drives.get("sociality", 0.0) >= 0.35 and "DO_NOT_DISTURB" not in self.drive_engine.tom_state else (
+            "LONELY" if drives.get("sociality", 0.0) >= 0.6 else (
+                "TIRED" if self.drive_engine.current_battery_voltage < 10.4 else "NORMAL"
+            )
+        )
+        aff_msg = String()
+        aff_msg.data = json.dumps({"mood": mood, "tom": self.drive_engine.tom_state, "drives": drives})
+        self.affective_state_pub.publish(aff_msg)
+
         if proactive_event is not None:
+            tom_upper = (self.drive_engine.tom_state or "").upper()
+            is_dnd = any(k in tom_upper for k in ("DO_NOT_DISTURB", "DND", "SLEEP", "REST"))
+            is_emergency = "EMERGENCY" in tom_upper or "FALL" in tom_upper
+            if is_dnd and not is_emergency:
+                self.get_logger().info(
+                    f"🔕 [PROACTIVE-SUPPRESSED] ToM={tom_upper}: pulsione '{proactive_event.drive_name}' soppressa."
+                )
+                return
+
             self.get_logger().info(
                 f"🌟 [PROACTIVE-TRIGGER] Pulsione '{proactive_event.drive_name}' superata soglia "
                 f"({proactive_event.drive_intensity:.2f}) -> {proactive_event.trigger_reason}"
             )
-            # 1. Emissione frase proattiva
+            # [P4.3] Inoltra SOLO al gate DialogueArbiter tramite /ai/conversation/proactive_speech;
+            # rimosso il bypass cieco della wakeword (proactive_listen_pub) che lasciava il mic sempre aperto.
             if proactive_event.suggested_utterance:
                 u_msg = String()
                 u_msg.data = proactive_event.suggested_utterance
                 self.proactive_speech_pub.publish(u_msg)
 
-            # 2. Apertura finestra ascolto (Bypass wake-word)
-            l_msg = Bool()
-            l_msg.data = True
-            self.proactive_listen_pub.publish(l_msg)
-
-            # 3. Pubblicazione intento proattivo
+            # Pubblicazione intento proattivo per telemetria Foxglove
             i_msg = String()
             i_msg.data = json.dumps({
                 "type": "PROACTIVE_DRIVE",

@@ -397,6 +397,73 @@ class TrinityEngine:
         except Exception as e:
             self.logger.error(f"Failed to record interaction in MAG: {e}")
 
+    async def build_live_context_digest(
+        self,
+        *,
+        user_identity: Optional[str] = None,
+        max_tokens: int = 2500,
+    ) -> str:
+        """Builds a compact, grounded CAG + MAG context digest for Gemini Live connect (P2.3).
+
+        Keeps token footprint bounded under SPEC-05's 2500-token ceiling so Live
+        sessions share the same factual telemetry & episodic memory as Qwen local.
+        """
+        if not self.enabled:
+            return ""
+
+        sections: List[str] = []
+        try:
+            cag_data = await self._retrieve_cag_context()
+            cag_bits = [
+                v.strip()
+                for k, v in (
+                    ("Env", cag_data.get("cag_environment", "")),
+                    ("HW", cag_data.get("cag_hardware", "")),
+                    ("Err", cag_data.get("cag_errors", "")),
+                    ("HA", cag_data.get("cag_ha", "")),
+                )
+                if v and str(v).strip()
+            ]
+            if cag_bits:
+                sections.append("[STATO REALE CAG]\n" + "\n".join(cag_bits))
+        except Exception:
+            pass
+
+        try:
+            mag_data = await self._retrieve_mag_memory(user_text="", user_identity=user_identity)
+            for key, label in (("mag_profile", "Profilo"), ("mag_facts", "Fatti noti"), ("mag_episodes", "Episodi recenti")):
+                val = (mag_data.get(key) or "").strip()
+                if val:
+                    sections.append(f"[{label}]\n{val}")
+        except Exception:
+            pass
+
+        digest = "\n\n".join(sections).strip()
+        max_chars = max(400, int(max_tokens) * 4)
+        if len(digest) > max_chars:
+            digest = digest[:max_chars - 3] + "..."
+        return digest
+
+    def record_live_turn_sync(
+        self,
+        user_text: str,
+        model_text: str,
+        user_identity: Optional[str] = None,
+    ) -> None:
+        """Persists a completed Gemini Live voice turn into unified MAG history (P2.3)."""
+        if not self.enabled or not self.mag_episodic or not model_text:
+            return
+        try:
+            self.mag_episodic.record_episode(
+                user_input=user_text or "[Voce]",
+                robot_response=model_text,
+                actions=["gemini_live_voice"],
+                was_successful=True,
+                user_id=user_identity,
+            )
+        except Exception as e:
+            self.logger.debug(f"Live MAG persistence error: {e}")
+
     def _setup_ros_exploration_subs(self):
         """Sets up ROS 2 subscribers for exploration status, target discovery, semantic objects, and room."""
         try:

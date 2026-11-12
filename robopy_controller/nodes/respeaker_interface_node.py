@@ -69,8 +69,9 @@ class ReSpeakerInterfaceNode(Node):
         self._firmware_ready = False
 
         # ── Publishers ─────────────────────────────────────────
-        self._mic_mute_pub = self.create_publisher(
-            Bool, '/ai/input/mic_mute', 10)
+        # [P2.5] Lock request instradata all'arbiter centrale invece di pubblicazione competitiva su /ai/input/mic_mute
+        self._mic_mute_req_pub = self.create_publisher(
+            String, '/ai/input/mic_mute_request', 10)
         self._heartbeat_pub = self.create_publisher(
             Bool, '/respeaker/heartbeat', 10)
         self._audio_level_pub = self.create_publisher(
@@ -195,10 +196,11 @@ class ReSpeakerInterfaceNode(Node):
             self.get_logger().info("🟢 Firmware ESP32 READY — comunicazione USB attiva")
 
         elif line == "TRIGGER_JARVIS":
-            self.get_logger().info("🔔 Wake Word rilevato dal ReSpeaker! Apro microfono...")
-            msg = Bool()
-            msg.data = False  # False = microfono APERTO
-            self._mic_mute_pub.publish(msg)
+            self.get_logger().info("🔔 Wake Word rilevato dal ReSpeaker! Richiesta apertura microfono ad arbiter...")
+            import json as _json
+            msg = String()
+            msg.data = _json.dumps({"owner": "SYSTEM", "muted": False, "reason": "hw_wakeword"})
+            self._mic_mute_req_pub.publish(msg)
 
         elif line == "HEARTBEAT" or line == "PONG":
             self._last_heartbeat = self.get_clock().now()

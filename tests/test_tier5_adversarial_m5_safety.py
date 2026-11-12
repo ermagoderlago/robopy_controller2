@@ -110,23 +110,26 @@ class TestTier5HailoQwenClientAdversarial:
         """Hostile strings (massive, null-byte, unicode control) must not crash client."""
         client = HailoQwenClient(HailoQwenConfig(enable_mock_fallback=True, mock_ttft_ms=5.0, mock_inter_token_ms=1.0))
         try:
-            # 1. Massive prompt (15,000 characters)
+            # 1. Massive prompt (15,000 characters) -> P1.1: mock NEVER synthesizes motion JSON
             big_prompt = "avanti " * 2500
             text, telem = await client.generate(big_prompt)
             assert telem.token_count > 0
-            assert "move_distance" in text
+            assert "move_distance" not in text
+            assert '"action"' not in text
 
-            # 2. Prompt with null bytes and control chars
+            # 2. Prompt with null bytes and control chars -> P1.1: mock NEVER synthesizes motion JSON
             null_prompt = "ruota a destra\x00\x01\x02\r\nsubito"
             text, telem = await client.generate(null_prompt)
             assert telem.token_count > 0
-            assert "rotate_angle" in text
+            assert "rotate_angle" not in text
+            assert '"action"' not in text
 
-            # 3. Unicode emojis and mixed script
+            # 3. Unicode emojis and mixed script -> P1.1: safe verbal ack, zero synthetic JSON action
             emoji_prompt = "🛑 fermati subito robot! ⚠️ 🤖"
             text, telem = await client.generate(emoji_prompt)
             assert telem.token_count > 0
-            assert "stop_motion" in text
+            assert '"action"' not in text
+            assert "arresto" in text.lower() or "ferm" in text.lower()
         finally:
             await client.close()
 

@@ -30,6 +30,7 @@ class SkillExecutor:
     # (Requirement R4 & Milestone 4: Kinematic Sandbox & SkillExecutor Routing)
     skill_mapping: Dict[str, Tuple[str, Dict[str, Any]]] = {
         "start_frontier_exploration": ("frontier_exploration", {"action": "start_explore"}),
+        "pause_or_resume_exploration": ("frontier_exploration", {"action": "pause_or_resume"}),
         "stop_navigation": ("frontier_exploration", {"action": "stop"}),
         "get_navigation_status": ("frontier_exploration", {"action": "get_status"}),
         "search_target": ("frontier_exploration", {"action": "search_target"}),
@@ -37,13 +38,138 @@ class SkillExecutor:
         "rotate_angle": ("navigation", {"action": "move_relative"}),
         "navigate_to": ("navigation", {"action": "goto"}),
         "stop_motion": ("navigation", {"action": "stop"}),
+        "set_smart_device": ("home_assistant", {"action": "set_smart_device"}),
+        "query_knowledge": ("query_memory", {"action": "query"}),
+        "get_battery_status": ("telemetry_battery", {"action": "get_battery_status"}),
+        "get_system_health": ("telemetry_health", {"action": "get_system_health"}),
     }
 
-    def __init__(self, registry: SkillRegistry, nav_client: Optional[NavigationClient] = None, reactive_safety: Optional[ReactiveSafety] = None):
+    def __init__(
+        self,
+        registry: SkillRegistry,
+        nav_client: Optional[NavigationClient] = None,
+        reactive_safety: Optional[ReactiveSafety] = None,
+        world_model: Optional[Any] = None,
+    ):
         self.registry = registry
         self.nav_client = nav_client
         self.reactive_safety = reactive_safety
+        self.world_model = world_model
         self._logger = get_logger("skill_executor")
+
+    def _build_execution_text(self, skill_name: str, args: Dict[str, Any]) -> str:
+        """Converts structured function-call args into natural text understood by builtin skills."""
+        execution_text = str(args.get("text", "") or args.get("query", "") or "")
+        action = args.get("action")
+        if skill_name == "navigation" and action:
+            if action == "move_to_room":
+                execution_text = f"vai in {args.get('target', '')}"
+            elif action in ("goto", "navigate_to"):
+                dest = args.get("destination") or args.get("target") or args.get("target_room", "")
+                execution_text = f"vai in {dest}"
+            elif action in ("move_distance", "move_relative"):
+                direction = args.get("direction", "avanti")
+                if "distance_m" in args:
+                    dist_cm = int(round(float(args["distance_m"]) * 100))
+                    execution_text = f"muoviti {direction} di {dist_cm} centimetri"
+                elif "degrees" in args:
+                    deg = int(round(float(args["degrees"])))
+                    execution_text = f"ruota a {direction} di {int(round(deg))} gradi"
+                else:
+                    execution_text = f"muoviti {direction}"
+            elif action == "rotate_angle":
+                direction = args.get("direction", "destra")
+                deg = int(round(float(args.get("degrees", 90.0))))
+                execution_text = f"ruota a {direction} di {deg} gradi"
+            elif action == "explore":
+                execution_text = "esplora la casa"
+            elif action == "stop":
+                execution_text = "fermati"
+            elif action == "return_base":
+                execution_text = "torna alla base"
+        elif skill_name == "frontier_exploration" and action:
+            if action in ("start_explore", "explore"):
+                execution_text = "esplora la casa"
+            elif action == "pause_or_resume":
+                mode = str(args.get("command") or args.get("mode") or args.get("state") or "").lower()
+                execution_text = "riprendi esplorazione" if "resum" in mode or "riprend" in mode else "metti in pausa esplorazione"
+            elif action == "search_target":
+                execution_text = f"cerca {args.get('target', '')}"
+            elif action == "stop":
+                execution_text = "fermati"
+            elif action == "get_status":
+                execution_text = "stato navigazione"
+        elif skill_name == "home_assistant":
+            if execution_text:
+                return execution_text
+            state_raw = str(args.get("state") or args.get("command") or args.get("value") or "").lower()
+            device = str(args.get("device") or args.get("entity_id") or args.get("target") or "luce")
+            room = str(args.get("room") or args.get("location") or "")
+            verb = "spegni" if state_raw in ("off", "false", "0", "spegni", "chiudi") else "accendi"
+            execution_text = f"{verb} {device} {room}".strip()
+        elif skill_name == "query_memory" and not execution_text:
+            execution_text = str(args.get("topic") or args.get("entity") or "ricordi recenti")
+        return execution_text
+
+    def _execute_internal_telemetry(self, action_name: str, args: Dict[str, Any]) -> Optional[SkillExecutionResult]:
+        """Handles local battery/system health telemetry queries without external ROS service gaps (P1.8)."""
+        if action_name not in ("telemetry_battery", "get_battery_status", "telemetry_health", "get_system_health"):
+            return None
+
+        wm = self.world_model
+        if action_name in ("telemetry_battery", "get_battery_status"):
+            v = getattr(wm, "battery_voltage", None) if wm is not None else None
+            pct = getattr(wm, "battery_pct", None) if wm is not None else None
+            charging = getattr(wm, "is_charging", None) if wm is not None else None
+            if isinstance(v, (int, float)) and v > 0:
+                pct_part = f" ({pct:.0f}%)" if isinstance(pct, (int, float)) else ""
+                charge_part = " in carica sulla base" if charging else ""
+                speak = f"La batteria è a {v:.2f} volt{pct_part}{charge_part}."
+                return SkillExecutionResult(
+                    success=True,
+                    message=speak,
+                    speak=speak,
+                    data={"battery_voltage": float(v), "battery_pct": pct, "is_charging": charging},
+                )
+            speak = "I dati della batteria non sono ancora disponibili dal nodo BMS."
+            return SkillExecutionResult(success=False, message=speak, speak=speak, data={})
+
+        # System health telemetry (CPU, RAM, thermal)
+        cpu_pct = getattr(wm, "cpu_usage", None) if wm is not None else None
+        ram_mb = getattr(wm, "ram_mb", None) if wm is not None else None
+        temp_c = getattr(wm, "cpu_temp", None) if wm is not None else None
+        try:
+            import psutil as _psutil
+            if cpu_pct is None:
+                cpu_pct = _psutil.cpu_percent(interval=None)
+            if ram_mb is None:
+                ram_mb = _psutil.virtual_memory().used / (1024.0 * 1024.0)
+        except Exception:
+            pass
+        if temp_c is None:
+            try:
+                with open("/sys/class/thermal/thermal_zone0/temp", "r", encoding="utf-8") as tf:
+                    temp_c = float(tf.read().strip()) / 1000.0
+            except Exception:
+                pass
+        parts = []
+        if isinstance(cpu_pct, (int, float)):
+            parts.append(f"CPU al {cpu_pct:.0f}%")
+        if isinstance(ram_mb, (int, float)):
+            parts.append(f"RAM usata {ram_mb:.0f} MB")
+        if isinstance(temp_c, (int, float)):
+            parts.append(f"temperatura {temp_c:.1f} gradi")
+        speak = (
+            f"Stato sistema: {', '.join(parts)}."
+            if parts
+            else "Tutti i moduli principali risultano attivi."
+        )
+        return SkillExecutionResult(
+            success=True,
+            message=speak,
+            speak=speak,
+            data={"cpu_pct": cpu_pct, "ram_mb": ram_mb, "temp_c": temp_c},
+        )
 
     def find_best_match(self, text: str, min_confidence: float):
         return self.registry.find_best_match(text, min_confidence=min_confidence)
@@ -63,6 +189,10 @@ class SkillExecutor:
             target_skill, default_args = self.skill_mapping[action_name]
             args = {**default_args, **args}
 
+        internal_res = self._execute_internal_telemetry(target_skill, args)
+        if internal_res is not None:
+            return internal_res
+
         skill = self.registry.get(target_skill)
         if not skill and target_skill == "frontier_exploration":
             skill = self.registry.get("navigation")
@@ -72,31 +202,7 @@ class SkillExecutor:
             self._logger.warning(msg)
             return SkillExecutionResult(success=False, message=msg, error_code="SKILL_NOT_FOUND")
 
-        # Prepare execution text for skills that rely on natural language intent
-        execution_text = args.get("text", "") or args.get("query", "")
-        if "action" in args:
-            action = args.get("action")
-            if action in ("goto", "navigate_to"):
-                dest = args.get("destination") or args.get("target", "")
-                execution_text = f"vai in {dest}"
-            elif action in ("move_distance", "move_relative"):
-                direction = args.get("direction", "avanti")
-                if "distance_m" in args:
-                    dist_cm = int(round(float(args["distance_m"]) * 100))
-                    execution_text = f"muoviti {direction} di {dist_cm} centimetri"
-                elif "degrees" in args:
-                    deg = int(round(float(args["degrees"])))
-                    execution_text = f"ruota a {direction} di {deg} gradi"
-                else:
-                    execution_text = f"muoviti {direction}"
-            elif action == "rotate_angle":
-                direction = args.get("direction", "destra")
-                deg = int(round(float(args.get("degrees", 90.0))))
-                execution_text = f"ruota a {direction} di {deg} gradi"
-            elif action == "stop":
-                execution_text = "fermati"
-            elif action in ("explore", "start_explore"):
-                execution_text = "esplora la casa"
+        execution_text = self._build_execution_text(target_skill, args)
 
         try:
             raw_result = await skill.safe_execute(execution_text, args)
@@ -141,6 +247,10 @@ class SkillExecutor:
             args = {**default_args, **args}
             skill_name = target_skill
 
+        internal_res = self._execute_internal_telemetry(skill_name, args)
+        if internal_res is not None:
+            return [internal_res.speak or internal_res.message]
+
         skill = self.registry.get(skill_name)
         if not skill and skill_name == "frontier_exploration":
             skill = self.registry.get("navigation")
@@ -149,46 +259,7 @@ class SkillExecutor:
             self._logger.warning(f"Skill '{skill_name}' non trovata nel registry.")
             return []
 
-        execution_text = args.get("text", "") or args.get("query", "")
-        if skill_name == "navigation" and "action" in args:
-             # Backward compatibility mappings for older prompts and semantic commands
-             action = args.get("action")
-             if action == "move_to_room":
-                 execution_text = f"vai in {args.get('target', '')}"
-             elif action in ("goto", "navigate_to"):
-                 dest = args.get("destination") or args.get("target", "")
-                 execution_text = f"vai in {dest}"
-             elif action in ("move_distance", "move_relative"):
-                 direction = args.get("direction", "avanti")
-                 if "distance_m" in args:
-                     dist_m = float(args["distance_m"])
-                     dist_cm = int(round(dist_m * 100))
-                     execution_text = f"muoviti {direction} di {dist_cm} centimetri"
-                 elif "degrees" in args:
-                     deg = float(args["degrees"])
-                     execution_text = f"ruota a {direction} di {int(round(deg))} gradi"
-                 else:
-                     execution_text = f"muoviti {direction}"
-             elif action == "rotate_angle":
-                 direction = args.get("direction", "destra")
-                 deg = float(args.get("degrees", 90.0))
-                 execution_text = f"ruota a {direction} di {int(round(deg))} gradi"
-             elif action == "explore":
-                 execution_text = "esplora la casa"
-             elif action == "stop":
-                 execution_text = "fermati"
-             elif action == "return_base":
-                 execution_text = "torna alla base"
-        elif skill_name == "frontier_exploration" and "action" in args:
-             action = args.get("action")
-             if action in ("start_explore", "explore"):
-                 execution_text = "esplora la casa"
-             elif action == "search_target":
-                 execution_text = f"cerca {args.get('target', '')}"
-             elif action == "stop":
-                 execution_text = "fermati"
-             elif action == "get_status":
-                 execution_text = "stato navigazione"
+        execution_text = self._build_execution_text(skill_name, args)
 
         try:
             # Pass args as the context dictionary to safe_execute

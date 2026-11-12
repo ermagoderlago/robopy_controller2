@@ -58,6 +58,7 @@ from .reactive_safety import ReactiveSafety
 from .ha_context import HAContextUpdater
 from .skill_executor import SkillExecutor
 from .conversation import ConversationManager
+from .dialogue_arbiter import DialogueArbiter, MicMuteOwner
 
 class AIOrchestrator(Node):
     def __init__(self):
@@ -81,6 +82,12 @@ class AIOrchestrator(Node):
         # ReSpeaker LED feedback
         self.respeaker_led_pub = self.create_publisher(String, '/respeaker/led_command', 10)
         self.speaker_trigger_pub = self.create_publisher(String, '/speaker/trigger_enrollment', 10)
+        self.live_session_active_pub = self.create_publisher(Bool, '/ai/live/session_active', 10)
+        self.mic_mute_pub = self.create_publisher(Bool, '/ai/input/mic_mute', 10)
+        self.affective_state_pub = self.create_publisher(String, '/ai/affective_state', 10)
+        self.dialogue_arbiter = DialogueArbiter()
+        self._last_published_live_active = None
+        self._cached_live_digest = ""
 
         # Manager
         self.world_model = WorldModel()
@@ -191,16 +198,28 @@ class AIOrchestrator(Node):
              self.ai_logger.error(f"Errore durante il caricamento dinamico delle skill attive: {e}")
 
 
-        self.skill_executor = SkillExecutor(self.skill_registry, self.nav_client, self.reactive_safety)
+        self.skill_executor = SkillExecutor(
+            self.skill_registry,
+            self.nav_client,
+            self.reactive_safety,
+            world_model=self.world_model,
+        )
         
         # Registrazione del callback executor per la Live API di Gemini (WebSocket Function Calling)
         if hasattr(self.llm_service, 'register_tool_executor'):
              self.llm_service.register_tool_executor(self._execute_tool_live)
+        if hasattr(self.llm_service, 'attach_dialogue_arbiter'):
+             self.llm_service.attach_dialogue_arbiter(self.dialogue_arbiter)
+        if hasattr(self.llm_service, 'set_trinity_turn_callback'):
+             self.llm_service.set_trinity_turn_callback(self._on_live_turn_for_trinity)
+        if hasattr(self.llm_service, 'set_context_digest_getter'):
+             self.llm_service.set_context_digest_getter(self._get_live_context_digest)
+
         self.conversation_manager = ConversationManager(
             llm=self.llm_service,
             tts=self.tts_service,
             skill_executor=self.skill_executor,
-            memory_manager=self.memory_manager,
+            memory_manager=self.memory_store if False else self.memory_manager,
             world_model=self.world_model,
             ha_context_provider=self.ha_context_updater.get_context_string,
             metrics=self.metrics_collector,
@@ -209,6 +228,7 @@ class AIOrchestrator(Node):
             response_callback=self._on_ai_response,
             node=self
         )
+        self.conversation_manager.attach_dialogue_arbiter(self.dialogue_arbiter)
         self.conversation_manager.document_callback = self._on_ai_document
 
         self._last_text_input = ""
@@ -236,7 +256,16 @@ class AIOrchestrator(Node):
         self.create_subscription(String, 'ai/input/document', self._document_input_callback, 10)
         self.create_subscription(String, 'ai/input/voice_test', self._voice_test_callback, 10)
         self.create_subscription(String, '/ai/live/fallback', self._fallback_callback, 10)
-        self.pub_hailo_vlm = self.create_publisher(String, '/hailo/vlm/ask_question', 10)
+        # [P4.4] Rimossa self.pub_hailo_vlm su /hailo/vlm/ask_question per eliminare collisione topic/service
+
+        # Social Context, Cloud Watchdog, Proactive Gate & Unified Affective Bus (P2 / P3 / P4)
+        self.create_subscription(String, '/cloud/status', self._cloud_status_callback, 10)
+        self.create_subscription(String, '/engagement/status', self._engagement_status_callback, 10)
+        self.create_subscription(String, '/marcus/social_context/tom_state', self._tom_state_callback, 10)
+        self.create_subscription(String, '/identity/active_person', self._active_person_callback, 10)
+        self.create_subscription(String, '/ai/conversation/proactive_speech', self._proactive_speech_callback, 10)
+        self.create_subscription(String, '/ai/affective_state', self._affective_state_callback, 10)
+        self.create_subscription(String, '/ai/input/mic_mute_request', self._mic_mute_request_callback, 10)
 
         # Lifecycle & Memory Pressure Sentinel Subscriptions
         self.create_subscription(String, '/system/operating_state', self._operating_state_callback, 10)
@@ -247,7 +276,8 @@ class AIOrchestrator(Node):
         t1 = self.create_timer(0.1, self._reactive_loop_callback)
         t2 = self.create_timer(10.0, self._ha_update_callback)
         t3 = self.create_timer(5.0, self._metrics_callback)
-        self.timer_list.extend([t1, t2, t3])
+        t4 = self.create_timer(0.5, self._arbiter_tick_callback)
+        self.timer_list.extend([t1, t2, t3, t4])
 
         # Se deepseek c'è
         from datetime import time as dtime
@@ -337,8 +367,134 @@ class AIOrchestrator(Node):
     def _metrics_callback(self):
         if self._shutdown_flag:
             return
-        # Qui potremmo pubblicare metrics
-        pass
+        if self._loop.is_running():
+            asyncio.run_coroutine_threadsafe(self._refresh_live_digest_async(), self._loop)
+
+    def _arbiter_tick_callback(self):
+        """Syncs Option A Live owner state and drains social-gated proactive queue (P2.2 / P2.4)."""
+        if self._shutdown_flag:
+            return
+        live_active = self.dialogue_arbiter.is_live_voice_active()
+        if live_active != self._last_published_live_active:
+            self._last_published_live_active = live_active
+            msg = Bool()
+            msg.data = live_active
+            self.live_session_active_pub.publish(msg)
+
+        item = self.dialogue_arbiter.pop_ready_proactive()
+        if item is not None and self.tts_service and self._loop.is_running():
+            asyncio.run_coroutine_threadsafe(self._speak_proactive_item(item), self._loop)
+
+    async def _speak_proactive_item(self, item):
+        dec = self.dialogue_arbiter.acquire_floor("SYSTEM_PROACTIVE")
+        if not dec.allowed:
+            return
+        try:
+            self.dialogue_arbiter.trace.log_event(
+                "proactive_spoken",
+                turn_id=dec.turn_id,
+                source="arbiter",
+                floor=dec.floor_state,
+                connectivity=self.dialogue_arbiter.connectivity.value,
+                detail={"kind": item.kind, "text": item.text},
+            )
+            await self.tts_service.speak(item.text)
+        finally:
+            self.dialogue_arbiter.release_floor(turn_id=dec.turn_id, source="SYSTEM_PROACTIVE", force=True)
+
+    def _cloud_status_callback(self, msg: String):
+        mode = (msg.data or "").strip().upper()
+        self.dialogue_arbiter.set_connectivity(mode)
+
+    def _engagement_status_callback(self, msg: String):
+        raw = (msg.data or "").strip()
+        state_val = raw.upper()
+        person_present = None
+        if raw.startswith("{"):
+            try:
+                import json
+                payload = json.loads(raw)
+                state_val = str(payload.get("state") or payload.get("status") or "UNKNOWN").upper()
+                if "person_present" in payload or "is_person_present" in payload:
+                    person_present = bool(payload.get("person_present", payload.get("is_person_present")))
+            except Exception:
+                pass
+        self.dialogue_arbiter.update_engagement(state_val, is_person_present=person_present)
+
+    def _tom_state_callback(self, msg: String):
+        self.dialogue_arbiter.update_tom_state(msg.data)
+        if hasattr(self.tts_service, "set_volume_scale"):
+            self.tts_service.set_volume_scale(self.dialogue_arbiter.recommended_tts_volume_scale())
+
+    def _active_person_callback(self, msg: String):
+        name = (msg.data or "").strip()
+        present = bool(name and name.lower() not in ("unknown", "sconosciuto", "none"))
+        self.dialogue_arbiter.update_engagement(
+            self.dialogue_arbiter.social.engagement_state,
+            is_person_present=present,
+            active_person=name,
+        )
+
+    def _proactive_speech_callback(self, msg: String):
+        text = (msg.data or "").strip()
+        if text:
+            self.dialogue_arbiter.enqueue_proactive(
+                kind="cognitive_core",
+                text=text,
+                priority=4,
+                requires_presence=True,
+            )
+
+    def _affective_state_callback(self, msg: String):
+        raw = (msg.data or "").strip()
+        mood = raw
+        if raw.startswith("{"):
+            try:
+                import json
+                mood = str(json.loads(raw).get("mood", "NORMAL"))
+            except Exception:
+                pass
+        if hasattr(self.llm_service, "set_affective_state"):
+            self.llm_service.set_affective_state(mood)
+
+    def _mic_mute_request_callback(self, msg: String):
+        """Riceve lock di mute dai nodi periferici (MOVEMENT/SYSTEM/EMERGENCY/TTS_ECHO) e risolve su arbiter unico (P2.5)."""
+        raw = (msg.data or "").strip()
+        if not raw:
+            return
+        try:
+            import json
+            payload = json.loads(raw)
+            owner = str(payload.get("owner", "SYSTEM"))
+            muted = bool(payload.get("muted", False))
+            reason = str(payload.get("reason", ""))
+            self.publish_mic_mute_arbitrated(owner, muted, reason=reason)
+        except Exception as exc:
+            self.ai_logger.debug(f"Malformed mic_mute_request ignored: {exc}")
+
+    def publish_mic_mute_arbitrated(self, owner: MicMuteOwner | str, muted: bool, reason: str = "") -> None:
+        """Centralized single-owner Arbitration for /ai/input/mic_mute (P2.5)."""
+        eff = self.dialogue_arbiter.set_mic_mute_lock(owner, muted, reason=reason)
+        if eff is not None and hasattr(self, "mic_mute_pub"):
+            m = Bool()
+            m.data = eff
+            self.mic_mute_pub.publish(m)
+
+    def _get_live_context_digest(self) -> str:
+        return self._cached_live_digest
+
+    async def _refresh_live_digest_async(self):
+        eng = getattr(self.conversation_manager, "trinity_engine", None)
+        if eng is not None and hasattr(eng, "build_live_context_digest"):
+            try:
+                self._cached_live_digest = await eng.build_live_context_digest(max_tokens=2000)
+            except Exception:
+                pass
+
+    def _on_live_turn_for_trinity(self, user_text: str, model_text: str, engine: str) -> None:
+        eng = getattr(self.conversation_manager, "trinity_engine", None)
+        if eng is not None and hasattr(eng, "record_live_turn_sync"):
+            eng.record_live_turn_sync(user_text, model_text)
 
     def _audio_chunk_callback(self, msg: AudioData):
         if self._shutdown_flag:
@@ -398,9 +554,11 @@ class AIOrchestrator(Node):
             result = self.face_recognition_service.process_face_embedding(embedding_list)
             if result.enrollment_complete:
                 self.get_logger().info(f"🎉 Dynamic enrollment complete for {result.name}!")
-                asyncio.run_coroutine_threadsafe(
-                    self.tts_service.speak(f"Ho imparato a riconoscere {result.name}!"),
-                    self._loop
+                self.dialogue_arbiter.enqueue_proactive(
+                    kind="face_enrollment",
+                    text=f"Ho imparato a riconoscere {result.name}!",
+                    priority=7,
+                    requires_presence=True,
                 )
         except Exception as e:
             self.get_logger().error(f"Errore processamento embedding NPU: {e}")
@@ -486,6 +644,13 @@ class AIOrchestrator(Node):
             return
         text = msg.data.strip()
         if not text:
+            return
+        # [P1.3 Option A] Sopprimi inoltro parallelo a Qwen mentre Gemini Live detiene il canale vocale ONLINE
+        if (
+            not self.dialogue_arbiter.should_vui_forward_to_local_pipeline()
+            and not self.dialogue_arbiter.is_fast_path_stop(text)
+        ):
+            self.ai_logger.debug(f"🔒 [Option A] Ignorato voice_test duplicato con Live attivo: '{text}'")
             return
         now = time.time()
         if text == self._last_text_input and (now - self._last_text_time) < 0.20:
@@ -579,10 +744,15 @@ class AIOrchestrator(Node):
         email_skill = self.skill_registry.get("check_emails")
         if email_skill and hasattr(email_skill, 'run_morning_briefing'):
             briefing = await email_skill.run_morning_briefing()
-            if briefing and self.tts_service:
-                self.ai_logger.info("📧 Annuncio morning briefing vocale...")
+            if briefing:
+                self.ai_logger.info("📧 Accodamento morning briefing in DialogueArbiter...")
                 intro = "Buongiorno Luca! Ecco il tuo briefing mattutino. "
-                await self.tts_service.speak(intro + briefing)
+                self.dialogue_arbiter.enqueue_proactive(
+                    kind="morning_briefing",
+                    text=intro + briefing,
+                    priority=6,
+                    requires_presence=True,
+                )
 
     def _check_proactive_email_notifications(self):
         """Controlla se ci sono notifiche email urgenti o importanti pendenti e le annuncia proattivamente."""
@@ -605,10 +775,15 @@ class AIOrchestrator(Node):
 
         if hasattr(email_skill, 'consume_notifications'):
             notifications = email_skill.consume_notifications()
-            if notifications and self.tts_service:
-                self.ai_logger.info(f"📧 Proattività: Rilevate nuove email da annunciare: {notifications}")
-                announcement = f"Scusami Luca, ti informo che hai nuove email importanti. {notifications}"
-                await self.tts_service.speak(announcement)
+            if notifications:
+                self.ai_logger.info(f"📧 Proattività: accodamento notifica email in DialogueArbiter: {notifications}")
+                announcement = f"Ti informo che hai nuove email importanti. {notifications}"
+                self.dialogue_arbiter.enqueue_proactive(
+                    kind="email_notification",
+                    text=announcement,
+                    priority=5,
+                    requires_presence=True,
+                )
 
     async def _on_ha_event(self, event_data: dict):
         # Evento da HA (es. cambio luce) arrivato
@@ -701,6 +876,11 @@ class AIOrchestrator(Node):
         Richiamato da llm_live_api.py in background asincrono.
         """
         self.ai_logger.info(f"🛠️ [Live Tool Call] Richiesta esecuzione per: {name} con argomenti {args}")
+        # [P4.1] Backchannel visivo/LED <300ms per tool lenti
+        self._update_led("LED_EFFECT:THINKING")
+        if name in ("search_target", "query_knowledge", "query_memory", "ask_visual_question", "visual_pointing"):
+            cat = "vision" if "visual" in name else ("memory" if "memory" in name or "knowledge" in name else "default")
+            self.dialogue_arbiter.request_backchannel_cue(category=cat)
 
         # Mappatura funzioni dichiarate a Gemini verso skill di sistema
         if name in ("stop_navigation", "nav_stop"):

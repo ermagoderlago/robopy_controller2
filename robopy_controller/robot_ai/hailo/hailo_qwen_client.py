@@ -56,7 +56,10 @@ class HailoQwenConfig:
     timeout_sec: float = 10.0
     ttft_budget_ms: float = 400.0
     cpu_delta_max_pct: float = 5.0
-    enable_mock_fallback: bool = True
+    # [P1.1] Safety-first: mock engine disabled in production unless explicitly opted-in.
+    enable_mock_fallback: bool = field(
+        default_factory=lambda: os.environ.get("MARCUS_QWEN_ALLOW_MOCK", "").strip() == "1"
+    )
     mock_ttft_ms: float = 280.0
     mock_inter_token_ms: float = 30.0
     mock_cpu_overhead_pct: float = 0.1
@@ -468,6 +471,16 @@ class HailoQwenClient:
         base_cpu: float,
     ) -> AsyncIterator[TokenChunk]:
         """High-fidelity simulation matching Hailo-10H Qwen2 latency and token rate."""
+        try:
+            from ..orchestration.dialogue_trace import get_dialogue_trace
+            get_dialogue_trace().log_event(
+                "mock_activation",
+                source="qwen_mock",
+                connectivity="MOCK",
+                detail={"model": model, "prompt_len": len(prompt or "")},
+            )
+        except Exception:
+            pass
         tokens = self._synthesize_mock_tokens(prompt)
         total_tokens = len(tokens)
 
@@ -832,38 +845,19 @@ class HailoQwenClient:
         elif any(w in user_lower for w in ["puoi parlare", "mi senti", "ci sei", "mi ascolti"]):
             text = "Sì, ti sento perfettamente! Sono pronto a dialogare."
 
-        # K. Physical Motion Commands (Checked on user_lower or lower_full)
-        elif any(w in user_lower for w in ["destra", "ruota a destra", "turn right"]):
-            m_deg = re.search(r'(\d+)\s*gradi?', user_lower)
-            deg = float(m_deg.group(1)) if m_deg else 45.0
-            text = f'{{"action": "rotate_angle", "parameters": {{"direction": "destra", "degrees": {deg}, "angle_deg": -{deg}, "angular_speed": 0.5}}}}'
-        elif any(w in user_lower for w in ["sinistra", "ruota a sinistra", "turn left"]):
-            m_deg = re.search(r'(\d+)\s*gradi?', user_lower)
-            deg = float(m_deg.group(1)) if m_deg else 45.0
-            text = f'{{"action": "rotate_angle", "parameters": {{"direction": "sinistra", "degrees": {deg}, "angle_deg": {deg}, "angular_speed": 0.5}}}}'
-        elif any(w in user_lower for w in ["ruota", "girati"]):
-            direction = "sinistra" if "sinistra" in user_lower else "destra"
-            sign = 1.0 if direction == "sinistra" else -1.0
-            m_deg = re.search(r'(\d+)\s*gradi?', user_lower)
-            deg = float(m_deg.group(1)) if m_deg else 45.0
-            text = f'{{"action": "rotate_angle", "parameters": {{"direction": "{direction}", "degrees": {deg}, "angle_deg": {sign * deg}, "angular_speed": 0.5}}}}'
-        elif any(w in user_lower for w in ["avanti", "vai dritto", "forward", "cammina", "muoviti", "spostati"]):
-            m_cm = re.search(r'(\d+)\s*(?:cm|centimetri)', user_lower)
-            m_m = re.search(r'(\d+(?:\.\d+)?)\s*metri?', user_lower)
-            dist_m = float(m_cm.group(1)) / 100.0 if m_cm else (float(m_m.group(1)) if m_m else 0.5)
-            text = f'{{"action": "move_distance", "parameters": {{"distance_m": {dist_m:.2f}, "speed": 0.18}}}}'
-        elif any(w in user_lower for w in ["indietro", "arretra", "back", "reverse"]):
-            m_cm = re.search(r'(\d+)\s*(?:cm|centimetri)', user_lower)
-            m_m = re.search(r'(\d+(?:\.\d+)?)\s*metri?', user_lower)
-            dist_m = -(float(m_cm.group(1)) / 100.0) if m_cm else (-(float(m_m.group(1))) if m_m else -0.3)
-            text = f'{{"action": "move_distance", "parameters": {{"distance_m": {dist_m:.2f}, "speed": 0.12}}}}'
+        # K. Physical Motion Commands — P1.1 Safety Guard: mock MUST NEVER emit motion JSON <action>
         elif any(w in user_lower for w in ["fermati", "stop", "arresto", "alt", "blocca"]):
-            text = '{"action": "stop_motion", "parameters": {"reason": "emergency_halt"}}'
-        elif any(w in user_lower for w in ["cucina", "salotto", "camera", "bagno", "corridoio", "vai in"]):
-            room = "cucina" if "cucina" in user_lower else ("salotto" if "salotto" in user_lower else "camera")
-            text = f'{{"action": "navigate_to", "parameters": {{"target_room": "{room}"}}}}'
-        elif any(w in user_lower for w in ["esplora", "frontiere", "esplorazione", "mappa"]):
-            text = '{"action": "start_frontier_exploration", "parameters": {"mode": "continuous"}}'
+            text = "Ricevuto, arresto immediato."
+        elif any(w in user_lower for w in [
+            "destra", "ruota a destra", "turn right",
+            "sinistra", "ruota a sinistra", "turn left",
+            "ruota", "girati",
+            "avanti", "vai dritto", "forward", "cammina", "muoviti", "spostati",
+            "indietro", "arretra", "back", "reverse",
+            "cucina", "salotto", "camera", "bagno", "corridoio", "vai in",
+            "esplora", "frontiere", "esplorazione", "mappa",
+        ]):
+            text = "Modalità simulata attiva: i comandi di movimento fisico richiedono la NPU reale."
 
         # L. Polite closures & confirmations
         elif any(w in user_lower for w in ["grazie", "grazie mille", "ti ringrazio", "bravo", "ottimo", "ben fatto", "thanks"]):
@@ -969,8 +963,11 @@ class HailoQwenClient:
             return "", empty_telem
 
         buffer: List[str] = []
+        gen_start_ns = time.perf_counter_ns()
+        first_chunk_ns: Optional[int] = None
 
         async def _collect_tokens():
+            nonlocal first_chunk_ns
             async for chunk in self.generate_stream(
                 clean_prompt,
                 system_prompt=system_prompt,
@@ -978,6 +975,8 @@ class HailoQwenClient:
                 timeout_sec=eff_timeout,
                 messages=messages,
             ):
+                if first_chunk_ns is None and chunk.token:
+                    first_chunk_ns = time.perf_counter_ns()
                 buffer.append(chunk.token)
 
         try:
@@ -990,6 +989,13 @@ class HailoQwenClient:
             )
             raise
 
+        gen_end_ns = time.perf_counter_ns()
+        measured_total_ms = max(0.001, (gen_end_ns - gen_start_ns) / 1_000_000.0)
+        measured_ttft_ms = (
+            max(0.001, (first_chunk_ns - gen_start_ns) / 1_000_000.0)
+            if first_chunk_ns is not None
+            else measured_total_ms
+        )
         full_text = "".join(buffer)
         telemetry = self.last_telemetry
         if telemetry is None or telemetry.prompt != clean_prompt:
@@ -997,10 +1003,10 @@ class HailoQwenClient:
                 model=model or self.config.model_name,
                 prompt=clean_prompt,
                 response=full_text,
-                ttft_ms=0.0,
-                total_time_ms=0.0,
+                ttft_ms=measured_ttft_ms,
+                total_time_ms=measured_total_ms,
                 token_count=len(buffer),
-                tokens_per_sec=0.0,
+                tokens_per_sec=(len(buffer) / (measured_total_ms / 1000.0)) if measured_total_ms > 0 else 0.0,
                 cpu_delta_pct=0.0,
                 memory_delta_mb=0.0,
                 is_mock=self.is_mock_active(),

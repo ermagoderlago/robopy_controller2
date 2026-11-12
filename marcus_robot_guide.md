@@ -369,4 +369,11 @@ Per collaudare e far evolvere Marcus su PC Windows (anche senza NPU Hailo-10H fi
   & "$HOME\.local\bin\uv.exe" run --python 3.11 --with pytest --with numpy --with pyyaml --with httpx python -m pytest test/sim/ -v
   ```
 
+### 4. Arbitraggio Vocale Unico, Percezione Sociale & Voce Naturale (`DialogueArbiter`)
+* **Gerarchia Opzione A:** Quando la connettività è `ONLINE`, **Gemini Live** detiene il turno vocale ed esegue il dialogo naturale bidirezionale; **Local Qwen (Hailo-10H NPU)** interviene esclusivamente come cervello vocale in modalità `DEGRADED`/`OFFLINE_LOCAL` oppure per **Fast-Path Stop `< 10 ms`**, impedendo risposte simultanee duplicate.
+* **Finestra Vocale Controllata & Telemetria `turn_id`:** Tutti i turni emettono eventi tracciati in `logs/dialogue_trace.jsonl`; la finestra di follow-up post-risposta (`8.0s`) usa esclusivamente clock `time.monotonic()` e si chiude su utenti disimpegnati (`DISENGAGED`) o stati `DO_NOT_DISTURB`.
+* **Memoria Condivisa & Proattività Sociale:** Gemini Live riceve al connect il digest TRINITY compatto (`<= 2500` token) e sincronizza ogni turno completato in MAG SQLite. Messaggi proattivi e alert email/enrollment passano in coda su `DialogueArbiter` e rispettano `/engagement/status`, `/marcus/social_context/tom_state` e `/identity/active_person` (attenuazione volume `0.65x` in DND).
+* **Sintesi Offline Naturale & VLM Protetta:** `PiperTTSClient` (`16kHz -> 24kHz`) funge da voce offline prioritaria prima di `gTTS`; i tool lunghi emettono backchannel `< 300ms`; `/hailo/vlm/ask_question` è protetto da guardia termica `< 80°C`.
+
+
 
