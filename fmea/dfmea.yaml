@@ -10905,10 +10905,10 @@
     detection: 5
     rpn: 210
   prevention_controls: Coda proattiva su /ai/conversation/proactive_speech filtrata
-    da DialogueArbiter (/engagement/status, /marcus/social_context/tom_state, /identity/active_person,
-    attenuazione volume DND 0.65x); rimozione bypass wakeword cieco; build_live_context_digest
-    (<=2500 token) + record_live_turn_sync; mapping completo 10 ALLOWED_FUNCTION_NAMES
-    in SkillExecutor con sintesi reale del risultato.
+    da DialogueArbiter (/engagement/status_str QoS BEST_EFFORT con stato LOST, /marcus/social_context/tom_state,
+    /identity/active_person, attenuazione volume DND 0.65x); rimozione bypass wakeword
+    cieco; build_live_context_digest (<=2500 token) + record_live_turn_sync; mapping
+    completo 10 ALLOWED_FUNCTION_NAMES in SkillExecutor con sintesi reale del risultato.
   detection_controls: Contatore proactive_suppressed e suite tests/test_dialogue_arbiter_and_evolution.py.
   residual_scoring:
     severity: 6
@@ -10917,10 +10917,10 @@
     rpn: 12
   risk_level: LOW
   mitigation_status: MITIGATED
-  recommended_action: Verificare integrazione live con /marcus/social_context/tom_state
-    e /identity/active_person su robot reale.
+  recommended_action: Verificare integrazione live con /marcus/social_context/tom_state,
+    /engagement/status_str e /identity/active_person su robot reale.
   verification_method: Pytest PC su SkillExecutor/TRINITY/CognitiveCore + verifica
-    topic ROS 2 su Pi 5.
+    topic e log ROS 2 su Pi 5.
   verification_test_file: tests/test_dialogue_arbiter_and_evolution.py
   eco_ref: docs/ecos/orchestration_rag_ecos.md
   lesson_ref: docs/lessons/orchestration_and_rag.md
@@ -10931,6 +10931,12 @@
     change: Allineati proattività sociale, memoria condivisa TRINITY Live<->Qwen e
       tutte le 10 skill ALLOWED_FUNCTION_NAMES con parlato reale (RPN 210 -> 12).
     rpn_old: 210
+    rpn_new: 12
+  - date: '2026-11-12'
+    change: Allineato topic /engagement/status_str (String, BEST_EFFORT) con gestione
+      stato LOST in VUI/DialogueArbiter e corretti NameError di boot in attention_supervisor_node.py
+      e speaker_id_node.py osservati al deploy su Pi 5.
+    rpn_old: 12
     rpn_new: 12
 - id: FM-VIS-014
   subsystem: Vision/Hailo-VLM

@@ -3,6 +3,7 @@ import threading
 import time
 from typing import Optional, List, Dict, Callable
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from sensor_msgs.msg import CompressedImage
 from std_msgs.msg import String, Bool, Float32MultiArray
 from vision_msgs.msg import Detection2DArray
@@ -260,7 +261,12 @@ class AIOrchestrator(Node):
 
         # Social Context, Cloud Watchdog, Proactive Gate & Unified Affective Bus (P2 / P3 / P4)
         self.create_subscription(String, '/cloud/status', self._cloud_status_callback, 10)
-        self.create_subscription(String, '/engagement/status', self._engagement_status_callback, 10)
+        engagement_qos = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
+        self.create_subscription(String, '/engagement/status_str', self._engagement_status_callback, engagement_qos)
         self.create_subscription(String, '/marcus/social_context/tom_state', self._tom_state_callback, 10)
         self.create_subscription(String, '/identity/active_person', self._active_person_callback, 10)
         self.create_subscription(String, '/ai/conversation/proactive_speech', self._proactive_speech_callback, 10)

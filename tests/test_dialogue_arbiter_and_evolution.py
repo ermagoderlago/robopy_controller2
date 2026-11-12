@@ -247,6 +247,15 @@ def _ensure_ros_stubs():
         mod_eis.Trigger = MagicMock()
         sys.modules["example_interfaces.srv"] = mod_eis
 
+    if "std_srvs" not in sys.modules:
+        sys.modules["std_srvs"] = types.ModuleType("std_srvs")
+    if "std_srvs.srv" not in sys.modules:
+        mod_ssrv = types.ModuleType("std_srvs.srv")
+        empty_cls = MagicMock()
+        empty_cls.Request = MagicMock
+        mod_ssrv.Empty = empty_cls
+        sys.modules["std_srvs.srv"] = mod_ssrv
+
     if "scipy" not in sys.modules:
         sys.modules["scipy"] = types.ModuleType("scipy")
     if "scipy.signal" not in sys.modules:
@@ -964,6 +973,17 @@ def test_p3_p4_human_vui_piper_offline_and_vlm_thermal_guard(tmp_path):
 
     vui._engagement_status_cb(String(data="DISENGAGED"))
     assert vui._engagement_state == "DISENGAGED"
+    assert vui._is_person_present is False
+
+    vui._is_person_present = True
+    vui._engagement_status_cb(String(data="LOST"))
+    assert vui._engagement_state == "LOST"
+    assert vui._is_person_present is False
+
+    vui._dialogue_arbiter.update_engagement("ENGAGED")
+    assert vui._dialogue_arbiter.social.is_person_present is True
+    vui._dialogue_arbiter.update_engagement("LOST")
+    assert vui._dialogue_arbiter.social.is_person_present is False
 
     # 2. <300ms backchannel cue with cooldown
     cue = vui._dialogue_arbiter.request_backchannel_cue(category="vision", min_interval_sec=5.0)
@@ -1039,3 +1059,37 @@ def test_p3_p4_human_vui_piper_offline_and_vlm_thermal_guard(tmp_path):
     with patch("builtins.open", side_effect=_patched_open):
         vqa_msg = asyncio.run(cm.ask_visual_question("cosa vedi?"))
     assert "temperatura" in vqa_msg.lower()
+
+
+def test_marcus_boot_hotfixes_and_engagement_qos():
+    """Verifies Pi 5 runtime fixes: AttentionSupervisorNode String import, SpeakerIdNode typing, and /engagement/status_str BEST_EFFORT QoS."""
+    import inspect
+    from robopy_controller.nodes import attention_supervisor_node
+    from robopy_controller.nodes import speaker_id_node
+    from robopy_controller.nodes import respeaker_vui_node
+    from robopy_controller.robot_ai.orchestration import orchestrator
+
+    # 1. AttentionSupervisorNode instantiates and publishes JSON String without NameError
+    att_cls = attention_supervisor_node.AttentionSupervisorNode
+    att = object.__new__(att_cls)
+    att.pub_mic_mute_req = MagicMock()
+    att._json = json
+    att.set_mic_mute(True)
+    att.pub_mic_mute_req.publish.assert_called_once()
+    assert "String" in attention_supervisor_node.__dict__
+
+    # 2. SpeakerIdNode imports Optional/List cleanly and runs simulated extract_embedding
+    assert hasattr(speaker_id_node, "SpeakerIdNode")
+    sp = object.__new__(speaker_id_node.SpeakerIdNode)
+    sp.sim_mode = True
+    sp.hef = None
+    emb = sp.extract_embedding(np.ones(3200, dtype=np.int16) * 500)
+    assert isinstance(emb, list) and len(emb) == 192
+
+    # 3. Both VUI and AIOrchestrator subscribe to /engagement/status_str with BEST_EFFORT QoS (matching engagement_monitor)
+    vui_src = inspect.getsource(respeaker_vui_node.ReSpeakerVUINode.__init__)
+    orch_src = inspect.getsource(orchestrator.AIOrchestrator._setup_ros_interfaces)
+    assert "'/engagement/status_str'" in vui_src
+    assert "'/engagement/status_str'" in orch_src
+    assert "ReliabilityPolicy.BEST_EFFORT" in vui_src
+    assert "ReliabilityPolicy.BEST_EFFORT" in orch_src

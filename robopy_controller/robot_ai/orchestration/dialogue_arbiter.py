@@ -527,7 +527,7 @@ class DialogueArbiter:
                 self.social.is_person_present = bool(is_person_present)
             elif norm in ("ENGAGED", "ATTENTIVE", "PASSIVE", "PRESENT"):
                 self.social.is_person_present = True
-            elif norm in ("DISENGAGED", "NONE", "ABSENT", "IDLE"):
+            elif norm in ("DISENGAGED", "NONE", "ABSENT", "IDLE", "LOST"):
                 self.social.is_person_present = False
             if active_person is not None:
                 self.social.active_person = active_person.strip()

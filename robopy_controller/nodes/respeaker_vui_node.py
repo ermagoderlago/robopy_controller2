@@ -381,8 +381,13 @@ class ReSpeakerVUINode(Node):
             Bool, '/ai/proactive/listen_window', self._proactive_listen_window_cb, 10)
 
         # Social Perception & Option A Live Floor Ownership Subscriptions (P1.3 / P3.1)
+        engagement_qos = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
         self.sub_engagement = self.create_subscription(
-            String, '/engagement/status', self._engagement_status_cb, 10)
+            String, '/engagement/status_str', self._engagement_status_cb, engagement_qos)
         self.sub_tom_state = self.create_subscription(
             String, '/marcus/social_context/tom_state', self._tom_state_cb, 10)
         self.sub_active_person = self.create_subscription(
@@ -836,7 +841,7 @@ class ReSpeakerVUINode(Node):
             self._is_person_present = person_present
         elif state_val in ('ENGAGED', 'ATTENTIVE', 'PASSIVE', 'PRESENT'):
             self._is_person_present = True
-        elif state_val in ('DISENGAGED', 'NONE', 'ABSENT', 'IDLE'):
+        elif state_val in ('DISENGAGED', 'NONE', 'ABSENT', 'IDLE', 'LOST'):
             self._is_person_present = False
         self._social_telemetry_active = True
         self._engagement_updated_mono = time.monotonic()
