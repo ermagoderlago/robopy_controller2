@@ -20,7 +20,7 @@ import time
 import math
 import logging
 from dataclasses import dataclass, field
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple
 
 logger = logging.getLogger("HomeostasisMAL")
 
@@ -35,6 +35,8 @@ class ProactiveEvent:
     target_position: Optional[Tuple[float, float, float]] = None
     suggested_utterance: Optional[str] = None
     timestamp: float = field(default_factory=time.time)
+    recommended_action: Optional[Dict[str, Any]] = None
+    secondary_actions: List[Dict[str, Any]] = field(default_factory=list)
 
 
 class HomeostaticDriveEngine:
@@ -58,9 +60,15 @@ class HomeostaticDriveEngine:
         self.last_proactive_trigger_time: float = 0.0
         self.current_battery_voltage: float = 12.2
         self.current_battery_soc: float = 100.0
-        self.tom_state: str = "ENGAGED"  # "DO_NOT_DISTURB", "ENGAGED", "IDLE", "FALL_EMERGENCY"
+        self.tom_state: str = "ENGAGED"  # "DO_NOT_DISTURB", "ENGAGED", "IDLE", "FALL_EMERGENCY", "KNEELING_EYE_LEVEL"
         self.recognized_person_name: Optional[str] = None
         self.last_spatial_anomaly: Optional[Dict[str, Any]] = None
+
+        # Neuro-social hysteresis (desiderio interattivo vs inibizione da richiamo/zittimento)
+        self.social_momentum: float = 0.0
+        self.social_inhibition: float = 0.0
+        self.consecutive_shushes: int = 0
+        self.last_shush_time: float = 0.0
 
         # Cross-inhibition weights (MAL Matrix W)
         # Row i inhibited by column j: W_ij
@@ -98,6 +106,86 @@ class HomeostaticDriveEngine:
         self.last_user_interaction_time = time.time()
         self.sociality = max(0.05, self.sociality - 0.45)
 
+    def notify_positive_dialogue(self, intensity: float = 0.25) -> Dict[str, float]:
+        """
+        Quando una persona parla positivamente con Marcus, aumenta il desiderio di interagire
+        (`social_momentum`) e si attenua l'eventuale inibizione pregressa.
+        """
+        self.last_user_interaction_time = time.time()
+        clamped = max(0.05, min(0.50, float(intensity)))
+        self.social_momentum = min(1.0, self.social_momentum + clamped)
+        self.sociality = min(1.0, self.sociality + 0.14 * (clamped / 0.25))
+        self.social_inhibition = max(0.0, self.social_inhibition - 0.20)
+        if self.social_inhibition < 0.15:
+            self.consecutive_shushes = 0
+        return self.get_neuro_social_state()
+
+    def notify_user_shush(self, severity: float = 0.40, reason: str = "user_shushed") -> ProactiveEvent:
+        """
+        Se le persone zittiscono Marcus, cresce `social_inhibition`, crolla la voglia di
+        interagire e, superata la soglia (o su richiesta esplicita di andare in cuccia),
+        genera una sequenza di ritirata: step indietro (0.25m) -> ritorno in cuccia ('base').
+        """
+        now = time.time()
+        self.last_user_interaction_time = now
+        self.last_shush_time = now
+        self.consecutive_shushes += 1
+
+        bump = max(0.15, min(0.85, float(severity)))
+        self.social_inhibition = min(1.0, self.social_inhibition + bump)
+        self.social_momentum = max(0.0, self.social_momentum - 0.35)
+        self.sociality = max(0.0, self.sociality * 0.25)
+        self.curiosity = max(0.0, self.curiosity * 0.50)
+
+        should_retreat_to_dock = (
+            self.social_inhibition >= 0.50
+            or self.consecutive_shushes >= 2
+            or reason in ("go_to_dock", "vai_a_cuccia", "persistent_shush")
+        )
+        if should_retreat_to_dock:
+            self.autonomy = max(self.autonomy, min(1.0, 0.55 + 0.15 * self.consecutive_shushes))
+            return ProactiveEvent(
+                drive_name="autonomy",
+                drive_intensity=round(self.social_inhibition, 3),
+                trigger_reason="shushed_retreat_to_dock",
+                suggested_utterance=(
+                    "Scusa per il disturbo, faccio un piccolo passo indietro e torno alla mia cuccia."
+                ),
+                recommended_action={
+                    "function_name": "move_distance",
+                    "arguments": {"direction": "indietro", "distance_m": 0.25, "speed": 0.12},
+                },
+                secondary_actions=[
+                    {
+                        "function_name": "navigate_to",
+                        "arguments": {"destination": "base"},
+                    }
+                ],
+            )
+
+        return ProactiveEvent(
+            drive_name="autonomy",
+            drive_intensity=round(self.social_inhibition, 3),
+            trigger_reason="shushed_inhibit_proactivity",
+            suggested_utterance="Ricevuto, abbasso il tono e resto in silenzio.",
+            recommended_action={
+                "function_name": "stop_motion",
+                "arguments": {"reason": "Inibizione sociale per richiesta silenzio"},
+            },
+            secondary_actions=[],
+        )
+
+    def get_neuro_social_state(self) -> Dict[str, Any]:
+        """Restituisce lo stato neuro-sociale corrente per telemetria, Arbiter e Qwen CAG."""
+        return {
+            "social_momentum": round(self.social_momentum, 3),
+            "social_inhibition": round(self.social_inhibition, 3),
+            "consecutive_shushes": self.consecutive_shushes,
+            "sociality": round(self.sociality, 3),
+            "curiosity": round(self.curiosity, 3),
+            "autonomy": round(self.autonomy, 3),
+        }
+
     def step(self, dt: float = 0.5) -> Tuple[Dict[str, float], Optional[ProactiveEvent]]:
         """
         Esegue un passo di integrazione temporale MAL e Active Inference.
@@ -106,9 +194,13 @@ class HomeostaticDriveEngine:
         now = time.time()
         idle_duration = now - self.last_user_interaction_time
 
+        # Decadimento naturale isteresi neuro-sociale
+        self.social_inhibition = max(0.0, self.social_inhibition - 0.008 * dt)
+        self.social_momentum = max(0.0, self.social_momentum - 0.012 * dt)
+
         # 1. Calcolo afferenze grezze (Feedforward Drives)
-        # Sociality cresce con inattività verso LONELY (>120s) e presenza di familiari noti
-        social_growth = 0.002 * (idle_duration / 60.0)
+        # Sociality cresce con inattività verso LONELY (>120s), familiari noti e dialogo positivo
+        social_growth = 0.002 * (idle_duration / 60.0) + 0.06 * self.social_momentum
         if self.recognized_person_name and self.recognized_person_name.lower() not in ("unknown", "none"):
             # Presenza di familiare riconosciuto da ArcFace: forte spinta sociale
             social_growth += 0.08
@@ -147,11 +239,16 @@ class HomeostaticDriveEngine:
             self.w_mal[("autonomy", "sociality")] * raw_sociality
         ) * dt
 
-        # 3. Dynamic Theory of Mind (ToM) Modulation
+        # 3. Dynamic Theory of Mind (ToM) & Shush Inhibition Modulation
         # Se l'utente è al banco di lavoro in DO_NOT_DISTURB, sopprimi curiosità e socialità
         if self.tom_state == "DO_NOT_DISTURB":
             mal_curiosity *= 0.15
             mal_sociality *= 0.15
+
+        if self.social_inhibition > 0.0:
+            inhibition_scale = max(0.05, 1.0 - 0.85 * self.social_inhibition)
+            mal_curiosity *= inhibition_scale
+            mal_sociality *= inhibition_scale
 
         # Clamping finale [0.0, 1.0]
         self.curiosity = max(0.0, min(1.0, mal_curiosity))
@@ -172,6 +269,9 @@ class HomeostaticDriveEngine:
             # Trova la pulsione dominante
             dominant_drive = max(drives, key=drives.get)
             dominant_val = drives[dominant_drive]
+
+            if self.social_inhibition >= 0.50 and dominant_drive != "autonomy":
+                return drives, None
 
             if dominant_val >= self.CRITICAL_THRESHOLD:
                 self.last_proactive_trigger_time = now

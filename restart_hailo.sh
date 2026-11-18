@@ -398,6 +398,9 @@ nohup ros2 run robopy_controller respeaker_vui_node --ros-args \
     > /home/robopy/robopy/logs/respeaker_vui_node.log 2>&1 &
 
 if [ "$ENABLE_HAILO" = "true" ]; then
+    # Rilascia eventuale VDevice HRPC trattenuto da hailo-ollama prima dell'avvio di hailo_bridge_node_cpp (FM-VIS-012)
+    sudo systemctl restart hailo-ollama 2>/dev/null || true
+    sleep 1
     echo "🧠 Starting hailo_bridge_node_cpp (NPU C++ Driver, sim_mode=${HAILO_VISION_SIM:-false}, Shared VDevice: YOLO + Pose + ArcFace)..."
     > /home/robopy/robopy/logs/hailo_bridge_node.log
     nohup taskset -c 2,3 ros2 run robopy_controller hailo_bridge_node_cpp --ros-args \
@@ -582,6 +585,7 @@ sleep 15
 
 echo "🤖 Starting robot_ai_node (Cognitive Orchestrator, soft-scheduled)..."
 > /home/robopy/robopy/logs/robot_ai_node_debug_TEST4.log
+export MARCUS_QWEN_ALLOW_MOCK=${MARCUS_QWEN_ALLOW_MOCK:-1}
 nohup nice -n 5 ros2 run robopy_controller robot_ai_node \
     > /home/robopy/robopy/logs/robot_ai_node_debug_TEST4.log 2>&1 &
 if [ "$SOFT_START" = "true" ]; then

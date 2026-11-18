@@ -34,6 +34,30 @@ class FollowPersonSkill(BaseSkill):
         re.compile(r'\b(smetti di seguire|fermati qui|non seguirmi pi[uù]|basta seguire)\b', re.IGNORECASE)
     ]
 
+    MODE_CONFIGS: Dict[str, Dict[str, Any]] = {
+        "companion": {
+            "nominal_distance_m": 1.20,
+            "min_distance_m": 0.80,
+            "max_linear_speed": 0.35,
+            "default_max_duration_s": None,
+            "deadband_m": 0.15,
+        },
+        "curious_observer": {
+            "nominal_distance_m": 1.40,
+            "min_distance_m": 1.00,
+            "max_linear_speed": 0.20,
+            "default_max_duration_s": 25.0,
+            "deadband_m": 0.15,
+        },
+        "intimate_kneel": {
+            "nominal_distance_m": 0.50,
+            "min_distance_m": 0.40,
+            "max_linear_speed": 0.14,
+            "default_max_duration_s": 20.0,
+            "deadband_m": 0.10,
+        },
+    }
+
     def __init__(self, ros_bridge: Optional[Any] = None):
         super().__init__()
         self.ros_bridge = ros_bridge
@@ -44,6 +68,10 @@ class FollowPersonSkill(BaseSkill):
         self.last_target_seen_time: float = 0.0
         self.last_target_distance_m: float = 1.5
         self.target_lost_timeout_s: float = 4.0
+        self.follow_mode: str = "companion"
+        self.follow_started_time: float = 0.0
+        self.max_follow_duration_s: Optional[float] = None
+        self.deadband_m: float = 0.15
 
         # Kinematic anticipation
         self.last_shoulder_width_norm: float = 0.20
@@ -97,14 +125,31 @@ class FollowPersonSkill(BaseSkill):
                 message="Ho interrotto l'inseguimento. Rimango qui."
             )
 
-        # Target biometric lock
+        # Target biometric lock & polymorphic follow mode
         target_name = params.get("target_identity") or params.get("user_name")
-        res = self.start_following(target_identity=target_name)
+        follow_mode = str(params.get("follow_mode", "companion"))
+        max_duration_s = params.get("max_duration_s")
+        res = self.start_following(
+            target_identity=target_name,
+            mode=follow_mode,
+            max_duration_s=max_duration_s,
+        )
         if res:
             name_str = f" {target_name}" if target_name else ""
+            if follow_mode == "curious_observer":
+                msg = f"Mi incuriosisce quello che fai{name_str}, mi avvicino discretamente."
+            elif follow_mode == "intimate_kneel":
+                msg = f"Eccomi{name_str}, mi avvicino a mezzo metro da te."
+            else:
+                msg = f"D'accordo, ti seguo{name_str}! Mantengo il passo con te."
             return SkillResult.success(
-                data={"following": True, "locked_identity": self.locked_identity},
-                message=f"D'accordo, ti seguo{name_str}! Mantengo il passo con te."
+                data={
+                    "following": True,
+                    "locked_identity": self.locked_identity,
+                    "follow_mode": self.follow_mode,
+                    "nominal_distance_m": self.nominal_distance_m,
+                },
+                message=msg
             )
         else:
             return SkillResult.failure(
@@ -112,11 +157,31 @@ class FollowPersonSkill(BaseSkill):
                 error_message="Impossibile avviare il following in questo momento."
             )
 
-    def start_following(self, target_identity: Optional[str] = None) -> bool:
+    def start_following(
+        self,
+        target_identity: Optional[str] = None,
+        mode: str = "companion",
+        max_duration_s: Optional[float] = None,
+    ) -> bool:
+        cfg = self.MODE_CONFIGS.get(mode, self.MODE_CONFIGS["companion"])
+        self.follow_mode = mode if mode in self.MODE_CONFIGS else "companion"
+        self.nominal_distance_m = float(cfg["nominal_distance_m"])
+        self.min_distance_m = float(cfg["min_distance_m"])
+        self.max_linear_speed = min(0.40, float(cfg["max_linear_speed"]))
+        self.deadband_m = float(cfg["deadband_m"])
+        self.max_follow_duration_s = (
+            float(max_duration_s) if max_duration_s is not None else cfg["default_max_duration_s"]
+        )
+
+        now = time.time()
         self.is_following = True
         self.locked_identity = target_identity
-        self.last_target_seen_time = time.time()
-        logger.info(f"🚀 Iniziato FollowPerson con biometric lock su '{self.locked_identity}'")
+        self.last_target_seen_time = now
+        self.follow_started_time = now
+        logger.info(
+            f"🚀 Iniziato FollowPerson mode='{self.follow_mode}' (target={self.nominal_distance_m:.2f}m) "
+            f"con biometric lock su '{self.locked_identity}'"
+        )
         return True
 
     def stop_following(self):
@@ -138,6 +203,19 @@ class FollowPersonSkill(BaseSkill):
         now = time.time()
         if not self.is_following:
             return {"status": "inactive"}
+
+        if (
+            self.max_follow_duration_s is not None
+            and (now - self.follow_started_time) >= self.max_follow_duration_s
+        ):
+            mode_ended = self.follow_mode
+            self.stop_following()
+            timeout_status = (
+                "curiosity_timeout_stopped"
+                if mode_ended == "curious_observer"
+                else "duration_timeout_stopped"
+            )
+            return {"status": timeout_status, "mode": mode_ended, "following": False}
 
         # 1. Verifica identità biometrica (ArcFace Target Locking)
         if self.locked_identity and detected_identity:
@@ -175,14 +253,14 @@ class FollowPersonSkill(BaseSkill):
 
         # 3. Regolazione prossemica della velocità lineare
         distance_error = estimated_distance_m - self.nominal_distance_m
-        if distance_error > 0.15:
+        if distance_error > self.deadband_m:
             # Utente si allontana: accelera proporzionalmente
             v_cmd = min(self.max_linear_speed, distance_error * 0.6) * torsion_decel_factor
-        elif distance_error < -0.15:
+        elif distance_error < -self.deadband_m:
             # Troppo vicino: frena o arretra delicatamente
             v_cmd = max(-0.10, distance_error * 0.4)
         else:
-            # Zona prossemica ottimale (1.2m +/- 0.15m)
+            # Zona prossemica ottimale
             v_cmd = 0.0
 
         # 4. Inseguimento angolare (centratura persona nel campo visivo)
@@ -194,6 +272,8 @@ class FollowPersonSkill(BaseSkill):
 
         return {
             "status": "following",
+            "mode": self.follow_mode,
+            "nominal_distance_m": self.nominal_distance_m,
             "v_cmd": round(v_cmd, 3),
             "w_cmd": round(w_cmd, 3),
             "distance_m": round(estimated_distance_m, 2),

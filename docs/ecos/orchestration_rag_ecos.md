@@ -523,4 +523,21 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
   4. **Comportamento Umano & Percezione Sociale (`trinity_engine.py`, `tts_service.py`, `cognitive_core_node.py`, `dsp_pipeline.py`):** Memoria condivisa Live <-> Qwen (`build_live_context_digest` <= 2500 token + `record_live_turn_sync`), coda proattiva filtrata da ToM/engagement (`DO_NOT_DISTURB` ➔ volume `0.65x`, `DISENGAGED` ➔ stop proattività/follow-up), `PiperTTSClient` (`16kHz -> 24kHz`) offline prima di `gTTS`, barge-in sostenuto `>= 0.25s`, backchannel `<300ms` per tool lunghi Live, DSP noise floor `120.0` RMS, `/hailo/vlm/ask_question` con guardia termica `<80C`, e affettività unificata `/ai/affective_state`.
   5. **Governance DFMEA (`fmea/dfmea.yaml`, `fmea/IMPROVEMENT_INDEX.yaml`):** Deduplicati 25 record storici con ID collisionati e aggiunti 5 nuovi Failure Mode (`FM-LLM-021`, `FM-LLM-022`, `FM-VUI-054`, `FM-COG-008`, `FM-VIS-014`) per un totale di **225 voci univoche**.
 
+---
+
+## 📈 ECO-2026-11-15-001: Interazione Sociale Incarnata Posa+Oggetti+Mappa con Qwen 2.5 Locale, Pattern Polimorfico a Minima Energia & Isteresi Sociale (`FM-COG-001`)
+* **Autore:** 🤖 **Generata autonomamente da Marcus** (Antigravity Engine)
+* **Data Creazione:** 2026-11-15 22:32:00
+* **Sottosistema:** `AI/Cognitive, Vision/Gestures & ToM, Local NPU (Qwen 2.5) & Social Orchestration`
+* **Stato:** ✅ **Implementato e Collaudato su Suite Unit/Regressione (83/83 test PASSED)**
+* **Descrizione:**
+  Integrazione end-to-end tra la rilevazione della posa COCO-17, i riquadri 2D/3D degli oggetti circostanti (`/hailo/semantic_objects`), il contesto mappa (`EnvironmentSnapshot`) e il ragionamento locale tramite Qwen 2.5 (`HailoQwenClient` + `SLMMetapromptFusion`) con pattern polimorfico Strategy orientato al risparmio energetico biologico.
+* **Modifiche apportate:**
+  1. **Gesti & Teoria della Mente (`visual_gesture_pointing_engine.py`, `theory_of_mind_engine.py`):** Aggiunti `GestureType.WAVE_HELLO` (dinamico/angolato con history buffer temporale), `GestureType.BECKON_COME` e `ToMState.KNEELING_EYE_LEVEL` con distanza prossemica target `0.50 m`.
+  2. **Fusione Scena Spaziale-Posturale (`spatial_postural_scene.py`, `cag_environment.py`, `engagement_monitor.py`):** Creato `SpatialPosturalSceneBuilder` con `MetabolicEffortTier` (`ZERO_MOTOR`..`LOCOMOTION_NAV`), esteso `EnvironmentSnapshot` con `update_postural_scene()` e aggiunto publisher compatto `/marcus/social_context/postural_scene`.
+  3. **Isteresi Neuro-Sociale & Following Polimorfico (`homeostasis_mal.py`, `dialogue_arbiter.py`, `follow_person_skill.py`):** Aggiunti `social_momentum` (slancio interattivo su dialogo positivo) vs `social_inhibition` (zittimento -> blocco proattività in `DialogueArbiter`, step indietro `0.25 m` e rientro in cuccia `'base'`), più modalità `"companion"`, `"curious_observer"` (auto-stop 25s) e `"intimate_kneel"` (0.50 m).
+  4. **Skill Polimorfica & Qwen (`embodied_social_interaction_skill.py`, `hailo_qwen_client.py`):** Implementato `EmbodiedSocialInteractionSkill` con 5 strategie `SocialInteractionStrategy`, deliberazione `SLMMetapromptFusion` + `HailoQwenClient` (esteso anche per inferenza mock su `PoseScene:`) e pre-flight check obbligatorio su `TrinityKinematicSandbox`.
+  5. **Test di Verifica (`tests/test_pose_social_llm_interaction.py`):** 5/5 test dedicati passati insieme alle suite di regressione (72 + 11 test passati).
+
+
 

@@ -11,9 +11,10 @@ Parses 17 COCO keypoints from Hailo Pose Estimation to detect:
 
 import math
 import time
+from collections import deque
 from enum import Enum
 from dataclasses import dataclass
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Deque, Dict, Any, List, Optional, Tuple
 
 
 class GestureType(str, Enum):
@@ -21,6 +22,8 @@ class GestureType(str, Enum):
     OPEN_PALM = "OPEN_PALM"
     THUMBS_UP = "THUMBS_UP"
     POINTING = "POINTING"
+    WAVE_HELLO = "WAVE_HELLO"
+    BECKON_COME = "BECKON_COME"
 
 
 @dataclass
@@ -61,8 +64,26 @@ class VisualGesturePointingEngine:
         self.min_conf = min_conf
         self.last_palm_stop_time: float = 0.0
         self.last_thumbs_up_time: float = 0.0
+        self.last_wave_time: float = 0.0
+        self.last_beckon_time: float = 0.0
         self.palm_debounce_sec: float = 1.0
         self.thumbs_debounce_sec: float = 2.0
+        self.wave_debounce_sec: float = 2.0
+        self.beckon_debounce_sec: float = 2.0
+        self._wrist_x_history: Dict[str, Deque[float]] = {
+            "RIGHT": deque(maxlen=6),
+            "LEFT": deque(maxlen=6),
+        }
+        self._wrist_y_history: Dict[str, Deque[float]] = {
+            "RIGHT": deque(maxlen=6),
+            "LEFT": deque(maxlen=6),
+        }
+
+    def reset_history(self) -> None:
+        """Clears temporal wrist buffers (e.g. when the tracked identity changes)."""
+        for hand in ("RIGHT", "LEFT"):
+            self._wrist_x_history[hand].clear()
+            self._wrist_y_history[hand].clear()
 
     def evaluate_pose(
         self,
@@ -97,7 +118,7 @@ class VisualGesturePointingEngine:
             estimated_depth_m=estimated_depth_m
         )
 
-        # Priorità: OPEN_PALM (sicurezza/stop immediato) > POINTING > THUMBS_UP
+        # Priorità: OPEN_PALM (sicurezza/stop) > WAVE_HELLO > POINTING > BECKON_COME > THUMBS_UP
         for res in (res_r, res_l):
             if res.gesture == GestureType.OPEN_PALM:
                 if now - self.last_palm_stop_time > self.palm_debounce_sec:
@@ -105,8 +126,20 @@ class VisualGesturePointingEngine:
                     return res
 
         for res in (res_r, res_l):
+            if res.gesture == GestureType.WAVE_HELLO:
+                if now - self.last_wave_time > self.wave_debounce_sec:
+                    self.last_wave_time = now
+                    return res
+
+        for res in (res_r, res_l):
             if res.gesture == GestureType.POINTING:
                 return res
+
+        for res in (res_r, res_l):
+            if res.gesture == GestureType.BECKON_COME:
+                if now - self.last_beckon_time > self.beckon_debounce_sec:
+                    self.last_beckon_time = now
+                    return res
 
         for res in (res_r, res_l):
             if res.gesture == GestureType.THUMBS_UP:
@@ -132,18 +165,38 @@ class VisualGesturePointingEngine:
 
         # Validazione confidenze
         if s[2] < self.min_conf or e[2] < self.min_conf or w[2] < self.min_conf:
+            self._wrist_x_history[hand_label].clear()
+            self._wrist_y_history[hand_label].clear()
             return GestureResult(gesture=GestureType.NONE, confidence=0.0, hand=hand_label, timestamp=now)
+
+        hist_x = self._wrist_x_history[hand_label]
+        hist_y = self._wrist_y_history[hand_label]
+        hist_x.append(float(w[0]))
+        hist_y.append(float(w[1]))
+
+        dx = abs(w[0] - e[0])
+        dy = abs(e[1] - w[1])
+
+        # 0. Saluto dinamico WAVE_HELLO (oscillazione laterale multi-frame con mano alzata)
+        if len(hist_x) >= 3 and (max(hist_x) - min(hist_x)) >= 0.045:
+            if w[1] < e[1] - 0.02 and w[1] < s[1] + 0.02:
+                conf = min(s[2], e[2], w[2])
+                return GestureResult(gesture=GestureType.WAVE_HELLO, confidence=conf, hand=hand_label, timestamp=now)
 
         # 1. Gesto OPEN_PALM (Visual Barge-in stop)
         # Polso sollevato nettamente sopra il gomito e la spalla (y=0 è in alto)
         # gomito fleso o semidisteso verso l'alto
         if w[1] < e[1] - 0.08 and w[1] < s[1]:
             # Avambraccio approssimativamente verticale
-            dx = abs(w[0] - e[0])
-            dy = abs(e[1] - w[1])
             if dy > 0.05 and (dx / dy) < 0.65:
                 conf = min(e[2], w[2])
                 return GestureResult(gesture=GestureType.OPEN_PALM, confidence=conf, hand=hand_label, timestamp=now)
+
+        # 1b. Saluto statico/istantaneo WAVE_HELLO (mano alzata lateralmente fuori dall'asse verticale)
+        if w[1] < e[1] - 0.06 and w[1] < s[1] and dy > 0.04:
+            if 0.65 <= (dx / dy) <= 1.85 and abs(w[0] - s[0]) >= 0.08:
+                conf = min(e[2], w[2]) * 0.92
+                return GestureResult(gesture=GestureType.WAVE_HELLO, confidence=conf, hand=hand_label, timestamp=now)
 
         # 2. Gesto 3D POINTING ("Guarda lì")
         # Braccio quasi completamente disteso: distanza spalla-polso vicina alla somma dei segmenti
@@ -194,6 +247,17 @@ class VisualGesturePointingEngine:
                     pointing_target=pt_target,
                     timestamp=now
                 )
+
+        # 2b. Gesto BECKON_COME ("Vieni qui"): polso flesso verso spalla a quota spalla
+        if (
+            (s[1] - 0.05) <= w[1] <= (s[1] + 0.03)
+            and w[1] < (e[1] - 0.05)
+            and abs(w[0] - s[0]) < 0.14
+            and 0.20 <= extension_ratio <= 0.78
+            and d_ew > 0.06
+        ):
+            conf = min(s[2], e[2], w[2]) * 0.90
+            return GestureResult(gesture=GestureType.BECKON_COME, confidence=conf, hand=hand_label, timestamp=now)
 
         # 3. Gesto THUMBS_UP (Conferma silenziosa)
         # Polso davanti al busto (altezza tra spalla e anca), gomito piegato ~90 gradi

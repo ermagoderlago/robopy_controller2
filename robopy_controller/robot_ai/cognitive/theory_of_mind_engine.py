@@ -27,6 +27,7 @@ logger = logging.getLogger("TheoryOfMind")
 
 class ToMState(str, Enum):
     ENGAGED = "ENGAGED"
+    KNEELING_EYE_LEVEL = "KNEELING_EYE_LEVEL"
     DO_NOT_DISTURB = "DO_NOT_DISTURB"
     RESTING = "RESTING"
     FALL_EMERGENCY = "FALL_EMERGENCY"
@@ -43,6 +44,7 @@ class ToMEvaluation:
     recommended_tts_volume: float
     explanation: str
     timestamp: float = 0.0
+    target_proxemic_distance_m: float = 1.20
 
 
 class TheoryOfMindEngine:
@@ -198,7 +200,31 @@ class TheoryOfMindEngine:
                 fall_duration_sec=0.0,
                 recommended_tts_volume=0.40,
                 explanation="Utente disteso o reclinato in stato di riposo",
-                timestamp=now
+                timestamp=now,
+                target_proxemic_distance_m=1.50
+            )
+
+        # 4b. Rilevamento KNEELING_EYE_LEVEL (Utente inginocchiato/abbassato all'altezza del robot)
+        # Busto eretto ma quota media del corpo abbassata nella parte medio-bassa del frame, con contatto visivo
+        if (
+            not is_on_ground
+            and face_detected
+            and gaze_at_robot
+            and spine_angle_deg < 25.0
+            and 0.52 <= avg_body_y <= 0.78
+        ):
+            self.current_state = ToMState.KNEELING_EYE_LEVEL
+            return ToMEvaluation(
+                state=ToMState.KNEELING_EYE_LEVEL,
+                confidence=0.88,
+                spine_angle_deg=spine_angle_deg,
+                head_pitch_deg=head_pitch_deg,
+                is_on_ground=False,
+                fall_duration_sec=0.0,
+                recommended_tts_volume=0.65,
+                explanation=f"Utente inginocchiato ad altezza occhi robot (avg_y={avg_body_y:.2f}, avvicinamento sicuro a 0.50 m)",
+                timestamp=now,
+                target_proxemic_distance_m=0.50
             )
 
         # 5. Default ENGAGED
@@ -212,5 +238,6 @@ class TheoryOfMindEngine:
             fall_duration_sec=0.0,
             recommended_tts_volume=0.85,
             explanation="Utente in postura eretta/disponibile ad interazione",
-            timestamp=now
+            timestamp=now,
+            target_proxemic_distance_m=1.20
         )

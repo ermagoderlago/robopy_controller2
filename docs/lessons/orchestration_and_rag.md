@@ -651,3 +651,20 @@ L'architettura TRINITY integra i tre paradigmi di memoria e contesto operando a 
 * **Affettività Unificata:** Stati emotivi/umorali instradati in modo coerente su `/ai/affective_state`.
 * **Allineamento VLM (`conversation.py`, `orchestrator.py`):** Client ROS 2 puntato a `/hailo/vlm/ask_question` con guardia termica `< 80.0°C` (`SPEC-03`), rimossa la collisione del publisher `String` sullo stesso nome.
 
+---
+
+## 🧠 Lezione 54 — Fusione Posa+Oggetti+Mappa (`PoseScene:`), Skill Polimorfica a Minima Energia & Isteresi Neuro-Sociale con Qwen 2.5 (`FM-COG-001` — 2026-11-15)
+
+### 1. Principi Architetturali Umani e Minimizzazione Energetica
+* **Contesto Scenico Compatto (<60 token):** `SpatialPosturalSceneBuilder` (`spatial_postural_scene.py`) fonde i 17 keypoint COCO, le bounding boxes 2D/3D (`/hailo/semantic_objects`) e il contesto stanza/posa della mappa in un riassunto compatto `PoseScene:` dentro `EnvironmentSnapshot` (`cag_environment.py`), mantenendo il metaprompt SLM (`SLMMetapromptFusion`) ampiamente entro il budget `<= 1150` token (`< 1200` Red Zone `SPEC-05`).
+* **Gerarchia Energetica (`MetabolicEffortTier`):** Per evitare che Marcus sprechi batteria o "scimmiotti" movimenti inutili, le risposte sociali scelgono il livello motorio minimo:
+  - `ZERO_MOTOR` / `MICRO_PRESENCE`: risposta al saluto `WAVE_HELLO` con scodinzolio (`[-45°, +45°]`, `<= 3.0 Hz`) e riferimento agli oggetti vicino alla mano, **senza muovere le ruote** se l'utente è già nel cono frontale (`|azimuth| <= 22°`).
+  - `OCULOMOTOR_PIVOT`: rotazione leggera sul posto solo se fuori asse.
+  - `PROXEMIC_STEP`: avvicinamento controllato a **0.50 m** quando `TheoryOfMindEngine` rileva `KNEELING_EYE_LEVEL` (utente inginocchiato all'altezza degli occhi di Marcus).
+  - `LOCOMOTION_NAV`: following polimorfico in modalità `companion` (su comando/richiamo `BECKON_COME`) oppure `curious_observer` con auto-stop temporizzato (`25.0s`).
+
+### 2. Isteresi Neuro-Sociale e Pre-Flight Sandbox
+* **Momentum vs Inibizione (`homeostasis_mal.py`, `dialogue_arbiter.py`):** Il dialogo positivo incrementa `social_momentum` e favorisce il desiderio interattivo; i richiami al silenzio (`"zitto"`, `"taci"`, `"basta"`, `"vai a cuccia"`) incrementano `social_inhibition`, sopprimono la coda proattiva non urgente in `DialogueArbiter`, abbassano la coda e avviano la ritirata a 2 stadi (`move_distance("indietro", 0.25)` + `navigate_to("base")`), con fallback sicuro diretto alla base se il posteriore è ostruito.
+* **Pattern Strategy Polimorfico (`embodied_social_interaction_skill.py`):** Ogni strategia concreta estende `SocialInteractionStrategy` e valida obbligatoriamente i propri passi e le `<action>` generate da Qwen 2.5 tramite `TrinityKinematicSandbox`.
+
+

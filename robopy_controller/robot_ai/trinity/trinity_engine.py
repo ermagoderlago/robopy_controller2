@@ -96,10 +96,18 @@ class TrinityEngine:
             self.logger.warning(f"MAG initialization error: {e}")
             self.mag_episodic = None
 
-        # 6. ROS 2 Subscriptions for Exploration, Semantic Events & Battery State
+        # 6. Homeostatic Neuro-Social Engine + ROS 2 Subscriptions
+        try:
+            from ..cognitive.homeostasis_mal import HomeostaticDriveEngine
+            self.homeostasis = HomeostaticDriveEngine()
+        except Exception as h_err:
+            self.logger.debug(f"HomeostaticDriveEngine init fallback in TrinityEngine: {h_err}")
+            self.homeostasis = None
+
         self.sub_explore_status = None
         self.sub_target_event = None
         self.sub_battery_state = None
+        self.sub_postural_scene = None
         if self.node is not None:
             if self.cag and hasattr(self.cag, "hardware") and hasattr(self.cag.hardware, "setup_ros"):
                 self.cag.hardware.setup_ros(self.node)
@@ -486,6 +494,12 @@ class TrinityEngine:
                 self._on_current_room,
                 10
             )
+            self.sub_postural_scene = self.node.create_subscription(
+                String,
+                "/marcus/social_context/postural_scene",
+                self._on_postural_scene,
+                10
+            )
             try:
                 from robopy_controller.msg import SemanticObjectArray
                 self.sub_semantic_objs = self.node.create_subscription(
@@ -530,6 +544,15 @@ class TrinityEngine:
                 self.cag.environment.room_name = room
                 if self.world_model is not None:
                     setattr(self.world_model, "current_room", room)
+        except Exception:
+            pass
+
+    def _on_postural_scene(self, msg):
+        """Aggiorna lo snapshot PoseScene posa+oggetti+mappa nel CAG per Qwen e Gemini Live."""
+        try:
+            raw = (getattr(msg, "data", "") or "").strip()
+            if raw and self.cag and hasattr(self.cag, "environment"):
+                self.cag.environment.update_postural_scene(raw)
         except Exception:
             pass
 

@@ -119,5 +119,16 @@
     "risk_zone": "YELLOW",
     "status": "READY_FOR_USER_REVIEW",
     "plan_file": "docs/evolution/plans/PLAN-2026-11-01_FM-NAV-006_nav2.md"
+  },
+  {
+    "date": "2026-11-08",
+    "selected_at": "2026-11-08 03:00:04",
+    "failure_mode_id": "FM-LLM-004",
+    "subsystem": "AI/LangGraph",
+    "title": "Mitigazione FMEA [FM-LLM-004]: Esecuzione di codice auto-generato (Skill) pericoloso, instabile o fuori controllo (AI Code Hazard)",
+    "source": "FMEA_RPN",
+    "risk_zone": "GREEN",
+    "status": "VALIDATED_IN_SANDBOX",
+    "plan_file": "docs/evolution/plans/PLAN-2026-11-08_FM-LLM-004_ai_langgraph.md"
   }
 ]

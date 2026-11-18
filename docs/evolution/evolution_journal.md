@@ -698,3 +698,13 @@ Questo file costituisce il registro permanente della curiosità, delle indagini 
 - **Esito del Ciclo:** `READY_FOR_USER_REVIEW`
 
 ---
+
+### [DAILY_FOCUS_2026-11-08] AI/LangGraph - 2026-11-08 03:00:06
+- **Failure Mode Riferito:** FM-LLM-004
+- **Quesito di Indagine (Curiosità):**
+  Failure Mode aperto a massimo RPN nel sottosistema AI/LangGraph.
+- **Azione Eseguita / Soluzione Applicata:**
+  Selezionato tema: Mitigazione FMEA [FM-LLM-004]: Esecuzione di codice auto-generato (Skill) pericoloso, instabile o fuori controllo (AI Code Hazard). Rischio: GREEN. Piano generato in docs/evolution/plans/PLAN-2026-11-08_FM-LLM-004_ai_langgraph.md.
+- **Esito del Ciclo:** `VALIDATED_IN_SANDBOX`
+
+---

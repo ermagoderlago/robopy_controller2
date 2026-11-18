@@ -1,15 +1,20 @@
 import asyncio
+import re
 import threading
 import time
 from typing import Optional, List, Dict, Callable
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from sensor_msgs.msg import CompressedImage
-from std_msgs.msg import String, Bool, Float32MultiArray
+from std_msgs.msg import String, Bool, Float32, Float32MultiArray
 from vision_msgs.msg import Detection2DArray
 from diagnostic_msgs.msg import DiagnosticArray
 from geometry_msgs.msg import Twist
 from robopy_controller.msg import AudioData
+try:
+    from visualization_msgs.msg import MarkerArray
+except ImportError:
+    MarkerArray = None
 
 from robot_ai.core import ConfigManager, EventBus, EventType
 from robot_ai.utils import get_logger
@@ -48,6 +53,7 @@ from robot_ai.skills.builtin.frontier_exploration_skill import FrontierExplorati
 from robot_ai.skills.builtin.follow_person_skill import FollowPersonSkill
 from robot_ai.skills.builtin.visual_pointing_skill import VisualPointingSkill
 from robot_ai.skills.builtin.social_context_skill import SocialContextSkill
+from robot_ai.skills.builtin.embodied_social_interaction_skill import EmbodiedSocialInteractionSkill
 
 from robot_ai.core.camera_frame import CameraFrame
 
@@ -59,7 +65,7 @@ from .reactive_safety import ReactiveSafety
 from .ha_context import HAContextUpdater
 from .skill_executor import SkillExecutor
 from .conversation import ConversationManager
-from .dialogue_arbiter import DialogueArbiter, MicMuteOwner
+from .dialogue_arbiter import DialogueArbiter, FloorState, MicMuteOwner
 
 class AIOrchestrator(Node):
     def __init__(self):
@@ -86,9 +92,13 @@ class AIOrchestrator(Node):
         self.live_session_active_pub = self.create_publisher(Bool, '/ai/live/session_active', 10)
         self.mic_mute_pub = self.create_publisher(Bool, '/ai/input/mic_mute', 10)
         self.affective_state_pub = self.create_publisher(String, '/ai/affective_state', 10)
+        self.tail_pub = self.create_publisher(Float32, '/tail_controller/command', 10)
+        self.servo_angle_pub = self.create_publisher(Float32, 'servo_angle', 10)
         self.dialogue_arbiter = DialogueArbiter()
         self._last_published_live_active = None
         self._cached_live_digest = ""
+        self._last_embodied_trigger_ts: Dict[str, float] = {}
+        self._latest_postural_scene: str = ""
 
         # Manager
         self.world_model = WorldModel()
@@ -232,6 +242,16 @@ class AIOrchestrator(Node):
         self.conversation_manager.attach_dialogue_arbiter(self.dialogue_arbiter)
         self.conversation_manager.document_callback = self._on_ai_document
 
+        # Skill polimorfica incarnata posa + Qwen + sandbox (condivide HailoQwenClient, HomeostaticDriveEngine, FollowPersonSkill)
+        _trinity_ref = getattr(self.conversation_manager, "trinity_engine", None)
+        self.embodied_social_skill = EmbodiedSocialInteractionSkill(
+            qwen_client=getattr(self.conversation_manager, "hailo_client", None),
+            drive_engine=getattr(_trinity_ref, "homeostasis", None) if _trinity_ref is not None else None,
+            follow_skill=self.follow_person_skill,
+            dialogue_arbiter=self.dialogue_arbiter,
+        )
+        self.skill_registry.register(self.embodied_social_skill)
+
         self._last_text_input = ""
         self._last_text_time = 0.0
 
@@ -268,6 +288,9 @@ class AIOrchestrator(Node):
         )
         self.create_subscription(String, '/engagement/status_str', self._engagement_status_callback, engagement_qos)
         self.create_subscription(String, '/marcus/social_context/tom_state', self._tom_state_callback, 10)
+        self.create_subscription(String, '/marcus/social_context/postural_scene', self._on_postural_scene_callback, 10)
+        if MarkerArray is not None:
+            self.create_subscription(MarkerArray, '/hailo/pose/skeletons', self._pose_follow_callback, engagement_qos)
         self.create_subscription(String, '/identity/active_person', self._active_person_callback, 10)
         self.create_subscription(String, '/ai/conversation/proactive_speech', self._proactive_speech_callback, 10)
         self.create_subscription(String, '/ai/affective_state', self._affective_state_callback, 10)
@@ -432,13 +455,232 @@ class AIOrchestrator(Node):
         if hasattr(self.tts_service, "set_volume_scale"):
             self.tts_service.set_volume_scale(self.dialogue_arbiter.recommended_tts_volume_scale())
 
+    def _publish_tail_angle(self, angle_deg: float) -> None:
+        """Publishes clamped tail servo deflection within SPEC-01 Green Zone ([-45, +45] deg)."""
+        delta = max(-45.0, min(45.0, float(angle_deg)))
+        try:
+            msg = Float32()
+            msg.data = float(delta)
+            self.tail_pub.publish(msg)
+            servo_msg = Float32()
+            servo_msg.data = float(max(30.0, min(150.0, 90.0 + delta)))
+            self.servo_angle_pub.publish(servo_msg)
+        except Exception:
+            pass
+
+    def publish_cmd_vel(self, linear_x: float, angular_z: float) -> None:
+        """ROS bridge hook for FollowPersonSkill with strict SPEC-01 Red Zone velocity clamps."""
+        if self._shutdown_flag:
+            return
+        tw = Twist()
+        tw.linear.x = max(-0.40, min(0.40, float(linear_x)))
+        tw.angular.z = max(-1.80, min(1.80, float(angular_z)))
+        if hasattr(self, "reactive_safety") and self.reactive_safety:
+            self.reactive_safety.set_twist(tw)
+        self.cmd_vel_pub.publish(tw)
+
+    @staticmethod
+    def _parse_postural_scene(raw: str) -> Dict[str, object]:
+        person_m = re.search(r"person=([^@]+)@([0-9]+(?:\.[0-9]+)?)m", raw)
+        az_m = re.search(r"az=([+-]?[0-9]+(?:\.[0-9]+)?)deg", raw)
+        tom_m = re.search(r"tom=([^\s|]+)", raw, re.IGNORECASE)
+        gest_m = re.search(r"gesture=([^\s|]+)", raw, re.IGNORECASE)
+        gaze_m = re.search(r"gaze=([^\s|]+)", raw, re.IGNORECASE)
+        point_m = re.search(r"pointing_at=([^\s|]+)", raw)
+        near_m = re.search(r"near_hand=\[([^\]]*)\]", raw)
+        objs_m = re.search(r"objs=\[([^\]]*)\]", raw)
+        room_m = re.search(r"room=([^\s|]+)", raw)
+        prox_m = re.search(r"prox_target=([0-9]+(?:\.[0-9]+)?)m", raw)
+
+        near_raw = near_m.group(1).strip() if near_m else ""
+        objs_raw = objs_m.group(1).strip() if objs_m else ""
+        near_list = [s.strip() for s in near_raw.split(",") if s.strip() and s.strip() != "none"]
+        objs_list = [s.strip() for s in objs_raw.split(",") if s.strip() and s.strip() != "none"]
+
+        return {
+            "person_name": (person_m.group(1).strip() if person_m else "Utente"),
+            "person_distance_m": float(person_m.group(2)) if person_m else 1.50,
+            "person_azimuth_deg": float(az_m.group(1)) if az_m else 0.0,
+            "tom_state": (tom_m.group(1).strip().upper() if tom_m else "ENGAGED"),
+            "gesture": (gest_m.group(1).strip().upper() if gest_m else "NONE"),
+            "gaze_at_robot": (gaze_m.group(1).strip().lower() == "robot") if gaze_m else True,
+            "pointing_target_object": point_m.group(1).strip() if point_m else None,
+            "near_hand_objects": near_list,
+            "scene_objects": objs_list,
+            "map_room": room_m.group(1).strip() if room_m else "Unknown",
+            "target_proxemic_distance_m": float(prox_m.group(1)) if prox_m else 1.20,
+        }
+
+    def _on_postural_scene_callback(self, msg: String) -> None:
+        if self._shutdown_flag:
+            return
+        raw = (getattr(msg, "data", "") or "").strip()
+        if not raw:
+            return
+        self._latest_postural_scene = raw
+        parsed = self._parse_postural_scene(raw)
+        posture = str(parsed["tom_state"])
+        gesture = str(parsed["gesture"])
+        dist_m = float(parsed["person_distance_m"])
+
+        self.dialogue_arbiter.update_social_context(
+            posture_state=posture,
+            last_gesture=gesture,
+            engagement_distance_m=dist_m,
+        )
+
+        if gesture in ("WAVE_HELLO", "BECKON_COME"):
+            trigger_key = f"gesture:{gesture}"
+        elif posture == "KNEELING_EYE_LEVEL":
+            trigger_key = "posture:KNEELING_EYE_LEVEL"
+        else:
+            return
+
+        if self.dialogue_arbiter.social.social_inhibition >= 0.50:
+            return
+        if self.dialogue_arbiter.floor_state != FloorState.IDLE:
+            return
+        cm_lock = getattr(getattr(self, "conversation_manager", None), "_processing_lock", None)
+        if cm_lock is not None and cm_lock.locked():
+            return
+
+        now = time.time()
+        if (now - self._last_embodied_trigger_ts.get(trigger_key, 0.0)) < 15.0:
+            return
+        self._last_embodied_trigger_ts[trigger_key] = now
+
+        if self._loop.is_running() and not self._shutdown_flag:
+            asyncio.run_coroutine_threadsafe(
+                self._async_handle_embodied_trigger(posture, gesture, dist_m, raw),
+                self._loop,
+            )
+
+    @staticmethod
+    def _is_known_person(name: str) -> bool:
+        """Restituisce True solo se l'identità non è un placeholder anonimo (es. 'Unknown_guest_2')."""
+        low = (name or "").strip().lower()
+        return bool(
+            low
+            and not low.startswith(("unknown", "sconosciut", "guest", "ospite"))
+            and low not in ("none", "null", "utente")
+        )
+
+    async def _async_handle_embodied_trigger(
+        self,
+        posture: str,
+        gesture: str,
+        dist_m: float,
+        scene_str: str,
+    ) -> None:
+        if self._shutdown_flag or not getattr(self, "embodied_social_skill", None):
+            return
+        try:
+            from robot_ai.cognitive.spatial_postural_scene import (
+                SpatialPosturalSceneBuilder,
+                SpatialPosturalSceneSnapshot,
+            )
+            parsed = self._parse_postural_scene(scene_str)
+            parsed_name = str(parsed.get("person_name") or "").strip()
+            active_name = (self.dialogue_arbiter.social.active_person or "").strip()
+            if self._is_known_person(parsed_name):
+                person_name = parsed_name.capitalize()
+            elif self._is_known_person(active_name):
+                person_name = active_name.capitalize()
+            else:
+                person_name = "Utente"
+            drive = self.embodied_social_skill.drive_engine
+            effort_tier = SpatialPosturalSceneBuilder._select_metabolic_effort_tier(
+                person_distance_m=dist_m,
+                azimuth_deg=float(parsed["person_azimuth_deg"]),
+                tom_state=posture,
+                gesture=gesture,
+                gaze_at_robot=bool(parsed["gaze_at_robot"]),
+                target_proxemic_distance_m=float(parsed["target_proxemic_distance_m"]),
+                social_inhibition=drive.social_inhibition,
+                follow_active=self.follow_person_skill.is_following,
+            )
+            scene_snap = SpatialPosturalSceneSnapshot(
+                person_name=person_name,
+                person_distance_m=dist_m,
+                person_azimuth_deg=float(parsed["person_azimuth_deg"]),
+                tom_state=posture,
+                gesture=gesture,
+                gaze_at_robot=bool(parsed["gaze_at_robot"]),
+                pointing_target_object=parsed["pointing_target_object"],
+                near_hand_objects=list(parsed["near_hand_objects"]),
+                scene_objects=list(parsed["scene_objects"]),
+                map_room=str(parsed["map_room"]),
+                recommended_effort_tier=effort_tier,
+                target_proxemic_distance_m=float(parsed["target_proxemic_distance_m"]),
+                social_momentum=drive.social_momentum,
+                social_inhibition=drive.social_inhibition,
+            )
+            trinity = getattr(getattr(self, "conversation_manager", None), "trinity_engine", None)
+            cag_env = trinity.cag.environment if (trinity and getattr(trinity, "cag", None)) else None
+
+            res = await self.embodied_social_skill.safe_execute(
+                "",
+                context={"scene": scene_snap, "cag_env": cag_env},
+            )
+            if not res or not res.success:
+                return
+
+            data = res.data or {}
+            tail_deg = data.get("tail_angle_deg")
+            if isinstance(tail_deg, (int, float)):
+                self._publish_tail_angle(float(tail_deg))
+
+            if getattr(res, "actions", None) and self.skill_executor:
+                await self.skill_executor.execute_actions(res.actions)
+
+            if res.speak:
+                self._on_ai_response(res.speak)
+                if self.tts_service and not self.dialogue_arbiter.is_live_voice_active():
+                    dec = self.dialogue_arbiter.acquire_floor("SYSTEM_PROACTIVE")
+                    if dec.allowed:
+                        try:
+                            if hasattr(self.tts_service, "set_volume_scale"):
+                                self.tts_service.set_volume_scale(
+                                    0.65 if posture == "KNEELING_EYE_LEVEL" else 1.0
+                                )
+                            await self.tts_service.speak(res.speak)
+                        finally:
+                            self.dialogue_arbiter.release_floor(
+                                turn_id=dec.turn_id, source="SYSTEM_PROACTIVE", force=True
+                            )
+        except Exception as e:
+            self.ai_logger.warning(f"Errore esecuzione embodied social trigger: {e}")
+
+    def _pose_follow_callback(self, msg) -> None:
+        if self._shutdown_flag or not getattr(self, "follow_person_skill", None):
+            return
+        if not self.follow_person_skill.is_following:
+            return
+        kps_17 = []
+        person_identity = None
+        for marker in getattr(msg, "markers", []):
+            if getattr(marker, "ns", "") == "pose_keypoints_17":
+                person_identity = marker.text or None
+                for pt in marker.points:
+                    kps_17.append((pt.x, pt.y, pt.z))
+                break
+        if len(kps_17) >= 17:
+            dist = self.dialogue_arbiter.social.engagement_distance_m
+            res = self.follow_person_skill.update_frame(
+                kps_17,
+                detected_identity=person_identity,
+                estimated_distance_m=dist,
+            )
+            if res.get("status") == "curiosity_timeout_stopped":
+                self.ai_logger.info("🦊 Curious observer follow auto-stopped after 25s timeout.")
+
     def _active_person_callback(self, msg: String):
         name = (msg.data or "").strip()
-        present = bool(name and name.lower() not in ("unknown", "sconosciuto", "none"))
+        present = self._is_known_person(name)
         self.dialogue_arbiter.update_engagement(
             self.dialogue_arbiter.social.engagement_state,
             is_person_present=present,
-            active_person=name,
+            active_person=name if present else "Unknown",
         )
 
     def _proactive_speech_callback(self, msg: String):

@@ -23,9 +23,14 @@ from visualization_msgs.msg import MarkerArray
 from action_msgs.msg import GoalInfo
 
 # Custom package messages
-from robopy_controller.msg import EngagementStatus
+try:
+    from robopy_controller.msg import EngagementStatus, SemanticObjectArray
+except ImportError:
+    from robopy_controller.msg import EngagementStatus
+    SemanticObjectArray = None
 from robopy_controller.robot_ai.services.visual_gesture_pointing_engine import VisualGesturePointingEngine, GestureType
 from robopy_controller.robot_ai.cognitive.theory_of_mind_engine import TheoryOfMindEngine, ToMState
+from robopy_controller.robot_ai.cognitive.spatial_postural_scene import SpatialPosturalSceneBuilder
 
 
 class EngagementMonitor(Node):
@@ -69,10 +74,24 @@ class EngagementMonitor(Node):
         self.sub_pose = self.create_subscription(
             MarkerArray, '/hailo/pose/skeletons', self.pose_callback, qos_best_effort
         )
+        self.sub_current_room = self.create_subscription(
+            String, '/robot/current_room', self.room_callback, qos_reliable
+        )
+        if SemanticObjectArray is not None:
+            self.sub_semantic_objects = self.create_subscription(
+                SemanticObjectArray, '/hailo/semantic_objects', self.semantic_objects_callback, qos_best_effort
+            )
+            self.sub_semantic_objects_3d = self.create_subscription(
+                SemanticObjectArray, '/semantic_mapper/objects_3d', self.semantic_objects_3d_callback, qos_best_effort
+            )
+        else:
+            self.sub_semantic_objects = None
+            self.sub_semantic_objects_3d = None
 
         # In-Process Engines (Zero extra OS processes / Strict 4GB RAM preservation)
         self.gesture_engine = VisualGesturePointingEngine()
         self.tom_engine = TheoryOfMindEngine()
+        self.scene_builder = SpatialPosturalSceneBuilder()
 
         # Publishers
         self.pub_status_str = self.create_publisher(
@@ -105,6 +124,9 @@ class EngagementMonitor(Node):
         self.pub_fall_emergency = self.create_publisher(
             Bool, '/marcus/social_context/fall_emergency', qos_reliable
         )
+        self.pub_postural_scene = self.create_publisher(
+            String, '/marcus/social_context/postural_scene', qos_reliable
+        )
 
         # State Variables
         self.last_face_time = 0.0
@@ -116,24 +138,81 @@ class EngagementMonitor(Node):
         
         # Simulated distance for tracking (falls back when skeleton keypoints are missing)
         self.proxemic_distance = 99.0
+        self.current_room = "Unknown"
+        self.latest_semantic_objects = []
+        self._last_semantic_3d_time = 0.0
+        self._last_nonempty_objs_time = 0.0
+        self._last_active_gesture = GestureType.NONE.value
+        self._last_active_gesture_time = 0.0
 
         # Loop to evaluate engagement at 2Hz
         self.create_timer(0.5, self.evaluate_engagement)
 
         self.get_logger().info("engagement_monitor avviato.")
 
+    def room_callback(self, msg: String):
+        room = (msg.data or "").strip()
+        if room:
+            self.current_room = room
+
+    @staticmethod
+    def _normalize_semantic_array(msg) -> list:
+        objs = []
+        for obj in list(getattr(msg, "objects", []))[:20]:
+            raw_bbox = getattr(obj, "bbox_2d", None)
+            if raw_bbox is not None and len(raw_bbox) >= 4:
+                bbox_2d = tuple(float(v) for v in raw_bbox[:4])
+            else:
+                bbox_2d = (0.45, 0.45, 0.55, 0.55)
+            c = getattr(obj, "centroid_3d", None)
+            if c is not None and hasattr(c, "x"):
+                cx, cy, cz = float(c.x), float(c.y), float(c.z)
+                if abs(cx) < 1e-4 and abs(cy) < 1e-4 and abs(cz) < 1e-4:
+                    est_d = float(getattr(obj, "estimated_depth_m", 0.0) or 0.0)
+                    c3d = (0.0, 0.0, est_d if est_d > 0.05 else 1.5)
+                else:
+                    c3d = (cx, cy, cz)
+            else:
+                c3d = (0.0, 0.0, 1.5)
+            objs.append(
+                {
+                    "label": str(getattr(obj, "label", "") or "oggetto"),
+                    "bbox_2d": bbox_2d,
+                    "centroid_3d": c3d,
+                    "confidence": float(getattr(obj, "confidence", 0.80)),
+                }
+            )
+        return objs
+
+    def _update_semantic_objects(self, msg, now: float) -> None:
+        objs = self._normalize_semantic_array(msg)
+        if objs:
+            self.latest_semantic_objects = objs
+            self._last_nonempty_objs_time = now
+        elif now - self._last_nonempty_objs_time > 1.5:
+            self.latest_semantic_objects = []
+
+    def semantic_objects_3d_callback(self, msg):
+        now = time.time()
+        self._update_semantic_objects(msg, now)
+        self._last_semantic_3d_time = now
+
+    def semantic_objects_callback(self, msg):
+        now = time.time()
+        if now - self._last_semantic_3d_time > 2.0:
+            self._update_semantic_objects(msg, now)
+
     def face_callback(self, msg):
         if len(msg.detections) > 0:
             self.last_face_time = time.time()
             
             # Simple approximation of distance based on bounding box size if we don't have skeleton tracking
-            # A face bounding box height/width is inversely proportional to distance.
-            # Normal size is around 0.1 to 0.5 of image size.
+            # hailo_bridge_node_cpp emits pixel sizes on 640x480 images, whereas tests may pass normalized [0..1].
             bbox = msg.detections[0].bbox
-            size_norm = max(bbox.size_x, bbox.size_y)
-            if size_norm > 0:
-                # Empirical calibration: face size_norm ~0.2 at 1.0 meters
-                self.proxemic_distance = 0.2 / size_norm
+            size_raw = max(bbox.size_x, bbox.size_y)
+            if size_raw > 0:
+                size_norm = (size_raw / 480.0) if size_raw > 1.5 else size_raw
+                self.proxemic_distance = float(np.clip(0.2 / max(size_norm, 0.03), 0.35, 5.0))
             else:
                 self.proxemic_distance = 2.0
         else:
@@ -160,9 +239,39 @@ class EngagementMonitor(Node):
         if len(kps_17) < 17:
             return
 
+        now = time.time()
+        # Synchronize face/gaze/proxemics from skeleton keypoints when dedicated gaze topic is absent
+        nose = kps_17[0]
+        l_eye, r_eye = kps_17[1], kps_17[2]
+        l_sh, r_sh = kps_17[5], kps_17[6]
+        l_hip, r_hip = kps_17[11], kps_17[12]
+
+        if nose[2] >= 0.40 and (l_eye[2] >= 0.35 or r_eye[2] >= 0.35):
+            self.last_face_time = now
+            if l_sh[2] >= 0.30 and r_sh[2] >= 0.30:
+                sh_mid_x = (l_sh[0] + r_sh[0]) * 0.5
+                sh_span = max(0.06, abs(l_sh[0] - r_sh[0]))
+                if abs(nose[0] - sh_mid_x) <= sh_span * 0.45:
+                    self.last_gaze_time = now
+            elif l_eye[2] >= 0.35 and r_eye[2] >= 0.35:
+                self.last_gaze_time = now
+
+        if self.proxemic_distance > 10.0:
+            shoulder_span = abs(l_sh[0] - r_sh[0]) if (l_sh[2] >= 0.25 and r_sh[2] >= 0.25) else 0.0
+            torso_h = (
+                abs(((l_hip[1] + r_hip[1]) * 0.5) - ((l_sh[1] + r_sh[1]) * 0.5))
+                if (l_sh[2] >= 0.25 and r_sh[2] >= 0.25 and l_hip[2] >= 0.25 and r_hip[2] >= 0.25)
+                else 0.0
+            )
+            span_ref = max(shoulder_span * 1.4, torso_h)
+            if span_ref > 0.01:
+                self.proxemic_distance = float(np.clip(0.32 / max(span_ref, 0.08), 0.35, 4.5))
+
         # 1. Gesture recognition
         g_res = self.gesture_engine.evaluate_pose(kps_17, estimated_depth_m=self.proxemic_distance)
         if g_res.gesture != GestureType.NONE:
+            self._last_active_gesture = g_res.gesture.value
+            self._last_active_gesture_time = now
             payload = {
                 "gesture": g_res.gesture.value,
                 "confidence": round(g_res.confidence, 3),
@@ -211,6 +320,33 @@ class EngagementMonitor(Node):
             fall_msg = Bool()
             fall_msg.data = True
             self.pub_fall_emergency.publish(fall_msg)
+
+        # 3. Fused Spatial-Postural Scene Publication for Qwen 2.5 CAG
+        effective_gesture = (
+            g_res.gesture.value
+            if g_res.gesture != GestureType.NONE
+            else (
+                self._last_active_gesture
+                if (now - self._last_active_gesture_time) < 1.2
+                else GestureType.NONE.value
+            )
+        )
+        pt_3d = g_res.pointing_target.intersection_3d if g_res.pointing_target else None
+        scene_snapshot = self.scene_builder.build_scene(
+            keypoints=kps_17,
+            detected_objects=self.latest_semantic_objects,
+            person_name=person_identity if person_identity != "unknown" else "Utente",
+            person_distance_m=self.proxemic_distance,
+            tom_state=tom_eval.state.value,
+            gesture=effective_gesture,
+            gaze_at_robot=is_gaze,
+            pointing_intersection_3d=pt_3d,
+            map_room=self.current_room,
+            target_proxemic_distance_m=tom_eval.target_proxemic_distance_m,
+        )
+        scene_msg = String()
+        scene_msg.data = scene_snapshot.to_compact_cag_string()
+        self.pub_postural_scene.publish(scene_msg)
 
     def gaze_callback(self, msg):
         self.gaze_direction = msg.vector

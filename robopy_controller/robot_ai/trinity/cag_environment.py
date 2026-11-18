@@ -25,6 +25,7 @@ class EnvironmentSnapshot:
         self.exploration_target: Optional[str] = None
         self.remaining_frontiers: int = 0
         self.biometrics_summary: Optional[str] = None
+        self.postural_scene_summary: Optional[str] = None
         self.last_update: float = time.time()
 
     def update_location(
@@ -74,6 +75,11 @@ class EnvironmentSnapshot:
         self.biometrics_summary = summary
         self.last_update = time.time()
 
+    def update_postural_scene(self, summary: str) -> None:
+        """Updates compact Pose+Objects+Map CAG context for Qwen 2.5 reasoning."""
+        self.postural_scene_summary = summary.strip() if summary else None
+        self.last_update = time.time()
+
     def to_text(self) -> str:
         """
         Returns a concise, token-efficient environmental summary for LLM CAG.
@@ -106,5 +112,8 @@ class EnvironmentSnapshot:
                 parts.append(f"Exploration: HUNT({self.exploration_target}, frontiers={self.remaining_frontiers})")
             else:
                 parts.append(f"Exploration: ACTIVE({self.exploration_mode}, frontiers={self.remaining_frontiers})")
-            
+
+        if self.postural_scene_summary:
+            parts.append(self.postural_scene_summary)
+
         return f"[ENV] {' | '.join(parts)}"

@@ -964,6 +964,74 @@ class ConversationManager:
             return await self._emit_conversational_fallback("ciao", should_speak, reason="empty_input")
         self.world_model.recent_interactions.append(f"User: {clean_text}")
 
+        # --- Neuro-Social Hysteresis: Shushing / Retreat-to-Dock vs Positive Dialogue ---
+        _shush_cmd_re = re.compile(
+            r'\b(zitto|stai\s+zitto|silenzio|taci|non\s+parlare|basta\s+parlare|lasciami\s+stare|vai\s+a\s+cuccia|vai\s+in\s+cuccia)\b',
+            re.IGNORECASE,
+        )
+        if _shush_cmd_re.search(clean_text):
+            is_dock_cmd = bool(re.search(r'\b(vai\s+(?:a|in)\s+cuccia|cuccia|base)\b', clean_text, re.IGNORECASE))
+            inh_val = 0.80 if is_dock_cmd else 0.50
+            mom_val = 0.0
+            homeo = getattr(self.trinity_engine, "homeostasis", None) if self.trinity_engine else None
+            if homeo is not None and hasattr(homeo, "notify_user_shush"):
+                homeo.notify_user_shush(
+                    severity=0.75 if is_dock_cmd else 0.45,
+                    reason="go_to_dock" if is_dock_cmd else "user_shushed",
+                )
+                inh_val = float(getattr(homeo, "social_inhibition", inh_val))
+                mom_val = float(getattr(homeo, "social_momentum", 0.0))
+            if self.dialogue_arbiter is not None and hasattr(self.dialogue_arbiter, "record_user_shush"):
+                self.dialogue_arbiter.record_user_shush(inhibition=inh_val, momentum=mom_val)
+
+            if (is_dock_cmd or inh_val >= 0.72) and self.skill_executor and hasattr(self.skill_executor, "registry"):
+                embodied_skill = self.skill_executor.registry.get("embodied_social_interaction_skill")
+                if embodied_skill is not None:
+                    try:
+                        if getattr(embodied_skill, "drive_engine", None) is not None:
+                            embodied_skill.drive_engine.social_inhibition = max(
+                                float(embodied_skill.drive_engine.social_inhibition), max(0.80, inh_val)
+                            )
+                        res = await embodied_skill.safe_execute(
+                            clean_text,
+                            context={
+                                "text": clean_text,
+                                "map_room": getattr(self.world_model, "current_room", "Salotto") or "Salotto",
+                                "user_name": (
+                                    self.world_model.current_user.get("name")
+                                    if getattr(self.world_model, "current_user", None)
+                                    else "Utente"
+                                ),
+                            },
+                        )
+                        if res and getattr(res, "actions", None):
+                            await self.skill_executor.execute_actions(res.actions)
+                        reply_msg = (
+                            getattr(res, "speak", None)
+                            or getattr(res, "message", None)
+                            or "Scusa, faccio un passo indietro e torno in cuccia."
+                        )
+                        if should_speak and self.tts and not getattr(self, "_is_live", False):
+                            if hasattr(self.tts, "set_volume_scale"):
+                                self.tts.set_volume_scale(0.65)
+                            await self.tts.speak(reply_msg)
+                        if self.response_callback:
+                            self.response_callback(reply_msg)
+                        self._record_recent_query(clean_text, reply_msg)
+                        return True
+                    except Exception as emb_err:
+                        self._logger.warning(f"Embodied social retreat error: {emb_err}")
+        else:
+            mom_val = 0.30
+            inh_val = 0.0
+            homeo = getattr(self.trinity_engine, "homeostasis", None) if self.trinity_engine else None
+            if homeo is not None and hasattr(homeo, "notify_positive_dialogue"):
+                homeo.notify_positive_dialogue(intensity=0.20)
+                mom_val = float(getattr(homeo, "social_momentum", mom_val))
+                inh_val = float(getattr(homeo, "social_inhibition", 0.0))
+            if self.dialogue_arbiter is not None and hasattr(self.dialogue_arbiter, "record_positive_dialogue"):
+                self.dialogue_arbiter.record_positive_dialogue(momentum=mom_val, inhibition=inh_val)
+
         # Conversational Barge-in: Pause active exploration while listening/talking
         frontier_skill = self.skill_executor.registry.get("frontier_exploration")
         was_exploring_at_barge_in = False

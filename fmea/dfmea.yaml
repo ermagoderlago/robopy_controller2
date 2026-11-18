@@ -1682,7 +1682,7 @@
   eco_ref: docs/ecos/orchestration_rag_ecos.md
   lesson_ref: docs/lessons/orchestration_and_rag.md
   date_identified: '2026-07-30'
-  last_updated: '2026-11-05'
+  last_updated: '2026-11-15'
   history:
   - date: '2026-07-30'
     change: Analisi rischio saturazione RPE e progettazione controllo di efficacia
@@ -1694,6 +1694,13 @@
       (lambda=0.12) ed Efficacy Audit basato su Entropia di Shannon H(A) (RPN 294
       -> 7).
     rpn_old: 294
+    rpn_new: 7
+  - date: '2026-11-15'
+    change: Estesa la regolazione omeostatica a isteresi neuro-sociale (social_momentum
+      vs social_inhibition), minimizzazione energetica MetabolicEffortTier e ritirata
+      sandboxata in cuccia su zittimento; verificato con tests/test_pose_social_llm_interaction.py
+      e regressione completa (RPN invariato a 7).
+    rpn_old: 7
     rpn_new: 7
 - id: FM-COG-005
   subsystem: AI/Cognitive

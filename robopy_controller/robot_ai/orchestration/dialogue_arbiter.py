@@ -102,6 +102,11 @@ class SocialContextSnapshot:
     do_not_disturb: bool = False
     engagement_updated_mono: float = 0.0
     tom_updated_mono: float = 0.0
+    posture_state: str = "ENGAGED"
+    last_gesture: str = "NONE"
+    engagement_distance_m: float = 1.50
+    social_inhibition: float = 0.0
+    social_momentum: float = 0.0
 
 
 @dataclass
@@ -538,6 +543,7 @@ class DialogueArbiter:
         norm = (tom_state or "NORMAL").strip().upper()
         with self._lock:
             self.social.tom_state = norm
+            self.social.posture_state = norm
             if do_not_disturb is not None:
                 self.social.do_not_disturb = bool(do_not_disturb)
             else:
@@ -545,6 +551,39 @@ class DialogueArbiter:
                     k in norm for k in ("DO_NOT_DISTURB", "DND", "BUSY_DO_NOT_INTERRUPT", "SLEEP")
                 )
             self.social.tom_updated_mono = time.monotonic()
+
+    def record_user_shush(self, inhibition: float = 0.50, momentum: float = 0.0) -> None:
+        """Records shush inhibition so proactive speech stays suppressed until calmed."""
+        with self._lock:
+            self.social.social_inhibition = max(0.0, min(1.0, float(inhibition)))
+            self.social.social_momentum = max(0.0, min(1.0, float(momentum)))
+
+    def record_positive_dialogue(self, momentum: float = 0.30, inhibition: float = 0.0) -> None:
+        """Records positive conversation momentum and relaxes inhibition."""
+        with self._lock:
+            self.social.social_momentum = max(0.0, min(1.0, float(momentum)))
+            self.social.social_inhibition = max(0.0, min(1.0, float(inhibition)))
+
+    def update_social_context(
+        self,
+        *,
+        posture_state: Optional[str] = None,
+        last_gesture: Optional[str] = None,
+        engagement_distance_m: Optional[float] = None,
+    ) -> None:
+        """Updates fused postural scene social state from `/marcus/social_context/postural_scene`."""
+        with self._lock:
+            if posture_state is not None:
+                norm_p = str(posture_state).strip().upper()
+                self.social.posture_state = norm_p
+                self.social.tom_state = norm_p
+                self.social.tom_updated_mono = time.monotonic()
+            if last_gesture is not None:
+                self.social.last_gesture = str(last_gesture).strip().upper()
+            if engagement_distance_m is not None:
+                d_val = float(engagement_distance_m)
+                self.social.engagement_distance_m = d_val
+                self.social.is_person_present = d_val < 5.0
 
     def can_continue_without_wakeword(self, within_timer: bool) -> Tuple[bool, str]:
         """Determines whether a follow-up utterance is valid without explicit wakeword.
@@ -669,7 +708,7 @@ class DialogueArbiter:
 
             for idx, item in enumerate(self._proactive_queue):
                 if not item.force_urgent:
-                    if self.social.do_not_disturb:
+                    if self.social.do_not_disturb or self.social.social_inhibition >= 0.50:
                         continue
                     if (
                         item.requires_presence

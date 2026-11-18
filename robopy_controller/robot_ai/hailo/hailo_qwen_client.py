@@ -655,10 +655,59 @@ class HailoQwenClient:
                 if clean_line:
                     rag_lines.append(clean_line)
 
-        # 3. Intent Evaluation with Priority Ordering (Specific Questions BEFORE Greetings)
+        # 3. Intent Evaluation with Priority Ordering (PoseScene -> Specific Questions BEFORE Greetings)
+
+        # P0. Embodied Social PoseScene Context (Pose + Bounding Boxes + Map + Inhibition)
+        if "posescene:" in lower_full:
+            ps_person_m = re.search(r"person=([^@\s|]+)@([\d\.]+)m,az=([+-]?[\d\.]+)deg", lower_full)
+            ps_person = ps_person_m.group(1).capitalize() if ps_person_m else user_name
+            ps_dist = float(ps_person_m.group(2)) if ps_person_m else 1.5
+            ps_az = float(ps_person_m.group(3)) if ps_person_m else 0.0
+            ps_tom_m = re.search(r"tom=([a-z_]+)", lower_full)
+            ps_tom = ps_tom_m.group(1) if ps_tom_m else "engaged"
+            ps_gest_m = re.search(r"gesture=([a-z_]+)", lower_full)
+            ps_gest = ps_gest_m.group(1) if ps_gest_m else "none"
+            ps_near_m = re.search(r"near_hand=\[([^\]]*)\]", lower_full)
+            ps_near = (
+                [x.strip() for x in ps_near_m.group(1).split(",") if x.strip() and x.strip() != "none"]
+                if ps_near_m else []
+            )
+            ps_inh_m = re.search(r"soc_inh=([\d\.]+)", lower_full)
+            ps_inh = float(ps_inh_m.group(1)) if ps_inh_m else 0.0
+
+            shush_words = ["zitto", "stai zitto", "taci", "basta", "silenzio", "vai in cuccia", "vai a cuccia", "non disturbare"]
+            if ps_inh >= 0.50 or any(w in user_lower for w in shush_words):
+                text = (
+                    'Scusa per il disturbo, faccio subito un passo indietro e torno alla cuccia. '
+                    '<action>{"call": {"name": "move_distance", "arguments": {"direction": "indietro", "distance_m": 0.25, "speed": 0.12}}}</action>'
+                )
+            elif ps_tom == "kneeling_eye_level":
+                if ps_dist > 0.60:
+                    step_m = round(max(0.05, min(1.50, ps_dist - 0.50)), 2)
+                    text = (
+                        f"Ciao {ps_person}, ti sei abbassato alla mia altezza! Mi avvicino piano a mezzo metro. "
+                        f'<action>{{"call": {{"name": "move_distance", "arguments": {{"direction": "avanti", "distance_m": {step_m}, "speed": 0.14}}}}}}</action>'
+                    )
+                else:
+                    text = f"Ciao {ps_person}, sono gia vicino a te a mezzo metro e ti ascolto!"
+            elif ps_gest == "wave_hello":
+                near_hint = f" Vedo vicino alla tua mano: {', '.join(ps_near[:2])}." if ps_near else ""
+                if abs(ps_az) > 22.0:
+                    rot_dir = "destra" if ps_az > 0 else "sinistra"
+                    rot_deg = round(min(60.0, abs(ps_az)), 1)
+                    text = (
+                        f"Ciao {ps_person}! Mi giro verso di te per ricambiare il saluto.{near_hint} "
+                        f'<action>{{"call": {{"name": "rotate_angle", "arguments": {{"direction": "{rot_dir}", "degrees": {rot_deg}, "speed": 0.45}}}}}}</action>'
+                    )
+                else:
+                    text = f"Ciao {ps_person}! Ti saluto con gioia restando fermo sulle ruote per risparmiare energia.{near_hint}"
+            elif ps_gest == "beckon_come" or any(w in user_lower for w in ["seguimi", "vieni con me", "follow"]):
+                text = f"Certo {ps_person}, ti seguo mantenendo la distanza di sicurezza!"
+            else:
+                text = f"Ciao {ps_person}, ti osservo attentamente qui in {current_room}: dimmi pure!"
 
         # A. Identity - Robot ("Chi sei?", "Come ti chiami?", "Cosa significa Marcus?")
-        if any(w in user_lower for w in ["chi sei", "presentati", "come ti chiami", "tu chi sei", "qual è il tuo nome", "parlami di te", "cosa significa marcus", "acronimo"]):
+        elif any(w in user_lower for w in ["chi sei", "presentati", "come ti chiami", "tu chi sei", "qual è il tuo nome", "parlami di te", "cosa significa marcus", "acronimo"]):
             text = "Sono Marcus (Modular Autonomous Robotic Control Unit System), il tuo assistente robotico intelligente equipaggiato con acceleratore NPU Hailo-10H, memoria TRINITY e ROS 2. Come posso aiutarti oggi?"
 
         # A2. Factual Knowledge & Geography (France capital, Italy/Spain, Math)
