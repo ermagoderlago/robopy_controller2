@@ -232,10 +232,66 @@ Versione: {robot.version}.
         }
 
     async def _run_single_analysis(self, context_text: str, system_manifest: str) -> str:
-        """Single-pass Gemini analysis (fallback mode)."""
+        """Single-pass Gemini analysis (fallback mode, single LLM call)."""
         prompt = self._build_gemini_analysis_prompt(context_text, system_manifest)
         response = await self.llm_service.generate(prompt, max_tokens=8192)
         return response.text or ""
+
+    async def _synthesize_master_prompt_with_gemini(
+        self,
+        gemini_analysis: str,
+        system_manifest: str,
+        deepseek_review: str = "",
+        gemini_refined: str = "",
+    ) -> str:
+        """Fallback Turn 4 Master Prompt synthesis using Gemini when DeepSeek is unavailable/402."""
+        req = (
+            f"{system_manifest}\n\n"
+            "## CONTESTO\n"
+            "Genera un MASTER PROMPT operativo aggiornato a partire dall'analisi notturna di Marcus.\n\n"
+            f"### Analisi:\n{(gemini_refined or gemini_analysis)[:2500]}\n\n"
+        )
+        if deepseek_review:
+            req += f"### Revisione critica:\n{deepseek_review[:1500]}\n\n"
+        req += (
+            "## ISTRUZIONI\n"
+            "Genera un elenco puntato (max 15 voci) di istruzioni operative concise in italiano.\n"
+            "- Gestisci input frammentati/monosillabici proponendo 1-2 ipotesi dal contesto recente.\n"
+            "- Non inventare compleanni poetici, sogni mattutini o frasi fatte come 'corto circuito logico'.\n"
+            "- Se una skill non è supportata o fallisce, spiega brevemente il motivo e proponi un'alternativa utile.\n"
+            "Rispondi SOLO con l'elenco puntato."
+        )
+        try:
+            resp = await self.llm_service.generate(req, max_tokens=1024)
+            return self._sanitize_master_prompt(resp.text or "")
+        except Exception as e:
+            self.logger.warning(f"Turn 4 (Gemini fallback master prompt) failed: {e}")
+            return ""
+
+    @staticmethod
+    def _sanitize_master_prompt(master_prompt: str) -> str:
+        """Filter legacy/banned directives (IMP-AI-001) and cap bullet count."""
+        if not master_prompt:
+            return ""
+        banned_phrases = (
+            "compleanno robotico",
+            "poetico",
+            "corto circuito logico",
+            "dei tuoi sogni",
+            "elaborazioni notturne quando saluti",
+        )
+        clean_lines = []
+        for raw_line in master_prompt.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            low = line.lower()
+            if any(bp in low for bp in banned_phrases):
+                continue
+            clean_lines.append(line)
+            if len(clean_lines) >= 15:
+                break
+        return "\n".join(clean_lines).strip()
 
     async def _run_collaborative_analysis(self, context_text: str, system_manifest: str) -> str:
         """
@@ -296,12 +352,23 @@ Versione: {robot.version}.
                 system_prompt="Sei un analista AI esperto di robotica e interazione uomo-macchina. Fornisci revisioni critiche e costruttive.",
             )
         except Exception as e:
-            self.logger.warning(f"Turn 2 (DeepSeek) failed: {e}. Falling back to Gemini-only.")
-            # Graceful fallback: return just Gemini analysis
-            return gemini_analysis
-        
+            self.logger.warning(f"Turn 2 (DeepSeek) failed: {e}. Falling back to Gemini Master Prompt synthesis.")
+            deepseek_review = ""
+
         if not deepseek_review:
-            self.logger.warning("Turn 2: Empty DeepSeek response. Using Gemini-only result.")
+            ds_err = getattr(self.deepseek_service, "last_error", "")
+            err_suffix = f" ({ds_err})" if ds_err else ""
+            self.logger.warning(
+                f"Turn 2: Empty DeepSeek response{err_suffix}. Running Gemini fallback Turn 4 Master Prompt synthesis."
+            )
+            fallback_mp = await self._synthesize_master_prompt_with_gemini(
+                gemini_analysis=gemini_analysis,
+                system_manifest=system_manifest,
+            )
+            if fallback_mp:
+                self._save_master_prompt(fallback_mp)
+                full_report_parts.append(f"## 📋 Turno 4 — Master Prompt (Gemini Fallback)\n\n{fallback_mp}")
+                return "\n\n---\n\n".join(full_report_parts)
             return gemini_analysis
         
         full_report_parts.append(f"## 🔍 Turno 2 — Revisione Critica DeepSeek\n\n{deepseek_review}")
@@ -383,8 +450,17 @@ Versione: {robot.version}.
             self.logger.warning(f"Turn 4 (DeepSeek master prompt) failed: {e}")
             master_prompt = ""
         
+        if not master_prompt:
+            master_prompt = await self._synthesize_master_prompt_with_gemini(
+                gemini_analysis=gemini_analysis,
+                system_manifest=system_manifest,
+                deepseek_review=deepseek_review,
+                gemini_refined=gemini_refined,
+            )
+
         if master_prompt:
-            full_report_parts.append(f"## 📋 Turno 4 — Master Prompt (DeepSeek)\n\n{master_prompt}")
+            master_prompt = self._sanitize_master_prompt(master_prompt)
+            full_report_parts.append(f"## 📋 Turno 4 — Master Prompt\n\n{master_prompt}")
             self.logger.info(f"Turn 4 complete ({len(master_prompt)} chars)")
             
             # Save master prompt to file
@@ -397,9 +473,11 @@ Versione: {robot.version}.
         return full_report
 
     def _build_gemini_analysis_prompt(self, context_text: str, system_manifest: str) -> str:
-        """Build the initial Gemini analysis prompt."""
+        """Build the initial Gemini analysis prompt with explicit current date grounding."""
+        today_str = datetime.now().strftime("%Y-%m-%d")
         return (
             f"{system_manifest}\n\n"
+            f"DATA CORRENTE REALE: {today_str}\n\n"
             "## OBIETTIVO: ANALISI E AUTO-MIGLIORAMENTO\n"
             "Analizza le tue interazioni delle ultime 24 ore con occhio critico e costruttivo.\n"
             "Non limitarti a riassumere: cerca pattern, emozioni e opportunità tecniche.\n\n"
@@ -417,21 +495,25 @@ Versione: {robot.version}.
             "--- LOG CONVERSAZIONI (ULTIME 24H) ---\n"
             f"{context_text}\n"
             "--- FINE LOG ---\n\n"
-            "Genera il Report in Markdown (titolo H2 con Data). Sii onesto, tecnico dove serve, e propositivo."
+            f"Genera il Report in Markdown usando ESATTAMENTE la data corrente '{today_str}' nel titolo H2 "
+            f"(es. '## Report Analisi Interazioni - {today_str}'). NON inventare mai date passate o del 2024. "
+            "Sii onesto, tecnico dove serve, e propositivo."
         )
 
     def _save_master_prompt(self, master_prompt: str) -> bool:
         """
         [3-Phase Auto-Dream: Phase 3 Evaluate & Commit]
         Atomic rollback-safe file transaction for master prompt.
-        1. Validates non-empty prompt (> 50 chars).
+        1. Sanitizes legacy banned directives & validates non-empty prompt (>= 25 chars).
         2. Writes to temporary file: master_prompt.tmp (with fsync).
         3. Backs up existing file to master_prompt.bak.
         4. Atomically replaces master_prompt.txt with master_prompt.tmp using os.replace().
         """
-        if not master_prompt or len(master_prompt.strip()) < 50:
-            self.logger.warning("Master prompt rejected: content empty or too short.")
+        sanitized = self._sanitize_master_prompt(master_prompt or "")
+        if not sanitized or len(sanitized) < 25:
+            self.logger.warning("Master prompt rejected: content empty or too short after sanitization.")
             return False
+        master_prompt = sanitized
 
         tmp_path = self.master_prompt_path + ".tmp"
         bak_path = self.master_prompt_path + ".bak"

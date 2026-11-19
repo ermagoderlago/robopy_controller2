@@ -117,31 +117,38 @@ class HomeAssistantSkill(BaseSkill):
         return min(1.0, score)
     
     async def execute(self, text: str, context: Dict[str, Any] = None) -> SkillResult:
-        """Execute Home Assistant command."""
+        """Execute Home Assistant command with dynamic entity fallback and clear error diagnostics."""
         # Parse intent
         intent = self._parse_intent(text)
         
         if not intent.get("action"):
             return SkillResult.failure_result(
-                "Non ho capito cosa vuoi fare",
+                "Non ho capito quale azione domotica vuoi eseguire (es. accendi, spegni, imposta).",
                 SkillErrorCode.INVALID_PARAMETERS,
-                speak="Non ho capito cosa vuoi fare",
+                speak="Non ho capito se vuoi accendere, spegnere o regolare il dispositivo.",
             )
         
+        # [Nightly Dream 2026-10-10] Generic whole-house commands ("spegni tutto" / "accendi tutto")
         if not intent.get("entity_type"):
-            return SkillResult.failure_result(
-                "Non ho capito quale dispositivo controllare",
-                SkillErrorCode.INVALID_PARAMETERS,
-                speak="Non ho capito quale dispositivo controllare",
-            )
+            if intent.get("all_entities") and intent["action"] in ("turn_on", "turn_off"):
+                intent["entity_type"] = "light"
+            else:
+                return SkillResult.failure_result(
+                    "Non ho capito quale dispositivo controllare",
+                    SkillErrorCode.INVALID_PARAMETERS,
+                    speak="Dimmi quale dispositivo o stanza vuoi controllare, ad esempio la luce in cucina o in bagno.",
+                )
         
         # Build HA action
         action = self._build_action(intent)
         
-        # If we have an HA client, execute
+        # If we have an HA client, resolve best matching entity and execute
         if self.ha_client:
+            resolved_entity = await self._resolve_entity_from_ha(intent, action)
+            if resolved_entity:
+                action["entity_id"] = resolved_entity
             try:
-                result = await self.ha_client.call_service(
+                await self.ha_client.call_service(
                     domain=action["domain"],
                     service=action["service"],
                     entity_id=action.get("entity_id"),
@@ -155,11 +162,46 @@ class HomeAssistantSkill(BaseSkill):
                     actions=[action]
                 )
             except Exception as e:
-                err_msg = "Azione fallita, ci ho provato ma la connessione domotica è instabile."
+                err_str = str(e)
+                err_low = err_str.lower()
+                # Retry once with alternative entity synonym (e.g. luce <-> lampada) if parameter/entity mismatch
+                alt_entity = await self._find_fallback_entity(intent, exclude_entity=action.get("entity_id"))
+                if alt_entity:
+                    try:
+                        action["entity_id"] = alt_entity
+                        await self.ha_client.call_service(
+                            domain=action["domain"],
+                            service=action["service"],
+                            entity_id=alt_entity,
+                            data=action.get("data"),
+                        )
+                        return SkillResult(
+                            success=True,
+                            message=self._build_response(intent),
+                            speak=self._build_response(intent),
+                            actions=[action],
+                        )
+                    except Exception as retry_err:
+                        err_str = str(retry_err)
+                        err_low = err_str.lower()
+
+                if any(k in err_low for k in ("not connected", "connect", "timeout", "unreachable", "websocket")):
+                    speak_msg = "Non riesco a raggiungere Home Assistant in questo momento; la connessione domotica non risponde."
+                    code = SkillErrorCode.EXTERNAL_SERVICE_ERROR
+                elif any(k in err_low for k in ("entity", "not found", "invalid", "parameter", "schema")):
+                    loc = intent.get("location") or "quella stanza"
+                    speak_msg = (
+                        f"Home Assistant non riconosce il dispositivo richiesto per {loc}. "
+                        "Puoi indicarmi il nome esatto della luce o dell'interruttore?"
+                    )
+                    code = SkillErrorCode.INVALID_PARAMETERS
+                else:
+                    speak_msg = f"Home Assistant ha restituito un errore durante il comando sul dispositivo {action.get('entity_id') or action['domain']}."
+                    code = SkillErrorCode.EXTERNAL_SERVICE_ERROR
                 return SkillResult.failure_result(
-                    f"Errore HA: {str(e)}",
-                    SkillErrorCode.EXTERNAL_SERVICE_ERROR,
-                    speak=err_msg
+                    f"Errore HA ({action.get('entity_id', action['domain'])}): {err_str}",
+                    code,
+                    speak=speak_msg,
                 )
         
         # No client, return action to be executed by orchestrator
@@ -169,6 +211,89 @@ class HomeAssistantSkill(BaseSkill):
             speak=self._build_response(intent),
             actions=[action]
         )
+
+    async def _get_ha_states_safe(self) -> List[Dict[str, Any]]:
+        """Best-effort fetch of cached/live HA states for entity resolution."""
+        if not self.ha_client:
+            return []
+        try:
+            if hasattr(self.ha_client, "get_states"):
+                res = self.ha_client.get_states()
+                if hasattr(res, "__await__"):
+                    res = await res
+                if isinstance(res, list):
+                    return res
+                if isinstance(res, dict):
+                    return list(res.values())
+            cached = getattr(self.ha_client, "states", None)
+            if isinstance(cached, dict):
+                return list(cached.values())
+            if isinstance(cached, list):
+                return cached
+        except Exception:
+            return []
+        return []
+
+    async def _resolve_entity_from_ha(self, intent: Dict[str, Any], action: Dict[str, Any]) -> Optional[str]:
+        """Resolve an entity_id from live/cached Home Assistant states matching domain & room/synonyms."""
+        if intent.get("all_entities"):
+            return "all"
+        location = intent.get("location")
+        domain = action.get("domain")
+        if not location or not domain:
+            return action.get("entity_id")
+
+        states = await self._get_ha_states_safe()
+        if not states:
+            return action.get("entity_id")
+
+        loc_aliases = self.LOCATION_PATTERNS.get(location, [location])
+        synonyms = ["luce", "lampada", "lampadina", "specchio", "plafoniera"] if domain == "light" else []
+
+        exact_id = f"{domain}.{location}"
+        candidates: List[tuple] = []
+        for st in states:
+            if not isinstance(st, dict):
+                continue
+            eid = str(st.get("entity_id", ""))
+            if not eid.startswith(f"{domain}."):
+                continue
+            if eid == exact_id:
+                return eid
+            friendly = str((st.get("attributes") or {}).get("friendly_name", "")).lower()
+            haystack = f"{eid.lower()} {friendly}"
+            if any(alias in haystack for alias in loc_aliases):
+                score = 2 if any(syn in haystack for syn in synonyms) else 1
+                candidates.append((score, eid))
+
+        if candidates:
+            candidates.sort(key=lambda item: item[0], reverse=True)
+            return candidates[0][1]
+        return action.get("entity_id")
+
+    async def _find_fallback_entity(self, intent: Dict[str, Any], exclude_entity: Optional[str]) -> Optional[str]:
+        """Find an alternative entity in the same room (e.g. switch/light lampada) if primary call failed."""
+        location = intent.get("location")
+        if not location or intent.get("all_entities"):
+            return None
+        states = await self._get_ha_states_safe()
+        if not states:
+            return None
+        loc_aliases = self.LOCATION_PATTERNS.get(location, [location])
+        allowed_domains = ("light", "switch") if intent.get("entity_type") == "light" else (intent.get("entity_type"),)
+        for st in states:
+            if not isinstance(st, dict):
+                continue
+            eid = str(st.get("entity_id", ""))
+            if not eid or eid == exclude_entity:
+                continue
+            dom = eid.split(".", 1)[0]
+            if dom not in allowed_domains:
+                continue
+            friendly = str((st.get("attributes") or {}).get("friendly_name", "")).lower()
+            if any(alias in f"{eid.lower()} {friendly}" for alias in loc_aliases):
+                return eid
+        return None
     
     def _parse_intent(self, text: str) -> Dict[str, Any]:
         """Parse user intent from text."""

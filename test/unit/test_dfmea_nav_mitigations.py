@@ -133,8 +133,36 @@ class TestConfigIntegrity(unittest.TestCase):
                 break
 
         self.assertIsNotNone(recovery_seq, "SurvivalRecoverySequence not found in BT XML")
-        spins = recovery_seq.findall('Spin')
-        self.assertEqual(len(spins), 0, "Hazardous blind Spin node still present in SurvivalRecoverySequence")
+        # Verify FM-NAV-019 & ECO-2026-11-08-001:
+        # No hazardous blind 90/180 deg Spin nodes allowed; a controlled DisengageSpin (<= 48 deg / 0.85 rad)
+        # is allowed ONLY after BackUp and BEFORE costmap clearing.
+        children = list(recovery_seq)
+        spins = [c for c in children if c.tag == 'Spin']
+        for sp in spins:
+            spin_dist = abs(float(sp.get('spin_dist', '99.0')))
+            self.assertLessEqual(
+                spin_dist,
+                0.85,
+                f"Hazardous blind Spin (> 48 deg) detected in SurvivalRecoverySequence: spin_dist={spin_dist}",
+            )
+            self.assertEqual(
+                sp.get('name'),
+                'DisengageSpin',
+                "Unexpected non-DisengageSpin node present in SurvivalRecoverySequence",
+            )
+            spin_idx = children.index(sp)
+            backup_indices = [i for i, c in enumerate(children) if c.tag == 'BackUp']
+            clear_indices = [i for i, c in enumerate(children) if c.tag == 'ClearEntireCostmap']
+            self.assertTrue(
+                backup_indices and min(backup_indices) < spin_idx,
+                "DisengageSpin must be preceded by BackUp for physical clearance",
+            )
+            if clear_indices:
+                self.assertLess(
+                    spin_idx,
+                    min(clear_indices),
+                    "DisengageSpin must execute before ClearEntireCostmap (no blind post-clear spin)",
+                )
 
         # Verify combination_method in nav2_params_jazzy.yaml
         jazzy_yaml_path = os.path.join('robopy_controller', 'config', 'nav2_params_jazzy.yaml')

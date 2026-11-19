@@ -107,6 +107,79 @@ class ConversationManager:
     def set_mic_muted(self, muted: bool):
         self._mic_muted = muted
 
+    def _build_fragmented_input_note(self, clean_text: str, normalized_text: str) -> str:
+        """
+        [Nightly Dream Runs 41-44] Rileva input monosillabici, ellittici o richieste pasti
+        senza violare SPEC-05 (nessuno scripting di azioni fisiche): fornisce solo una nota
+        contestuale all'LLM per evitare loop ripetitivi ('sì a cosa?') e offrire alternative.
+        """
+        tokens = [t for t in normalized_text.split() if t]
+        if not tokens:
+            return ""
+
+        ambiguous_fragments = {
+            "si", "sì", "no", "cosi", "così", "cosa", "ma", "se", "io",
+            "sette", "boh", "mah", "cioe", "cioè", "dici", "eh", "ok",
+        }
+        meal_keywords = {"pranzo", "cena", "colazione", "mangiare", "cucina", "cucinare", "fame"}
+        clear_commands = {
+            "ciao", "buongiorno", "buonasera", "grazie", "stop", "fermati",
+            "alt", "basta", "batteria", "esplora", "seguimi", "aiuto",
+        }
+
+        if len(tokens) == 1 and tokens[0] in meal_keywords:
+            self._consecutive_fragment_count = 0
+            return (
+                "[NOTA CONTESTUALE: L'utente ha menzionato un pasto/cibo ('"
+                f"{clean_text}'). Non restare muto e non limitarti a un rifiuto secco: "
+                "proponi brevemente 2 alternative utili come cercare una ricetta, impostare un timer o un promemoria.]"
+            )
+
+        is_fragment = (
+            len(tokens) <= 2
+            and not any(t in clear_commands for t in tokens)
+            and (
+                all(t in ambiguous_fragments for t in tokens)
+                or (len(tokens) == 1 and len(tokens[0]) <= 3)
+            )
+        )
+
+        if not is_fragment:
+            self._consecutive_fragment_count = 0
+            return ""
+
+        count = getattr(self, "_consecutive_fragment_count", 0) + 1
+        self._consecutive_fragment_count = count
+
+        recent_topics = []
+        history = getattr(self, "conversation_history", None) or []
+        for turn in list(history)[-4:]:
+            if isinstance(turn, dict):
+                txt = str(turn.get("content") or turn.get("text") or "").strip()
+            elif isinstance(turn, (tuple, list)) and len(turn) >= 2:
+                txt = str(turn[1]).strip()
+            else:
+                txt = str(turn).strip()
+            if txt:
+                recent_topics.append(txt[:80])
+
+        if count >= 3:
+            return (
+                f"[NOTA CONTESTUALE: {count}° frammento breve consecutivo ('{clean_text}'). "
+                "Evita di chiedere nuovamente 'non capisco' o 'sì a cosa?': offri una scelta guidata sintetica "
+                "tra 2-3 opzioni concrete (es. domotica/luci, movimento/stanza, o chiacchiera).]"
+            )
+        if recent_topics:
+            ctx_hint = " | ".join(recent_topics[-2:])
+            return (
+                f"[NOTA CONTESTUALE: Input breve/ellittico ('{clean_text}'). "
+                f"Collega la parola agli ultimi turni ({ctx_hint}) e proponi 1-2 ipotesi concrete invece di chiedere 'sì a cosa?'.]"
+            )
+        return (
+            f"[NOTA CONTESTUALE: Input molto breve ('{clean_text}') senza contesto recente. "
+            "Proponi brevemente 2 interpretazioni plausibili invece di una richiesta generica di chiarimento.]"
+        )
+
     def _is_emergency(self, text: str) -> bool:
         return bool(re.search(r'\b(fermati|stop|alt|basta|blocca|arresto|emergenza)\b', text, re.IGNORECASE))
 
@@ -557,13 +630,22 @@ class ConversationManager:
             generation_timeout = 10.0
 
         # When connected to real hailo-ollama daemon on port 11434 with /dev/hailo0 present,
-        # allow up to 30.0s for full ChatML prefill + multi-sentence NPU generation on Hailo-10H.
+        # allow up to 30.0s (or cold_load_timeout_sec=40.0s when VDevice break-before-make
+        # arbitration with keep_alive=0 cold-loads the 1.5B HEF on Hailo-10H).
         if (
-            generation_timeout <= 28.0
-            and os.path.exists("/dev/hailo0")
+            os.path.exists("/dev/hailo0")
             and getattr(client_cfg, "endpoint", "") == "http://127.0.0.1:11434"
         ):
-            generation_timeout = 30.0
+            target_hw_timeout = (
+                float(getattr(client_cfg, "cold_load_timeout_sec", 40.0))
+                if (
+                    getattr(self.hailo_client, "_vdevice_arbitrator", None) is not None
+                    and getattr(client_cfg, "ollama_keep_alive", 0) == 0
+                )
+                else 30.0
+            )
+            if generation_timeout < target_hw_timeout:
+                generation_timeout = target_hw_timeout
 
         try:
             try:
@@ -1116,6 +1198,11 @@ class ConversationManager:
                 "empatico o gentilmente ironico sul fatto che si sta ripetendo, chiedendogli in modo amichevole "
                 "se c'è un problema di connessione o se non ti ha sentito bene.]\n"
             )
+
+        # --- Contextual Fragment / Ellipsis Helper (Nightly Dream Runs 41-44) ---
+        fragment_note = self._build_fragmented_input_note(clean_text, normalized_text)
+        if fragment_note:
+            repeated_prompt_note = f"{repeated_prompt_note}\n{fragment_note}".strip()
 
         # Fast-path skill execution (e.g direct commands)
         # CRITICAL: Motion initiation skills MUST NEVER bypass the TRINITY LLM!

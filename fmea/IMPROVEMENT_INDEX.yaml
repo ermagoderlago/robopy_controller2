@@ -5,7 +5,7 @@ improvements:
   FM-NAV-009:
     title: "Miglioramento Navigazione: Rilevamento Ostacoli Negativi e Prevenzione Caduta Scale"
     file: "docs/improvements/IMP-NAV-009_negative_obstacles.md"
-    status: "PLANNED"
+    status: "COMPLETED"
     domain: "nav2_slam"
 
   FM-NAV-008:
@@ -35,32 +35,32 @@ improvements:
   FM-PWR-005:
     title: "Miglioramento Alimentazione: Graceful Shutdown Orchestrator con Salvataggio Mappe e Allerta Vocale"
     file: "docs/improvements/IMP-PWR-005_graceful_shutdown_orchestrator.md"
-    status: "PLANNED"
+    status: "MITIGATED"
     domain: "hardware_power"
 
 
   FM-LLM-004:
     title: "Miglioramento AI: Pre-flight Kinematic Sandbox per Skill Dinamiche"
     file: "docs/improvements/IMP-LLM-004_skill_sandbox.md"
-    status: "PLANNED"
+    status: "MITIGATED"
     domain: "ai_langgraph"
 
   FM-LLM-005:
     title: "Miglioramento AI: Multi-Tier Fallback Gateway con Qwen2 su Hailo-10H NPU"
     file: "docs/improvements/IMP-LLM-005_hailo_qwen_fallback.md"
-    status: "PLANNED"
+    status: "MITIGATED"
     domain: "ai_langgraph"
 
   FM-COG-001:
     title: "Miglioramento Cognitivo: Homeostatic Dopamine Reuptake & Efficacy Audit"
     file: "docs/improvements/IMP-COG-001_dopamine_homeostasis.md"
-    status: "PLANNED"
+    status: "COMPLETED"
     domain: "cognitive_ai"
 
   FM-SIM-001:
     title: "Miglioramento Testing: Immutable Copy-on-Write Shadow Memory Sandbox"
     file: "docs/improvements/IMP-SIM-001_shadow_memory_sandbox.md"
-    status: "PLANNED"
+    status: "COMPLETED"
     domain: "testing_simulation"
 
   FM-COG-002:
@@ -72,7 +72,7 @@ improvements:
   FM-VUI-004:
     title: "Miglioramento VUI: Hailo-10H Continuous Listening, Voice Print & Memory Decay Engine"
     file: "docs/improvements/IMP-004-HAILO_VUI_VOICEPRINT.md"
-    status: "PLANNED"
+    status: "COMPLETED"
     domain: "audio_vui"
 
   FM-VIS-003:
@@ -250,7 +250,7 @@ improvements:
   FM-GOV-001:
     title: "Miglioramento Sistema: Dynamic Resource Governor, Pose su Hailo-10H e Biometria Residente (copre FM-GOV-001..017)"
     file: "docs/improvements/IMP-GOV-001_dynamic_resource_governor.md"
-    status: "PLANNED"
+    status: "IN_PROGRESS"
     domain: "system_resources"
 
 

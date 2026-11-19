@@ -851,19 +851,25 @@
     detection: 2
     rpn: 36
   risk_level: REVISION_MANDATORY
-  mitigation_status: OPEN
+  mitigation_status: MITIGATED
   recommended_action: Implementare un filtro di validazione cinematico a 3 vie (Mahalanobis
     Distance Gating) in MotionManager per tagliare la coppia erogata in caso di slip
   verification_method: Test di accelerazione su superficie lucida/piastrella bagnata
   eco_ref: docs/ecos/actuation_ecos.md
   lesson_ref: docs/lessons/actuation_motor_driver.md
   date_identified: '2026-07-30'
-  last_updated: '2026-07-30'
+  last_updated: '2026-11-19'
   history:
   - date: '2026-07-30'
     change: Audit approfondito codebase e rilevamento rischio wheel slip
     rpn_old: 315
     rpn_new: 36
+  - date: '2026-11-19'
+    change: 'Allineato stato a MITIGATED: wheel slip gating implementato in fast_flow_vo_node.cpp
+      e coperto in test/unit/test_dfmea_nav_mitigations.py.'
+    rpn_old: 36
+    rpn_new: 36
+  verification_test_file: test/unit/test_dfmea_nav_mitigations.py
 - id: FM-LLM-003
   subsystem: AI/LangGraph
   component: live_connection_manager
@@ -893,7 +899,7 @@
     detection: 2
     rpn: 28
   risk_level: LOW
-  mitigation_status: OPEN
+  mitigation_status: MITIGATED
   recommended_action: Implementare l'architettura Circuit Breaker con commutazione
     trasparente tra Cloud WebSocket e Local Edge NPU Inference
   verification_method: Test di disconnessione Wi-Fi forzata durante la conversazione
@@ -901,12 +907,18 @@
   eco_ref: docs/ecos/llm_live_ecos.md
   lesson_ref: docs/lessons/llm_live_api.md
   date_identified: '2026-07-30'
-  last_updated: '2026-07-30'
+  last_updated: '2026-11-19'
   history:
   - date: '2026-07-30'
     change: Audit codebase per stallo conversazionale da pacchetti dropped
     rpn_old: 196
     rpn_new: 28
+  - date: '2026-11-19'
+    change: 'Allineato stato a MITIGATED: Circuit Breaker e failover Cloud->Local
+      Qwen verificati in tests/test_conversation_hybrid_failover.py.'
+    rpn_old: 28
+    rpn_new: 28
+  verification_test_file: tests/test_conversation_hybrid_failover.py
 - id: FM-VUI-004
   subsystem: VUI Audio
   component: respeaker_vui_node
@@ -997,7 +1009,7 @@
     detection: 2
     rpn: 18
   risk_level: REVISION_MANDATORY
-  mitigation_status: OPEN
+  mitigation_status: MITIGATED
   recommended_action: Integrare nel driver motori la limitazione dinamica della derivata
     prima della velocità comandata
   verification_method: Test di accelerazione da 0 a 0.25 m/s a tensione batteria di
@@ -1005,11 +1017,16 @@
   eco_ref: docs/ecos/actuation_ecos.md
   lesson_ref: docs/lessons/actuation_motor_driver.md
   date_identified: '2026-07-30'
-  last_updated: '2026-07-30'
+  last_updated: '2026-11-19'
   history:
   - date: '2026-07-30'
     change: Audit codebase su transitori elettrici e brownout ESP32
     rpn_old: 162
+    rpn_new: 18
+  - date: '2026-11-19'
+    change: 'Allineato stato a MITIGATED: slew-rate limiter max_duty_accel=2.2 attivo
+      in waveshare_motor_driver.py.'
+    rpn_old: 18
     rpn_new: 18
 - id: FM-VUI-005
   subsystem: VUI Audio
@@ -1076,30 +1093,36 @@
     occurrence: 6
     detection: 5
     rpn: 240
-  prevention_controls: Volume settato fisso in alsamixer (spesso bypassato da reset
-    software)
-  detection_controls: Percezione uditiva umana
+  prevention_controls: Scaling playback_volume (default 0.10 in restart_hailo.sh)
+    e hard clamp np.clip(-32768, 32767) in respeaker_vui_node.py prevengono wrap-around
+    int16; compressore Software DRC adattivo non ancora implementato.
+  detection_controls: Logging continuo RMS di uscita PCM in respeaker_vui_node.py.
   residual_scoring:
     severity: 8
-    occurrence: 6
-    detection: 5
-    rpn: 240
-  risk_level: HIGH
-  mitigation_status: OPEN
+    occurrence: 4
+    detection: 4
+    rpn: 128
+  risk_level: MEDIUM
+  mitigation_status: IN_PROGRESS
   recommended_action: 'MIGLIORIA: Introdurre Software Dynamic Range Compression (DRC)
     sulla pipeline di uscita e limitatore di picco. Registrare i log di picco RMS
     per abbassare autonomamente il volume master in background se si superano le soglie.'
   verification_method: 'Piano prova: Sweep di frequenze sinusoidali e generazione
     TTS a volume 100% monitorando i picchi PCM'
-  eco_ref: ''
+  eco_ref: docs/ecos/audio_vui_ecos.md
   lesson_ref: docs/lessons/telemetry_and_autotuning.md
   date_identified: '2026-07-30'
-  last_updated: '2026-07-30'
+  last_updated: '2026-11-19'
   history:
   - date: '2026-07-30'
     change: Inserimento per analisi preventiva salvaguardia speaker
     rpn_old: 240
     rpn_new: 240
+  - date: '2026-11-19'
+    change: Parzialmente mitigato con scaling playback_volume, np.clip(-32768, 32767)
+      e logging RMS; DRC adattivo non ancora implementato.
+    rpn_old: 240
+    rpn_new: 128
 - id: FM-NAV-007
   subsystem: Nav2
   component: rtabmap
@@ -1181,7 +1204,7 @@
   eco_ref: ECO-NAV-008
   lesson_ref: docs/lessons/telemetry_and_autotuning.md
   date_identified: '2026-07-30'
-  last_updated: '2026-07-30'
+  last_updated: '2026-11-19'
   history:
   - date: '2026-07-30'
     change: Implementazione mppi_telemetry_logger e mppi_offline_autotuner per tuning
@@ -1192,6 +1215,7 @@
     change: Analisi ottimizzazione fine traiettorie via background learning
     rpn_old: 315
     rpn_new: 315
+  verification_test_file: test/unit/test_mppi_autotuner.py
 - id: FM-SYS-004
   subsystem: Hardware/Power
   component: battery_management / OS
@@ -1273,31 +1297,39 @@
     occurrence: 8
     detection: 4
     rpn: 192
-  prevention_controls: Dissipatore passivo/attivo hardware (spesso insufficiente d'estate
-    o in ambienti chiusi)
-  detection_controls: Monitoraggio temperatura OS, ma senza feedback ai nodi ROS 2
+  prevention_controls: Guardia termica in robot_health_supervisor.py (soglia gialla
+    70.0C, rossa 80.0C con SAFE_STOP Priorita 0) e blocco VLM Hailo sopra 80.0C in
+    conversation.py/orchestrator.py; throttling dinamico Nav2/RTAB-Map 72-78C ancora
+    da completare.
+  detection_controls: Telemetria continua CPU temp su /diagnostics e test_dialogue_arbiter_and_evolution.py
+    (guardia VLM <80C).
   residual_scoring:
     severity: 6
-    occurrence: 8
-    detection: 4
-    rpn: 192
-  risk_level: MEDIUM
-  mitigation_status: OPEN
+    occurrence: 3
+    detection: 2
+    rpn: 36
+  risk_level: LOW
+  mitigation_status: IN_PROGRESS
   recommended_action: 'MIGLIORIA: Thermal-Aware Task Orchestrator. Un demone monitora
     `vcgencmd measure_temp`. Se T > 78°C, usa `SetParameters` per degradare dolcemente
     le frequenze operative (es. abbassa rate SLAM da 5Hz a 2Hz, limita inferenza Hailo)
     permettendo il raffreddamento senza crash.'
   verification_method: 'Piano prova: Esecuzione di stress test `stress-ng` contemporaneo
     alla navigazione Nav2'
-  eco_ref: ''
+  eco_ref: docs/specs/SPEC-06_power_bms_thermal_safety.md
   lesson_ref: docs/lessons/telemetry_and_autotuning.md
   date_identified: '2026-07-30'
-  last_updated: '2026-07-30'
+  last_updated: '2026-11-19'
   history:
   - date: '2026-07-30'
     change: Aggiunta rischio Thermal Throttling e degrado real-time
     rpn_old: 192
     rpn_new: 192
+  - date: '2026-11-19'
+    change: 'Parzialmente mitigato: attive soglie 70/80C in robot_health_supervisor.py
+      e guardia VLM <80C (manca cooldown dinamico Nav2/RTAB-Map 72-78C).'
+    rpn_old: 192
+    rpn_new: 36
 - id: FM-VIS-003
   subsystem: Vision/Hardware
   component: oak_d_mount / tf_broadcaster
@@ -1369,30 +1401,37 @@
     occurrence: 6
     detection: 4
     rpn: 192
-  prevention_controls: Nessuna, affidamento al profilo FastDDS di default
-  detection_controls: Monitoraggio ping e uso CPU network stack
+  prevention_controls: Profilo CycloneDDS generato da restart_hailo.sh (/tmp/cyclonedds_robopy.xml
+    con AllowMulticast=spdp, trasporto dati unicast, MaxAutoParticipantIndex=200,
+    buffer socket 16MB) e consolidamento processi in marcus_supervisors_daemon.py.
+  detection_controls: Verifica live ros2 node list su Raspberry Pi 5 e watchdog IPC.
   residual_scoring:
     severity: 8
-    occurrence: 6
-    detection: 4
-    rpn: 192
-  risk_level: MEDIUM
-  mitigation_status: OPEN
+    occurrence: 2
+    detection: 2
+    rpn: 32
+  risk_level: LOW
+  mitigation_status: MITIGATED
   recommended_action: 'MIGLIORIA: Creare un Profilo XML FastDDS specifico per Marcus.
     Forzare il trasporto SHM (Shared Memory) puro per tutti i nodi interni al Pi 5
     (localhost), disabilitando il Multicast in uscita e abilitando Unicast Discovery
     limitato al solo IP del PC sviluppatore.'
   verification_method: 'Piano prova: Analisi traffico Wireshark sull''interfaccia
     wlan0 durante l''esecuzione dell''intero stack'
-  eco_ref: ''
+  eco_ref: docs/specs/SPEC-07_system_os_build_lifecycle.md
   lesson_ref: docs/lessons/dev_and_deployment.md
   date_identified: '2026-07-30'
-  last_updated: '2026-07-30'
+  last_updated: '2026-11-19'
   history:
   - date: '2026-07-30'
     change: Analisi middleware ROS 2 e ottimizzazione QoS / FastDDS
     rpn_old: 192
     rpn_new: 192
+  - date: '2026-11-19'
+    change: Mitigato su Pi 5 tramite profilo CycloneDDS Unicast SPDP-only, MaxAutoParticipantIndex=200
+      e consolidamento daemon.
+    rpn_old: 192
+    rpn_new: 32
 - id: FM-NAV-009
   subsystem: Nav2/Vision
   component: semantic_costmap_injector / oak_d_lite
@@ -1470,17 +1509,19 @@
     occurrence: 6
     detection: 6
     rpn: 324
-  prevention_controls: Prompt di sistema che istruisce l'LLM a scrivere codice sicuro
-    (debole, bypassabile da allucinazioni)
-  detection_controls: Nessun controllo a runtime durante l'esecuzione di eval/exec
-    in Python
+  prevention_controls: Pre-flight TrinityKinematicSandbox (5 livelli), AST SecurityValidator
+    e SkillSandbox isolano le skill auto-generate bloccando comandi fuori limiti fisici
+    o chiamate OS/eval non sicure.
+  detection_controls: Verifica unitaria e adversarial in tests/test_kinematic_sandbox.py
+    (13/13), tests/test_autonomous_evolution.py (8/8) e tests/test_pose_social_llm_interaction.py
+    (5/5).
   residual_scoring:
     severity: 9
-    occurrence: 6
-    detection: 6
-    rpn: 324
+    occurrence: 1
+    detection: 2
+    rpn: 18
   risk_level: REVISION_MANDATORY
-  mitigation_status: OPEN
+  mitigation_status: MITIGATED
   recommended_action: 'MIGLIORIA: ''Pre-flight Kinematic Sandbox & Semantic Gating''.
     Le skill generate non hanno accesso diretto ai publisher ROS 2. Vengono eseguite
     prima in un contesto Python isolato (AST locale) contro un simulatore cinematico
@@ -1489,15 +1530,21 @@
   verification_method: 'Piano prova: Richiedere deliberatamente all''AI di generare
     una skill che ruota all''infinito a velocità massima e verificare l''intervento
     del Sandbox'
-  eco_ref: ''
+  eco_ref: docs/ecos/orchestration_rag_ecos.md#ECO-2026-10-14-001
   lesson_ref: docs/lessons/llm_live_api.md
   date_identified: '2026-07-30'
-  last_updated: '2026-07-30'
+  last_updated: '2026-11-19'
   history:
   - date: '2026-07-30'
     change: Analisi rischio esecuzione codice dinamico non supervisionato
     rpn_old: 324
     rpn_new: 324
+  - date: '2026-11-19'
+    change: Validazione mitigazione via TrinityKinematicSandbox, SecurityValidator
+      e SkillSandbox (test sandbox 100% PASS).
+    rpn_old: 324
+    rpn_new: 18
+  verification_test_file: tests/test_kinematic_sandbox.py
 - id: FM-ACT-006
   subsystem: Hardware/Power
   component: waveshare_motor_driver / IMU
@@ -1619,7 +1666,7 @@
     detection: 2
     rpn: 32
   risk_level: LOW
-  mitigation_status: OPEN
+  mitigation_status: MITIGATED
   recommended_action: 'MIGLIORIA: ''Multi-Tier Cloud-to-Edge Fallback Chain''. Se
     la chiamata a Gemini restituisce errore (429/403/5xx/timeout > 1.8s), il gateway
     commuta trasparentemente entro 300ms sul LLM locale Qwen2-VL / Qwen2.5 (ottimizzato
@@ -1632,13 +1679,19 @@
   eco_ref: docs/ecos/llm_live_ecos.md
   lesson_ref: docs/lessons/llm_live_api.md
   date_identified: '2026-07-30'
-  last_updated: '2026-07-30'
+  last_updated: '2026-11-19'
   history:
   - date: '2026-07-30'
     change: Analisi fallimento abbonamento/API Gemini e integrazione fallback Qwen
       su Hailo-10H
     rpn_old: 192
     rpn_new: 192
+  - date: '2026-11-19'
+    change: 'Allineato stato a MITIGATED e storico RPN coerente: catena failover Cloud->Hailo
+      Qwen validata in tests/test_conversation_hybrid_failover.py.'
+    rpn_old: 192
+    rpn_new: 32
+  verification_test_file: tests/test_conversation_hybrid_failover.py
 - id: FM-COG-001
   subsystem: AI/Cognitive
   component: CriticEvaluatorNode / PredictiveRouterNode
@@ -3719,24 +3772,29 @@
     latenza su /nomad/diagnostics
   residual_scoring:
     severity: 6
-    occurrence: 3
-    detection: 2
-    rpn: 36
+    occurrence: 1
+    detection: 1
+    rpn: 6
   risk_level: LOW
-  mitigation_status: PLANNED
+  mitigation_status: CLOSED
   recommended_action: Implementare il fallback automatico Action Chunking con isteresi
     e gc.disable() nel loop critico
   verification_method: Test HIL di latenza DDIM end-to-end su Pi 5 (target media <
     95 ms, P99 < 110 ms su 100 cicli)
-  eco_ref: docs/ecos/nav2_slam_ecos.md
+  eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-09-30-001
   lesson_ref: docs/lessons/nav2_slam_tuning.md
   date_identified: '2026-08-24'
-  last_updated: '2026-08-24'
+  last_updated: '2026-11-19'
   history:
   - date: '2026-08-24'
     change: Inserimento Failure Mode per pipeline NoMaD v2 reattiva con DDIM 4-step
     rpn_old: 126
     rpn_new: 126
+  - date: '2026-11-19'
+    change: Chiuso per dismissione permanente nodo nomad_reactive_pipeline_node /
+      NoMaD (ECO-2026-09-30-001).
+    rpn_old: 36
+    rpn_new: 6
 - id: FM-NOM-002
   subsystem: Navigation/NoMaD
   component: nomad_reactive_pipeline_node
@@ -3765,23 +3823,28 @@
     warning su desync > 50 ms
   residual_scoring:
     severity: 7
-    occurrence: 2
-    detection: 2
-    rpn: 28
+    occurrence: 1
+    detection: 1
+    rpn: 7
   risk_level: LOW
-  mitigation_status: PLANNED
+  mitigation_status: CLOSED
   recommended_action: Mantenere pipeline sequenziale sincrona ViNT-DDIM nello stesso
     thread con validazione timestamp
   verification_method: Test HIL con profilazione timestamp frame-feature su 500 cicli
-  eco_ref: docs/ecos/nav2_slam_ecos.md
+  eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-09-30-001
   lesson_ref: docs/lessons/vision_hailo_npu.md
   date_identified: '2026-08-24'
-  last_updated: '2026-08-24'
+  last_updated: '2026-11-19'
   history:
   - date: '2026-08-24'
     change: Inserimento Failure Mode per desync ViNT-DDIM nella pipeline NoMaD v2
     rpn_old: 140
     rpn_new: 140
+  - date: '2026-11-19'
+    change: Chiuso per dismissione permanente nodo nomad_reactive_pipeline_node /
+      NoMaD (ECO-2026-09-30-001).
+    rpn_old: 28
+    rpn_new: 7
 - id: FM-NOM-003
   subsystem: Navigation/NoMaD
   component: nomad_reactive_pipeline_node
@@ -3808,24 +3871,29 @@
     contatore cicli in fallback
   residual_scoring:
     severity: 5
-    occurrence: 3
-    detection: 2
-    rpn: 30
+    occurrence: 1
+    detection: 1
+    rpn: 5
   risk_level: LOW
-  mitigation_status: PLANNED
+  mitigation_status: CLOSED
   recommended_action: Ridurre velocita lineare massima in modalita fallback e garantire
     ritorno automatico a DDIM
   verification_method: Test corridoio stretto (larghezza 0.8 m) in modalita MLP forzata
-  eco_ref: docs/ecos/nav2_slam_ecos.md
+  eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-09-30-001
   lesson_ref: docs/lessons/nav2_slam_tuning.md
   date_identified: '2026-08-24'
-  last_updated: '2026-08-24'
+  last_updated: '2026-11-19'
   history:
   - date: '2026-08-24'
     change: Inserimento Failure Mode per degradazione qualita traiettoria in fallback
       Action Chunking
     rpn_old: 100
     rpn_new: 100
+  - date: '2026-11-19'
+    change: Chiuso per dismissione permanente nodo nomad_reactive_pipeline_node /
+      NoMaD (ECO-2026-09-30-001).
+    rpn_old: 30
+    rpn_new: 5
 - id: FM-NOM-004
   subsystem: Navigation/NoMaD
   component: nomad_reactive_pipeline_node
@@ -3851,24 +3919,29 @@
   detection_controls: Monitoraggio heading error istantaneo su /nomad/diagnostics
   residual_scoring:
     severity: 6
-    occurrence: 2
-    detection: 3
-    rpn: 36
+    occurrence: 1
+    detection: 1
+    rpn: 6
   risk_level: LOW
-  mitigation_status: PLANNED
+  mitigation_status: CLOSED
   recommended_action: Implementare alpha adattivo con soglia heading e test su percorsi
     con curve a 90 gradi
   verification_method: Test percorso a L (90 gradi) con misurazione distanza minima
     dalla parete
-  eco_ref: docs/ecos/nav2_slam_ecos.md
+  eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-09-30-001
   lesson_ref: docs/lessons/nav2_slam_tuning.md
   date_identified: '2026-08-24'
-  last_updated: '2026-08-24'
+  last_updated: '2026-11-19'
   history:
   - date: '2026-08-24'
     change: Inserimento Failure Mode per over-smoothing EMA in manovre strette
     rpn_old: 150
     rpn_new: 150
+  - date: '2026-11-19'
+    change: Chiuso per dismissione permanente nodo nomad_reactive_pipeline_node /
+      NoMaD (ECO-2026-09-30-001).
+    rpn_old: 36
+    rpn_new: 6
 - id: FM-NOM-005
   subsystem: Navigation/NoMaD
   component: nomad_reactive_pipeline_node
@@ -3895,24 +3968,29 @@
   detection_controls: Contatore watchdog_fires su /nomad/diagnostics
   residual_scoring:
     severity: 4
-    occurrence: 2
-    detection: 2
-    rpn: 16
+    occurrence: 1
+    detection: 1
+    rpn: 4
   risk_level: LOW
-  mitigation_status: PLANNED
+  mitigation_status: CLOSED
   recommended_action: Implementare contatore adattivo di stop spuri con riduzione
     automatica del rate
   verification_method: Test di stress con iniezione di latenza artificiale (sleep
     290 ms) per 50 cicli
-  eco_ref: docs/ecos/nav2_slam_ecos.md
+  eco_ref: docs/ecos/nav2_slam_ecos.md#ECO-2026-09-30-001
   lesson_ref: docs/lessons/nav2_slam_tuning.md
   date_identified: '2026-08-24'
-  last_updated: '2026-08-24'
+  last_updated: '2026-11-19'
   history:
   - date: '2026-08-24'
     change: Inserimento Failure Mode per false positive del watchdog 300 ms
     rpn_old: 72
     rpn_new: 72
+  - date: '2026-11-19'
+    change: Chiuso per dismissione permanente nodo nomad_reactive_pipeline_node /
+      NoMaD (ECO-2026-09-30-001).
+    rpn_old: 16
+    rpn_new: 4
 - id: FM-VPR-001
   subsystem: Vision/VPR
   component: vpr_topological_graph_node
@@ -7427,20 +7505,18 @@
     occurrence: 8
     detection: 3
     rpn: 192
-  prevention_controls: 'Necessità tracciata: creazione del nodo/servizio GracefulShutdownOrchestrator
-    o estensione di battery_manager_node con pipeline sequenziale: 1) Twist 0.0 immediato;
-    2) Annuncio vocale VUI prioritario; 3) Dump/Salvataggio mappa attiva (/mnt/ssd/maps/);
-    4) rtabmap/pause e sync database SQLite; 5) Arresto ordinato nodi ROS 2; 6) sync
-    e sudo systemctl poweroff'
+  prevention_controls: Implementati scripts/graceful_emergency_shutdown.py e battery_manager_node.py
+    (auto_poweroff=True) con trigger a 9.85V/9.78V, arresto /cmd_vel, annuncio TTS
+    VUI, dump mappa, pausa RTAB-Map e sync SSD prima del poweroff.
   detection_controls: Log di sistema, topic /robot/system/shutdown, persistenza mappe
     su SSD NVMe
   residual_scoring:
     severity: 8
-    occurrence: 8
-    detection: 3
-    rpn: 192
-  risk_level: MEDIUM
-  mitigation_status: OPEN
+    occurrence: 2
+    detection: 2
+    rpn: 32
+  risk_level: LOW
+  mitigation_status: MITIGATED
   recommended_action: Implementare il demone/script di graceful shutdown coordinato
     con salvataggio mappa e annuncio vocale su ReSpeaker prima del cutoff BMS
   verification_method: Simulazione caduta di tensione con mock e verifica generazione
@@ -7448,13 +7524,19 @@
   eco_ref: docs/specs/SPEC-07_system_os_build_lifecycle.md
   lesson_ref: docs/lessons/actuation_motor_driver.md#40-risoluzione-battery-cliff-da-cutoff-hardware-bms-lipo-a-974v-fm-sys-004
   date_identified: '2026-10-01'
-  last_updated: '2026-10-01'
+  last_updated: '2026-11-19'
   history:
   - date: '2026-10-01'
     change: Apertura failure mode per assenza procedura di spegnimento pulita con
       salvataggio mappe e annuncio vocale a 9.6V
     rpn_old: 192
     rpn_new: 192
+  - date: '2026-11-19'
+    change: Mitigato via battery_manager_node.py (auto_poweroff=True) e graceful_emergency_shutdown.py;
+      verificato in simulazione (attende test scarica fisica a 9.85V per CLOSED).
+    rpn_old: 192
+    rpn_new: 32
+  verification_test_file: test/sim/test_virtual_world_validation.py
 - id: FM-VUI-035b
   subsystem: Audio/VUI
   component: live_connection_manager
@@ -8157,7 +8239,7 @@
   lesson_ref: docs/lessons/vision_hailo_npu.md
   improvement_ref: docs/improvements/IMP-GOV-001_dynamic_resource_governor.md
   date_identified: '2026-10-07'
-  last_updated: '2026-10-08'
+  last_updated: '2026-11-19'
   history:
   - date: '2026-10-07'
     change: Inserimento Failure Mode da analisi architetturale Dynamic Resource Governor
@@ -8168,6 +8250,7 @@
       preemption al moto e vlm_enable gating'
     rpn_old: 240
     rpn_new: 32
+  verification_test_file: tests/test_resource_governor.py
 - id: FM-GOV-002
   subsystem: System/ResourceGovernor
   component: resource_governor / voiceprint_manager / face_recognition
@@ -8398,7 +8481,7 @@
   lesson_ref: docs/lessons/nav2_slam_tuning.md
   improvement_ref: docs/improvements/IMP-GOV-001_dynamic_resource_governor.md
   date_identified: '2026-10-07'
-  last_updated: '2026-10-08'
+  last_updated: '2026-11-19'
   history:
   - date: '2026-10-07'
     change: Inserimento Failure Mode da analisi architetturale Dynamic Resource Governor
@@ -8410,6 +8493,7 @@
       alta'
     rpn_old: 168
     rpn_new: 48
+  verification_test_file: tests/test_resource_governor.py
 - id: FM-GOV-007
   subsystem: Navigation/SensorSleep
   component: resource_governor / Nav2 costmap
@@ -8446,7 +8530,7 @@
   lesson_ref: docs/lessons/nav2_slam_tuning.md
   improvement_ref: docs/improvements/IMP-GOV-001_dynamic_resource_governor.md
   date_identified: '2026-10-07'
-  last_updated: '2026-10-08'
+  last_updated: '2026-11-19'
   history:
   - date: '2026-10-07'
     change: Inserimento Failure Mode da analisi architetturale Dynamic Resource Governor
@@ -8457,6 +8541,7 @@
       motion gate locked fino a scansione confermata e stabile'
     rpn_old: 144
     rpn_new: 24
+  verification_test_file: tests/test_resource_governor.py
 - id: FM-GOV-008
   subsystem: Navigation/SLAM
   component: rtabmap / sensor_standby_manager
@@ -8492,7 +8577,7 @@
   lesson_ref: docs/lessons/nav2_slam_tuning.md
   improvement_ref: docs/improvements/IMP-GOV-001_dynamic_resource_governor.md
   date_identified: '2026-10-07'
-  last_updated: '2026-10-08'
+  last_updated: '2026-11-19'
   history:
   - date: '2026-10-07'
     change: Inserimento Failure Mode da analisi architetturale Dynamic Resource Governor
@@ -8503,6 +8588,7 @@
       spegnimento LiDAR e pausa RTAB-Map su inattivita fuori dal dock'
     rpn_old: 192
     rpn_new: 16
+  verification_test_file: tests/test_resource_governor.py
 - id: FM-GOV-009
   subsystem: Audio/VUI
   component: resource_governor / respeaker_vui_node
@@ -8624,7 +8710,7 @@
   lesson_ref: docs/lessons/dev_and_deployment.md
   improvement_ref: docs/improvements/IMP-GOV-001_dynamic_resource_governor.md
   date_identified: '2026-10-07'
-  last_updated: '2026-10-08'
+  last_updated: '2026-11-19'
   history:
   - date: '2026-10-07'
     change: Inserimento Failure Mode da analisi architetturale Dynamic Resource Governor
@@ -8636,6 +8722,7 @@
       casi in tests/test_resource_governor.py.
     rpn_old: 90
     rpn_new: 20
+  verification_test_file: tests/test_resource_governor.py
 - id: FM-GOV-012
   subsystem: System/ResourceGovernor
   component: resource_governor
@@ -8669,7 +8756,7 @@
   lesson_ref: docs/lessons/dev_and_deployment.md
   improvement_ref: docs/improvements/IMP-GOV-001_dynamic_resource_governor.md
   date_identified: '2026-10-07'
-  last_updated: '2026-10-08'
+  last_updated: '2026-11-19'
   history:
   - date: '2026-10-07'
     change: Inserimento Failure Mode da analisi architetturale Dynamic Resource Governor
@@ -8680,6 +8767,7 @@
       rigidamente chiuso. Testato in tests/test_resource_governor.py.
     rpn_old: 135
     rpn_new: 18
+  verification_test_file: tests/test_resource_governor.py
 - id: FM-GOV-013
   subsystem: System/ResourceGovernor
   component: resource_governor / system_lifecycle_coordinator_node / sensor_standby_manager
@@ -10131,31 +10219,49 @@
     occurrence: 9
     detection: 2
     rpn: 144
-  prevention_controls: Avvio di hailo_bridge_node_cpp con parametro sim_mode:=true
-    in restart_hailo.sh per liberare /dev/hailo0 ad uso esclusivo di hailo-ollama
-    quando Gemini Cloud è offline
-  detection_controls: curl probe a http://127.0.0.1:11434/api/tags e verifica presenza
-    modello HEF senza status=74
+  prevention_controls: Arbitraggio hardware break-before-make reale su /dev/hailo0
+    via /hailo_bridge/yield_vdevice (distruzione LIFO InferModels + vdevice_.reset()
+    e reclaim con retry 8x250ms + watchdog 60s in src/hailo_bridge_node.cpp) accoppiato
+    a keep_alive=0 e asyncio.Lock in HailoQwenClient (collegato da AIOrchestrator
+    con Invariante 8).
+  detection_controls: Verifica HTTP 200 live su http://127.0.0.1:11434/api/chat con
+    keep_alive=0, assenza status=74/SIGSEGV in journalctl -u hailo-ollama, e test
+    unitari in tests/test_npu_arbitration_and_dream_fixes.py.
   residual_scoring:
     severity: 8
     occurrence: 1
     detection: 1
     rpn: 8
   risk_level: LOW
-  mitigation_status: CLOSED
-  recommended_action: Mantenere sim_mode:=true per la visione quando si opera in locale
-    NPU esclusivo
-  verification_method: Esecuzione benchmark 40 prompt live con inferenza HEF verificata
-    su /dev/hailo0
-  eco_ref: docs/ecos/vision_hailo_ecos.md#ECO-2026-10-24-001
-  lesson_ref: docs/lessons/vision_hailo_npu.md#lezione-hailo-vdevice-exclusive
+  mitigation_status: MITIGATED
+  recommended_action: Monitorare i tempi di cold-load HEF (~22-31s con keep_alive=0)
+    e la latenza di reclaim /dev/hailo0 su Pi 5.
+  verification_method: Verifica hardware live E2E su Pi 5 (yield_vdevice true -> hailo-ollama
+    HTTP 200 qwen2.5-instruct:1.5b -> yield_vdevice false reclaim al tentativo 1 +
+    ripresa YOLO 5Hz) e 120/120 pytest su Marcus.
+  verification_test_file: tests/test_npu_arbitration_and_dream_fixes.py
+  eco_ref: docs/ecos/orchestration_rag_ecos.md#ECO-2026-11-19-001
+  lesson_ref: docs/lessons/vision_hailo_npu.md
   date_identified: '2026-10-24'
-  last_updated: '2026-10-24'
+  last_updated: '2026-11-19'
   history:
   - date: '2026-10-24'
     change: Risolta contesa esclusiva VDevice /dev/hailo0 configurando sim_mode per
       hailo_bridge_node_cpp e validata esecuzione Qwen2.5 su NPU.
     rpn_old: 144
+    rpn_new: 8
+  - date: '2026-11-19'
+    change: 'Riaperto per regressione live 2026-11-15: con sim_mode=false EmbodiedSocialInteractionSkill
+      invoca hailo-ollama senza /hailo_bridge/yield_vdevice causando HAILO_OUT_OF_PHYSICAL_DEVICES(74)
+      e SIGSEGV.'
+    rpn_old: 8
+    rpn_new: 80
+  - date: '2026-11-19'
+    change: 'Mitigato e verificato live su Pi 5 (ECO-2026-11-19-001): rilascio fisico
+      LIFO vdevice_.reset() in hailo_bridge_node_cpp + keep_alive=0 e client arbitrato
+      in HailoQwenClient/AIOrchestrator; test E2E su /dev/hailo0 completato con HTTP
+      200, zero status=74/SIGSEGV e reclaim su tentativo 1 (RPN 80 -> 8).'
+    rpn_old: 80
     rpn_new: 8
 - id: FM-LLM-013
   subsystem: Cognitive LLM
@@ -10387,30 +10493,46 @@
     detection: 3
     rpn: 168
   prevention_controls: Tripletta C++ residente su singolo VDevice; Invariante 8 del
-    Resource Governor (VLM ammesso SOLO in STATIONARY); servizio /hailo_bridge/yield_vdevice
-    con timeout watchdog 3.0s e break-before-make
-  detection_controls: Monitoraggio ritorno servizio yield_vdevice e check disponibilità
-    /dev/hailo0
+    Resource Governor e AIOrchestrator (VLM/LLM locale negato in NAVIGATION_ACTIVE);
+    servizio /hailo_bridge/yield_vdevice con rilascio fisico LIFO vdevice_.reset(),
+    reclaim retry 8x250ms, watchdog 60s e keep_alive=0 + asyncio.Lock in HailoQwenClient.
+  detection_controls: Monitoraggio ritorno servizio yield_vdevice, assenza status=74/SIGSEGV
+    in journalctl -u hailo-ollama e test in tests/test_npu_arbitration_and_dream_fixes.py.
   residual_scoring:
     severity: 8
     occurrence: 1
     detection: 1
     rpn: 8
   risk_level: LOW
-  mitigation_status: CLOSED
-  recommended_action: Servizio yield_vdevice in hailo_bridge_node_cpp e interlock
-    in resource_governor.py
-  verification_method: Pytest test_biocognitive_evolution.py (test yield e break-before-make)
-  eco_ref: docs/ecos/vision_hailo_ecos.md
+  mitigation_status: MITIGATED
+  recommended_action: Monitorare cold-load latency (~22-31s) e reclaim su Pi 5 durante
+    sessioni lunghe.
+  verification_method: Verifica hardware live E2E su Pi 5 (yield true -> hailo-ollama
+    HTTP 200 -> yield false reclaim tentativo 1) + 120/120 pytest su Marcus.
+  eco_ref: docs/ecos/orchestration_rag_ecos.md#ECO-2026-11-19-001
   lesson_ref: docs/lessons/vision_hailo_npu.md
   date_identified: '2026-10-28'
-  last_updated: '2026-10-28'
+  last_updated: '2026-11-19'
   history:
   - date: '2026-10-28'
     change: Introdotto yield_vdevice e interlock Invariante 8 per azzeramento contesa
       PCIe (RPN 168 -> 8).
     rpn_old: 168
     rpn_new: 8
+  - date: '2026-11-19'
+    change: 'Riaperto per regressione live 2026-11-15: /hailo_bridge/yield_vdevice
+      non invocato prima di Qwen in EmbodiedSocialInteractionSkill/ConversationManager
+      -> errore HailoRT status=74 e SIGSEGV su hailo-ollama.'
+    rpn_old: 8
+    rpn_new: 80
+  - date: '2026-11-19'
+    change: 'Mitigato e verificato live su Pi 5 (ECO-2026-11-19-001): break-before-make
+      fisico LIFO in hailo_bridge_node_cpp + arbitraggio HailoQwenClient/AIOrchestrator
+      con Invariante 8 e keep_alive=0; test E2E live HTTP 200 e reclaim al tentativo
+      1 (RPN 80 -> 8).'
+    rpn_old: 80
+    rpn_new: 8
+  verification_test_file: tests/test_npu_arbitration_and_dream_fixes.py
 - id: FM-BIO-002
   subsystem: Navigation/HRI
   component: follow_person_skill.py / Nav2
@@ -10763,20 +10885,33 @@
     rpn: 18
   risk_level: REVISION_MANDATORY
   mitigation_status: MITIGATED
-  recommended_action: Mantenere MARCUS_QWEN_ALLOW_MOCK disabilitato in produzione
-    e verificare hailo-ollama NPU reale su Pi 5.
-  verification_method: Pytest PC safety suite + verifica live systemd hailo-ollama
-    su Raspberry Pi 5.
-  verification_test_file: tests/test_dialogue_arbiter_and_evolution.py
-  eco_ref: docs/ecos/orchestration_rag_ecos.md
-  lesson_ref: docs/lessons/llm_live_api.md
+  recommended_action: Mantenere MARCUS_QWEN_ALLOW_MOCK=0 in produzione e proseguire
+    con l'arbitraggio reale /hailo_bridge/yield_vdevice.
+  verification_method: Pytest PC & Pi 5 (120/120 + test_tier5_adversarial_m5_safety)
+    + verifica live hailo-ollama HTTP 200 su /dev/hailo0 con MARCUS_QWEN_ALLOW_MOCK=0.
+  verification_test_file: tests/test_npu_arbitration_and_dream_fixes.py
+  eco_ref: docs/ecos/orchestration_rag_ecos.md#ECO-2026-11-19-001
+  lesson_ref: docs/lessons/orchestration_and_rag.md
   date_identified: '2026-11-12'
-  last_updated: '2026-11-12'
+  last_updated: '2026-11-19'
   history:
   - date: '2026-11-12'
     change: Disabilitato mock Qwen in produzione (opt-in MARCUS_QWEN_ALLOW_MOCK=1)
       e azzerata sintesi <action> motoria nel mock (RPN 378 -> 18).
     rpn_old: 378
+    rpn_new: 18
+  - date: '2026-11-19'
+    change: 'Degradato a IN_PROGRESS per workaround 2026-11-15: restart_hailo.sh L588
+      ha riabilitato MARCUS_QWEN_ALLOW_MOCK:-1 e hailo_qwen_client.py sintetizza tag
+      <action> motori per PoseScene (175 eventi mock_activation osservati).'
+    rpn_old: 18
+    rpn_new: 72
+  - date: '2026-11-19'
+    change: 'Ripristinata sicurezza completa (ECO-2026-11-19-001): MARCUS_QWEN_ALLOW_MOCK:-0
+      in restart_hailo.sh, rimossi tutti i tag <action> motori da PoseScene nel mock
+      e validata inferenza NPU reale con arbitraggio /hailo_bridge/yield_vdevice su
+      Pi 5 (RPN 72 -> 18).'
+    rpn_old: 72
     rpn_new: 18
 - id: FM-LLM-022
   subsystem: AI/Gemini-Live

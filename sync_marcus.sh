@@ -61,10 +61,18 @@ rsync -auvz --progress -e "${RSYNC_SSH}" \
     ${TARGET_HOST}:${TARGET_DIR}/fmea/ \
     ./fmea/ 2>/dev/null || echo "  ⚠️  Cartella fmea/ non trovata sul robot, skip."
 
-# Recupera logs aggiornati
+# Recupera logs aggiornati (incluso continuous_improvements.md dal path runtime /home/robopy/robopy/logs/)
 rsync -auvz -e "${RSYNC_SSH}" \
     ${TARGET_HOST}:${TARGET_DIR}/robopy_controller/logs/ \
     ./robopy_controller/logs/ 2>/dev/null || echo "  ⚠️  Cartella logs/ non trovata sul robot, skip."
+
+rsync -auvz -e "${RSYNC_SSH}" \
+    ${TARGET_HOST}:/home/robopy/robopy/logs/continuous_improvements.md \
+    ./robopy_controller/logs/continuous_improvements.md 2>/dev/null || echo "  ⚠️  continuous_improvements.md non trovato in /home/robopy/robopy/logs/, skip."
+
+rsync -auvz -e "${RSYNC_SSH}" \
+    ${TARGET_HOST}:${TARGET_DIR}/docs/evolution/ \
+    ./docs/evolution/ 2>/dev/null || echo "  ⚠️  Cartella docs/evolution/ non trovata sul robot, skip."
 
 # Recupera WORKSPACE_STATE, ECO.md, files_topic e .env aggiornati dal robot
 rsync -auvz -e "${RSYNC_SSH}" \
@@ -164,6 +172,16 @@ ${SSH_CMD} ${TARGET_HOST} "
     if [ ! -L \"\${PKG_DEST}/nodes\" ]; then
         rm -rf \"\${PKG_DEST}/nodes\"
         ln -sfn \"${TARGET_DIR}/robopy_controller/nodes\" \"\${PKG_DEST}/nodes\"
+    fi
+    # Assicura symlink canonici anche in install/robopy_controller/lib/robopy_controller/
+    LIB_DEST=\"${TARGET_DIR}/install/robopy_controller/lib/robopy_controller\"
+    if [ -d \"\${LIB_DEST}\" ]; then
+        ln -sfn \"${TARGET_DIR}/robopy_controller/nodes/attention_supervisor_node.py\" \"\${LIB_DEST}/attention_supervisor_node.py\"
+        ln -sfn \"${TARGET_DIR}/robopy_controller/nodes/attention_supervisor_node.py\" \"\${LIB_DEST}/attention_supervisor_node\"
+        ln -sfn \"${TARGET_DIR}/robopy_controller/nodes/respeaker_vui_node.py\" \"\${LIB_DEST}/respeaker_vui_node.py\"
+        ln -sfn \"${TARGET_DIR}/scripts/respeaker_vui_node\" \"\${LIB_DEST}/respeaker_vui_node\"
+        ln -sfn \"${TARGET_DIR}/robopy_controller/nodes/speaker_id_node.py\" \"\${LIB_DEST}/speaker_id_node.py\"
+        ln -sfn \"${TARGET_DIR}/robopy_controller/nodes/IMU_node.py\" \"\${LIB_DEST}/IMU_node.py\"
     fi
 
     # Fix line endings su tutti gli script shell e wrapper in scripts/ (per sicurezza)

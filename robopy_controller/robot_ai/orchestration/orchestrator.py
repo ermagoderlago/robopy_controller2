@@ -15,6 +15,10 @@ try:
     from visualization_msgs.msg import MarkerArray
 except ImportError:
     MarkerArray = None
+try:
+    from std_srvs.srv import SetBool
+except ImportError:
+    SetBool = None
 
 from robot_ai.core import ConfigManager, EventBus, EventType
 from robot_ai.utils import get_logger
@@ -297,9 +301,20 @@ class AIOrchestrator(Node):
         self.create_subscription(String, '/ai/input/mic_mute_request', self._mic_mute_request_callback, 10)
 
         # Lifecycle & Memory Pressure Sentinel Subscriptions
+        self._operating_state = "NORMAL"
         self.create_subscription(String, '/system/operating_state', self._operating_state_callback, 10)
         self.create_subscription(Bool, '/system/memory_freeze', self._memory_freeze_callback, 10)
         self.create_subscription(Bool, '/system/emergency_evict', self._emergency_evict_callback, 10)
+
+        # [FM-VIS-012 / FM-BIO-001] Cooperative Hailo-10H VDevice Arbitration Client
+        self._vdevice_yield_client = (
+            self.create_client(SetBool, '/hailo_bridge/yield_vdevice')
+            if SetBool is not None else None
+        )
+        _qwen_client = getattr(self.conversation_manager, "hailo_client", None)
+        if _qwen_client is not None and hasattr(_qwen_client, "set_vdevice_arbitrator"):
+            _qwen_client.set_vdevice_arbitrator(self._arbitrate_hailo_vdevice)
+            self.ai_logger.info("🔄 [HAILO-ARBITRATION] Wired HailoQwenClient to /hailo_bridge/yield_vdevice.")
 
         # Timer reattivi (10 Hz = 0.1s sufficiente per sicurezza reattiva, evita saturazione CPU Python)
         t1 = self.create_timer(0.1, self._reactive_loop_callback)
@@ -344,8 +359,61 @@ class AIOrchestrator(Node):
                   self.scheduler.add_job(self._check_proactive_email_notifications, 'interval', minutes=30)
                   self.ai_logger.info("📧 Job schedulati email (Spam Cleanup 02:00, Briefing 07:30, Proactive Check 1min) registrati nel scheduler!")
 
+    async def _arbitrate_hailo_vdevice(self, yield_to_llm: bool) -> bool:
+        """
+        [FM-VIS-012 / FM-BIO-001 / Invariante 8]
+        Break-before-make arbitration of /dev/hailo0 via /hailo_bridge/yield_vdevice.
+        - yield_to_llm=True: refuses if robot is actively navigating, otherwise asks
+          hailo_bridge_node_cpp to release /dev/hailo0 before hailo-ollama runs.
+        - yield_to_llm=False: asks hailo_bridge_node_cpp to reclaim /dev/hailo0 and
+          restore primary YOLO/Pose/ArcFace inference.
+        """
+        if self._vdevice_yield_client is None or SetBool is None:
+            return True
+
+        if yield_to_llm:
+            op_state = getattr(self, "_operating_state", "NORMAL")
+            is_nav = bool(getattr(getattr(self, "navigation_client", None), "is_navigating", False))
+            if op_state == "NAVIGATION_ACTIVE" or is_nav:
+                self.ai_logger.warning(
+                    "🛡️ [HAILO-ARBITRATION] Yield denied during active navigation (Invariant 8 / FM-BIO-001)."
+                )
+                return False
+
+        try:
+            if not self._vdevice_yield_client.service_is_ready():
+                if not self._vdevice_yield_client.wait_for_service(timeout_sec=1.0):
+                    # Bridge not running (e.g. headless/sim mode) -> no contention on /dev/hailo0
+                    return True
+
+            req = SetBool.Request()
+            req.data = bool(yield_to_llm)
+            future = self._vdevice_yield_client.call_async(req)
+
+            deadline = time.monotonic() + (3.0 if yield_to_llm else 6.0)
+            while not future.done():
+                if time.monotonic() >= deadline:
+                    self.ai_logger.warning(
+                        f"⚠️ [HAILO-ARBITRATION] Timeout calling /hailo_bridge/yield_vdevice(data={yield_to_llm})"
+                    )
+                    return False
+                await asyncio.sleep(0.05)
+
+            resp = future.result()
+            ok = bool(getattr(resp, "success", False))
+            msg = str(getattr(resp, "message", ""))
+            if ok:
+                self.ai_logger.info(f"🔄 [HAILO-ARBITRATION] yield={yield_to_llm} OK: {msg}")
+            else:
+                self.ai_logger.warning(f"⚠️ [HAILO-ARBITRATION] yield={yield_to_llm} FAILED: {msg}")
+            return ok
+        except Exception as exc:
+            self.ai_logger.error(f"❌ [HAILO-ARBITRATION] Service call error (yield={yield_to_llm}): {exc}")
+            return False
+
     def _operating_state_callback(self, msg: String):
         state = msg.data.upper()
+        self._operating_state = state
         self.ai_logger.info(f"[AI_ORCHESTRATOR] Received operating state update: {state}")
         if state == "NAVIGATION_ACTIVE":
             # Suspend heavy background daydreaming & heavy indexing to save CPU/RAM for Nav2/SLAM

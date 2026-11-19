@@ -38,6 +38,8 @@ class DeepSeekService:
         self._max_tokens = config.deepseek.max_tokens
         self._timeout = config.deepseek.timeout
         self._enabled = config.deepseek.enabled and bool(self._api_key)
+        self.last_error: str = ""
+        self.insufficient_balance: bool = False
         
         self._session: Optional[aiohttp.ClientSession] = None
         
@@ -100,20 +102,31 @@ class DeepSeekService:
         }
 
         try:
+            self.last_error = ""
             session = await self._get_session()
             async with session.post(self.BASE_URL, json=payload) as resp:
                 if resp.status != 200:
                     error_text = await resp.text()
-                    self.logger.error(f"DeepSeek API error {resp.status}: {error_text[:200]}")
+                    self.last_error = f"HTTP {resp.status}: {error_text[:200]}"
+                    if resp.status == 402 or "insufficient balance" in error_text.lower():
+                        self.insufficient_balance = True
+                        self.logger.error(
+                            "DeepSeek API error 402 (Insufficient Balance) — credito esaurito, "
+                            "richiesto fallback Gemini per la generazione del Master Prompt."
+                        )
+                    else:
+                        self.logger.error(f"DeepSeek API error {resp.status}: {error_text[:200]}")
                     return ""
 
                 data = await resp.json()
                 choices = data.get("choices", [])
                 if not choices:
+                    self.last_error = "Empty choices from DeepSeek"
                     self.logger.warning("DeepSeek returned empty choices")
                     return ""
 
                 content = choices[0].get("message", {}).get("content", "")
+                self.insufficient_balance = False
                 
                 # Log token usage
                 usage = data.get("usage", {})
@@ -126,12 +139,15 @@ class DeepSeekService:
                 return content
 
         except aiohttp.ClientError as e:
+            self.last_error = f"ClientError: {e}"
             self.logger.error(f"DeepSeek connection error: {e}")
             return ""
         except TimeoutError:
+            self.last_error = f"Timeout after {self._timeout}s"
             self.logger.error(f"DeepSeek timeout after {self._timeout}s")
             return ""
         except Exception as e:
+            self.last_error = f"Unexpected error: {e}"
             self.logger.error(f"DeepSeek unexpected error: {e}")
             return ""
 

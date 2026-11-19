@@ -667,4 +667,21 @@ L'architettura TRINITY integra i tre paradigmi di memoria e contesto operando a 
 * **Momentum vs Inibizione (`homeostasis_mal.py`, `dialogue_arbiter.py`):** Il dialogo positivo incrementa `social_momentum` e favorisce il desiderio interattivo; i richiami al silenzio (`"zitto"`, `"taci"`, `"basta"`, `"vai a cuccia"`) incrementano `social_inhibition`, sopprimono la coda proattiva non urgente in `DialogueArbiter`, abbassano la coda e avviano la ritirata a 2 stadi (`move_distance("indietro", 0.25)` + `navigate_to("base")`), con fallback sicuro diretto alla base se il posteriore è ostruito.
 * **Pattern Strategy Polimorfico (`embodied_social_interaction_skill.py`):** Ogni strategia concreta estende `SocialInteractionStrategy` e valida obbligatoriamente i propri passi e le `<action>` generate da Qwen 2.5 tramite `TrinityKinematicSandbox`.
 
+---
+
+## 🧠 Lezione 55 — Break-Before-Make Reale su `/dev/hailo0` (HailoRT 5.1.1), Diagnosi DeepSeek HTTP 402 nel Sogno del Silicio & RTAB-Map String CLI in ROS 2 Jazzy (`FM-VIS-012`, `FM-BIO-001`, `FM-LLM-021` — 2026-11-19)
+
+### 1. Contesa VDevice `/dev/hailo0` tra `hailo_bridge_node_cpp` e `hailo-ollama`
+* **Causa Radice Reale:** Su Raspberry Pi 5 con `h10-hailort 5.1.1` senza `hailort.service`, `hailo-ollama` usa `VDevice::create_shared()` sul group ID `"UNIQUE"`. Il servizio `/hailo_bridge/yield_vdevice` in `src/hailo_bridge_node.cpp` impostava solo un flag booleano `vdevice_yielded_` senza rilasciare fisicamente `vdevice_`, lasciando aperto il file descriptor `/dev/hailo0` e provocando `HAILO_OUT_OF_PHYSICAL_DEVICES(74)` + `SIGSEGV` su `hailo-ollama`. Inoltre nessun client Python invocava `/hailo_bridge/yield_vdevice`.
+* **Soluzione:** Distruzione LIFO (`bindings_*` ➔ `configured_infer_model_*` ➔ `infer_model_*` ➔ `vdevice_.reset()`) su `yield=True` e ricreazione con retry (8×250 ms) su `yield=False` (con watchdog 60 s), accoppiata a `keep_alive: 0` in `HailoQwenClient` e arbitraggio cooperativo via `AIOrchestrator._arbitrate_hailo_vdevice` (che rispetta Invariante 8 negando il yield durante `NAVIGATION_ACTIVE`). Ripristinato `MARCUS_QWEN_ALLOW_MOCK:-0` e azzerati tutti i tag `<action>` motori dal mock.
+
+### 2. Blocco del Sogno del Silicio (`master_prompt.txt` congelato) & Date 2024
+* **Causa Radice:** `deepseek.log` su Marcus ha rivelato `HTTP 402 Insufficient Balance` su tutte le run recenti: `Turn 2` restituiva stringa vuota e `_run_collaborative_analysis` usciva prima di Turno 4, congelando `/home/robopy/robopy/logs/master_prompt.txt` al 1° giugno (con istruzioni obsolete *"compleanno robotico poetico"* e *"corto circuito logico"*). Inoltre `_build_gemini_analysis_prompt` non iniettava la data odierna, causando date fittizie del 2024 in 32/33 run da giugno a novembre.
+* **Soluzione:** Fallback automatico del Turno 4 su Gemini in `NightlyDreamService`, iniezione esplicita di `datetime.now().strftime("%Y-%m-%d")`, sanitizzazione igienica sia in scrittura (`_sanitize_master_prompt`) sia in lettura (`_sanitize_loaded_master_prompt`), gestione contestuale di input brevi/frammentati in `ConversationManager`, e back-sync esplicito di `/home/robopy/robopy/logs/continuous_improvements.md` in `sync_marcus.sh`.
+
+### 3. Tipizzazione Stringa CLI ROS 2 Jazzy per RTAB-Map (`--amcl`)
+* **Causa Radice:** In `restart_hailo.sh`, `-p Mem/IncrementalMemory:=false` veniva interpretato dal parser YAML di `rclcpp` come `{bool}`, causando `InvalidParameterTypeException` contro il parametro `{string}` dichiarato da `rtabmap_slam`.
+* **Soluzione:** Passaggio come array bash `RTAB_EXTRA_ARGS=(-p publish_tf:=false -p 'Mem/IncrementalMemory:="false"' ...)`, preservando il letterale stringa `"false"`.
+
+
 

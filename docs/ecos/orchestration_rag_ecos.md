@@ -539,5 +539,30 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
   4. **Skill Polimorfica & Qwen (`embodied_social_interaction_skill.py`, `hailo_qwen_client.py`):** Implementato `EmbodiedSocialInteractionSkill` con 5 strategie `SocialInteractionStrategy`, deliberazione `SLMMetapromptFusion` + `HailoQwenClient` (esteso anche per inferenza mock su `PoseScene:`) e pre-flight check obbligatorio su `TrinityKinematicSandbox`.
   5. **Test di Verifica (`tests/test_pose_social_llm_interaction.py`):** 5/5 test dedicati passati insieme alle suite di regressione (72 + 11 test passati).
 
+---
+
+## 📈 ECO-2026-11-19-001: Arbitraggio Hardware NPU Break-Before-Make (`/hailo_bridge/yield_vdevice`), Riparazione Sogno del Silicio (Fallback Gemini Turn 4 + Data Reale + Igiene `master_prompt.txt`), Gestione Frammenti ASR & Fix Infrastrutturali (`FM-VIS-012`, `FM-BIO-001`, `FM-LLM-021`)
+* **Autore:** 🤖 **Antigravity Engine**
+* **Data Creazione:** 2026-11-19 22:30:00
+* **Sottosistema:** `Vision/Hailo NPU Arbitration, AI/Nightly Dream, Conversational NLU & System Scripts`
+* **Stato:** ✅ **Implementato, Compilato su Raspberry Pi 5 (`-j1`) e Validato Live + Test Suite**
+* **Descrizione:**
+  Risoluzione delle regressioni live del 15 novembre sulla contesa NPU `/dev/hailo0` e sul mock Qwen, riparazione strutturale della pipeline notturna "Sogno del Silicio", gestione contestuale di input brevi/frammentati e fix infrastrutturali di avvio/sync/test:
+  1. **Arbitraggio Hardware Reale `/dev/hailo0` (`src/hailo_bridge_node.cpp`, `hailo_qwen_client.py`, `orchestrator.py`, `restart_hailo.sh`):**
+     - Implementati `release_hailo_npu()` (distruzione LIFO di bindings, `ConfiguredInferModel`, `InferModel` e `vdevice_.reset()` per chiudere fisicamente `/dev/hailo0`) e `reclaim_hailo_npu()` (retry 8x250ms + safety watchdog 60s) nel servizio `/hailo_bridge/yield_vdevice` protetti da `std::mutex npu_mutex_`.
+     - Aggiunto in `HailoQwenClient` arbitraggio cooperativo protetto da `asyncio.Lock` (`set_vdevice_arbitrator`), `"keep_alive": 0` su `/api/chat` e best-effort unload + `yield(False)` garantito in `finally:`.
+     - Collegato `AIOrchestrator._arbitrate_hailo_vdevice` al client ROS 2 `/hailo_bridge/yield_vdevice` con Invariante 8 (rifiuto yield durante `NAVIGATION_ACTIVE`).
+     - Ripristinata sicurezza `FM-LLM-021`: `MARCUS_QWEN_ALLOW_MOCK=${MARCUS_QWEN_ALLOW_MOCK:-0}` in `restart_hailo.sh` e rimossi tutti i tag `<action>` motori sintetici dal mock `PoseScene:` in `hailo_qwen_client.py`.
+  2. **Riparazione Sogno del Silicio (`deepseek_service.py`, `nightly_dream_service.py`, `llm_service.py`):**
+     - Diagnosticato il fallimento sistematico del Turno 2 DeepSeek su Marcus (`HTTP 402 Insufficient Balance`), che saltava il Turno 4 lasciando `/home/robopy/robopy/logs/master_prompt.txt` congelato al 1 giugno.
+     - Introdotto fallback automatico su Gemini per la sintesi del Turno 4 (Master Prompt), filtro igienico `_sanitize_master_prompt` / `_sanitize_loaded_master_prompt` (blocco di direttive obsolete `"compleanno robotico poetico"`, `"corto circuito logico"`, saluti sui sogni) e iniezione della data corrente reale `YYYY-MM-DD` per eliminare le allucinazioni del 2024.
+  3. **Gestione Frammenti ASR & Hardening Home Assistant (`conversation.py`, `qwen_prompt_templates.py`, `ha_skill.py`):**
+     - Aggiunto `_build_fragmented_input_note()` in `ConversationManager` e regole concise in `llm_service.py`/`qwen_prompt_templates.py` per gestire input monosillabici/ellittici (`"sì"`, `"così"`, `"ma se"`, `"io"`) con 1–2 ipotesi contestuali e proporre alternative utili su richieste pasti/cucina.
+     - Estesa `HomeAssistantSkill` con comandi generici (`"spegni tutto"` ➔ `light` `all`), risoluzione dinamica entità/sinonimi (`luce`/`lampada`) dagli stati HA e diagnostica errori trasparente.
+  4. **Fix Infrastrutturali & Test Drift (`restart_hailo.sh`, `sync_marcus.sh`, `tests/`):**
+     - Corretto `-p 'Mem/IncrementalMemory:="false"'` (array bash) in `restart_hailo.sh` per eliminare `InvalidParameterTypeException` su RTAB-Map in modalità `--amcl`.
+     - Aggiunto back-sync esplicito di `/home/robopy/robopy/logs/continuous_improvements.md`, `docs/evolution/` e symlink canonici in `sync_marcus.sh`.
+     - Allineati `tests/conftest.py`, `tests/test_gemini_lifecycle.py`, `tests/test_resilience_zero_silence.py`, `tests/test_biocognitive_evolution.py`, `test/unit/test_dfmea_nav_mitigations.py` e aggiunta suite dedicata `tests/test_npu_arbitration_and_dream_fixes.py`.
+
 
 

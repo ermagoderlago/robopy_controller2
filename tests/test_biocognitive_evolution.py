@@ -49,12 +49,13 @@ for mod in [
     'robopy_controller.msg',
     'google', 'google.genai'
 ]:
-    sys.modules[mod] = MockPackage()
+    if mod not in sys.modules:
+        sys.modules[mod] = MockPackage()
 
 for mod in list(sys.modules.keys()):
     if '.' in mod:
         parent, child = mod.rsplit('.', 1)
-        if parent in sys.modules:
+        if parent in sys.modules and not hasattr(sys.modules[parent], child):
             setattr(sys.modules[parent], child, sys.modules[mod])
 
 from robopy_controller.robot_ai.services.resource_governor import (

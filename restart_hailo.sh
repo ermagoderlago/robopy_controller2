@@ -329,10 +329,10 @@ if [ -n "$DELETE_DB_FLAG" ] || [ "$1" = "--delete-db" ] || [ "$RESET_DB" = "1" ]
     DELETE_DB_FLAG="--delete_db_on_start"
 fi
 
-RTAB_EXTRA_ARGS=""
+RTAB_EXTRA_ARGS=()
 if [ "$USE_AMCL" = "true" ]; then
     echo "🗺️ [OPZIONE A] Modalità AMCL 2D attiva: disattivata pubblicazione TF map->odom e incremental memory in RTAB-Map (REP-105)."
-    RTAB_EXTRA_ARGS="-p publish_tf:=false -p Mem/IncrementalMemory:=false -r grid_map:=/rtabmap/map -r map:=/rtabmap/map"
+    RTAB_EXTRA_ARGS=(-p publish_tf:=false -p 'Mem/IncrementalMemory:="false"' -r grid_map:=/rtabmap/map -r map:=/rtabmap/map)
 else
     echo "🗺️ [SLAM] Modalità standard SLAM attiva: RTAB-Map è autorità map->odom."
 fi
@@ -355,7 +355,7 @@ fi
 nohup taskset -c 2,3 ros2 run rtabmap_slam rtabmap $DELETE_DB_FLAG --ros-args \
     --params-file /mnt/ssd/robopy_controller_host/install/robopy_controller/share/robopy_controller/config/rtabmap.yaml \
     -p database_path:=/mnt/ssd/rtabmap.db \
-    $RTAB_EXTRA_ARGS \
+    "${RTAB_EXTRA_ARGS[@]}" \
     --log-level error \
     -r rgb/image:=/rgb/image \
     -r rgb/camera_info:=/camera/camera_info \
@@ -585,7 +585,8 @@ sleep 15
 
 echo "🤖 Starting robot_ai_node (Cognitive Orchestrator, soft-scheduled)..."
 > /home/robopy/robopy/logs/robot_ai_node_debug_TEST4.log
-export MARCUS_QWEN_ALLOW_MOCK=${MARCUS_QWEN_ALLOW_MOCK:-1}
+# [FM-LLM-021] Mock Qwen disattivato di default in produzione (opt-in esplicito MARCUS_QWEN_ALLOW_MOCK=1 solo per dev/test)
+export MARCUS_QWEN_ALLOW_MOCK=${MARCUS_QWEN_ALLOW_MOCK:-0}
 nohup nice -n 5 ros2 run robopy_controller robot_ai_node \
     > /home/robopy/robopy/logs/robot_ai_node_debug_TEST4.log 2>&1 &
 if [ "$SOFT_START" = "true" ]; then

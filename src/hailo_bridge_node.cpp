@@ -17,6 +17,8 @@
 #include <string>
 #include <vector>
 #include <chrono>
+#include <mutex>
+#include <thread>
 #include <unordered_map>
 #include <filesystem>
 #include <fstream>
@@ -275,14 +277,27 @@ public:
             "/hailo/face/enroll", 10,
             std::bind(&HailoBridgeNodeCpp::enroll_callback, this, std::placeholders::_1));
 
-        // Hailo VDevice Yield Service for arbitration with local VLM (IMP-BIO-001)
+        // Hailo VDevice Yield Service for arbitration with local VLM/Qwen (IMP-BIO-001 / FM-VIS-012)
         srv_yield_vdevice_ = this->create_service<std_srvs::srv::SetBool>(
             "/hailo_bridge/yield_vdevice",
             [this](const std::shared_ptr<std_srvs::srv::SetBool::Request> request,
                    std::shared_ptr<std_srvs::srv::SetBool::Response> response) {
-                vdevice_yielded_ = request->data;
-                response->success = true;
-                response->message = vdevice_yielded_ ? "Hailo VDevice yielded to external VLM." : "Hailo VDevice reclaimed for primary vision pipeline.";
+                if (request->data) {
+                    vdevice_yielded_.store(true);
+                    yield_start_time_ = std::chrono::steady_clock::now();
+                    {
+                        std::lock_guard<std::mutex> lock(npu_mutex_);
+                        release_hailo_npu();
+                    }
+                    response->success = true;
+                    response->message = "Hailo VDevice physically released (/dev/hailo0 free for external LLM/VLM).";
+                } else {
+                    bool ok = reclaim_hailo_npu();
+                    response->success = ok;
+                    response->message = ok
+                        ? "Hailo VDevice reclaimed and primary vision pipeline restored."
+                        : "Failed to reclaim Hailo VDevice (still busy); will retry via watchdog.";
+                }
                 RCLCPP_INFO(this->get_logger(), "🔄 [HAILO-ARBITRATION] %s", response->message.c_str());
             });
 
@@ -565,9 +580,76 @@ private:
 #endif
     }
 
+    void release_hailo_npu() {
+#if HAILO_CPP_AVAILABLE
+        hailo_ready_ = false;
+        hailo_pose_ready_ = false;
+        hailo_arcface_ready_ = false;
+
+        // Destroy resources in strict reverse dependency order (LIFO) to close /dev/hailo0 cleanly
+        bindings_arcface_.reset();
+        configured_infer_model_arcface_.reset();
+        infer_model_arcface_.reset();
+
+        bindings_pose_.reset();
+        configured_infer_model_pose_.reset();
+        infer_model_pose_.reset();
+
+        bindings_.reset();
+        configured_infer_model_.reset();
+        infer_model_.reset();
+
+        vdevice_.reset();
+        RCLCPP_INFO(this->get_logger(), "🔓 [HAILO-ARBITRATION] Hailo VDevice & InferModels released cleanly.");
+#endif
+    }
+
+    bool reclaim_hailo_npu() {
+        std::lock_guard<std::mutex> lock(npu_mutex_);
+        if (sim_mode_) {
+            vdevice_yielded_.store(false);
+            return true;
+        }
+#if HAILO_CPP_AVAILABLE
+        if (hailo_ready_ && vdevice_ != nullptr) {
+            vdevice_yielded_.store(false);
+            return true;
+        }
+        // Retry briefly while hailo-ollama finishes unloading its VDevice handle
+        for (int attempt = 1; attempt <= 8; ++attempt) {
+            release_hailo_npu();
+            init_hailo_npu();
+            if (hailo_ready_) {
+                vdevice_yielded_.store(false);
+                RCLCPP_INFO(this->get_logger(), "✅ [HAILO-ARBITRATION] Reclaimed /dev/hailo0 on attempt %d.", attempt);
+                return true;
+            }
+            RCLCPP_WARN(this->get_logger(), "⏳ [HAILO-ARBITRATION] Reclaim attempt %d/8 failed, waiting 250ms...", attempt);
+            std::this_thread::sleep_for(std::chrono::milliseconds(250));
+        }
+        RCLCPP_ERROR(this->get_logger(), "❌ [HAILO-ARBITRATION] Could not reclaim /dev/hailo0 after 8 attempts.");
+        return false;
+#else
+        vdevice_yielded_.store(false);
+        return true;
+#endif
+    }
+
     void rgb_callback(const sensor_msgs::msg::Image::ConstSharedPtr &msg) {
         if (vdevice_yielded_.load()) {
-            return; // Hailo NPU yielded to local VLM (IMP-BIO-001)
+            auto yield_sec = std::chrono::duration<double>(
+                std::chrono::steady_clock::now() - yield_start_time_
+            ).count();
+            if (yield_sec > 60.0) {
+                RCLCPP_WARN(this->get_logger(), "⚠️ [HAILO-ARBITRATION] Yield watchdog expired (%.1fs > 60s), auto-reclaiming VDevice.", yield_sec);
+                reclaim_hailo_npu();
+            } else {
+                return; // Hailo NPU yielded to local VLM/Qwen (IMP-BIO-001)
+            }
+        }
+        std::unique_lock<std::mutex> npu_lock(npu_mutex_, std::try_to_lock);
+        if (!npu_lock.owns_lock() || vdevice_yielded_.load()) {
+            return;
         }
         auto now = std::chrono::steady_clock::now();
         double elapsed_sec = std::chrono::duration<double>(now - last_inference_time_).count();
@@ -1966,8 +2048,10 @@ private:
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub_face_identity_;
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr sub_face_enroll_;
 
-    // Hailo VDevice Yielding & Arbitration (IMP-BIO-001)
+    // Hailo VDevice Yielding & Arbitration (IMP-BIO-001 / FM-VIS-012)
     std::atomic<bool> vdevice_yielded_{false};
+    std::mutex npu_mutex_;
+    std::chrono::steady_clock::time_point yield_start_time_{std::chrono::steady_clock::now()};
     rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr srv_yield_vdevice_;
     std::string last_recognized_identity_{"unknown"};
 

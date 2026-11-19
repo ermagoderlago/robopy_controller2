@@ -25,7 +25,7 @@ import logging
 import os
 import re
 import time
-from typing import Any, AsyncIterator, Deque, Dict, List, Optional, Tuple
+from typing import Any, AsyncIterator, Awaitable, Callable, Deque, Dict, List, Optional, Tuple
 
 import httpx
 
@@ -66,6 +66,12 @@ class HailoQwenConfig:
     max_history_records: int = 100
     max_consecutive_failures: int = 2
     reconnect_cooldown_sec: float = 5.0
+    # [FM-VIS-012 / FM-BIO-001] Unload model from /dev/hailo0 immediately after reply
+    # so hailo_bridge_node_cpp can reclaim the VDevice without HAILO_OUT_OF_PHYSICAL_DEVICES(74).
+    ollama_keep_alive: int = 0
+    vdevice_reclaim_settle_sec: float = 0.15
+    # Cold-load budget on Hailo-10H (measured ~22-31s for 1.5B HEF load + reply under keep_alive=0).
+    cold_load_timeout_sec: float = 40.0
 
 
 @dataclass
@@ -114,7 +120,11 @@ class InferenceTelemetry:
 class HailoQwenClient:
     """Asynchronous client for Qwen2 LLM execution on Hailo-10H NPU."""
 
-    def __init__(self, config: Optional[HailoQwenConfig] = None):
+    def __init__(
+        self,
+        config: Optional[HailoQwenConfig] = None,
+        vdevice_arbitrator: Optional[Callable[[bool], Awaitable[bool]]] = None,
+    ):
         self.config = config or HailoQwenConfig()
         if os.path.exists("/dev/hailo0"):
             self.mode = InferenceMode.HARDWARE_OLLAMA
@@ -126,10 +136,44 @@ class HailoQwenClient:
         self._connected: bool = False
         self._process = psutil.Process(os.getpid()) if _HAS_PSUTIL else None
 
+        # [FM-VIS-012 / FM-BIO-001] Cooperative VDevice arbitration with hailo_bridge_node_cpp
+        self._vdevice_arbitrator: Optional[Callable[[bool], Awaitable[bool]]] = vdevice_arbitrator
+        self._vdevice_lock: Optional[asyncio.Lock] = None
+        self._vdevice_lock_loop: Optional[asyncio.AbstractEventLoop] = None
+
         # Self-healing circuit breaker (FND-04)
         self._consecutive_failures: int = 0
         self._last_failure_timestamp: float = 0.0
         self._configure_cpu_affinity()
+
+    def set_vdevice_arbitrator(
+        self, arbitrator: Optional[Callable[[bool], Awaitable[bool]]]
+    ) -> None:
+        """Attach async break-before-make VDevice arbitrator callback(yield_to_llm: bool) -> bool."""
+        self._vdevice_arbitrator = arbitrator
+
+    def _get_vdevice_lock(self) -> asyncio.Lock:
+        """Return an asyncio.Lock bound to the currently running event loop."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if self._vdevice_lock is None or self._vdevice_lock_loop is not loop:
+            self._vdevice_lock = asyncio.Lock()
+            self._vdevice_lock_loop = loop
+        return self._vdevice_lock
+
+    async def _best_effort_unload_ollama(self, target_model: str) -> None:
+        """Request immediate model unload (keep_alive=0) to free /dev/hailo0 after interrupted streams."""
+        try:
+            client = await self._get_http_client()
+            await client.post(
+                "/api/chat",
+                json={"model": target_model, "messages": [], "stream": False, "keep_alive": 0},
+                timeout=httpx.Timeout(1.5, connect=0.5),
+            )
+        except Exception as exc:
+            logger.debug("Best-effort hailo-ollama unload skipped: %s", exc)
 
     def _configure_cpu_affinity(self) -> None:
         """Bind Python I/O process to Cores 0-1 per SPEC-03 § 3 and SPEC-07 § 3."""
@@ -322,20 +366,41 @@ class HailoQwenClient:
                 raise RuntimeError("Hardware endpoint unavailable and mock fallback is disabled.")
 
         if should_attempt_hardware:
+            arbitrator = self._vdevice_arbitrator
+            vdevice_yielded = False
+            stream_completed_cleanly = False
+            vdevice_lock = self._get_vdevice_lock() if arbitrator is not None else None
+            if vdevice_lock is not None:
+                await vdevice_lock.acquire()
             try:
+                if arbitrator is not None:
+                    vdevice_yielded = bool(await arbitrator(True))
+                    if not vdevice_yielded:
+                        raise RuntimeError(
+                            "Hailo VDevice yield refused by arbitrator (NPU reserved for active vision/navigation)."
+                        )
+
                 client = await self._get_http_client()
                 structured_messages = messages or self._build_messages(clean_prompt, system_prompt)
                 payload: Dict[str, Any] = {
                     "model": target_model,
                     "messages": structured_messages,
                     "stream": True,
+                    "keep_alive": self.config.ollama_keep_alive,
                     "options": {
                         "temperature": self.config.temperature,
                         "num_predict": self.config.max_tokens,
                     },
                 }
 
-                req_timeout = httpx.Timeout(eff_timeout, connect=min(0.5, eff_timeout))
+                stream_timeout = eff_timeout
+                if (
+                    timeout_sec is None
+                    and arbitrator is not None
+                    and self.config.ollama_keep_alive == 0
+                ):
+                    stream_timeout = max(stream_timeout, self.config.cold_load_timeout_sec)
+                req_timeout = httpx.Timeout(stream_timeout, connect=min(0.5, stream_timeout))
                 async with client.stream("POST", "/api/chat", json=payload, timeout=req_timeout) as response:
                     if response.status_code != 200:
                         raise RuntimeError(f"Ollama returned HTTP status {response.status_code}")
@@ -378,6 +443,7 @@ class HailoQwenClient:
                         )
 
                         if is_done:
+                            stream_completed_cleanly = True
                             break
 
                 self._record_hardware_success()
@@ -427,6 +493,18 @@ class HailoQwenClient:
                     return
                 else:
                     raise
+            finally:
+                if arbitrator is not None and vdevice_yielded:
+                    try:
+                        if not stream_completed_cleanly and self.config.ollama_keep_alive == 0:
+                            await self._best_effort_unload_ollama(target_model)
+                        if self.config.vdevice_reclaim_settle_sec > 0:
+                            await asyncio.sleep(self.config.vdevice_reclaim_settle_sec)
+                        await arbitrator(False)
+                    except Exception as rel_exc:
+                        logger.error("Failed to reclaim Hailo VDevice after Qwen generation: %s", rel_exc)
+                if vdevice_lock is not None and vdevice_lock.locked():
+                    vdevice_lock.release()
 
         elif self.mode == InferenceMode.MOCK_ENGINE:
             async for chunk in self._mock_generate_stream(
@@ -676,29 +754,19 @@ class HailoQwenClient:
             ps_inh = float(ps_inh_m.group(1)) if ps_inh_m else 0.0
 
             shush_words = ["zitto", "stai zitto", "taci", "basta", "silenzio", "vai in cuccia", "vai a cuccia", "non disturbare"]
+            # [FM-LLM-021] Zero synthetic <action> motor tags in mock mode (safety invariant):
+            # kinematic plans in offline/dev simulation are delegated exclusively to sandboxed strategies.
             if ps_inh >= 0.50 or any(w in user_lower for w in shush_words):
-                text = (
-                    'Scusa per il disturbo, faccio subito un passo indietro e torno alla cuccia. '
-                    '<action>{"call": {"name": "move_distance", "arguments": {"direction": "indietro", "distance_m": 0.25, "speed": 0.12}}}</action>'
-                )
+                text = "Scusa per il disturbo, faccio subito un passo indietro e torno alla cuccia."
             elif ps_tom == "kneeling_eye_level":
                 if ps_dist > 0.60:
-                    step_m = round(max(0.05, min(1.50, ps_dist - 0.50)), 2)
-                    text = (
-                        f"Ciao {ps_person}, ti sei abbassato alla mia altezza! Mi avvicino piano a mezzo metro. "
-                        f'<action>{{"call": {{"name": "move_distance", "arguments": {{"direction": "avanti", "distance_m": {step_m}, "speed": 0.14}}}}}}</action>'
-                    )
+                    text = f"Ciao {ps_person}, ti sei abbassato alla mia altezza! Mi avvicino piano a mezzo metro."
                 else:
                     text = f"Ciao {ps_person}, sono gia vicino a te a mezzo metro e ti ascolto!"
             elif ps_gest == "wave_hello":
                 near_hint = f" Vedo vicino alla tua mano: {', '.join(ps_near[:2])}." if ps_near else ""
                 if abs(ps_az) > 22.0:
-                    rot_dir = "destra" if ps_az > 0 else "sinistra"
-                    rot_deg = round(min(60.0, abs(ps_az)), 1)
-                    text = (
-                        f"Ciao {ps_person}! Mi giro verso di te per ricambiare il saluto.{near_hint} "
-                        f'<action>{{"call": {{"name": "rotate_angle", "arguments": {{"direction": "{rot_dir}", "degrees": {rot_deg}, "speed": 0.45}}}}}}</action>'
-                    )
+                    text = f"Ciao {ps_person}! Mi giro verso di te per ricambiare il saluto.{near_hint}"
                 else:
                     text = f"Ciao {ps_person}! Ti saluto con gioia restando fermo sulle ruote per risparmiare energia.{near_hint}"
             elif ps_gest == "beckon_come" or any(w in user_lower for w in ["seguimi", "vieni con me", "follow"]):
@@ -1085,12 +1153,19 @@ class HailoQwenClient:
         if not clean_prompt and not messages:
             return await self.generate("", system_prompt=system_prompt, messages=messages)
 
-        # Calculate TTFT timeout budget with OS timer resolution grace (15ms)
+        # Calculate TTFT timeout budget with OS timer resolution grace (15ms).
+        # When hardware VDevice break-before-make arbitration is active, allow cold model load window.
         ttft_budget_sec = (
             (self.config.ttft_budget_ms + 15.0) / 1000.0
             if self.config.ttft_budget_ms > 0
             else None
         )
+        if (
+            ttft_budget_sec is not None
+            and self.mode == InferenceMode.HARDWARE_OLLAMA
+            and self._vdevice_arbitrator is not None
+        ):
+            ttft_budget_sec = max(ttft_budget_sec, self.config.cold_load_timeout_sec)
 
         stream_gen = self.generate_stream(
             clean_prompt, system_prompt=system_prompt, model=self.config.model_name, messages=messages

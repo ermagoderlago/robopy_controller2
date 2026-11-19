@@ -39,10 +39,10 @@ if "rclpy" not in sys.modules:
     rclpy_mock = MagicMock()
     rclpy_node_mock = MagicMock()
     rclpy_node_mock.Node = object
-    rclpy_qos_mock = MagicMock()
     sys.modules["rclpy"] = rclpy_mock
     sys.modules["rclpy.node"] = rclpy_node_mock
-    sys.modules["rclpy.qos"] = rclpy_qos_mock
+if "rclpy.qos" not in sys.modules:
+    sys.modules["rclpy.qos"] = MagicMock()
 
 if "pyaudio" not in sys.modules:
     sys.modules["pyaudio"] = MagicMock()

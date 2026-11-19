@@ -439,7 +439,9 @@ class LLMServiceNode(Node):
         if os.path.exists(master_prompt_path):
             try:
                 with open(master_prompt_path, "r", encoding="utf-8") as f:
-                    master_prompt = f.read().strip()
+                    raw_master_prompt = f.read().strip()
+                if raw_master_prompt:
+                    master_prompt = self._sanitize_loaded_master_prompt(raw_master_prompt)
                 if master_prompt:
                     self.get_logger().info("💤 [LLM Dream] Caricato Master Prompt dall'Analisi Notturna!")
             except Exception as e:
@@ -485,10 +487,9 @@ class LLMServiceNode(Node):
         elif mood == "APOLOGETIC":
             mood_guidelines = (
                 "\n[STATO EMOTIVO: DISPIACIUTO/APOLOGETICO (APOLOGETIC)]\n"
-                "C'è stato un piccolo errore tecnico nell'esecuzione di un comando o strumento. "
-                "Sii estremamente comprensivo ed empatico. Scusati con grazia ed eleganza, ironizza gentilmente "
-                "sulla tua natura di robot imperfetto (es. 'Ho avuto un piccolo corto circuito logico... Dunque scusami!') "
-                "e rassicura l'utente con estremo calore."
+                "C'è stato un errore tecnico nell'esecuzione di un comando o strumento. "
+                "Sii comprensivo, diretto e trasparente: spiega brevemente cosa non ha funzionato "
+                "e proponi un'alternativa concreta o chiedi un solo chiarimento mirato, senza frasi fatte ripetitive."
             )
             # Resetta il flag dopo aver inserito le istruzioni
             self._recent_tool_failure = False
@@ -514,13 +515,16 @@ class LLMServiceNode(Node):
                 "Adatta il tono vocale in modo naturale e coerente con lo stato del robot senza inventare storie fittizie."
             )
 
-        # --- 4. Fillers Conversazionali ---
+        # --- 4. Fillers Conversazionali & Gestione Frammenti/Alternative (Nightly Dream Oct-Nov) ---
         fillers_instruction = (
             "\n[STILE DI INTERAZIONE: NATURALE E UMANIZZATO]\n"
             "Per far sembrare la tua voce il più umana possibile, evita risposte robotizzate e piatte. "
             "Usa occasionalmente e con naturalezza brevissimi fillers vocali all'inizio o all'interno delle frasi, "
             "come: 'Uhm...', 'Dunque...', 'Beh...', 'Sai...', 'Allora...'. "
-            "Non abusarne, inseriscili solo dove suonano spontanei."
+            "Non abusarne, inseriscili solo dove suonano spontanei.\n"
+            "Se l'utente pronuncia frammenti molto brevi o ambigui ('sì', 'così', 'cosa', 'ma se', 'io'), "
+            "collega l'ellissi agli ultimi turni e proponi 1-2 ipotesi concrete invece di chiedere ripetutamente 'sì a cosa?'. "
+            "Se una richiesta supera le tue capacità fisiche (es. cucinare/pasti), proponi un'alternativa utile (ricette, timer, promemoria)."
         )
 
         # Aggiorna il tempo dell'ultima interazione
@@ -535,6 +539,31 @@ class LLMServiceNode(Node):
         final_prompt += "\n\nRESPOND IN ITALIAN. YOU MUST RESPOND UNMISTAKABLY IN ITALIAN."
 
         return final_prompt
+
+    @staticmethod
+    def _sanitize_loaded_master_prompt(raw_text: str) -> str:
+        """
+        [P1.5 / Nightly Dream Hygiene] Filtra direttive obsolete o tossiche eventualmente
+        rimaste in master_prompt.txt (es. 'compleanno robotico poetico', 'corto circuito logico',
+        saluti sui sogni notturni) prima dell'iniezione nel system prompt.
+        """
+        banned = (
+            "compleanno robotico",
+            "poetico",
+            "corto circuito logico",
+            "dei tuoi sogni",
+            "elaborazioni notturne quando saluti",
+        )
+        kept = []
+        for line in (raw_text or "").splitlines():
+            s = line.strip()
+            if not s:
+                continue
+            low = s.lower()
+            if any(b in low for b in banned):
+                continue
+            kept.append(s)
+        return "\n".join(kept).strip()
 
     def flag_tool_failure(self):
         """[v14.2] Segnala un recente fallimento di una skill per far passare Marcus in modalità APOLOGETIC"""

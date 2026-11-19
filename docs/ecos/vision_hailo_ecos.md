@@ -306,3 +306,13 @@ Questo documento raccoglie la cronologia delle modifiche ingegneristiche (ECO) a
   - `robopy_controller/robot_ai/orchestration/cognitive_graph.py`, `robopy_controller/robot_ai/orchestration/orchestrator.py`
   - `robopy_controller/robot_ai/skills/base_skill.py`, `robopy_controller/robot_ai/skills/builtin/__init__.py`, `follow_person_skill.py`, `visual_pointing_skill.py`, `social_context_skill.py`
   - `tests/test_biocognitive_evolution.py`, `scripts/validate_marcus_biocognitive_field.py`, `fmea/dfmea.yaml`, `docs/improvements/IMP-BIO-*.md`
+
+---
+
+## 📈 ECO-2026-11-19-001 (Cross-Ref Vision/Hailo): Break-Before-Make Fisico `/dev/hailo0` (`vdevice_.reset()`), `keep_alive: 0` & Verifica Live su Hailo-10H (`FM-VIS-012`, `FM-BIO-001`)
+* **Stato:** ✅ **Completato, Compilato su Pi 5 (`-j1`, `-O3 -mcpu=cortex-a76+crypto`) e Verificato Live su Hardware Reale**
+* **Riferimento Completo:** [`docs/ecos/orchestration_rag_ecos.md#ECO-2026-11-19-001`](orchestration_rag_ecos.md)
+* **Sintesi Lato Vision/NPU:**
+  - `src/hailo_bridge_node.cpp`: `release_hailo_npu()` (distruzione LIFO completa fino a `vdevice_.reset()`) + `reclaim_hailo_npu()` (retry `8×250 ms` + watchdog `60 s`) protetti da `std::mutex npu_mutex_`.
+  - `hailo_qwen_client.py` + `orchestrator.py`: arbitraggio cooperativo via `/hailo_bridge/yield_vdevice`, `"keep_alive": 0` per `generation_context:reset issued` immediato su `hailo-ollama`, `cold_load_timeout_sec = 40.0 s` tarato su cold-load reale (`31.03 s`), Invariante 8 attiva durante navigazione.
+  - **Verifica Live Pi 5:** `yield(True)` -> `qwen2.5-instruct:1.5b` HTTP 200 senza `status=74`/SIGSEGV -> `yield(False)` reclaim al tentativo 1 e ripresa 5 Hz YOLO+Pose+ArcFace (`CPU 61.15°C`, RAM `2573/3996 MB`).

@@ -150,67 +150,65 @@ class TestFastDdsBurstDeduplication:
     def test_microsecond_burst_ignored_at_transport_layer(self):
         from robopy_controller.robot_ai.orchestration.orchestrator import AIOrchestrator
 
-        with patch.object(AIOrchestrator, '__init__', lambda self: None):
-            orch = AIOrchestrator()
-            orch._shutdown_flag = False
-            orch._last_text_input = ""
-            orch._last_text_time = 0.0
-            orch.ai_logger = MagicMock()
-            orch.conversation_manager = MagicMock()
-            orch.conversation_manager.process_input = MagicMock()
-            orch._loop = MagicMock()
+        orch = object.__new__(AIOrchestrator)
+        orch._shutdown_flag = False
+        orch._last_text_input = ""
+        orch._last_text_time = 0.0
+        orch.ai_logger = MagicMock()
+        orch.conversation_manager = MagicMock()
+        orch.conversation_manager.process_input = MagicMock()
+        orch._loop = MagicMock()
 
-            # Message fixture
-            msg = MagicMock()
-            msg.data = "Marcus dove sei?"
+        # Message fixture
+        msg = MagicMock()
+        msg.data = "Marcus dove sei?"
 
-            # Message 1 at t = 1000.000
-            with patch("time.time", return_value=1000.000):
-                with patch("asyncio.run_coroutine_threadsafe") as mock_run:
-                    orch._text_input_callback(msg)
-                    assert mock_run.call_count == 1
-            assert orch._last_text_input == "Marcus dove sei?"
-            assert orch._last_text_time == 1000.000
+        # Message 1 at t = 1000.000
+        with patch("time.time", return_value=1000.000):
+            with patch("asyncio.run_coroutine_threadsafe") as mock_run:
+                orch._text_input_callback(msg)
+                assert mock_run.call_count == 1
+        assert orch._last_text_input == "Marcus dove sei?"
+        assert orch._last_text_time == 1000.000
 
-            # Message 2 at t = 1000.005 (5ms later, microsecond burst)
-            with patch("time.time", return_value=1000.005):
-                with patch("asyncio.run_coroutine_threadsafe") as mock_run:
-                    orch._text_input_callback(msg)
-                    mock_run.assert_not_called()
+        # Message 2 at t = 1000.005 (5ms later, microsecond burst)
+        with patch("time.time", return_value=1000.005):
+            with patch("asyncio.run_coroutine_threadsafe") as mock_run:
+                orch._text_input_callback(msg)
+                mock_run.assert_not_called()
 
-            # Message 3 at t = 1000.180 (180ms later, sub-200ms burst)
-            with patch("time.time", return_value=1000.180):
-                with patch("asyncio.run_coroutine_threadsafe") as mock_run:
-                    orch._text_input_callback(msg)
-                    mock_run.assert_not_called()
+        # Message 3 at t = 1000.180 (180ms later, sub-200ms burst)
+        with patch("time.time", return_value=1000.180):
+            with patch("asyncio.run_coroutine_threadsafe") as mock_run:
+                orch._text_input_callback(msg)
+                mock_run.assert_not_called()
 
     def test_legitimate_subsequent_request_forwarded_after_200ms(self):
         from robopy_controller.robot_ai.orchestration.orchestrator import AIOrchestrator
 
-        with patch.object(AIOrchestrator, '__init__', lambda self: None):
-            orch = AIOrchestrator()
-            orch._shutdown_flag = False
-            orch._last_text_input = ""
-            orch._last_text_time = 0.0
-            orch.ai_logger = MagicMock()
-            orch.conversation_manager = MagicMock()
-            orch._loop = MagicMock()
+        orch = object.__new__(AIOrchestrator)
+        orch._shutdown_flag = False
+        orch._last_text_input = ""
+        orch._last_text_time = 0.0
+        orch.ai_logger = MagicMock()
+        orch.conversation_manager = MagicMock()
+        orch._loop = MagicMock()
 
-            msg = MagicMock()
-            msg.data = "Marcus dove sei?"
+        msg = MagicMock()
+        msg.data = "Marcus dove sei?"
 
-            # First message at t = 1000.000
-            with patch("time.time", return_value=1000.000):
-                with patch("asyncio.run_coroutine_threadsafe") as mock_run:
-                    orch._text_input_callback(msg)
-                    assert mock_run.call_count == 1
+        # First message at t = 1000.000
+        with patch("time.time", return_value=1000.000):
+            with patch("asyncio.run_coroutine_threadsafe") as mock_run:
+                orch._text_input_callback(msg)
+                assert mock_run.call_count == 1
 
-            # Subsequent message at t = 1000.250 (dt = 0.250s >= 0.20s)
-            with patch("time.time", return_value=1000.250):
-                with patch("asyncio.run_coroutine_threadsafe") as mock_run:
-                    orch._text_input_callback(msg)
-                    assert mock_run.call_count == 1, "Should forward message when dt >= 0.20s"
-                    assert orch._last_text_time == 1000.250
+        # Subsequent message at t = 1000.250 (dt = 0.250s >= 0.20s)
+        with patch("time.time", return_value=1000.250):
+            with patch("asyncio.run_coroutine_threadsafe") as mock_run:
+                orch._text_input_callback(msg)
+                assert mock_run.call_count == 1, "Should forward message when dt >= 0.20s"
+                assert orch._last_text_time == 1000.250
 
 
 # ============================================================================
@@ -390,8 +388,9 @@ class TestHardwareHangResilience:
 
         manager = ConversationManager(response_callback=on_response, **mock_dependencies)
 
-        # Simulate 5.0s PCIe tarpit hang in hailo_client.generate
+        # Simulate 5.0s PCIe tarpit hang in hailo_client.generate with explicit 1.2s client SLA budget
         mock_hailo = MagicMock()
+        mock_hailo.config = MagicMock(timeout_sec=1.2, endpoint="mock")
 
         async def tarpit_generate(*args, **kwargs):
             await asyncio.sleep(5.0)

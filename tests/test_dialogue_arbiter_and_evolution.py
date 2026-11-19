@@ -114,6 +114,7 @@ def _ensure_ros_stubs():
         mod_ggt.LiveClientContent = MagicMock
         mod_ggt.FunctionDeclaration = MagicMock
         mod_ggt.Tool = MagicMock
+        mod_ggt.__getattr__ = lambda _name: MagicMock
         mod_gge = types.ModuleType("google.genai.errors")
         mod_gge.APIError = type("APIError", (Exception,), {})
         mod_gg.types = mod_ggt
@@ -256,14 +257,17 @@ def _ensure_ros_stubs():
         mod_ssrv.Empty = empty_cls
         sys.modules["std_srvs.srv"] = mod_ssrv
 
-    if "scipy" not in sys.modules:
-        sys.modules["scipy"] = types.ModuleType("scipy")
-    if "scipy.signal" not in sys.modules:
-        mod_ss = types.ModuleType("scipy.signal")
-        mod_ss.butter = MagicMock(return_value=[[1.0, 0.0, 0.0, 1.0, 0.0, 0.0]])
-        mod_ss.sosfilt = MagicMock(side_effect=lambda sos, x, zi=None: (x, zi))
-        mod_ss.sosfilt_zi = MagicMock(return_value=np.zeros((1, 2)))
-        sys.modules["scipy.signal"] = mod_ss
+    try:
+        import scipy.signal  # noqa: F401
+    except ImportError:
+        if "scipy" not in sys.modules:
+            sys.modules["scipy"] = types.ModuleType("scipy")
+        if "scipy.signal" not in sys.modules:
+            mod_ss = types.ModuleType("scipy.signal")
+            mod_ss.butter = MagicMock(return_value=[[1.0, 0.0, 0.0, 1.0, 0.0, 0.0]])
+            mod_ss.sosfilt = MagicMock(side_effect=lambda sos, x, zi=None: (x, zi))
+            mod_ss.sosfilt_zi = MagicMock(return_value=np.zeros((1, 2)))
+            sys.modules["scipy.signal"] = mod_ss
 
     if "gtts" not in sys.modules:
         mod_gtts = types.ModuleType("gtts")

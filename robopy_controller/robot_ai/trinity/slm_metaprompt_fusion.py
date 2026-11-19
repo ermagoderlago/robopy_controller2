@@ -32,14 +32,16 @@ def load_email_delivery_context(persist_path: Optional[str] = None) -> str:
     Loads email notifications and package delivery status from EmailMemory (/home/robopy/email_memory.json).
     Returns a concise Italian context summary bounded to fit SLM token budgets.
     """
-    candidate_paths = [
-        persist_path,
-        os.environ.get("EMAIL_MEMORY_PATH"),
-        "/home/robopy/email_memory.json",
-        os.path.expanduser("~/.gemini/email_memory.json"),
-        os.path.join(os.getcwd(), "email_memory.json"),
-        "/home/robopy/.gemini/email_memory.json",
-    ]
+    explicit_path = persist_path or os.environ.get("EMAIL_MEMORY_PATH")
+    if explicit_path:
+        candidate_paths = [explicit_path]
+    else:
+        candidate_paths = [
+            "/home/robopy/email_memory.json",
+            os.path.expanduser("~/.gemini/email_memory.json"),
+            os.path.join(os.getcwd(), "email_memory.json"),
+            "/home/robopy/.gemini/email_memory.json",
+        ]
 
     loaded_data = None
     for p in candidate_paths:
